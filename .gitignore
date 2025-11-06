@@ -35,3 +35,5 @@ events-*.tar
 npm-debug.log
 /assets/node_modules/
 
+# Exper Language server
+/.expert/
