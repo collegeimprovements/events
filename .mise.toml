@@ -1,0 +1,32 @@
+# mise/fnox configuration for Events application
+# https://github.com/jdx/mise
+
+[env]
+# Database Configuration
+# DATABASE_URL = "ecto://postgres:postgres@localhost/events_dev"  # Override if needed
+DB_POOL_SIZE = "10"
+DB_QUEUE_TARGET = "50"
+DB_QUEUE_INTERVAL = "1000"
+# DB_LOG_LEVEL = "debug"  # Options: debug, info, warning, error
+# ECTO_IPV6 = "false"     # Set to "true" or "1" to enable IPv6
+# DB_SSL = "false"        # Set to "true" or "1" to enable SSL in production
+
+# Phoenix Configuration
+PORT = "4000"
+# SECRET_KEY_BASE = ""    # Generate with: mix phx.gen.secret
+# PHX_HOST = ""           # Required for production
+# PHX_SERVER = "true"     # Set to "true" to start server
+
+# Test Configuration
+# MIX_TEST_PARTITION = "" # For parallel test execution
+
+# Production Configuration (set in production environment)
+# DNS_CLUSTER_QUERY = ""
+# MAILGUN_API_KEY = ""
+# MAILGUN_DOMAIN = ""
+
+[tools]
+# Specify required tools and versions
+elixir = "1.19"
+erlang = "28"
+postgres = "18"
