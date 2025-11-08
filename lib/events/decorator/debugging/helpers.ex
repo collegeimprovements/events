@@ -119,8 +119,7 @@ defmodule Events.Decorator.Debugging.Helpers do
 
   defp build_arg_inspectors(arg_names, inspect_opts) do
     arg_names
-    |> Enum.zip(1..length(arg_names))
-    |> Enum.map(fn {name, index} ->
+    |> Enum.map(fn name ->
       quote do
         IO.inspect(
           var!(unquote(Macro.var(name, nil))),

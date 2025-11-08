@@ -137,12 +137,12 @@ defmodule Events.Decorator.Testing do
   This is a simplified property testing decorator. For comprehensive
   property-based testing, use StreamData or PropCheck libraries.
   """
-  def property_test(opts, body, context) when is_list(opts) do
+  def property_test(opts, body, _context) when is_list(opts) do
     validated_opts = NimbleOptions.validate!(opts, @property_test_schema)
 
     runs = validated_opts[:runs]
-    max_size = validated_opts[:max_size]
-    generators = validated_opts[:generators]
+    _max_size = validated_opts[:max_size]
+    _generators = validated_opts[:generators]
 
     quote do
       for run <- 1..unquote(runs) do
@@ -195,7 +195,7 @@ defmodule Events.Decorator.Testing do
   - `:fixture_name` from process dictionary
   - ExUnit context if available
   """
-  def with_fixtures(opts, body, context) when is_list(opts) do
+  def with_fixtures(opts, body, _context) when is_list(opts) do
     validated_opts = NimbleOptions.validate!(opts, @with_fixtures_schema)
 
     fixtures = validated_opts[:fixtures]
@@ -248,7 +248,7 @@ defmodule Events.Decorator.Testing do
   - Module (must implement build/0): `UserFactory`
   - Function with args: `fn -> build(:user) end`
   """
-  def sample_data(opts, body, context) when is_list(opts) do
+  def sample_data(opts, body, _context) when is_list(opts) do
     validated_opts = NimbleOptions.validate!(opts, @sample_data_schema)
 
     generator = validated_opts[:generator]
@@ -360,11 +360,11 @@ defmodule Events.Decorator.Testing do
 
   This decorator is primarily for documentation and simple cases.
   """
-  def mock(opts, body, context) when is_list(opts) do
+  def mock(opts, body, _context) when is_list(opts) do
     validated_opts = NimbleOptions.validate!(opts, @mock_schema)
 
     module = validated_opts[:module]
-    functions = validated_opts[:functions]
+    _functions = validated_opts[:functions]
 
     quote do
       # This is a placeholder for actual mocking

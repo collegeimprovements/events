@@ -11,7 +11,7 @@ defmodule Events.Decorator.Tracing.Helpers do
   Uses process dictionary to track call stack and format output.
   """
   def build_call_tracer(body, context, opts) do
-    depth = opts[:depth]
+    _depth = opts[:depth]
     filter = opts[:filter]
     exclude = opts[:exclude]
     format = opts[:format]
@@ -166,7 +166,7 @@ defmodule Events.Decorator.Tracing.Helpers do
 
   ## Private Helpers
 
-  defp setup_trace_patterns(filter, exclude) do
+  defp setup_trace_patterns(_filter, _exclude) do
     quote do
       # This is a placeholder - actual implementation would use :dbg
       # or compile-time AST analysis
@@ -174,7 +174,7 @@ defmodule Events.Decorator.Tracing.Helpers do
     end
   end
 
-  defp print_traces(format, label) do
+  defp print_traces(format, _label) do
     quote do
       traces = Process.get(:__trace_calls__, [])
 

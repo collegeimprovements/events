@@ -70,11 +70,4 @@ defmodule Events.Cache do
     otp_app: :events,
     adapter: Nebulex.Adapters.Local,
     default_key_generator: Events.Cache.KeyGenerator
-
-  @doc """
-  Returns the default key generator module.
-
-  Used by caching decorators when no explicit key is provided.
-  """
-  def __default_key_generator__, do: Events.Cache.KeyGenerator
 end

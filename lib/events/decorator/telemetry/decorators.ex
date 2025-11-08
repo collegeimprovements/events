@@ -634,7 +634,7 @@ defmodule Events.Decorator.Telemetry do
     slow_threshold = validated_opts[:slow_threshold]
     level = validate_log_level!(validated_opts[:level])
     slow_level = validate_log_level!(validated_opts[:slow_level])
-    include_query? = validated_opts[:include_query]
+    _include_query? = validated_opts[:include_query]
 
     quote do
       require Logger
