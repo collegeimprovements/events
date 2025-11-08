@@ -5,6 +5,83 @@ This is a web application written using the Phoenix web framework.
 - Use `mix precommit` alias when you are done with all changes and fix any pending issues
 - Use the already included and available `:req` (`Req`) library for HTTP requests, **avoid** `:httpoison`, `:tesla`, and `:httpc`. Req is included by default and is the preferred HTTP client for Phoenix apps
 
+## Codebase Conventions
+
+### Control Flow & Pattern Matching
+
+- **Prefer `case` and `cond` over `if..else`**. Ideally our codebase should have **zero `if...else`** statements
+- **Pattern matching is our default**. This is what we love. This is what makes our Elixir code elegant, easy to debug, and easy to follow. This is what makes our code flat
+  - **Always** use pattern matching whenever possible for function heads, case statements, and destructuring
+  - Pattern matching makes our code self-documenting and reduces nesting
+
+### Date & Time Handling
+
+- **Avoid `NaiveDateTime`** as long as possible. Prefer `DateTime` with UTC
+- **Use the `Calendar` module** for date and time operations whenever helpful
+- All timestamps should use `utc_datetime_usec` in schemas
+
+### Error Handling & Supervision
+
+- **Handle errors with `with`**, pattern matching, and proper logging
+  - Use `with` for sequential operations that can fail
+  - Pattern match on `{:ok, result}` and `{:error, reason}` tuples
+- **Embrace "Let it crash"** philosophy with proper supervisor trees
+- **Always return `{:ok, result}` or `{:error, reason}`** format from functions
+
+### Logging
+
+- **Follow OpenTelemetry style** for all logging
+- Include structured metadata in logs for better observability
+- Use appropriate log levels (debug, info, warning, error)
+
+### Performance & Compilation
+
+- **Always focus on performance** - we want faster code that compiles fast and runs fast
+- **Check compilation cycles** with `xref` and follow best practices
+- Avoid unnecessary compile-time dependencies
+- Use runtime configuration where appropriate (see `config/runtime.exs`)
+
+### Functional Programming Patterns
+
+- **Embrace the Token pattern** - create a struct and pass it through a series of functions and pipelines
+  - This pattern is used by Plug (`Conn` struct), Absinthe, Req, etc.
+  - Example: `%MyContext{} |> step_one() |> step_two() |> step_three()`
+- **Follow functional programming** principles throughout the codebase
+- **Maintain consistent patterns** across the codebase so it's easy to optimize, follow, and fix issues
+
+### Function Design
+
+- **Consider the Token pattern** when creating functions
+- **Pass `context` as one of the arguments** to handle business logic nicely
+- **Use keyword list as the last argument** for configuration options
+  - This allows us to extend and change functions while maintaining backward compatibility
+  - Example: `def create_user(attrs, context, opts \\ [])`
+
+### Code Organization & Reusability
+
+- **Create separate contexts for generic operations**:
+  - CRUD operations
+  - Pagination
+  - Transactions (`Ecto.Multi`)
+  - Caching
+  - Other cross-cutting concerns
+- **Compose and reuse** these contexts across the application
+
+### HTTP Layer (Req)
+
+- **Always use `Req`** for HTTP requests
+- **Configure 3 retries as default**
+- **Respect proxies** when configured
+- **Log HTTP requests** when required for debugging and monitoring
+
+### Database Layer (Ecto)
+
+- **Use Ecto** as the primary database interface
+- **Use raw SQL queries** when you can generate better performance with them
+- **Create database views** for common query patterns
+- **Prefer `Ecto.Multi`** for complex transactions
+- Always preload associations when needed (see Ecto Guidelines below)
+
 ### Phoenix v1.8 guidelines
 
 - **Always** begin your LiveView templates with `<Layouts.app flash={@flash} ...>` which wraps all inner content
@@ -119,6 +196,29 @@ custom classes must fully style the input
 - `Ecto.Changeset.validate_number/2` **DOES NOT SUPPORT the `:allow_nil` option**. By default, Ecto validations only run if a change for the given field exists and the change value is not nil, so such as option is never needed
 - You **must** use `Ecto.Changeset.get_field(changeset, :field)` to access changeset fields
 - Fields which are set programatically, such as `user_id`, must not be listed in `cast` calls or similar for security purposes. Instead they must be explicitly set when creating the struct
+
+### Ecto Schema Field Type Conventions
+
+**Always** use these field types by default when creating new schemas or migrations:
+
+- **citext fields** (case-insensitive text):
+  - `name`, `type`, `subtype`, `kind`, `category`, `subcategory`, `status`, `substatus`, `email`, `url`, `slug`
+
+- **text fields**:
+  - `description`, `summary`, `short_description`
+
+- **jsonb fields**:
+  - `metadata`, `assets`, `assets_metadata`
+
+- **utc_datetime_usec fields** (any field ending with `_at`):
+  - `inserted_at`, `updated_at`, `created_at`, `updated_it`, `deleted_at`
+
+- **integer fields**:
+  - `count`, `number_of_*`, `price_in_cents`, `price`
+
+- **positive_integers** (zero and greater):
+  - `number_of_visitors`, `number_of_attendees`, `number_of_people`
+  - Use custom validation or database constraints to enforce positive values
 <!-- phoenix:ecto-end -->
 
 <!-- phoenix:html-start -->
