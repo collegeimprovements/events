@@ -51,6 +51,20 @@ config :tailwind,
     cd: Path.expand("..", __DIR__)
   ]
 
+# Cache configuration
+config :events, Events.Cache,
+  # GC interval: clean up every 12 hours
+  gc_interval: :timer.hours(12),
+  # Max number of entries
+  max_size: 1_000_000,
+  # Allocated memory in bytes (2 GB)
+  allocated_memory: 2_000_000_000,
+  # GC cleanup timeouts
+  gc_cleanup_min_timeout: :timer.seconds(10),
+  gc_cleanup_max_timeout: :timer.minutes(10),
+  # Enable stats for monitoring
+  stats: true
+
 # Logger configuration
 config :logger, :default_formatter,
   format: "$time $metadata[$level] $message\n",

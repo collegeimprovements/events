@@ -1,0 +1,292 @@
+defmodule Events.Accounts do
+  @moduledoc """
+  The Accounts context - demonstrates comprehensive decorator usage.
+
+  This module showcases all decorator capabilities:
+  - Caching (read-through, write-through, eviction)
+  - Telemetry (spans, logging, performance monitoring)
+  - Composition (multiple decorators on single function)
+  - Pipelines (transformation chains)
+  """
+
+  use Events.Decorator
+
+  alias Events.{Repo, Cache}
+  alias Events.Accounts.{User, Role, UserRoleMapping}
+
+  import Ecto.Query
+
+  @cache_ttl :timer.hours(1)
+
+  ## Read Operations (Cacheable)
+
+  @doc """
+  Gets a user by ID with caching and telemetry.
+
+  Demonstrates:
+  - Simple cacheable decorator
+  - Telemetry span
+  - Performance monitoring
+  """
+  @decorate cacheable(cache: Cache, key: {User, id}, ttl: @cache_ttl)
+  @decorate telemetry_span([:events, :accounts, :get_user])
+  @decorate log_if_slow(threshold: 500)
+  def get_user(id) do
+    Repo.get(User, id)
+  end
+
+  @doc """
+  Gets a user by email with conditional caching.
+
+  Demonstrates:
+  - Match function for conditional caching (only cache found users)
+  - Composite key
+  - Decorator composition
+  """
+  @decorate compose([
+    {:cacheable, [cache: Cache, key: {User, :email, email}, match: &match_found/1]},
+    {:telemetry_span, [[:events, :accounts, :get_by_email]]},
+    {:log_if_slow, [threshold: 500]}
+  ])
+  def get_user_by_email(email) when is_binary(email) do
+    Repo.get_by(User, email: email)
+  end
+
+  @doc """
+  Lists users with caching disabled (data changes frequently).
+
+  Demonstrates:
+  - Telemetry without caching
+  - Log context for all logs in function
+  """
+  @decorate telemetry_span([:events, :accounts, :list_users])
+  @decorate log_context([:page, :per_page])
+  def list_users(page \\ 1, per_page \\ 20) do
+    offset = (page - 1) * per_page
+
+    from(u in User,
+      order_by: [desc: u.inserted_at],
+      limit: ^per_page,
+      offset: ^offset,
+      preload: [:roles]
+    )
+    |> Repo.all()
+  end
+
+  ## Write Operations (Cache Put/Evict)
+
+  @doc """
+  Creates a new user without caching.
+
+  New entities aren't cached until first read.
+
+  Demonstrates:
+  - Telemetry on create operations
+  - Error capture
+  """
+  @decorate telemetry_span([:events, :accounts, :create_user])
+  @decorate capture_errors(reporter: Sentry, threshold: 1)
+  def create_user(attrs \\ %{}) do
+    %User{}
+    |> User.changeset(attrs)
+    |> Repo.insert()
+  end
+
+  @doc """
+  Updates a user and refreshes cache.
+
+  Demonstrates:
+  - Write-through caching (cache_put)
+  - Match function to only cache successful updates
+  - Multiple cache keys (by ID and email)
+  - Telemetry span
+  """
+  @decorate cache_put(cache: Cache, keys: [
+    {User, user.id},
+    {User, :email, user.email}
+  ], match: &match_ok/1)
+  @decorate telemetry_span([:events, :accounts, :update_user], include: [:user_id])
+  @decorate log_call(level: :info, message: "Updating user")
+  def update_user(%User{} = user, attrs) do
+    user
+    |> User.changeset(attrs)
+    |> Repo.update()
+  end
+
+  @doc """
+  Deletes a user and evicts from cache.
+
+  Demonstrates:
+  - Cache eviction
+  - Multiple keys to evict
+  - Telemetry on delete
+  """
+  @decorate cache_evict(cache: Cache, keys: [
+    {User, user.id},
+    {User, :email, user.email}
+  ])
+  @decorate telemetry_span([:events, :accounts, :delete_user])
+  def delete_user(%User{} = user) do
+    Repo.delete(user)
+  end
+
+  @doc """
+  Deletes all users and clears entire cache.
+
+  Demonstrates:
+  - all_entries option for cache eviction
+  - Dangerous operation with explicit logging
+  """
+  @decorate cache_evict(cache: Cache, all_entries: true)
+  @decorate telemetry_span([:events, :accounts, :delete_all_users])
+  @decorate log_call(level: :warn, message: "Deleting all users - cache cleared")
+  def delete_all_users do
+    Repo.delete_all(User)
+  end
+
+  ## Advanced Examples
+
+  @doc """
+  Complex operation with full observability stack.
+
+  Demonstrates:
+  - Multiple decorators stacked
+  - Performance tracking
+  - Memory tracking
+  - Error capture
+  - Telemetry span
+  """
+  @decorate telemetry_span([:events, :accounts, :complex_operation])
+  @decorate log_if_slow(threshold: 2000, level: :error)
+  @decorate track_memory(threshold: 50_000_000)
+  @decorate capture_errors(reporter: Sentry)
+  def complex_operation(user_ids) when is_list(user_ids) do
+    # Simulate complex multi-step operation
+    users = Repo.all(from u in User, where: u.id in ^user_ids)
+
+    users
+    |> Enum.map(&preload_associations/1)
+    |> Enum.map(&enrich_with_stats/1)
+    |> aggregate_results()
+  end
+
+  @doc """
+  Pipeline example - transform data through stages.
+
+  Demonstrates:
+  - pipe_through decorator
+  - Data transformation pipeline
+  """
+  @decorate pipe_through([
+    &validate_user_data/1,
+    &normalize_email/1,
+    &add_timestamps/1
+  ])
+  def prepare_user_data(raw_data) do
+    raw_data
+  end
+
+  @doc """
+  Around advice example - custom retry logic.
+
+  Demonstrates:
+  - around decorator
+  - Retry pattern
+  - Custom wrapper function
+  """
+  @decorate around(&retry_on_failure/2)
+  def fetch_external_user_data(user_id) do
+    # Simulate external API call that might fail
+    case :rand.uniform(10) do
+      n when n > 3 -> {:ok, %{id: user_id, data: "external_data"}}
+      _ -> {:error, :service_unavailable}
+    end
+  end
+
+  ## Private Helpers
+
+  # Match functions for caching
+
+  defp match_ok({:ok, result}), do: {true, result}
+  defp match_ok({:error, _}), do: false
+
+  defp match_found(%User{} = user), do: {true, user}
+  defp match_found(nil), do: false
+
+  # Pipeline steps
+
+  defp validate_user_data(data) do
+    # Add validation logic
+    data
+  end
+
+  defp normalize_email(%{email: email} = data) when is_binary(email) do
+    %{data | email: String.downcase(email)}
+  end
+
+  defp normalize_email(data), do: data
+
+  defp add_timestamps(data) do
+    now = DateTime.utc_now()
+    Map.merge(data, %{inserted_at: now, updated_at: now})
+  end
+
+  # Complex operation helpers
+
+  defp preload_associations(user) do
+    Repo.preload(user, [:roles, :user_role_mappings])
+  end
+
+  defp enrich_with_stats(user) do
+    # Add computed stats
+    Map.put(user, :stats, %{role_count: length(user.roles)})
+  end
+
+  defp aggregate_results(users) do
+    %{
+      total: length(users),
+      by_role: Enum.frequencies_by(users, & &1.roles),
+      users: users
+    }
+  end
+
+  # Around advice wrapper
+
+  defp retry_on_failure(decorated_fn, user_id, max_attempts \\ 3) do
+    Enum.reduce_while(1..max_attempts, nil, fn attempt, _acc ->
+      case decorated_fn.(user_id) do
+        {:ok, result} ->
+          {:halt, {:ok, result}}
+
+        {:error, reason} when attempt < max_attempts ->
+          # Log retry attempt
+          require Logger
+          Logger.warning("Attempt #{attempt} failed: #{inspect(reason)}, retrying...")
+          Process.sleep(attempt * 1000)
+          {:cont, nil}
+
+        {:error, reason} ->
+          {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  ## Example: Custom Decorator Composition
+
+  @doc """
+  Demonstrates custom decorator composition for reusable patterns.
+  """
+  def standard_read_decorators(cache_key) do
+    [
+      {:cacheable, [cache: Cache, key: cache_key, ttl: @cache_ttl]},
+      {:telemetry_span, [[:events, :accounts, :read]]},
+      {:log_if_slow, [threshold: 500]}
+    ]
+  end
+
+  # Use the composition
+  @decorate compose(standard_read_decorators({User, id}))
+  def get_user_with_standard_decorators(id) do
+    Repo.get(User, id)
+  end
+end

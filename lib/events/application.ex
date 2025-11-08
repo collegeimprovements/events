@@ -10,6 +10,7 @@ defmodule Events.Application do
     children = [
       EventsWeb.Telemetry,
       Events.Repo,
+      Events.Cache,
       {DNSCluster, query: Application.get_env(:events, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: Events.PubSub},
       # Start a worker by calling: Events.Worker.start_link(arg)
