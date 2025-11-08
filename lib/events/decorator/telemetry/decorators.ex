@@ -37,193 +37,253 @@ defmodule Events.Decorator.Telemetry do
 
   ## Schemas
 
-  @telemetry_span_schema NimbleOptions.new!([
-    event: [
-      type: {:list, :atom},
-      required: false,
-      doc: "Telemetry event name as list of atoms"
-    ],
-    include: [
-      type: {:list, :atom},
-      default: [],
-      doc: "Variable names to include in metadata"
-    ],
-    metadata: [
-      type: :map,
-      default: %{},
-      doc: "Additional static metadata"
-    ]
-  ])
+  @telemetry_span_schema NimbleOptions.new!(
+                           event: [
+                             type: {:list, :atom},
+                             required: false,
+                             doc: "Telemetry event name as list of atoms"
+                           ],
+                           include: [
+                             type: {:list, :atom},
+                             default: [],
+                             doc: "Variable names to include in metadata"
+                           ],
+                           metadata: [
+                             type: :map,
+                             default: %{},
+                             doc: "Additional static metadata"
+                           ]
+                         )
 
-  @otel_span_schema NimbleOptions.new!([
-    name: [
-      type: :string,
-      required: false,
-      doc: "OpenTelemetry span name"
-    ],
-    include: [
-      type: {:list, :atom},
-      default: [],
-      doc: "Variable names to include as span attributes"
-    ],
-    attributes: [
-      type: :map,
-      default: %{},
-      doc: "Additional static span attributes"
-    ]
-  ])
+  @otel_span_schema NimbleOptions.new!(
+                      name: [
+                        type: :string,
+                        required: false,
+                        doc: "OpenTelemetry span name"
+                      ],
+                      include: [
+                        type: {:list, :atom},
+                        default: [],
+                        doc: "Variable names to include as span attributes"
+                      ],
+                      attributes: [
+                        type: :map,
+                        default: %{},
+                        doc: "Additional static span attributes"
+                      ]
+                    )
 
-  @log_call_schema NimbleOptions.new!([
-    level: [
-      type: {:in, [:emergency, :alert, :critical, :error, :warning, :warn, :notice, :info, :debug]},
-      default: :info,
-      doc: "Log level"
-    ],
-    message: [
-      type: :string,
-      required: false,
-      doc: "Custom log message (defaults to function name)"
-    ],
-    metadata: [
-      type: :map,
-      default: %{},
-      doc: "Additional metadata to include in log"
-    ]
-  ])
+  @log_call_schema NimbleOptions.new!(
+                     level: [
+                       type:
+                         {:in,
+                          [
+                            :emergency,
+                            :alert,
+                            :critical,
+                            :error,
+                            :warning,
+                            :warn,
+                            :notice,
+                            :info,
+                            :debug
+                          ]},
+                       default: :info,
+                       doc: "Log level"
+                     ],
+                     message: [
+                       type: :string,
+                       required: false,
+                       doc: "Custom log message (defaults to function name)"
+                     ],
+                     metadata: [
+                       type: :map,
+                       default: %{},
+                       doc: "Additional metadata to include in log"
+                     ]
+                   )
 
-  @log_context_schema NimbleOptions.new!([
-    fields: [
-      type: {:list, :atom},
-      required: true,
-      doc: "Field names from function arguments to include in Logger metadata"
-    ]
-  ])
+  @log_context_schema NimbleOptions.new!(
+                        fields: [
+                          type: {:list, :atom},
+                          required: true,
+                          doc: "Field names from function arguments to include in Logger metadata"
+                        ]
+                      )
 
-  @log_if_slow_schema NimbleOptions.new!([
-    threshold: [
-      type: :pos_integer,
-      required: true,
-      doc: "Threshold in milliseconds to consider operation slow"
-    ],
-    level: [
-      type: {:in, [:emergency, :alert, :critical, :error, :warning, :warn, :notice, :info, :debug]},
-      default: :warn,
-      doc: "Log level for slow operations"
-    ],
-    message: [
-      type: :string,
-      required: false,
-      doc: "Custom log message"
-    ]
-  ])
+  @log_if_slow_schema NimbleOptions.new!(
+                        threshold: [
+                          type: :pos_integer,
+                          required: true,
+                          doc: "Threshold in milliseconds to consider operation slow"
+                        ],
+                        level: [
+                          type:
+                            {:in,
+                             [
+                               :emergency,
+                               :alert,
+                               :critical,
+                               :error,
+                               :warning,
+                               :warn,
+                               :notice,
+                               :info,
+                               :debug
+                             ]},
+                          default: :warn,
+                          doc: "Log level for slow operations"
+                        ],
+                        message: [
+                          type: :string,
+                          required: false,
+                          doc: "Custom log message"
+                        ]
+                      )
 
-  @track_memory_schema NimbleOptions.new!([
-    threshold: [
-      type: :pos_integer,
-      required: true,
-      doc: "Memory threshold in bytes"
-    ],
-    level: [
-      type: {:in, [:emergency, :alert, :critical, :error, :warning, :warn, :notice, :info, :debug]},
-      default: :warn,
-      doc: "Log level for high memory usage"
-    ]
-  ])
+  @track_memory_schema NimbleOptions.new!(
+                         threshold: [
+                           type: :pos_integer,
+                           required: true,
+                           doc: "Memory threshold in bytes"
+                         ],
+                         level: [
+                           type:
+                             {:in,
+                              [
+                                :emergency,
+                                :alert,
+                                :critical,
+                                :error,
+                                :warning,
+                                :warn,
+                                :notice,
+                                :info,
+                                :debug
+                              ]},
+                           default: :warn,
+                           doc: "Log level for high memory usage"
+                         ]
+                       )
 
-  @capture_errors_schema NimbleOptions.new!([
-    reporter: [
-      type: :atom,
-      required: true,
-      doc: "Error reporting module (e.g., Sentry)"
-    ],
-    threshold: [
-      type: :pos_integer,
-      default: 1,
-      doc: "Only report after N attempts"
-    ]
-  ])
+  @capture_errors_schema NimbleOptions.new!(
+                           reporter: [
+                             type: :atom,
+                             required: true,
+                             doc: "Error reporting module (e.g., Sentry)"
+                           ],
+                           threshold: [
+                             type: :pos_integer,
+                             default: 1,
+                             doc: "Only report after N attempts"
+                           ]
+                         )
 
-  @log_query_schema NimbleOptions.new!([
-    slow_threshold: [
-      type: :pos_integer,
-      default: 1000,
-      doc: "Threshold in ms to log as slow query"
-    ],
-    level: [
-      type: {:in, [:emergency, :alert, :critical, :error, :warning, :warn, :notice, :info, :debug]},
-      default: :debug,
-      doc: "Log level for normal queries"
-    ],
-    slow_level: [
-      type: {:in, [:emergency, :alert, :critical, :error, :warning, :warn, :notice, :info, :debug]},
-      default: :warn,
-      doc: "Log level for slow queries"
-    ],
-    include_query: [
-      type: :boolean,
-      default: true,
-      doc: "Include query in log output"
-    ]
-  ])
+  @log_query_schema NimbleOptions.new!(
+                      slow_threshold: [
+                        type: :pos_integer,
+                        default: 1000,
+                        doc: "Threshold in ms to log as slow query"
+                      ],
+                      level: [
+                        type:
+                          {:in,
+                           [
+                             :emergency,
+                             :alert,
+                             :critical,
+                             :error,
+                             :warning,
+                             :warn,
+                             :notice,
+                             :info,
+                             :debug
+                           ]},
+                        default: :debug,
+                        doc: "Log level for normal queries"
+                      ],
+                      slow_level: [
+                        type:
+                          {:in,
+                           [
+                             :emergency,
+                             :alert,
+                             :critical,
+                             :error,
+                             :warning,
+                             :warn,
+                             :notice,
+                             :info,
+                             :debug
+                           ]},
+                        default: :warn,
+                        doc: "Log level for slow queries"
+                      ],
+                      include_query: [
+                        type: :boolean,
+                        default: true,
+                        doc: "Include query in log output"
+                      ]
+                    )
 
-  @log_remote_schema NimbleOptions.new!([
-    service: [
-      type: :atom,
-      required: true,
-      doc: "Remote logging service module"
-    ],
-    async: [
-      type: :boolean,
-      default: true,
-      doc: "Send logs asynchronously"
-    ],
-    metadata: [
-      type: :map,
-      default: %{},
-      doc: "Additional metadata to include"
-    ]
-  ])
+  @log_remote_schema NimbleOptions.new!(
+                       service: [
+                         type: :atom,
+                         required: true,
+                         doc: "Remote logging service module"
+                       ],
+                       async: [
+                         type: :boolean,
+                         default: true,
+                         doc: "Send logs asynchronously"
+                       ],
+                       metadata: [
+                         type: :map,
+                         default: %{},
+                         doc: "Additional metadata to include"
+                       ]
+                     )
 
-  @benchmark_schema NimbleOptions.new!([
-    iterations: [
-      type: :pos_integer,
-      default: 1,
-      doc: "Number of iterations to run"
-    ],
-    warmup: [
-      type: :pos_integer,
-      default: 0,
-      doc: "Number of warmup iterations"
-    ],
-    format: [
-      type: {:in, [:simple, :detailed, :statistical]},
-      default: :simple,
-      doc: "Output format"
-    ],
-    memory: [
-      type: :boolean,
-      default: false,
-      doc: "Track memory usage"
-    ]
-  ])
+  @benchmark_schema NimbleOptions.new!(
+                      iterations: [
+                        type: :pos_integer,
+                        default: 1,
+                        doc: "Number of iterations to run"
+                      ],
+                      warmup: [
+                        type: :pos_integer,
+                        default: 0,
+                        doc: "Number of warmup iterations"
+                      ],
+                      format: [
+                        type: {:in, [:simple, :detailed, :statistical]},
+                        default: :simple,
+                        doc: "Output format"
+                      ],
+                      memory: [
+                        type: :boolean,
+                        default: false,
+                        doc: "Track memory usage"
+                      ]
+                    )
 
-  @measure_schema NimbleOptions.new!([
-    unit: [
-      type: {:in, [:nanosecond, :microsecond, :millisecond, :second]},
-      default: :millisecond,
-      doc: "Time unit for measurement"
-    ],
-    label: [
-      type: :string,
-      required: false,
-      doc: "Custom label for measurement"
-    ],
-    include_result: [
-      type: :boolean,
-      default: false,
-      doc: "Include result size/type in output"
-    ]
-  ])
+  @measure_schema NimbleOptions.new!(
+                    unit: [
+                      type: {:in, [:nanosecond, :microsecond, :millisecond, :second]},
+                      default: :millisecond,
+                      doc: "Time unit for measurement"
+                    ],
+                    label: [
+                      type: :string,
+                      required: false,
+                      doc: "Custom label for measurement"
+                    ],
+                    include_result: [
+                      type: :boolean,
+                      default: false,
+                      doc: "Include result size/type in output"
+                    ]
+                  )
 
   ## Decorator Implementations
 
@@ -703,14 +763,15 @@ defmodule Events.Decorator.Telemetry do
     async? = validated_opts[:async]
     metadata = validated_opts[:metadata]
 
-    base_metadata = quote do
-      Map.merge(unquote(Macro.escape(metadata)), %{
-        module: unquote(context.module),
-        function: unquote(context.name),
-        arity: unquote(context.arity),
-        timestamp: DateTime.utc_now()
-      })
-    end
+    base_metadata =
+      quote do
+        Map.merge(unquote(Macro.escape(metadata)), %{
+          module: unquote(context.module),
+          function: unquote(context.name),
+          arity: unquote(context.arity),
+          timestamp: DateTime.utc_now()
+        })
+      end
 
     quote do
       start_time = System.monotonic_time()
@@ -734,9 +795,10 @@ defmodule Events.Decorator.Telemetry do
         result
       rescue
         error ->
-          metadata = Map.merge(unquote(base_metadata), %{
-            error: Exception.format(:error, error, __STACKTRACE__)
-          })
+          metadata =
+            Map.merge(unquote(base_metadata), %{
+              error: Exception.format(:error, error, __STACKTRACE__)
+            })
 
           if unquote(async?) do
             Task.start(fn ->
@@ -795,7 +857,9 @@ defmodule Events.Decorator.Telemetry do
     track_memory? = validated_opts[:memory]
 
     quote do
-      IO.puts("\n[BENCHMARK] #{unquote(context.module)}.#{unquote(context.name)}/#{unquote(context.arity)}")
+      IO.puts(
+        "\n[BENCHMARK] #{unquote(context.module)}.#{unquote(context.name)}/#{unquote(context.arity)}"
+      )
 
       # Warmup runs
       if unquote(warmup) > 0 do
@@ -805,18 +869,19 @@ defmodule Events.Decorator.Telemetry do
       end
 
       # Benchmark runs
-      {timings, memories} = Enum.reduce(1..unquote(iterations), {[], []}, fn _, {times, mems} ->
-        start_mem = if unquote(track_memory?), do: :erlang.memory(:total), else: 0
-        start_time = System.monotonic_time()
+      {timings, memories} =
+        Enum.reduce(1..unquote(iterations), {[], []}, fn _, {times, mems} ->
+          start_mem = if unquote(track_memory?), do: :erlang.memory(:total), else: 0
+          start_time = System.monotonic_time()
 
-        _result = unquote(body)
+          _result = unquote(body)
 
-        duration = System.monotonic_time() - start_time
-        duration_ms = System.convert_time_unit(duration, :native, :microsecond) / 1000
-        memory_used = if unquote(track_memory?), do: :erlang.memory(:total) - start_mem, else: 0
+          duration = System.monotonic_time() - start_time
+          duration_ms = System.convert_time_unit(duration, :native, :microsecond) / 1000
+          memory_used = if unquote(track_memory?), do: :erlang.memory(:total) - start_mem, else: 0
 
-        {[duration_ms | times], [memory_used | mems]}
-      end)
+          {[duration_ms | times], [memory_used | mems]}
+        end)
 
       # Calculate statistics
       avg_time = Enum.sum(timings) / length(timings)
@@ -849,7 +914,11 @@ defmodule Events.Decorator.Telemetry do
         :statistical ->
           sorted_times = Enum.sort(timings)
           median = Enum.at(sorted_times, div(length(sorted_times), 2))
-          variance = Enum.reduce(timings, 0, fn t, acc -> acc + :math.pow(t - avg_time, 2) end) / length(timings)
+
+          variance =
+            Enum.reduce(timings, 0, fn t, acc -> acc + :math.pow(t - avg_time, 2) end) /
+              length(timings)
+
           std_dev = :math.sqrt(variance)
           p95 = Enum.at(sorted_times, round(length(sorted_times) * 0.95))
           p99 = Enum.at(sorted_times, round(length(sorted_times) * 0.99))
@@ -915,12 +984,13 @@ defmodule Events.Decorator.Telemetry do
     label = validated_opts[:label] || "#{context.module}.#{context.name}/#{context.arity}"
     include_result? = validated_opts[:include_result]
 
-    unit_symbol = case unit do
-      :nanosecond -> "ns"
-      :microsecond -> "μs"
-      :millisecond -> "ms"
-      :second -> "s"
-    end
+    unit_symbol =
+      case unit do
+        :nanosecond -> "ns"
+        :microsecond -> "μs"
+        :millisecond -> "ms"
+        :second -> "s"
+      end
 
     quote do
       start_time = System.monotonic_time()
@@ -930,25 +1000,28 @@ defmodule Events.Decorator.Telemetry do
       duration = System.monotonic_time() - start_time
       duration_converted = System.convert_time_unit(duration, :native, unquote(unit))
 
-      result_info = if unquote(include_result?) do
-        cond do
-          is_list(result) ->
-            " (result: list of #{length(result)} items)"
+      result_info =
+        if unquote(include_result?) do
+          cond do
+            is_list(result) ->
+              " (result: list of #{length(result)} items)"
 
-          is_map(result) ->
-            " (result: map with #{map_size(result)} keys)"
+            is_map(result) ->
+              " (result: map with #{map_size(result)} keys)"
 
-          is_binary(result) ->
-            " (result: binary of #{byte_size(result)} bytes)"
+            is_binary(result) ->
+              " (result: binary of #{byte_size(result)} bytes)"
 
-          true ->
-            " (result: #{inspect(result.__struct__ || :primitive)})"
+            true ->
+              " (result: #{inspect(result.__struct__ || :primitive)})"
+          end
+        else
+          ""
         end
-      else
-        ""
-      end
 
-      IO.puts("[MEASURE] #{unquote(label)} took #{duration_converted}#{unquote(unit_symbol)}#{result_info}")
+      IO.puts(
+        "[MEASURE] #{unquote(label)} took #{duration_converted}#{unquote(unit_symbol)}#{result_info}"
+      )
 
       result
     end

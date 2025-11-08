@@ -18,9 +18,7 @@ defmodule Events.Decorator.Purity.Helpers do
       warning = """
       Function #{context.module}.#{context.name}/#{context.arity} marked as @pure but contains potentially impure operations:
 
-      #{Enum.map_join(impure_calls, "\n", fn {type, details} ->
-        "  - #{type}: #{details}"
-      end)}
+      #{Enum.map_join(impure_calls, "\n", fn {type, details} -> "  - #{type}: #{details}" end)}
 
       Pure functions should not:
       - Perform IO operations
@@ -44,46 +42,52 @@ defmodule Events.Decorator.Purity.Helpers do
     impure = []
 
     # Check for IO operations
-    impure = if !allow_io? && has_io_calls?(ast) do
-      [{:io, "IO module calls detected"} | impure]
-    else
-      impure
-    end
+    impure =
+      if !allow_io? && has_io_calls?(ast) do
+        [{:io, "IO module calls detected"} | impure]
+      else
+        impure
+      end
 
     # Check for process operations
-    impure = if has_process_calls?(ast) do
-      [{:process, "Process module calls detected"} | impure]
-    else
-      impure
-    end
+    impure =
+      if has_process_calls?(ast) do
+        [{:process, "Process module calls detected"} | impure]
+      else
+        impure
+      end
 
     # Check for ETS operations
-    impure = if has_ets_calls?(ast) do
-      [{:ets, "ETS operations detected"} | impure]
-    else
-      impure
-    end
+    impure =
+      if has_ets_calls?(ast) do
+        [{:ets, "ETS operations detected"} | impure]
+      else
+        impure
+      end
 
     # Check for System calls
-    impure = if has_system_calls?(ast) do
-      [{:system, "System module calls detected"} | impure]
-    else
-      impure
-    end
+    impure =
+      if has_system_calls?(ast) do
+        [{:system, "System module calls detected"} | impure]
+      else
+        impure
+      end
 
     # Check for random number generation
-    impure = if has_random_calls?(ast) do
-      [{:random, "Random number generation detected"} | impure]
-    else
-      impure
-    end
+    impure =
+      if has_random_calls?(ast) do
+        [{:random, "Random number generation detected"} | impure]
+      else
+        impure
+      end
 
     # Check for Agent/GenServer calls
-    impure = if has_stateful_calls?(ast) do
-      [{:stateful, "Stateful process calls detected (Agent, GenServer, etc.)"} | impure]
-    else
-      impure
-    end
+    impure =
+      if has_stateful_calls?(ast) do
+        [{:stateful, "Stateful process calls detected (Agent, GenServer, etc.)"} | impure]
+      else
+        impure
+      end
 
     impure
   end
@@ -113,30 +117,32 @@ defmodule Events.Decorator.Purity.Helpers do
   end
 
   defp has_call?(ast, module) when is_atom(module) do
-    {_ast, found?} = Macro.prewalk(ast, false, fn
-      {{:., _, [{:__aliases__, _, aliases}, _fun]}, _, _args}, _acc ->
-        module_name = Module.concat(aliases)
-        {ast, module_name == module}
+    {_ast, found?} =
+      Macro.prewalk(ast, false, fn
+        {{:., _, [{:__aliases__, _, aliases}, _fun]}, _, _args}, _acc ->
+          module_name = Module.concat(aliases)
+          {ast, module_name == module}
 
-      node, acc ->
-        {node, acc}
-    end)
+        node, acc ->
+          {node, acc}
+      end)
 
     found?
   end
 
   defp has_call?(ast, module, function) when is_atom(module) and is_atom(function) do
-    {_ast, found?} = Macro.prewalk(ast, false, fn
-      {{:., _, [{:__aliases__, _, aliases}, fun]}, _, _args}, _acc ->
-        module_name = Module.concat(aliases)
-        {ast, module_name == module && fun == function}
+    {_ast, found?} =
+      Macro.prewalk(ast, false, fn
+        {{:., _, [{:__aliases__, _, aliases}, fun]}, _, _args}, _acc ->
+          module_name = Module.concat(aliases)
+          {ast, module_name == module && fun == function}
 
-      {{:., _, [^module, ^function]}, _, _args}, _acc ->
-        {ast, true}
+        {{:., _, [^module, ^function]}, _, _args}, _acc ->
+          {ast, true}
 
-      node, acc ->
-        {node, acc}
-    end)
+        node, acc ->
+          {node, acc}
+      end)
 
     found?
   end
@@ -155,9 +161,10 @@ defmodule Events.Decorator.Purity.Helpers do
       initial_messages = Process.info(self(), :messages)
 
       # Call function multiple times
-      results = for _ <- 1..unquote(samples) do
-        unquote(body)
-      end
+      results =
+        for _ <- 1..unquote(samples) do
+          unquote(body)
+        end
 
       # Check determinism (all results should be equal)
       first_result = hd(results)
@@ -201,9 +208,10 @@ defmodule Events.Decorator.Purity.Helpers do
   def build_determinism_checker(body, context, samples, on_failure) do
     quote do
       # Call function multiple times
-      results = for _ <- 1..unquote(samples) do
-        unquote(body)
-      end
+      results =
+        for _ <- 1..unquote(samples) do
+          unquote(body)
+        end
 
       # Check all results are equal
       first_result = hd(results)
@@ -214,9 +222,7 @@ defmodule Events.Decorator.Purity.Helpers do
         Determinism check failed for #{unquote(context.module)}.#{unquote(context.name)}/#{unquote(context.arity)}
 
         Expected all #{unquote(samples)} calls to return the same result, but got:
-        #{Enum.map_join(Enum.with_index(results), "\n", fn {r, i} ->
-          "  Call #{i + 1}: #{inspect(r)}"
-        end)}
+        #{Enum.map_join(Enum.with_index(results), "\n", fn {r, i} -> "  Call #{i + 1}: #{inspect(r)}" end)}
         """
 
         case unquote(on_failure) do
@@ -236,26 +242,28 @@ defmodule Events.Decorator.Purity.Helpers do
   def build_idempotence_checker(body, context, calls, compare, comparator) do
     quote do
       # Call function multiple times
-      results = for _ <- 1..unquote(calls) do
-        unquote(body)
-      end
+      results =
+        for _ <- 1..unquote(calls) do
+          unquote(body)
+        end
 
       # Compare results based on comparison strategy
       first_result = hd(results)
 
-      all_equal? = case unquote(compare) do
-        :equality ->
-          Enum.all?(results, fn r -> r == first_result end)
+      all_equal? =
+        case unquote(compare) do
+          :equality ->
+            Enum.all?(results, fn r -> r == first_result end)
 
-        :deep_equality ->
-          # Use inspect for deep comparison
-          first_inspect = inspect(first_result)
-          Enum.all?(results, fn r -> inspect(r) == first_inspect end)
+          :deep_equality ->
+            # Use inspect for deep comparison
+            first_inspect = inspect(first_result)
+            Enum.all?(results, fn r -> inspect(r) == first_inspect end)
 
-        :custom ->
-          comparator = unquote(comparator)
-          Enum.all?(results, fn r -> comparator.(first_result, r) end)
-      end
+          :custom ->
+            comparator = unquote(comparator)
+            Enum.all?(results, fn r -> comparator.(first_result, r) end)
+        end
 
       if !all_equal? do
         IO.warn("""
@@ -283,9 +291,7 @@ defmodule Events.Decorator.Purity.Helpers do
       Function #{context.module}.#{context.name}/#{context.arity} marked as @memoizable
       but contains potentially impure operations:
 
-      #{Enum.map_join(impure_calls, "\n", fn {type, details} ->
-        "  - #{type}: #{details}"
-      end)}
+      #{Enum.map_join(impure_calls, "\n", fn {type, details} -> "  - #{type}: #{details}" end)}
 
       Memoizing impure functions can lead to incorrect behavior.
       Consider removing @memoizable or making the function pure.

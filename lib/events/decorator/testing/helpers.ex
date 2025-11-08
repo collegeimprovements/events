@@ -68,10 +68,11 @@ defmodule Events.Decorator.Testing.Helpers do
   """
   def setup_generators(generators, context) do
     # Map argument names to generators
-    arg_names = Enum.map(context.args, fn
-      {name, _, _} -> name
-      _ -> :arg
-    end)
+    arg_names =
+      Enum.map(context.args, fn
+        {name, _, _} -> name
+        _ -> :arg
+      end)
 
     Enum.zip(arg_names, generators)
     |> Map.new()

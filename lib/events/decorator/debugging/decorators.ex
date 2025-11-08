@@ -58,62 +58,63 @@ defmodule Events.Decorator.Debugging do
 
   ## Schemas
 
-  @debug_schema NimbleOptions.new!([
-    label: [
-      type: :string,
-      required: false,
-      doc: "Custom label for debug output"
-    ],
-    opts: [
-      type: :keyword_list,
-      default: [],
-      doc: "Options to pass to dbg/2"
-    ]
-  ])
+  @debug_schema NimbleOptions.new!(
+                  label: [
+                    type: :string,
+                    required: false,
+                    doc: "Custom label for debug output"
+                  ],
+                  opts: [
+                    type: :keyword_list,
+                    default: [],
+                    doc: "Options to pass to dbg/2"
+                  ]
+                )
 
-  @inspect_schema NimbleOptions.new!([
-    what: [
-      type: {:in, [:args, :result, :both, :all]},
-      default: :both,
-      doc: "What to inspect: :args (before), :result (after), :both, or :all (step-by-step)"
-    ],
-    label: [
-      type: :string,
-      required: false,
-      doc: "Custom label for inspect output"
-    ],
-    opts: [
-      type: :keyword_list,
-      default: [],
-      doc: "Options for inspect/2 (e.g., limit, pretty, width)"
-    ]
-  ])
+  @inspect_schema NimbleOptions.new!(
+                    what: [
+                      type: {:in, [:args, :result, :both, :all]},
+                      default: :both,
+                      doc:
+                        "What to inspect: :args (before), :result (after), :both, or :all (step-by-step)"
+                    ],
+                    label: [
+                      type: :string,
+                      required: false,
+                      doc: "Custom label for inspect output"
+                    ],
+                    opts: [
+                      type: :keyword_list,
+                      default: [],
+                      doc: "Options for inspect/2 (e.g., limit, pretty, width)"
+                    ]
+                  )
 
-  @pry_schema NimbleOptions.new!([
-    condition: [
-      type: {:or, [{:fun, 1}, :boolean]},
-      default: true,
-      doc: "Condition function or boolean - pry only if true"
-    ],
-    before: [
-      type: :boolean,
-      default: false,
-      doc: "If true, pry before function execution"
-    ],
-    after: [
-      type: :boolean,
-      default: true,
-      doc: "If true, pry after function execution"
-    ]
-  ])
+  @pry_schema NimbleOptions.new!(
+                condition: [
+                  type: {:or, [{:fun, 1}, :boolean]},
+                  default: true,
+                  doc: "Condition function or boolean - pry only if true"
+                ],
+                before: [
+                  type: :boolean,
+                  default: false,
+                  doc: "If true, pry before function execution"
+                ],
+                after: [
+                  type: :boolean,
+                  default: true,
+                  doc: "If true, pry after function execution"
+                ]
+              )
 
-  @trace_vars_schema NimbleOptions.new!([
-    vars: [
-      type: {:list, :atom},
-      required: true,
-      doc: "List of variable names to trace"
-    ]
-  ])
+  @trace_vars_schema NimbleOptions.new!(
+                       vars: [
+                         type: {:list, :atom},
+                         required: true,
+                         doc: "List of variable names to trace"
+                       ]
+                     )
 
   ## Decorator Implementations
 

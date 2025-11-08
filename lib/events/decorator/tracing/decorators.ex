@@ -40,59 +40,59 @@ defmodule Events.Decorator.Tracing do
 
   ## Schemas
 
-  @trace_calls_schema NimbleOptions.new!([
-    depth: [
-      type: :pos_integer,
-      default: 1,
-      doc: "Maximum call depth to trace"
-    ],
-    filter: [
-      type: {:or, [:atom, {:custom, __MODULE__, :validate_regex, []}]},
-      required: false,
-      doc: "Regex or module to filter traced calls"
-    ],
-    exclude: [
-      type: {:list, :atom},
-      default: [Kernel, Enum, String, List, Map],
-      doc: "Modules to exclude from tracing"
-    ],
-    format: [
-      type: {:in, [:simple, :tree, :detailed]},
-      default: :tree,
-      doc: "Output format for trace"
-    ]
-  ])
+  @trace_calls_schema NimbleOptions.new!(
+                        depth: [
+                          type: :pos_integer,
+                          default: 1,
+                          doc: "Maximum call depth to trace"
+                        ],
+                        filter: [
+                          type: {:or, [:atom, {:custom, __MODULE__, :validate_regex, []}]},
+                          required: false,
+                          doc: "Regex or module to filter traced calls"
+                        ],
+                        exclude: [
+                          type: {:list, :atom},
+                          default: [Kernel, Enum, String, List, Map],
+                          doc: "Modules to exclude from tracing"
+                        ],
+                        format: [
+                          type: {:in, [:simple, :tree, :detailed]},
+                          default: :tree,
+                          doc: "Output format for trace"
+                        ]
+                      )
 
-  @trace_modules_schema NimbleOptions.new!([
-    filter: [
-      type: {:or, [:atom, {:custom, __MODULE__, :validate_regex, []}]},
-      required: false,
-      doc: "Regex or module prefix to filter"
-    ],
-    unique: [
-      type: :boolean,
-      default: true,
-      doc: "Show only unique modules (no duplicates)"
-    ],
-    exclude_stdlib: [
-      type: :boolean,
-      default: true,
-      doc: "Exclude Elixir standard library modules"
-    ]
-  ])
+  @trace_modules_schema NimbleOptions.new!(
+                          filter: [
+                            type: {:or, [:atom, {:custom, __MODULE__, :validate_regex, []}]},
+                            required: false,
+                            doc: "Regex or module prefix to filter"
+                          ],
+                          unique: [
+                            type: :boolean,
+                            default: true,
+                            doc: "Show only unique modules (no duplicates)"
+                          ],
+                          exclude_stdlib: [
+                            type: :boolean,
+                            default: true,
+                            doc: "Exclude Elixir standard library modules"
+                          ]
+                        )
 
-  @trace_dependencies_schema NimbleOptions.new!([
-    type: [
-      type: {:in, [:all, :external, :internal]},
-      default: :all,
-      doc: "Which dependencies to trace"
-    ],
-    format: [
-      type: {:in, [:list, :tree, :graph]},
-      default: :list,
-      doc: "Output format"
-    ]
-  ])
+  @trace_dependencies_schema NimbleOptions.new!(
+                               type: [
+                                 type: {:in, [:all, :external, :internal]},
+                                 default: :all,
+                                 doc: "Which dependencies to trace"
+                               ],
+                               format: [
+                                 type: {:in, [:list, :tree, :graph]},
+                                 default: :list,
+                                 doc: "Output format"
+                               ]
+                             )
 
   ## Validator for regex
 

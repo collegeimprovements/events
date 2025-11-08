@@ -61,72 +61,72 @@ defmodule Events.Decorator.Purity do
 
   ## Schemas
 
-  @pure_schema NimbleOptions.new!([
-    verify: [
-      type: :boolean,
-      default: false,
-      doc: "If true, runtime verification of purity"
-    ],
-    strict: [
-      type: :boolean,
-      default: false,
-      doc: "Enable strict checking (compile-time warnings)"
-    ],
-    allow_io: [
-      type: :boolean,
-      default: false,
-      doc: "Allow IO operations (logging, etc.)"
-    ],
-    samples: [
-      type: :pos_integer,
-      default: 3,
-      doc: "Number of samples for determinism check"
-    ]
-  ])
+  @pure_schema NimbleOptions.new!(
+                 verify: [
+                   type: :boolean,
+                   default: false,
+                   doc: "If true, runtime verification of purity"
+                 ],
+                 strict: [
+                   type: :boolean,
+                   default: false,
+                   doc: "Enable strict checking (compile-time warnings)"
+                 ],
+                 allow_io: [
+                   type: :boolean,
+                   default: false,
+                   doc: "Allow IO operations (logging, etc.)"
+                 ],
+                 samples: [
+                   type: :pos_integer,
+                   default: 3,
+                   doc: "Number of samples for determinism check"
+                 ]
+               )
 
-  @deterministic_schema NimbleOptions.new!([
-    samples: [
-      type: :pos_integer,
-      default: 5,
-      doc: "Number of times to call with same inputs"
-    ],
-    on_failure: [
-      type: {:in, [:raise, :warn, :ignore]},
-      default: :warn,
-      doc: "What to do if determinism check fails"
-    ]
-  ])
+  @deterministic_schema NimbleOptions.new!(
+                          samples: [
+                            type: :pos_integer,
+                            default: 5,
+                            doc: "Number of times to call with same inputs"
+                          ],
+                          on_failure: [
+                            type: {:in, [:raise, :warn, :ignore]},
+                            default: :warn,
+                            doc: "What to do if determinism check fails"
+                          ]
+                        )
 
-  @idempotent_schema NimbleOptions.new!([
-    calls: [
-      type: :pos_integer,
-      default: 2,
-      doc: "Number of times to call function"
-    ],
-    compare: [
-      type: {:in, [:equality, :deep_equality, :custom]},
-      default: :equality,
-      doc: "How to compare results"
-    ],
-    comparator: [
-      type: {:fun, 2},
-      required: false,
-      doc: "Custom comparison function"
-    ]
-  ])
+  @idempotent_schema NimbleOptions.new!(
+                       calls: [
+                         type: :pos_integer,
+                         default: 2,
+                         doc: "Number of times to call function"
+                       ],
+                       compare: [
+                         type: {:in, [:equality, :deep_equality, :custom]},
+                         default: :equality,
+                         doc: "How to compare results"
+                       ],
+                       comparator: [
+                         type: {:fun, 2},
+                         required: false,
+                         doc: "Custom comparison function"
+                       ]
+                     )
 
-  @memoizable_schema NimbleOptions.new!([
-    verify: [
-      type: :boolean,
-      default: true,
-      doc: "Verify the function is actually pure first"
-    ],
-    warn_impure: [
-      type: :boolean,
-      default: true,
-      doc: "Emit warning if function might not be pure"
-    ]
-  ])
+  @memoizable_schema NimbleOptions.new!(
+                       verify: [
+                         type: :boolean,
+                         default: true,
+                         doc: "Verify the function is actually pure first"
+                       ],
+                       warn_impure: [
+                         type: :boolean,
+                         default: true,
+                         doc: "Emit warning if function might not be pure"
+                       ]
+                     )
 
   ## Decorator Implementations
 

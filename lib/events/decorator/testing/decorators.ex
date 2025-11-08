@@ -34,75 +34,75 @@ defmodule Events.Decorator.Testing do
 
   ## Schemas
 
-  @property_test_schema NimbleOptions.new!([
-    runs: [
-      type: :pos_integer,
-      default: 100,
-      doc: "Number of test runs"
-    ],
-    max_size: [
-      type: :pos_integer,
-      default: 100,
-      doc: "Maximum size for generated data"
-    ],
-    generators: [
-      type: :keyword_list,
-      default: [],
-      doc: "Custom generators for arguments"
-    ]
-  ])
+  @property_test_schema NimbleOptions.new!(
+                          runs: [
+                            type: :pos_integer,
+                            default: 100,
+                            doc: "Number of test runs"
+                          ],
+                          max_size: [
+                            type: :pos_integer,
+                            default: 100,
+                            doc: "Maximum size for generated data"
+                          ],
+                          generators: [
+                            type: :keyword_list,
+                            default: [],
+                            doc: "Custom generators for arguments"
+                          ]
+                        )
 
-  @with_fixtures_schema NimbleOptions.new!([
-    fixtures: [
-      type: {:list, :atom},
-      required: true,
-      doc: "List of fixture names to load"
-    ],
-    cleanup: [
-      type: :boolean,
-      default: true,
-      doc: "Whether to cleanup fixtures after test"
-    ]
-  ])
+  @with_fixtures_schema NimbleOptions.new!(
+                          fixtures: [
+                            type: {:list, :atom},
+                            required: true,
+                            doc: "List of fixture names to load"
+                          ],
+                          cleanup: [
+                            type: :boolean,
+                            default: true,
+                            doc: "Whether to cleanup fixtures after test"
+                          ]
+                        )
 
-  @sample_data_schema NimbleOptions.new!([
-    generator: [
-      type: {:or, [:atom, {:fun, 0}, {:fun, 1}]},
-      required: true,
-      doc: "Data generator function or module"
-    ],
-    count: [
-      type: :pos_integer,
-      default: 1,
-      doc: "Number of samples to generate"
-    ]
-  ])
+  @sample_data_schema NimbleOptions.new!(
+                        generator: [
+                          type: {:or, [:atom, {:fun, 0}, {:fun, 1}]},
+                          required: true,
+                          doc: "Data generator function or module"
+                        ],
+                        count: [
+                          type: :pos_integer,
+                          default: 1,
+                          doc: "Number of samples to generate"
+                        ]
+                      )
 
-  @timeout_test_schema NimbleOptions.new!([
-    timeout: [
-      type: :pos_integer,
-      required: true,
-      doc: "Timeout in milliseconds"
-    ],
-    on_timeout: [
-      type: {:in, [:raise, :return_error, :return_nil]},
-      default: :raise,
-      doc: "What to do on timeout"
-    ]
-  ])
+  @timeout_test_schema NimbleOptions.new!(
+                         timeout: [
+                           type: :pos_integer,
+                           required: true,
+                           doc: "Timeout in milliseconds"
+                         ],
+                         on_timeout: [
+                           type: {:in, [:raise, :return_error, :return_nil]},
+                           default: :raise,
+                           doc: "What to do on timeout"
+                         ]
+                       )
 
-  @mock_schema NimbleOptions.new!([
-    module: [
-      type: :atom,
-      required: true,
-      doc: "Module to mock"
-    ],
-    functions: [
-      type: :keyword_list,
-      required: true,
-      doc: "Functions to mock as keyword list"
-    ]
-  ])
+  @mock_schema NimbleOptions.new!(
+                 module: [
+                   type: :atom,
+                   required: true,
+                   doc: "Module to mock"
+                 ],
+                 functions: [
+                   type: :keyword_list,
+                   required: true,
+                   doc: "Functions to mock as keyword list"
+                 ]
+               )
 
   ## Decorator Implementations
 
@@ -153,10 +153,11 @@ defmodule Events.Decorator.Testing do
         rescue
           e ->
             reraise """
-            Property test failed on run #{run}/#{unquote(runs)}
+                    Property test failed on run #{run}/#{unquote(runs)}
 
-            #{Exception.format(:error, e, __STACKTRACE__)}
-            """, __STACKTRACE__
+                    #{Exception.format(:error, e, __STACKTRACE__)}
+                    """,
+                    __STACKTRACE__
         end
       end
 
@@ -256,13 +257,14 @@ defmodule Events.Decorator.Testing do
 
     quote do
       # Generate sample data
-      data = case unquote(count) do
-        1 ->
-          unquote(generate_data(generator))
+      data =
+        case unquote(count) do
+          1 ->
+            unquote(generate_data(generator))
 
-        n ->
-          for _ <- 1..n, do: unquote(generate_data(generator))
-      end
+          n ->
+            for _ <- 1..n, do: unquote(generate_data(generator))
+        end
 
       # Make data available to function
       # This is simplified - actual implementation would inject into args

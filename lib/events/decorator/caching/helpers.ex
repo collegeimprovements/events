@@ -144,11 +144,21 @@ defmodule Events.Decorator.Caching.Helpers do
       match_fn ->
         quote do
           case unquote(match_fn).(unquote(result_var)) do
-            true -> {true, unquote(result_var)}
-            {true, value} -> {true, value}
-            {true, value, runtime_opts} -> {true, value, runtime_opts}
-            false -> false
-            other -> raise ArgumentError, "Match function must return true, {true, value}, {true, value, opts}, or false. Got: #{inspect(other)}"
+            true ->
+              {true, unquote(result_var)}
+
+            {true, value} ->
+              {true, value}
+
+            {true, value, runtime_opts} ->
+              {true, value, runtime_opts}
+
+            false ->
+              false
+
+            other ->
+              raise ArgumentError,
+                    "Match function must return true, {true, value}, {true, value, opts}, or false. Got: #{inspect(other)}"
           end
         end
     end

@@ -39,94 +39,95 @@ defmodule Events.Decorator.Caching do
 
   import Events.Decorator.Caching.Helpers
 
-  @cacheable_schema NimbleOptions.new!([
-    cache: [
-      type: {:or, [:atom, {:tuple, [:atom, :atom, :any]}]},
-      required: true,
-      doc: "Cache module or MFA tuple for dynamic resolution"
-    ],
-    key: [
-      type: :any,
-      required: false,
-      doc: "Explicit cache key (overrides key_generator)"
-    ],
-    key_generator: [
-      type: {:or, [:atom, {:tuple, [:atom, :any]}, {:tuple, [:atom, :atom, :any]}]},
-      required: false,
-      doc: "Custom key generator module or MFA"
-    ],
-    ttl: [
-      type: :pos_integer,
-      required: false,
-      doc: "Time-to-live in milliseconds"
-    ],
-    match: [
-      type: {:fun, 1},
-      required: false,
-      doc: "Match function to determine if result should be cached"
-    ],
-    on_error: [
-      type: {:in, [:raise, :nothing]},
-      default: :raise,
-      doc: "Error handling strategy"
-    ]
-  ])
+  @cacheable_schema NimbleOptions.new!(
+                      cache: [
+                        type: {:or, [:atom, {:tuple, [:atom, :atom, :any]}]},
+                        required: true,
+                        doc: "Cache module or MFA tuple for dynamic resolution"
+                      ],
+                      key: [
+                        type: :any,
+                        required: false,
+                        doc: "Explicit cache key (overrides key_generator)"
+                      ],
+                      key_generator: [
+                        type:
+                          {:or, [:atom, {:tuple, [:atom, :any]}, {:tuple, [:atom, :atom, :any]}]},
+                        required: false,
+                        doc: "Custom key generator module or MFA"
+                      ],
+                      ttl: [
+                        type: :pos_integer,
+                        required: false,
+                        doc: "Time-to-live in milliseconds"
+                      ],
+                      match: [
+                        type: {:fun, 1},
+                        required: false,
+                        doc: "Match function to determine if result should be cached"
+                      ],
+                      on_error: [
+                        type: {:in, [:raise, :nothing]},
+                        default: :raise,
+                        doc: "Error handling strategy"
+                      ]
+                    )
 
-  @cache_put_schema NimbleOptions.new!([
-    cache: [
-      type: {:or, [:atom, {:tuple, [:atom, :atom, :any]}]},
-      required: true,
-      doc: "Cache module or MFA tuple"
-    ],
-    keys: [
-      type: {:list, :any},
-      required: true,
-      doc: "List of cache keys to update"
-    ],
-    ttl: [
-      type: :pos_integer,
-      required: false,
-      doc: "Time-to-live in milliseconds"
-    ],
-    match: [
-      type: {:fun, 1},
-      required: false,
-      doc: "Match function for conditional caching"
-    ],
-    on_error: [
-      type: {:in, [:raise, :nothing]},
-      default: :raise,
-      doc: "Error handling strategy"
-    ]
-  ])
+  @cache_put_schema NimbleOptions.new!(
+                      cache: [
+                        type: {:or, [:atom, {:tuple, [:atom, :atom, :any]}]},
+                        required: true,
+                        doc: "Cache module or MFA tuple"
+                      ],
+                      keys: [
+                        type: {:list, :any},
+                        required: true,
+                        doc: "List of cache keys to update"
+                      ],
+                      ttl: [
+                        type: :pos_integer,
+                        required: false,
+                        doc: "Time-to-live in milliseconds"
+                      ],
+                      match: [
+                        type: {:fun, 1},
+                        required: false,
+                        doc: "Match function for conditional caching"
+                      ],
+                      on_error: [
+                        type: {:in, [:raise, :nothing]},
+                        default: :raise,
+                        doc: "Error handling strategy"
+                      ]
+                    )
 
-  @cache_evict_schema NimbleOptions.new!([
-    cache: [
-      type: {:or, [:atom, {:tuple, [:atom, :atom, :any]}]},
-      required: true,
-      doc: "Cache module or MFA tuple"
-    ],
-    keys: [
-      type: {:list, :any},
-      required: true,
-      doc: "List of cache keys to evict"
-    ],
-    all_entries: [
-      type: :boolean,
-      default: false,
-      doc: "If true, delete all cache entries"
-    ],
-    before_invocation: [
-      type: :boolean,
-      default: false,
-      doc: "If true, evict before function executes (safer for failures)"
-    ],
-    on_error: [
-      type: {:in, [:raise, :nothing]},
-      default: :raise,
-      doc: "Error handling strategy"
-    ]
-  ])
+  @cache_evict_schema NimbleOptions.new!(
+                        cache: [
+                          type: {:or, [:atom, {:tuple, [:atom, :atom, :any]}]},
+                          required: true,
+                          doc: "Cache module or MFA tuple"
+                        ],
+                        keys: [
+                          type: {:list, :any},
+                          required: true,
+                          doc: "List of cache keys to evict"
+                        ],
+                        all_entries: [
+                          type: :boolean,
+                          default: false,
+                          doc: "If true, delete all cache entries"
+                        ],
+                        before_invocation: [
+                          type: :boolean,
+                          default: false,
+                          doc: "If true, evict before function executes (safer for failures)"
+                        ],
+                        on_error: [
+                          type: {:in, [:raise, :nothing]},
+                          default: :raise,
+                          doc: "Error handling strategy"
+                        ]
+                      )
 
   @doc """
   Read-through caching decorator.

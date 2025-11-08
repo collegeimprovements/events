@@ -91,7 +91,18 @@ defmodule Events.Decorator.Telemetry.Helpers do
   @doc """
   Validates log level at compile time.
   """
-  def validate_log_level!(level) when level in [:emergency, :alert, :critical, :error, :warning, :warn, :notice, :info, :debug] do
+  def validate_log_level!(level)
+      when level in [
+             :emergency,
+             :alert,
+             :critical,
+             :error,
+             :warning,
+             :warn,
+             :notice,
+             :info,
+             :debug
+           ] do
     level
   end
 

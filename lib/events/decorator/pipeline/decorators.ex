@@ -50,29 +50,29 @@ defmodule Events.Decorator.Pipeline do
 
   import Events.Decorator.Pipeline.Helpers
 
-  @pipe_through_schema NimbleOptions.new!([
-    steps: [
-      type: {:list, :any},
-      required: false,
-      doc: "List of pipeline steps (functions or MFA tuples)"
-    ]
-  ])
+  @pipe_through_schema NimbleOptions.new!(
+                         steps: [
+                           type: {:list, :any},
+                           required: false,
+                           doc: "List of pipeline steps (functions or MFA tuples)"
+                         ]
+                       )
 
-  @around_schema NimbleOptions.new!([
-    wrapper: [
-      type: {:fun, 2},
-      required: false,
-      doc: "Wrapper function that receives (decorated_fn, ...args)"
-    ]
-  ])
+  @around_schema NimbleOptions.new!(
+                   wrapper: [
+                     type: {:fun, 2},
+                     required: false,
+                     doc: "Wrapper function that receives (decorated_fn, ...args)"
+                   ]
+                 )
 
-  @compose_schema NimbleOptions.new!([
-    decorators: [
-      type: {:list, :any},
-      required: false,
-      doc: "List of decorator specifications to compose"
-    ]
-  ])
+  @compose_schema NimbleOptions.new!(
+                    decorators: [
+                      type: {:list, :any},
+                      required: false,
+                      doc: "List of decorator specifications to compose"
+                    ]
+                  )
 
   @doc """
   Pipeline composition decorator.

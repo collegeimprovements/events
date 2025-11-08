@@ -41,9 +41,10 @@ defmodule Events.Decorator.Pipeline.Helpers do
     # Generate a private version of the original function
     private_name = :"__decorator_private_#{context.name}"
 
-    private_defun = AST.update_head(defun, fn {_name, meta, args} ->
-      {private_name, meta, args}
-    end)
+    private_defun =
+      AST.update_head(defun, fn {_name, meta, args} ->
+        {private_name, meta, args}
+      end)
 
     # Make it private
     {_def, meta, [head, body]} = private_defun
@@ -99,7 +100,9 @@ defmodule Events.Decorator.Pipeline.Helpers do
   """
   def validate_pipeline_step({:&, _meta, _args}), do: :ok
   def validate_pipeline_step({:fn, _meta, _args}), do: :ok
-  def validate_pipeline_step({module, fun, args}) when is_atom(module) and is_atom(fun) and is_list(args), do: :ok
+
+  def validate_pipeline_step({module, fun, args})
+      when is_atom(module) and is_atom(fun) and is_list(args), do: :ok
 
   def validate_pipeline_step(step) do
     raise ArgumentError, """

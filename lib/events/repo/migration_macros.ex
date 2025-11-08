@@ -302,9 +302,12 @@ defmodule Events.Repo.MigrationMacros do
   ## Options
 
   - `:only` - Add only specific field (`:type` or `:subtype`)
+  - `:except` - Exclude specific field (`:type` or `:subtype`)
   - `:type_default` - Default value for type field
   - `:subtype_default` - Default value for subtype field
   - `:null` - Allow NULL values (default: `true`)
+
+  **Note**: `:only` and `:except` are mutually exclusive.
 
   ## Examples
 
@@ -318,6 +321,9 @@ defmodule Events.Repo.MigrationMacros do
 
       # Only type field
       type_fields(only: :type, type_default: "event")
+
+      # Exclude subtype field
+      type_fields(except: :subtype, type_default: "event")
 
       # Required fields
       type_fields(null: false)
@@ -340,21 +346,28 @@ defmodule Events.Repo.MigrationMacros do
   """
   defmacro type_fields(opts \\ []) do
     quote bind_quoted: [opts: opts] do
+      Events.Repo.MigrationMacros.__validate_only_except__(opts, [:type, :subtype])
+
+      {add_type?, add_subtype?} =
+        Events.Repo.MigrationMacros.__determine_fields_to_add__(opts, [:type, :subtype])
+
       null_default = Keyword.get(opts, :null, true)
-      only_field = Keyword.get(opts, :only)
       type_default = Keyword.get(opts, :type_default)
       subtype_default = Keyword.get(opts, :subtype_default)
 
-      case only_field do
-        :type ->
-          add(:type, :citext, default: type_default, null: null_default)
-
-        :subtype ->
-          add(:subtype, :citext, default: subtype_default, null: null_default)
-
-        nil ->
+      cond do
+        add_type? and add_subtype? ->
           add(:type, :citext, default: type_default, null: null_default)
           add(:subtype, :citext, default: subtype_default, null: null_default)
+
+        add_type? ->
+          add(:type, :citext, default: type_default, null: null_default)
+
+        add_subtype? ->
+          add(:subtype, :citext, default: subtype_default, null: null_default)
+
+        true ->
+          :ok
       end
     end
   end
@@ -447,9 +460,12 @@ defmodule Events.Repo.MigrationMacros do
   ## Options
 
   - `:only` - Add only specific field (`:created_by_urm_id` or `:updated_by_urm_id`)
+  - `:except` - Exclude specific field (`:created_by_urm_id` or `:updated_by_urm_id`)
   - `:references` - Add foreign key constraints (default: `true`)
   - `:on_delete` - FK behavior when referenced record deleted (default: `:nilify_all`)
   - `:null` - Allow NULL values (default: `true`)
+
+  **Note**: `:only` and `:except` are mutually exclusive.
 
   ## Examples
 
@@ -468,6 +484,9 @@ defmodule Events.Repo.MigrationMacros do
 
       # Only track creator
       audit_fields(only: :created_by_urm_id)
+
+      # Exclude updater tracking
+      audit_fields(except: :updated_by_urm_id)
 
       # Restrict deletion if referenced
       audit_fields(on_delete: :restrict)
@@ -533,50 +552,55 @@ defmodule Events.Repo.MigrationMacros do
   """
   defmacro audit_fields(opts \\ []) do
     quote bind_quoted: [opts: opts] do
-      only_field = Keyword.get(opts, :only)
+      Events.Repo.MigrationMacros.__validate_only_except__(
+        opts,
+        [:created_by_urm_id, :updated_by_urm_id]
+      )
+
+      {add_created?, add_updated?} =
+        Events.Repo.MigrationMacros.__determine_fields_to_add__(
+          opts,
+          [:created_by_urm_id, :updated_by_urm_id]
+        )
+
       add_references = Keyword.get(opts, :references, true)
       on_delete_action = Keyword.get(opts, :on_delete, :nilify_all)
       null_allowed = Keyword.get(opts, :null, true)
 
-      case {add_references, only_field} do
-        # With foreign key constraints
-        {true, :created_by_urm_id} ->
-          add(
+      cond do
+        add_created? and add_updated? ->
+          Events.Repo.MigrationMacros.__add_audit_field__(
             :created_by_urm_id,
-            references(:user_role_mappings, type: :uuid, on_delete: on_delete_action),
-            null: null_allowed
+            add_references,
+            on_delete_action,
+            null_allowed
           )
 
-        {true, :updated_by_urm_id} ->
-          add(
+          Events.Repo.MigrationMacros.__add_audit_field__(
             :updated_by_urm_id,
-            references(:user_role_mappings, type: :uuid, on_delete: on_delete_action),
-            null: null_allowed
+            add_references,
+            on_delete_action,
+            null_allowed
           )
 
-        {true, nil} ->
-          add(
+        add_created? ->
+          Events.Repo.MigrationMacros.__add_audit_field__(
             :created_by_urm_id,
-            references(:user_role_mappings, type: :uuid, on_delete: on_delete_action),
-            null: null_allowed
+            add_references,
+            on_delete_action,
+            null_allowed
           )
 
-          add(
+        add_updated? ->
+          Events.Repo.MigrationMacros.__add_audit_field__(
             :updated_by_urm_id,
-            references(:user_role_mappings, type: :uuid, on_delete: on_delete_action),
-            null: null_allowed
+            add_references,
+            on_delete_action,
+            null_allowed
           )
 
-        # Without foreign key constraints
-        {false, :created_by_urm_id} ->
-          add(:created_by_urm_id, :uuid, null: null_allowed)
-
-        {false, :updated_by_urm_id} ->
-          add(:updated_by_urm_id, :uuid, null: null_allowed)
-
-        {false, nil} ->
-          add(:created_by_urm_id, :uuid, null: null_allowed)
-          add(:updated_by_urm_id, :uuid, null: null_allowed)
+        true ->
+          :ok
       end
     end
   end
@@ -595,9 +619,12 @@ defmodule Events.Repo.MigrationMacros do
   ## Options
 
   - `:only` - Add only specific field (`:deleted_at` or `:deleted_by_urm_id`)
+  - `:except` - Exclude specific field (`:deleted_at` or `:deleted_by_urm_id`)
   - `:references` - Add FK constraint for deleted_by_urm_id (default: `true`)
   - `:on_delete` - FK behavior when referenced record deleted (default: `:nilify_all`)
   - `:null` - Allow NULL values (default: `true` - records start undeleted)
+
+  **Note**: `:only` and `:except` are mutually exclusive.
 
   ## Examples
 
@@ -611,6 +638,9 @@ defmodule Events.Repo.MigrationMacros do
 
       # Only who deleted (unusual, but supported)
       deleted_fields(only: :deleted_by_urm_id)
+
+      # Exclude who deleted, only track when
+      deleted_fields(except: :deleted_by_urm_id)
 
       # Without FK constraint (for tables created before user_role_mappings)
       deleted_fields(references: false)
@@ -749,42 +779,45 @@ defmodule Events.Repo.MigrationMacros do
   """
   defmacro deleted_fields(opts \\ []) do
     quote bind_quoted: [opts: opts] do
-      only_field = Keyword.get(opts, :only)
+      Events.Repo.MigrationMacros.__validate_only_except__(
+        opts,
+        [:deleted_at, :deleted_by_urm_id]
+      )
+
+      {add_deleted_at?, add_deleted_by?} =
+        Events.Repo.MigrationMacros.__determine_fields_to_add__(
+          opts,
+          [:deleted_at, :deleted_by_urm_id]
+        )
+
       add_references = Keyword.get(opts, :references, true)
       on_delete_action = Keyword.get(opts, :on_delete, :nilify_all)
       null_allowed = Keyword.get(opts, :null, true)
 
-      case {only_field, add_references} do
-        # Only deleted_at
-        {:deleted_at, _} ->
+      cond do
+        add_deleted_at? and add_deleted_by? ->
           add(:deleted_at, :utc_datetime_usec, null: null_allowed)
 
-        # Only deleted_by_urm_id with FK
-        {:deleted_by_urm_id, true} ->
-          add(
+          Events.Repo.MigrationMacros.__add_audit_field__(
             :deleted_by_urm_id,
-            references(:user_role_mappings, type: :uuid, on_delete: on_delete_action),
-            null: null_allowed
+            add_references,
+            on_delete_action,
+            null_allowed
           )
 
-        # Only deleted_by_urm_id without FK
-        {:deleted_by_urm_id, false} ->
-          add(:deleted_by_urm_id, :uuid, null: null_allowed)
-
-        # Both fields with FK
-        {nil, true} ->
+        add_deleted_at? ->
           add(:deleted_at, :utc_datetime_usec, null: null_allowed)
 
-          add(
+        add_deleted_by? ->
+          Events.Repo.MigrationMacros.__add_audit_field__(
             :deleted_by_urm_id,
-            references(:user_role_mappings, type: :uuid, on_delete: on_delete_action),
-            null: null_allowed
+            add_references,
+            on_delete_action,
+            null_allowed
           )
 
-        # Both fields without FK
-        {nil, false} ->
-          add(:deleted_at, :utc_datetime_usec, null: null_allowed)
-          add(:deleted_by_urm_id, :uuid, null: null_allowed)
+        true ->
+          :ok
       end
     end
   end
@@ -805,11 +838,25 @@ defmodule Events.Repo.MigrationMacros do
   - **NULL**: NOT NULL (always required)
   - **Default**: PostgreSQL `CURRENT_TIMESTAMP`
 
+  ## Options
+
+  - `:only` - Add only specific field (`:inserted_at` or `:updated_at`)
+  - `:except` - Exclude specific field (`:inserted_at` or `:updated_at`)
+
+  **Note**: `:only` and `:except` are mutually exclusive.
+
   ## Examples
 
+      # Both fields (default)
       timestamps()
       # => add :inserted_at, :utc_datetime_usec, null: false, default: fragment("CURRENT_TIMESTAMP")
       # => add :updated_at, :utc_datetime_usec, null: false, default: fragment("CURRENT_TIMESTAMP")
+
+      # Only inserted_at
+      timestamps(only: :inserted_at)
+
+      # Exclude updated_at
+      timestamps(except: :updated_at)
 
   ## Database Behavior
 
@@ -862,10 +909,40 @@ defmodule Events.Repo.MigrationMacros do
         where: p.updated_at < ^thirty_days_ago,
         where: p.status == "active"
   """
-  defmacro timestamps do
-    quote do
-      add(:inserted_at, :utc_datetime_usec, null: false, default: fragment("CURRENT_TIMESTAMP"))
-      add(:updated_at, :utc_datetime_usec, null: false, default: fragment("CURRENT_TIMESTAMP"))
+  defmacro timestamps(opts \\ []) do
+    quote bind_quoted: [opts: opts] do
+      Events.Repo.MigrationMacros.__validate_only_except__(opts, [:inserted_at, :updated_at])
+
+      {add_inserted?, add_updated?} =
+        Events.Repo.MigrationMacros.__determine_fields_to_add__(opts, [:inserted_at, :updated_at])
+
+      cond do
+        add_inserted? and add_updated? ->
+          add(:inserted_at, :utc_datetime_usec,
+            null: false,
+            default: fragment("CURRENT_TIMESTAMP")
+          )
+
+          add(:updated_at, :utc_datetime_usec,
+            null: false,
+            default: fragment("CURRENT_TIMESTAMP")
+          )
+
+        add_inserted? ->
+          add(:inserted_at, :utc_datetime_usec,
+            null: false,
+            default: fragment("CURRENT_TIMESTAMP")
+          )
+
+        add_updated? ->
+          add(:updated_at, :utc_datetime_usec,
+            null: false,
+            default: fragment("CURRENT_TIMESTAMP")
+          )
+
+        true ->
+          :ok
+      end
     end
   end
 
@@ -907,6 +984,7 @@ defmodule Events.Repo.MigrationMacros do
   - `:include_name` - Add name field (default: `true`)
   - `:include_slug` - Add slug field (default: `true`)
   - `:include_description` - Add description field (default: `true`)
+  - `:except` - Exclude specific field groups (list of: `:name`, `:slug`, `:status`, `:description`, `:type_fields`, `:metadata`, `:audit_fields`, `:timestamps`)
   - `:status_default` - Default status value (default: `"active"`)
   - `:type_default` - Default type value (default: `nil`)
   - `:null` - Allow NULL for audit fields (default: `true`)
@@ -943,6 +1021,12 @@ defmodule Events.Repo.MigrationMacros do
         standard_entity_fields(include_name: false, include_slug: false)
         add :title, :string, null: false
         add :starts_at, :utc_datetime_usec
+      end
+
+      # Exclude multiple field groups
+      create table(:simple_logs) do
+        standard_entity_fields(except: [:slug, :description, :type_fields, :audit_fields])
+        add :message, :text
       end
 
   ## Typical Indexes
@@ -1009,29 +1093,633 @@ defmodule Events.Repo.MigrationMacros do
       include_name = Keyword.get(opts, :include_name, true)
       include_slug = Keyword.get(opts, :include_slug, true)
       include_description = Keyword.get(opts, :include_description, true)
+      except_fields = List.wrap(Keyword.get(opts, :except, []))
       status_default = Keyword.get(opts, :status_default, "active")
       type_default = Keyword.get(opts, :type_default)
 
-      # Name and slug fields (case-insensitive)
-      if include_name, do: add(:name, :citext, null: false)
-      if include_slug, do: add(:slug, :citext, null: false)
+      # Name field
+      cond do
+        include_name and :name not in except_fields ->
+          add(:name, :citext, null: false)
 
-      # Status and description
-      add(:status, :citext, default: status_default, null: false)
-      if include_description, do: add(:description, :text)
+        true ->
+          :ok
+      end
+
+      # Slug field
+      cond do
+        include_slug and :slug not in except_fields ->
+          add(:slug, :citext, null: false)
+
+        true ->
+          :ok
+      end
+
+      # Status field
+      cond do
+        :status in except_fields ->
+          :ok
+
+        true ->
+          add(:status, :citext, default: status_default, null: false)
+      end
+
+      # Description field
+      cond do
+        include_description and :description not in except_fields ->
+          add(:description, :text)
+
+        true ->
+          :ok
+      end
 
       # Type classification
-      type_opts = if type_default, do: [type_default: type_default], else: []
-      type_fields(type_opts)
+      cond do
+        :type_fields in except_fields ->
+          :ok
+
+        true ->
+          type_opts =
+            case type_default do
+              nil -> []
+              val -> [type_default: val]
+            end
+
+          type_fields(type_opts)
+      end
 
       # Metadata
-      metadata_field()
+      cond do
+        :metadata in except_fields ->
+          :ok
 
-      # Audit tracking (pass through null and references options)
-      audit_fields(Keyword.take(opts, [:null, :references, :on_delete]))
+        true ->
+          metadata_field()
+      end
+
+      # Audit tracking
+      cond do
+        :audit_fields in except_fields ->
+          :ok
+
+        true ->
+          audit_fields(Keyword.take(opts, [:null, :references, :on_delete]))
+      end
 
       # Timestamps
-      timestamps()
+      cond do
+        :timestamps in except_fields ->
+          :ok
+
+        true ->
+          timestamps()
+      end
     end
   end
+
+  # ==============================================================================
+  # PUBLIC API - Index Helper Macros
+  # ==============================================================================
+
+  @doc """
+  Creates indexes for type classification fields.
+
+  ## Options
+
+  - `:only` - Index only specific field (`:type` or `:subtype`)
+  - `:except` - Skip indexing specific field
+  - `:where` - Partial index condition
+  - `:name` - Custom index name
+  - `:unique` - Create unique index (default: false)
+  - `:concurrently` - Create concurrently (default: false)
+  - `:composite` - Create single composite index on `[:type, :subtype]` (default: false)
+
+  ## Examples
+
+      type_indexes(:products)
+      # => create index(:products, [:type])
+      # => create index(:products, [:subtype])
+
+      type_indexes(:products, only: :type, where: "deleted_at IS NULL")
+      # => create index(:products, [:type], where: "deleted_at IS NULL")
+
+      type_indexes(:products, composite: true)
+      # => create index(:products, [:type, :subtype])
+  """
+  defmacro type_indexes(table_name, opts \\ []) do
+    quote bind_quoted: [table_name: table_name, opts: opts] do
+      Events.Repo.MigrationMacros.__validate_only_except__(opts, [:type, :subtype])
+
+      composite = Keyword.get(opts, :composite, false)
+      unique = Keyword.get(opts, :unique, false)
+      index_opts = Events.Repo.MigrationMacros.__build_index_opts__(opts)
+
+      case composite do
+        true ->
+          Events.Repo.MigrationMacros.__create_index__(
+            table_name,
+            [:type, :subtype],
+            unique,
+            index_opts
+          )
+
+        false ->
+          {add_type?, add_subtype?} =
+            Events.Repo.MigrationMacros.__determine_fields_to_add__(opts, [:type, :subtype])
+
+          cond do
+            add_type? and add_subtype? ->
+              Events.Repo.MigrationMacros.__create_index__(
+                table_name,
+                [:type],
+                unique,
+                index_opts
+              )
+
+              Events.Repo.MigrationMacros.__create_index__(
+                table_name,
+                [:subtype],
+                unique,
+                index_opts
+              )
+
+            add_type? ->
+              Events.Repo.MigrationMacros.__create_index__(
+                table_name,
+                [:type],
+                unique,
+                index_opts
+              )
+
+            add_subtype? ->
+              Events.Repo.MigrationMacros.__create_index__(
+                table_name,
+                [:subtype],
+                unique,
+                index_opts
+              )
+
+            true ->
+              :ok
+          end
+      end
+    end
+  end
+
+  @doc """
+  Creates indexes for audit tracking fields.
+
+  ## Options
+
+  - `:only` - Index only specific field (`:created_by_urm_id` or `:updated_by_urm_id`)
+  - `:except` - Skip indexing specific field
+  - `:where` - Partial index condition
+  - `:name` - Custom index name
+  - `:concurrently` - Create concurrently
+
+  ## Examples
+
+      audit_indexes(:products)
+      # => create index(:products, [:created_by_urm_id])
+      # => create index(:products, [:updated_by_urm_id])
+
+      audit_indexes(:products, only: :created_by_urm_id)
+      # => create index(:products, [:created_by_urm_id])
+
+      audit_indexes(:products, where: "deleted_at IS NULL", concurrently: true)
+  """
+  defmacro audit_indexes(table_name, opts \\ []) do
+    quote bind_quoted: [table_name: table_name, opts: opts] do
+      Events.Repo.MigrationMacros.__validate_only_except__(
+        opts,
+        [:created_by_urm_id, :updated_by_urm_id]
+      )
+
+      {add_created?, add_updated?} =
+        Events.Repo.MigrationMacros.__determine_fields_to_add__(
+          opts,
+          [:created_by_urm_id, :updated_by_urm_id]
+        )
+
+      index_opts = Events.Repo.MigrationMacros.__build_index_opts__(opts)
+
+      cond do
+        add_created? and add_updated? ->
+          create index(table_name, [:created_by_urm_id], index_opts)
+          create index(table_name, [:updated_by_urm_id], index_opts)
+
+        add_created? ->
+          create index(table_name, [:created_by_urm_id], index_opts)
+
+        add_updated? ->
+          create index(table_name, [:updated_by_urm_id], index_opts)
+
+        true ->
+          :ok
+      end
+    end
+  end
+
+  @doc """
+  Creates indexes for soft delete fields.
+
+  ## Options
+
+  - `:only` - Index only specific field (`:deleted_at` or `:deleted_by_urm_id`)
+  - `:except` - Skip indexing specific field
+  - `:where` - Partial index condition
+  - `:name` - Custom index name
+  - `:concurrently` - Create concurrently
+
+  ## Examples
+
+      deleted_indexes(:documents)
+      # => create index(:documents, [:deleted_at])
+      # => create index(:documents, [:deleted_by_urm_id])
+
+      deleted_indexes(:documents, only: :deleted_at)
+      # => create index(:documents, [:deleted_at])
+  """
+  defmacro deleted_indexes(table_name, opts \\ []) do
+    quote bind_quoted: [table_name: table_name, opts: opts] do
+      Events.Repo.MigrationMacros.__validate_only_except__(opts, [:deleted_at, :deleted_by_urm_id])
+
+      {add_deleted_at?, add_deleted_by?} =
+        Events.Repo.MigrationMacros.__determine_fields_to_add__(
+          opts,
+          [:deleted_at, :deleted_by_urm_id]
+        )
+
+      index_opts = Events.Repo.MigrationMacros.__build_index_opts__(opts)
+
+      cond do
+        add_deleted_at? and add_deleted_by? ->
+          create index(table_name, [:deleted_at], index_opts)
+          create index(table_name, [:deleted_by_urm_id], index_opts)
+
+        add_deleted_at? ->
+          create index(table_name, [:deleted_at], index_opts)
+
+        add_deleted_by? ->
+          create index(table_name, [:deleted_by_urm_id], index_opts)
+
+        true ->
+          :ok
+      end
+    end
+  end
+
+  @doc """
+  Creates indexes for timestamp fields.
+
+  ## Options
+
+  - `:only` - Index only specific field (`:inserted_at` or `:updated_at`)
+  - `:except` - Skip indexing specific field
+  - `:where` - Partial index condition
+  - `:name` - Custom index name
+  - `:concurrently` - Create concurrently
+  - `:composite_with` - List of other fields to include in composite index
+
+  ## Examples
+
+      timestamp_indexes(:products)
+      # => create index(:products, [:inserted_at])
+      # => create index(:products, [:updated_at])
+
+      timestamp_indexes(:products, only: :updated_at)
+      # => create index(:products, [:updated_at])
+
+      timestamp_indexes(:products, only: :updated_at, composite_with: [:status])
+      # => create index(:products, [:status, :updated_at])
+  """
+  defmacro timestamp_indexes(table_name, opts \\ []) do
+    quote bind_quoted: [table_name: table_name, opts: opts] do
+      Events.Repo.MigrationMacros.__validate_only_except__(opts, [:inserted_at, :updated_at])
+
+      {add_inserted?, add_updated?} =
+        Events.Repo.MigrationMacros.__determine_fields_to_add__(opts, [:inserted_at, :updated_at])
+
+      composite_with = Keyword.get(opts, :composite_with)
+      index_opts = Events.Repo.MigrationMacros.__build_index_opts__(opts)
+
+      fields_fn = fn field ->
+        case {composite_with, is_list(composite_with)} do
+          {list, true} -> list ++ [field]
+          _ -> [field]
+        end
+      end
+
+      cond do
+        add_inserted? and add_updated? ->
+          create index(table_name, fields_fn.(:inserted_at), index_opts)
+          create index(table_name, fields_fn.(:updated_at), index_opts)
+
+        add_inserted? ->
+          create index(table_name, fields_fn.(:inserted_at), index_opts)
+
+        add_updated? ->
+          create index(table_name, fields_fn.(:updated_at), index_opts)
+
+        true ->
+          :ok
+      end
+    end
+  end
+
+  @doc """
+  Creates a GIN index on the metadata JSONB field for efficient querying.
+
+  **Performance Note**: GIN indexes on JSONB are expensive to maintain.
+  Only create if you frequently query JSON keys.
+
+  ## Options
+
+  - `:name` - Custom index name
+  - `:concurrently` - Create concurrently (recommended for large tables)
+  - `:json_path` - Index specific JSON key instead of entire field
+  - `:using` - Index method (default: :gin)
+
+  ## Examples
+
+      metadata_index(:products)
+      # => create index(:products, [:metadata], using: :gin)
+
+      metadata_index(:products, json_path: "status")
+      # => create index(:products, [fragment("(metadata->>'status')")])
+
+      metadata_index(:products, concurrently: true)
+  """
+  defmacro metadata_index(table_name, opts \\ []) do
+    quote bind_quoted: [table_name: table_name, opts: opts] do
+      json_path = Keyword.get(opts, :json_path)
+      using = Keyword.get(opts, :using, :gin)
+      base_opts = Events.Repo.MigrationMacros.__build_index_opts__(opts)
+
+      case json_path do
+        nil ->
+          index_opts = Keyword.put(base_opts, :using, using)
+          create index(table_name, [:metadata], index_opts)
+
+        path ->
+          create index(table_name, [fragment("(metadata->>'#{path}')")], base_opts)
+      end
+    end
+  end
+
+  @doc """
+  Creates recommended indexes for standard entity fields.
+
+  This is a convenience macro that creates indexes based on which fields
+  were added to the table. Use the `:has` option to specify what fields exist.
+
+  ## Default Behavior
+
+  When `has: :all` (default), assumes `standard_entity_fields()` was used and creates:
+  - Unique index on `:slug`
+  - Partial index on `:status` (WHERE deleted_at IS NULL)
+  - Standard indexes on `:type`, `:subtype`
+  - Standard indexes on `:created_by_urm_id`, `:updated_by_urm_id`
+
+  ## Options
+
+  - `:has` - What fields exist (`:all` or list of field groups)
+  - `:only` - Create indexes only for specific field groups
+  - `:except` - Skip indexes for specific field groups
+  - `:slug_unique` - Make slug index unique (default: true)
+  - `:status_where` - Custom WHERE clause for status (default: `"deleted_at IS NULL"`)
+  - `:concurrently` - Create all indexes concurrently
+  - `:composite` - Additional composite indexes (list of field lists)
+
+  Field groups: `:slug`, `:status`, `:type_fields`, `:audit_fields`, `:deleted_fields`, `:timestamps`, `:metadata`
+
+  ## Examples
+
+      # Full standard entity
+      create table(:products) do
+        standard_entity_fields()
+      end
+      standard_indexes(:products)
+      # Creates: slug (unique), status, type, subtype, created_by_urm_id, updated_by_urm_id
+
+      # Partial fields - be explicit
+      create table(:categories) do
+        standard_entity_fields(except: [:slug, :audit_fields])
+      end
+      standard_indexes(:categories, has: [:status, :type_fields])
+      # Creates only: status, type, subtype
+
+      # Custom field setup
+      create table(:logs) do
+        add :name, :citext
+        type_fields(only: :type)
+        timestamps()
+      end
+      standard_indexes(:logs, has: [:type_fields], only: :type_fields)
+      # Creates only: type, subtype
+  """
+  defmacro standard_indexes(table_name, opts \\ []) do
+    quote bind_quoted: [table_name: table_name, opts: opts] do
+      field_groups =
+        case Keyword.get(opts, :has, :all) do
+          :all -> [:slug, :status, :type_fields, :audit_fields]
+          list when is_list(list) -> list
+          _ -> []
+        end
+
+      only_groups = List.wrap(Keyword.get(opts, :only, []))
+      except_groups = List.wrap(Keyword.get(opts, :except, []))
+
+      should_index? =
+        Events.Repo.MigrationMacros.__should_index_group__(
+          field_groups,
+          only_groups,
+          except_groups
+        )
+
+      base_index_opts = Events.Repo.MigrationMacros.__build_index_opts__(opts)
+
+      # Slug - unique index
+      cond do
+        should_index?.(:slug) ->
+          slug_unique = Keyword.get(opts, :slug_unique, true)
+
+          Events.Repo.MigrationMacros.__create_index__(
+            table_name,
+            [:slug],
+            slug_unique,
+            base_index_opts
+          )
+
+        true ->
+          :ok
+      end
+
+      # Status - partial index
+      cond do
+        should_index?.(:status) ->
+          status_where = Keyword.get(opts, :status_where, "deleted_at IS NULL")
+
+          status_opts =
+            Events.Repo.MigrationMacros.__maybe_add_where__(base_index_opts, status_where)
+
+          create index(table_name, [:status], status_opts)
+
+        true ->
+          :ok
+      end
+
+      # Type fields
+      cond do
+        should_index?.(:type_fields) ->
+          type_indexes(table_name, base_index_opts)
+
+        true ->
+          :ok
+      end
+
+      # Audit fields
+      cond do
+        should_index?.(:audit_fields) ->
+          audit_indexes(table_name, base_index_opts)
+
+        true ->
+          :ok
+      end
+
+      # Deleted fields
+      cond do
+        should_index?.(:deleted_fields) ->
+          deleted_indexes(table_name, base_index_opts)
+
+        true ->
+          :ok
+      end
+
+      # Metadata GIN index
+      cond do
+        should_index?.(:metadata) ->
+          metadata_index(table_name, base_index_opts)
+
+        true ->
+          :ok
+      end
+
+      # Timestamp indexes
+      cond do
+        should_index?.(:timestamps) ->
+          timestamp_indexes(table_name, base_index_opts)
+
+        true ->
+          :ok
+      end
+
+      # Additional composite indexes
+      for fields <- Keyword.get(opts, :composite, []) do
+        create index(table_name, fields, base_index_opts)
+      end
+    end
+  end
+
+  # ==============================================================================
+  # HELPER FUNCTIONS
+  # ==============================================================================
+
+  @doc false
+  def __validate_only_except__(opts, valid_fields) do
+    case {Keyword.get(opts, :only), Keyword.get(opts, :except)} do
+      {only, except} when not is_nil(only) and not is_nil(except) ->
+        raise ArgumentError,
+              "cannot specify both :only and :except options. Please use one or the other."
+
+      {only, _} when not is_nil(only) ->
+        if !__valid_field?(only, valid_fields) do
+          raise ArgumentError,
+                "invalid :only value #{inspect(only)}. Expected one of: #{inspect(valid_fields)}"
+        end
+
+      {_, except} when not is_nil(except) ->
+        if !__valid_field?(except, valid_fields) do
+          raise ArgumentError,
+                "invalid :except value #{inspect(except)}. Expected one of: #{inspect(valid_fields)}"
+        end
+
+      _ ->
+        :ok
+    end
+  end
+
+  @doc false
+  def __determine_fields_to_add__(opts, [field1, field2]) do
+    case {Keyword.get(opts, :only), Keyword.get(opts, :except)} do
+      {^field1, _} -> {true, false}
+      {^field2, _} -> {false, true}
+      {nil, ^field1} -> {false, true}
+      {nil, ^field2} -> {true, false}
+      _ -> {true, true}
+    end
+  end
+
+  @doc false
+  defmacro __add_audit_field__(field_name, add_references, on_delete, null_allowed) do
+    quote do
+      field = unquote(field_name)
+
+      if unquote(add_references) do
+        add(
+          field,
+          references(:user_role_mappings, type: :uuid, on_delete: unquote(on_delete)),
+          null: unquote(null_allowed)
+        )
+      else
+        add(field, :uuid, null: unquote(null_allowed))
+      end
+    end
+  end
+
+  @doc false
+  defmacro __create_index__(table_name, fields, unique, opts) do
+    quote do
+      if unquote(unique) do
+        create unique_index(unquote(table_name), unquote(fields), unquote(opts))
+      else
+        create index(unquote(table_name), unquote(fields), unquote(opts))
+      end
+    end
+  end
+
+  @doc false
+  def __build_index_opts__(opts) do
+    [
+      name: Keyword.get(opts, :name),
+      where: Keyword.get(opts, :where),
+      unique: Keyword.get(opts, :unique),
+      concurrently: Keyword.get(opts, :concurrently),
+      using: Keyword.get(opts, :using),
+      prefix: Keyword.get(opts, :prefix),
+      include: Keyword.get(opts, :include)
+    ]
+    |> Enum.reject(fn {_k, v} -> is_nil(v) end)
+  end
+
+  @doc false
+  def __should_index_group__(field_groups, only_groups, except_groups) do
+    fn group ->
+      group_exists? = group in field_groups
+
+      case {only_groups, except_groups} do
+        {[], []} -> group_exists?
+        {only, []} when only != [] -> group in only and group_exists?
+        {[], except} when except != [] -> group not in except and group_exists?
+        _ -> group_exists?
+      end
+    end
+  end
+
+  @doc false
+  def __maybe_add_where__(opts, nil), do: opts
+  def __maybe_add_where__(opts, where), do: Keyword.put(opts, :where, where)
+
+  defp __valid_field?(field, valid) when is_atom(field), do: field in valid
+  defp __valid_field?(fields, valid) when is_list(fields), do: Enum.all?(fields, &(&1 in valid))
 end

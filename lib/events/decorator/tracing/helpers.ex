@@ -138,11 +138,12 @@ defmodule Events.Decorator.Tracing.Helpers do
         |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
 
       # Filter by type
-      filtered_deps = case unquote(type) do
-        :all -> dependencies
-        :external -> Map.drop(dependencies, [:kernel, :stdlib, :elixir])
-        :internal -> Map.take(dependencies, deps)
-      end
+      filtered_deps =
+        case unquote(type) do
+          :all -> dependencies
+          :external -> Map.drop(dependencies, [:kernel, :stdlib, :elixir])
+          :internal -> Map.take(dependencies, deps)
+        end
 
       if map_size(filtered_deps) > 0 do
         IO.puts("\n[DEPENDENCIES] #{unquote(function_label)}")
@@ -235,11 +236,12 @@ defmodule Events.Decorator.Tracing.Helpers do
           if unquote(exclude_stdlib?) do
             Enum.reject(mods, fn mod ->
               mod_str = to_string(mod)
+
               String.starts_with?(mod_str, "Elixir.Kernel") ||
-              String.starts_with?(mod_str, "Elixir.Enum") ||
-              String.starts_with?(mod_str, "Elixir.String") ||
-              String.starts_with?(mod_str, "Elixir.List") ||
-              String.starts_with?(mod_str, "Elixir.Map")
+                String.starts_with?(mod_str, "Elixir.Enum") ||
+                String.starts_with?(mod_str, "Elixir.String") ||
+                String.starts_with?(mod_str, "Elixir.List") ||
+                String.starts_with?(mod_str, "Elixir.Map")
             end)
           else
             mods
@@ -257,6 +259,7 @@ defmodule Events.Decorator.Tracing.Helpers do
 
             module when is_atom(module) ->
               prefix = to_string(module)
+
               Enum.filter(mods, fn mod ->
                 String.starts_with?(to_string(mod), prefix)
               end)
