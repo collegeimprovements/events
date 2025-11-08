@@ -275,6 +275,96 @@ custom classes must fully style the input
       timestamps(type: :utc_datetime_usec)
     end
 
+### Soft Delete Conventions
+
+**Always use soft delete for user-facing data**. Hard deletes should be rare and limited to:
+- System/internal records
+- Truly sensitive data that must be removed
+- Cleanup of test/temporary data
+
+**Use the `deleted_fields/1` macro** from `Events.Repo.MigrationMacros`:
+
+    # Migration with soft delete support
+    import Events.Repo.MigrationMacros
+
+    create table(:documents) do
+      add :title, :citext, null: false
+      add :content, :text
+
+      deleted_fields()  # Adds deleted_at and deleted_by_urm_id
+      timestamps()
+    end
+
+    # Essential indexes for soft delete
+    create index(:documents, [:deleted_at])
+    create index(:documents, [:deleted_by_urm_id])
+    create index(:documents, [:status], where: "deleted_at IS NULL")
+
+**Query conventions**:
+
+    # ALWAYS filter deleted records in default queries
+    def list_products do
+      from p in Product,
+        where: is_nil(p.deleted_at)
+    end
+
+    # Explicit scope functions
+    def not_deleted(query \\ Product) do
+      from q in query, where: is_nil(q.deleted_at)
+    end
+
+    # Admin/trash views (include deleted)
+    def list_all_products_including_deleted do
+      from p in Product  # No deleted_at filter
+    end
+
+**Context function patterns**:
+
+    # Soft delete
+    def delete_product(product, deleted_by_urm_id) do
+      product
+      |> Ecto.Changeset.change(%{
+        deleted_at: DateTime.utc_now(),
+        deleted_by_urm_id: deleted_by_urm_id
+      })
+      |> Repo.update()
+    end
+
+    # Restore
+    def restore_product(product) do
+      product
+      |> Ecto.Changeset.change(%{
+        deleted_at: nil,
+        deleted_by_urm_id: nil
+      })
+      |> Repo.update()
+    end
+
+    # Hard delete old records (background job)
+    def purge_old_deleted_products(days_old \\ 90) do
+      cutoff = DateTime.utc_now() |> DateTime.add(-days_old, :day)
+
+      from(p in Product,
+        where: not is_nil(p.deleted_at),
+        where: p.deleted_at < ^cutoff
+      )
+      |> Repo.delete_all()
+    end
+
+**deleted_fields macro options**:
+
+    # Both fields (default)
+    deleted_fields()
+
+    # Only timestamp (no audit)
+    deleted_fields(only: :deleted_at)
+
+    # Only audit (unusual)
+    deleted_fields(only: :deleted_by_urm_id)
+
+    # No FK constraints (for early migrations)
+    deleted_fields(references: false)
+
 **Schema Example**:
 
     defmodule MyApp.Catalog.Product do

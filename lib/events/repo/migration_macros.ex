@@ -52,7 +52,8 @@ defmodule Events.Repo.MigrationMacros do
   1. **Type Classification**: `type` and `subtype` for polymorphic entities
   2. **Metadata Storage**: JSONB field for flexible schema extensions
   3. **Audit Tracking**: References to user_role_mappings for change tracking
-  4. **Timestamps**: UTC microsecond precision with PostgreSQL defaults
+  4. **Soft Delete**: `deleted_at` and `deleted_by_urm_id` for paranoid deletion
+  5. **Timestamps**: UTC microsecond precision with PostgreSQL defaults
 
   ## Available Macros
 
@@ -61,7 +62,8 @@ defmodule Events.Repo.MigrationMacros do
   | `table/2` | Override Ecto's table with UUIDv7 | `create table(:users) do ... end` |
   | `type_fields/0, type_fields/1` | Add type/subtype columns | `type_fields(null: false)` |
   | `metadata_field/0, metadata_field/1` | Add JSONB metadata | `metadata_field(default: fragment("'{}'"))` |
-  | `audit_fields/0, audit_fields/1` | Add created_by/updated_by | `audit_fields(references: true)` |
+  | `audit_fields/0, audit_fields/1` | Add created_by/updated_by | `audit_fields()` |
+  | `deleted_fields/0, deleted_fields/1` | Add soft delete fields | `deleted_fields()` |
   | `timestamps/0` | Add inserted_at/updated_at | `timestamps()` |
   | `standard_entity_fields/0, standard_entity_fields/1` | All-in-one standard fields | `standard_entity_fields()` |
 
@@ -106,6 +108,22 @@ defmodule Events.Repo.MigrationMacros do
         audit_fields()
         timestamps()
       end
+
+  ### Pattern 6: Entity with Soft Delete
+      create table(:documents) do
+        add :title, :citext, null: false
+        add :content, :text
+
+        type_fields()
+        metadata_field()
+        audit_fields()
+        deleted_fields()  # Soft delete support
+        timestamps()
+      end
+
+      # Indexes for soft delete queries
+      create index(:documents, [:deleted_at])
+      create index(:documents, [:status], where: "deleted_at IS NULL")
 
   ## Migration Dependencies
 
@@ -559,6 +577,214 @@ defmodule Events.Repo.MigrationMacros do
         {false, nil} ->
           add(:created_by_urm_id, :uuid, null: null_allowed)
           add(:updated_by_urm_id, :uuid, null: null_allowed)
+      end
+    end
+  end
+
+  # ==============================================================================
+  # PUBLIC API - Soft Delete Fields
+  # ==============================================================================
+
+  @doc """
+  Adds soft delete tracking fields for paranoid deletion.
+
+  Enables soft delete functionality by tracking when a record was deleted
+  and optionally who deleted it. Use these fields in queries to filter out
+  deleted records while maintaining data history.
+
+  ## Options
+
+  - `:only` - Add only specific field (`:deleted_at` or `:deleted_by_urm_id`)
+  - `:references` - Add FK constraint for deleted_by_urm_id (default: `true`)
+  - `:on_delete` - FK behavior when referenced record deleted (default: `:nilify_all`)
+  - `:null` - Allow NULL values (default: `true` - records start undeleted)
+
+  ## Examples
+
+      # Both fields (timestamp + who deleted)
+      deleted_fields()
+      # => add :deleted_at, :utc_datetime_usec, null: true
+      # => add :deleted_by_urm_id, references(:user_role_mappings, ...), null: true
+
+      # Only timestamp (no audit tracking)
+      deleted_fields(only: :deleted_at)
+
+      # Only who deleted (unusual, but supported)
+      deleted_fields(only: :deleted_by_urm_id)
+
+      # Without FK constraint (for tables created before user_role_mappings)
+      deleted_fields(references: false)
+
+  ## Query Patterns
+
+      # Filter out deleted records (default scope)
+      from p in Product,
+        where: is_nil(p.deleted_at)
+
+      # Include deleted records (admin view)
+      from p in Product  # No where clause
+
+      # Only deleted records (trash/recycle bin)
+      from p in Product,
+        where: not is_nil(p.deleted_at)
+
+      # Deleted in last 30 days (recoverable)
+      thirty_days_ago = DateTime.utc_now() |> DateTime.add(-30, :day)
+      from p in Product,
+        where: not is_nil(p.deleted_at),
+        where: p.deleted_at >= ^thirty_days_ago
+
+  ## Schema Definition
+
+      defmodule MyApp.Catalog.Product do
+        use Ecto.Schema
+        import Ecto.Query
+
+        schema "products" do
+          field :name, :string
+          field :deleted_at, :utc_datetime_usec
+
+          belongs_to :deleted_by_urm, MyApp.Accounts.UserRoleMapping,
+            foreign_key: :deleted_by_urm_id
+
+          timestamps(type: :utc_datetime_usec)
+        end
+
+        # Default scope to exclude deleted
+        def not_deleted(query \\\\ __MODULE__) do
+          from q in query, where: is_nil(q.deleted_at)
+        end
+
+        # Soft delete implementation
+        def soft_delete(product, deleted_by_urm_id) do
+          product
+          |> Ecto.Changeset.change(%{
+            deleted_at: DateTime.utc_now(),
+            deleted_by_urm_id: deleted_by_urm_id
+          })
+          |> Repo.update()
+        end
+
+        # Restore deleted record
+        def restore(product) do
+          product
+          |> Ecto.Changeset.change(%{
+            deleted_at: nil,
+            deleted_by_urm_id: nil
+          })
+          |> Repo.update()
+        end
+      end
+
+  ## Usage in Context
+
+      defmodule MyApp.Catalog do
+        import Ecto.Query
+
+        # List active (non-deleted) products
+        def list_products do
+          Product
+          |> where([p], is_nil(p.deleted_at))
+          |> Repo.all()
+        end
+
+        # Delete product (soft delete)
+        def delete_product(product, deleted_by_urm_id) do
+          product
+          |> Ecto.Changeset.change(%{
+            deleted_at: DateTime.utc_now(),
+            deleted_by_urm_id: deleted_by_urm_id
+          })
+          |> Repo.update()
+        end
+
+        # Permanently delete old records (hard delete)
+        def purge_deleted_products(days_old) do
+          cutoff = DateTime.utc_now() |> DateTime.add(-days_old, :day)
+
+          from(p in Product,
+            where: not is_nil(p.deleted_at),
+            where: p.deleted_at < ^cutoff
+          )
+          |> Repo.delete_all()
+        end
+      end
+
+  ## Best Practices
+
+  1. **Always filter deleted records** in default queries
+  2. **Use database views** for common non-deleted scopes
+  3. **Implement restore functionality** for accidental deletions
+  4. **Purge old deleted records** periodically to prevent bloat
+  5. **Add indexes** on deleted_at for query performance
+  6. **Consider partial indexes**: `WHERE deleted_at IS NULL` for active records
+
+  ## Index Recommendations
+
+      # Partial index for active records only
+      create index(:products, [:status], where: "deleted_at IS NULL")
+
+      # Composite index for filtered queries
+      create index(:products, [:deleted_at, :updated_at])
+
+      # Index on deleted_by for audit queries
+      create index(:products, [:deleted_by_urm_id])
+
+  ## Migration Example
+
+      create table(:products) do
+        add :name, :citext, null: false
+        add :price, :decimal, null: false
+
+        metadata_field()
+        audit_fields()
+        deleted_fields()  # Soft delete support
+        timestamps()
+      end
+
+      # Indexes for soft delete
+      create index(:products, [:deleted_at])
+      create index(:products, [:deleted_by_urm_id])
+      create index(:products, [:status], where: "deleted_at IS NULL")
+  """
+  defmacro deleted_fields(opts \\ []) do
+    quote bind_quoted: [opts: opts] do
+      only_field = Keyword.get(opts, :only)
+      add_references = Keyword.get(opts, :references, true)
+      on_delete_action = Keyword.get(opts, :on_delete, :nilify_all)
+      null_allowed = Keyword.get(opts, :null, true)
+
+      case {only_field, add_references} do
+        # Only deleted_at
+        {:deleted_at, _} ->
+          add(:deleted_at, :utc_datetime_usec, null: null_allowed)
+
+        # Only deleted_by_urm_id with FK
+        {:deleted_by_urm_id, true} ->
+          add(
+            :deleted_by_urm_id,
+            references(:user_role_mappings, type: :uuid, on_delete: on_delete_action),
+            null: null_allowed
+          )
+
+        # Only deleted_by_urm_id without FK
+        {:deleted_by_urm_id, false} ->
+          add(:deleted_by_urm_id, :uuid, null: null_allowed)
+
+        # Both fields with FK
+        {nil, true} ->
+          add(:deleted_at, :utc_datetime_usec, null: null_allowed)
+
+          add(
+            :deleted_by_urm_id,
+            references(:user_role_mappings, type: :uuid, on_delete: on_delete_action),
+            null: null_allowed
+          )
+
+        # Both fields without FK
+        {nil, false} ->
+          add(:deleted_at, :utc_datetime_usec, null: null_allowed)
+          add(:deleted_by_urm_id, :uuid, null: null_allowed)
       end
     end
   end
