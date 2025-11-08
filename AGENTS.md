@@ -230,24 +230,71 @@ custom classes must fully style the input
 
 **Always** use these field types by default when creating new schemas or migrations:
 
-- **citext fields** (case-insensitive text):
-  - `name`, `type`, `subtype`, `kind`, `category`, `subcategory`, `status`, `substatus`, `email`, `url`, `slug`
+- **citext fields** (case-insensitive text - requires `citext` extension):
+  - Text classification: `name`, `type`, `subtype`, `status`, `substatus`
+  - Categorization: `category`, `tag`, `subtag`
+  - Identifiers: `email`, `url`, `slug`
+  - Reasoning: Case-insensitive searches and comparisons without manual lowercasing
 
 - **text fields**:
-  - `description`, `summary`, `short_description`
+  - `description`, `summary`, `short_description`, `notes`, `content`
 
 - **jsonb fields**:
-  - `metadata`, `assets`, `assets_metadata`
+  - `metadata`, `assets`, `assets_metadata`, `settings`, `preferences`
 
 - **utc_datetime_usec fields** (any field ending with `_at`):
-  - `inserted_at`, `updated_at`, `created_at`, `updated_it`, `deleted_at`
+  - `inserted_at`, `updated_at`, `created_at`, `deleted_at`, `published_at`, `expires_at`
 
 - **integer fields**:
-  - `count`, `number_of_*`, `price_in_cents`, `price`
+  - `count`, `number_of_*`, `price_in_cents`, `amount_in_cents`
+
+- **decimal fields**:
+  - `price`, `amount`, `balance`, `rate`, `percentage`
 
 - **positive_integers** (zero and greater):
-  - `number_of_visitors`, `number_of_attendees`, `number_of_people`
+  - `number_of_visitors`, `number_of_attendees`, `number_of_people`, `quantity`
   - Use custom validation or database constraints to enforce positive values
+
+**Migration Example**:
+
+    # Enable citext extension (in a dedicated migration)
+    execute "CREATE EXTENSION IF NOT EXISTS citext", "DROP EXTENSION IF EXISTS citext"
+
+    # Using citext in migrations
+    create table(:products) do
+      add :name, :citext, null: false
+      add :slug, :citext, null: false
+      add :type, :citext
+      add :subtype, :citext
+      add :status, :citext, default: "active", null: false
+      add :category, :citext
+
+      add :description, :text
+      add :metadata, :jsonb, default: fragment("'{}'"), null: false
+
+      timestamps(type: :utc_datetime_usec)
+    end
+
+**Schema Example**:
+
+    defmodule MyApp.Catalog.Product do
+      use Ecto.Schema
+
+      schema "products" do
+        # citext fields map to :string in Ecto schemas
+        field :name, :string
+        field :slug, :string
+        field :type, :string
+        field :subtype, :string
+        field :status, :string
+        field :category, :string
+
+        field :description, :string
+        field :metadata, :map
+
+        timestamps(type: :utc_datetime_usec)
+      end
+    end
 <!-- phoenix:ecto-end -->
 
 <!-- phoenix:html-start -->
