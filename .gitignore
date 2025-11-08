@@ -37,3 +37,7 @@ npm-debug.log
 
 # Exper Language server
 /.expert/
+
+# Environment-specific configuration (local overrides)
+.env.local
+.env.*.local

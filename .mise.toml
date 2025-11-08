@@ -3,7 +3,8 @@
 
 [env]
 # Database Configuration
-# DATABASE_URL = "ecto://postgres:postgres@localhost/events_dev"  # Override if needed
+# example: "ecto://emd:Emd@123@localhost:5434/nitro"
+# DATABASE_URL = "ecto://postgres:postgres@localhost:5432/events_dev"  # Override if needed
 DB_POOL_SIZE = "10"
 DB_QUEUE_TARGET = "50"
 DB_QUEUE_INTERVAL = "1000"
@@ -13,7 +14,7 @@ DB_QUEUE_INTERVAL = "1000"
 
 # Phoenix Configuration
 PORT = "4000"
-# SECRET_KEY_BASE = ""    # Generate with: mix phx.gen.secret
+SECRET_KEY_BASE = "Q9kU1O/92BUVhBz1mJRDTx4QPQVWcs2Au+jEYeQ8++fsonlw5oP9OXIiWx2b6Ysu"    # Generate with: mix phx.gen.secret
 # PHX_HOST = ""           # Required for production
 # PHX_SERVER = "true"     # Set to "true" to start server
 

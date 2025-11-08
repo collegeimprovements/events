@@ -126,6 +126,35 @@ custom classes must fully style the input
 <!-- phoenix:elixir-start -->
 ## Elixir guidelines
 
+- **Use explicit list syntax instead of sigils** for simple data lists, but prefer sigils for command-line arguments
+
+  **Always prefer explicit list syntax for data lists**:
+
+      # Good - explicit and clear for data
+      truthy_values = ["1", "true", "yes"]
+      statuses = [:pending, :active, :completed]
+      error_codes = [400, 401, 403, 404]
+
+  **Avoid sigils for simple data lists**:
+
+      # Avoid - less explicit for data
+      truthy_values = ~w(1 true yes)
+      statuses = ~w(pending active completed)a
+
+  **Prefer sigils for command-line arguments and shell commands**:
+
+      # Good - sigils are appropriate for command-line args
+      args: ~w(js/app.js --bundle --target=es2022 --outdir=../priv/static/assets/js)
+      watchers: [
+        esbuild: {Esbuild, :install_and_run, [:events, ~w(--sourcemap=inline --watch)]},
+        tailwind: {Tailwind, :install_and_run, [:events, ~w(--watch)]}
+      ]
+
+      # Avoid - explicit lists make command args harder to read
+      args: ["js/app.js", "--bundle", "--target=es2022", "--outdir=../priv/static/assets/js"]
+
+  **Summary**: Use explicit list syntax `["a", "b", "c"]` or `[:a, :b, :c]` for data and configuration values. Use sigils `~w()` for command-line arguments, shell commands, and arguments that would be passed to external tools.
+
 - Elixir lists **do not support index based access via the access syntax**
 
   **Never do this (invalid)**:
