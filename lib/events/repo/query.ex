@@ -138,10 +138,41 @@ defmodule Events.Repo.Query do
         ]
       ])
 
-      # Using filters: option
+      # Using filters: option (supports all filter syntax)
       Query.new(Product, filters: [
         status: "active",
         {:price, :gt, 100}
+      ])
+
+      # Filters with options
+      Query.new(Product, filters: [
+        {:name, :ilike, "%widget%", case_sensitive: false},
+        {:email, :eq, nil, include_nil: true},
+        {:price, :between, {10, 100}}
+      ])
+
+      # Filters on join tables (requires join first)
+      Query.new(Product, [
+        join: :category,
+        filters: [
+          status: "active",
+          {:category, :name, "Electronics"},
+          {:category, :active, true}
+        ]
+      ])
+
+      # Complex filters with joins and options
+      Query.new(Product, [
+        join: :category,
+        join: :tags,
+        filters: [
+          status: "active",
+          {:price, :gte, 100},
+          {:category, :name, :in, ["Electronics", "Gadgets"]},
+          {:tags, :name, :ilike, "%featured%", case_sensitive: false}
+        ],
+        order_by: [desc: :price],
+        limit: 20
       ])
   """
   @spec new(module(), keyword()) :: t()

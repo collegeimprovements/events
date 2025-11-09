@@ -104,7 +104,7 @@ Query.where(query, {:name, :ilike, "%widget%", case_sensitive: false})
 
 ## List-Based Filters
 
-The Query API supports passing all filters as a list for easy composition and dynamic query building.
+The Query API supports passing all filters as a list for easy composition and dynamic query building. The `filters:` option accepts the full range of filter syntax including operators, options, and join table filters.
 
 ### Using `filters:` Option
 
@@ -123,6 +123,36 @@ Query.new(Product, filters: [
   {:price, :between, {10, 100}},
   {:name, :ilike, "%widget%", case_sensitive: false}
 ]) |> Repo.all()
+
+# Filters with options (4-tuple syntax)
+Query.new(Product, filters: [
+  {:name, :ilike, "%pro%", case_sensitive: false},
+  {:email, :eq, nil, include_nil: true},
+  {:description, :like, "%premium%"},
+  {:price, :gte, 100}
+]) |> Repo.all()
+
+# Filters on joined tables
+Query.new(Product, [
+  join: :category,
+  join: :brand,
+  filters: [
+    status: "active",                                    # Main table
+    {:price, :gte, 100},                                # Main table with operator
+    {:category, :name, "Electronics"},                  # Join table simple
+    {:category, :active, true},                         # Join table simple
+    {:brand, :country, :in, ["USA", "Japan"]},         # Join table with operator
+    {:brand, :name, :ilike, "%tech%", case_sensitive: false}  # Join table with options
+  ]
+]) |> Repo.all()
+
+# All filter syntax supported:
+# - Simple: field: value
+# - With operator: {:field, :op, value}
+# - With options: {:field, :op, value, opts}
+# - Join simple: {:join, :field, value}
+# - Join with op: {:join, :field, :op, value}
+# - Join with options: {:join, :field, :op, value, opts}
 ```
 
 ### Using `where:` with a List
@@ -197,6 +227,47 @@ def search_products_v2(params) do
   end)
 
   Query.new(Product, filters: filters) |> Repo.all()
+end
+
+# With options - case insensitive search
+def search_products_flexible(params) do
+  filters = []
+
+  filters = if params[:status], do: filters ++ [status: params[:status]], else: filters
+  filters = if params[:min_price], do: filters ++ [{:price, :gte, params[:min_price]}], else: filters
+  filters = if params[:max_price], do: filters ++ [{:price, :lte, params[:max_price]}], else: filters
+
+  # Add case-insensitive search with options
+  filters = if params[:search] do
+    filters ++ [{:name, :ilike, "%#{params[:search]}%", case_sensitive: false}]
+  else
+    filters
+  end
+
+  Query.new(Product, filters: filters) |> Repo.all()
+end
+
+# Dynamic filters with joins
+def search_products_with_category(params) do
+  opts = []
+  filters = []
+
+  # Add join if category filter is present
+  opts = if params[:category], do: opts ++ [join: :category], else: opts
+
+  # Build filters including join table filters
+  filters = if params[:status], do: filters ++ [status: params[:status]], else: filters
+  filters = if params[:min_price], do: filters ++ [{:price, :gte, params[:min_price]}], else: filters
+
+  # Filter on joined category table
+  filters = if params[:category] do
+    filters ++ [{:category, :slug, params[:category]}]
+  else
+    filters
+  end
+
+  opts = opts ++ [filters: filters, order_by: [desc: :inserted_at]]
+  Query.new(Product, opts) |> Repo.all()
 end
 ```
 
@@ -498,15 +569,43 @@ products = Query.new(Product, [
 ])
 |> Repo.all()
 
-# With joins
+# Filters with options (case sensitivity, include_nil, etc.)
+products = Query.new(Product, [
+  filters: [
+    {:name, :ilike, "%widget%", case_sensitive: false},
+    {:description, :like, "%premium%"},
+    {:email, :eq, nil, include_nil: true}
+  ],
+  limit: 10
+])
+|> Repo.all()
+
+# Filters on join tables
 products = Query.new(Product, [
   join: :category,
   filters: [
     status: "active",
-    {:category, :name, "Electronics"}
+    {:category, :name, "Electronics"},
+    {:category, :active, true}
   ],
   order_by: [desc: :inserted_at],
   limit: 10
+])
+|> Repo.all()
+
+# Complex multi-join filters with options
+products = Query.new(Product, [
+  join: :category,
+  join: :brand,
+  filters: [
+    status: "active",
+    {:price, :between, {100, 1000}},
+    {:category, :name, :in, ["Electronics", "Gadgets"]},
+    {:brand, :country, "USA"},
+    {:name, :ilike, "%pro%", case_sensitive: false}
+  ],
+  order_by: [desc: :popularity],
+  limit: 20
 ])
 |> Repo.all()
 ```
