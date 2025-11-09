@@ -20,26 +20,31 @@ defmodule Events.Repo.Query do
       |> Query.limit(10)
       |> Repo.all()
 
-      # Keyword syntax
+      # Keyword syntax with all options
       Query.new(Product, [
         where: [status: "active"],
         where: {:price, :gt, 100},
+        select: [:id, :name, :price],
+        order_by: [desc: :inserted_at],
         limit: 10
       ])
       |> Repo.all()
 
-      # List of filters
-      filters = [
-        [status: "active"],
-        {:price, :gt, 100},
-        {:name, :ilike, "%widget%"}
-      ]
-      Query.new(Product, where: filters) |> Repo.all()
-
       # Using filters: option
-      Query.new(Product, filters: [
-        status: "active",
-        {:price, :gt, 100}
+      Query.new(Product, [
+        filters: [status: "active", {:price, :gt, 100}],
+        preload: [:category, :tags],
+        order_by: [desc: :price],
+        limit: 20
+      ]) |> Repo.all()
+
+      # With window functions
+      Query.new(Product, [
+        select: %{
+          id: :id,
+          name: :name,
+          rank: {:window, :rank, [partition_by: :category_id, order_by: [desc: :price]]}
+        }
       ]) |> Repo.all()
 
       # Get SQL
@@ -1066,6 +1071,7 @@ defmodule Events.Repo.Query do
       {:where, conditions}, acc -> where(acc, conditions)
       {:filters, filter_list}, acc -> where(acc, filter_list)
       {:join, assoc}, acc -> join(acc, assoc)
+      {:select, fields}, acc -> select(acc, fields)
       {:distinct, value}, acc -> distinct(acc, value)
       {:group_by, fields}, acc -> group_by(acc, fields)
       {:having, conditions}, acc -> having(acc, conditions)
