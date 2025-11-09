@@ -189,6 +189,152 @@ Query.new(Product, filters: [
 - For `:between`: applies the function to both min and max values
 - For `:is_nil` and `:not_nil`: no transformation (these don't use values)
 
+## Date/Time Comparisons
+
+The `data_type` option handles date, datetime, and time comparisons properly by casting both the database field and comparison value to the appropriate PostgreSQL type.
+
+### Why This Is Needed
+
+When comparing date/datetime fields in PostgreSQL, you often want to compare only the date portion, ignoring the time. The `data_type` option makes this easy and correct:
+
+```elixir
+# Without data_type - compares full timestamp (includes time!)
+Query.where(query, {:created_at, :eq, ~D[2024-01-15]})
+# Might not match records with created_at = "2024-01-15 14:30:00"
+
+# With data_type - compares only date parts
+Query.where(query, {:created_at, :eq, ~D[2024-01-15], data_type: :date})
+# Matches all records created on 2024-01-15, regardless of time
+```
+
+### Supported Data Types
+
+- `:date` - Casts to PostgreSQL `date` type (compares only date, ignores time)
+- `:datetime` - Casts to PostgreSQL `timestamp` type (full datetime comparison)
+- `:time` - Casts to PostgreSQL `time` type (compares only time, ignores date)
+
+### Date Comparisons (`:date`)
+
+```elixir
+# Find records created on a specific date
+Query.where(query, {:created_at, :eq, ~D[2024-01-15], data_type: :date})
+
+# Find records created after a date
+Query.where(query, {:expires_at, :gt, ~D[2024-06-01], data_type: :date})
+
+# Date range - all records in 2024
+Query.where(query, {:created_at, :between, {~D[2024-01-01], ~D[2024-12-31]}, data_type: :date})
+
+# Find records NOT created on a specific date
+Query.where(query, {:created_at, :neq, ~D[2024-01-15], data_type: :date})
+
+# Complex date filtering
+Query.new(Order, filters: [
+  {:created_at, :gte, ~D[2024-01-01], data_type: :date},
+  {:created_at, :lte, ~D[2024-03-31], data_type: :date},
+  status: "completed"
+])
+```
+
+### DateTime Comparisons (`:datetime`)
+
+```elixir
+# Exact datetime comparison (includes time)
+Query.where(query, {:updated_at, :gte, ~U[2024-01-01 00:00:00Z], data_type: :datetime})
+
+# Find records updated in the last hour
+cutoff = DateTime.utc_now() |> DateTime.add(-3600, :second)
+Query.where(query, {:updated_at, :gte, cutoff, data_type: :datetime})
+
+# DateTime range
+Query.where(query, {
+  :scheduled_at,
+  :between,
+  {~U[2024-06-01 09:00:00Z], ~U[2024-06-01 17:00:00Z]},
+  data_type: :datetime
+})
+```
+
+### Time Comparisons (`:time`)
+
+```elixir
+# Find records with start time before 6 PM
+Query.where(query, {:start_time, :lt, ~T[18:00:00], data_type: :time})
+
+# Business hours filter
+Query.where(query, {:start_time, :between, {~T[09:00:00], ~T[17:00:00]}, data_type: :time})
+
+# Time equality
+Query.where(query, {:reminder_time, :eq, ~T[14:30:00], data_type: :time})
+```
+
+### Combining with Other Options
+
+You can combine `data_type` with other options:
+
+```elixir
+# Date comparison with NULL handling
+Query.where(query, {:expires_at, :eq, ~D[2024-12-31], data_type: :date, include_nil: true})
+
+# Date filter in a list
+Query.new(Event, filters: [
+  status: "active",
+  {:start_date, :gte, ~D[2024-01-01], data_type: :date},
+  {:end_date, :lte, ~D[2024-12-31], data_type: :date}
+])
+```
+
+### How It Works
+
+Under the hood, the `data_type` option uses PostgreSQL's casting syntax:
+
+```elixir
+# This query:
+Query.where(query, {:created_at, :eq, ~D[2024-01-15], data_type: :date})
+
+# Generates SQL like:
+# WHERE created_at::date = '2024-01-15'::date
+
+# This query:
+Query.where(query, {:start_time, :lt, ~T[18:00:00], data_type: :time})
+
+# Generates SQL like:
+# WHERE start_time::time < '18:00:00'::time
+```
+
+### Practical Examples
+
+```elixir
+# Find all orders placed today
+today = Date.utc_today()
+Query.new(Order)
+|> Query.where({:placed_at, :eq, today, data_type: :date})
+|> Repo.all()
+
+# Find events happening this week
+{start_of_week, end_of_week} = get_week_range()
+Query.new(Event, filters: [
+  {:event_date, :between, {start_of_week, end_of_week}, data_type: :date},
+  status: "active"
+])
+|> Repo.all()
+
+# Find appointments in morning hours (before noon)
+Query.new(Appointment)
+|> Query.where({:scheduled_time, :lt, ~T[12:00:00], data_type: :time})
+|> Query.order_by(asc: :scheduled_time)
+|> Repo.all()
+
+# Complex date filtering with joins
+Query.new(Product)
+|> Query.join(:category)
+|> Query.where([
+  {:created_at, :gte, ~D[2024-01-01], data_type: :date},
+  {:category, :name, "Electronics"}
+])
+|> Repo.all()
+```
+
 ## List-Based Filters
 
 The Query API supports passing all filters as a list for easy composition and dynamic query building. The `filters:` option accepts the full range of filter syntax including operators, options, and join table filters.

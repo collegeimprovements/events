@@ -96,6 +96,7 @@ defmodule Events.Repo.Query do
   - `:trim` - Trim string values before comparison (default: true)
   - `:include_nil` - Include NULL values (default: false)
   - `:type` - Cast value to type (:integer, :string, :float, etc)
+  - `:data_type` - Specify data type for special handling (:date, :datetime, :time)
   - `:value_fn` - Function to transform the value before filtering (1-arity function)
 
   ## Default Behavior
@@ -127,6 +128,26 @@ defmodule Events.Repo.Query do
 
       # Apply to both values in :between
       Query.where(query, {:price, :between, {10.5, 99.9}, value_fn: &Float.round(&1, 2)})
+
+  ## Date/Time Comparisons
+
+  The `:data_type` option handles date, datetime, and time comparisons properly by
+  casting both the field and value to the appropriate PostgreSQL type:
+
+      # Compare only date parts (ignores time)
+      Query.where(query, {:created_at, :eq, ~D[2024-01-15], data_type: :date})
+
+      # Date range comparison
+      Query.where(query, {:created_at, :between, {~D[2024-01-01], ~D[2024-12-31]}, data_type: :date})
+
+      # Greater than comparison on dates
+      Query.where(query, {:expires_at, :gt, ~D[2024-06-01], data_type: :date})
+
+      # Datetime comparison (with timezone handling)
+      Query.where(query, {:updated_at, :gte, ~U[2024-01-01 00:00:00Z], data_type: :datetime})
+
+      # Time-only comparison
+      Query.where(query, {:start_time, :lt, ~T[18:00:00], data_type: :time})
   """
 
   import Ecto.Query
@@ -1385,10 +1406,10 @@ defmodule Events.Repo.Query do
     case op do
       :eq -> apply_eq(query, binding, field, value, opts)
       :neq -> apply_neq(query, binding, field, value, opts)
-      :gt -> apply_comparison(query, binding, field, :>, value)
-      :gte -> apply_comparison(query, binding, field, :>=, value)
-      :lt -> apply_comparison(query, binding, field, :<, value)
-      :lte -> apply_comparison(query, binding, field, :<=, value)
+      :gt -> apply_comparison(query, binding, field, :>, value, opts)
+      :gte -> apply_comparison(query, binding, field, :>=, value, opts)
+      :lt -> apply_comparison(query, binding, field, :<, value, opts)
+      :lte -> apply_comparison(query, binding, field, :<=, value, opts)
       :in -> apply_in(query, binding, field, value)
       :not_in -> apply_not_in(query, binding, field, value)
       :like -> apply_like(query, binding, field, value, opts)
@@ -1397,7 +1418,7 @@ defmodule Events.Repo.Query do
       :not_ilike -> apply_not_ilike(query, binding, field, value, opts)
       :is_nil -> apply_is_nil(query, binding, field)
       :not_nil -> apply_not_nil(query, binding, field)
-      :between -> apply_between(query, binding, field, value)
+      :between -> apply_between(query, binding, field, value, opts)
       :contains -> apply_contains(query, binding, field, value)
       :contained_by -> apply_contained_by(query, binding, field, value)
       :jsonb_contains -> apply_jsonb_contains(query, binding, field, value)
@@ -1474,8 +1495,22 @@ defmodule Events.Repo.Query do
   defp apply_eq(query, 0, field, value, opts) do
     include_nil = Keyword.get(opts, :include_nil, false)
     case_sensitive = Keyword.get(opts, :case_sensitive, false)
+    data_type = Keyword.get(opts, :data_type)
 
     cond do
+      # Date/datetime/time comparison - cast to appropriate type
+      data_type in [:date, :datetime, :time] ->
+        cast_type = get_pg_cast_type(data_type)
+        if include_nil do
+          from(q in query,
+            where:
+              fragment("?::#{cast_type} = ?::#{cast_type}", field(q, ^field), ^value) or
+                is_nil(field(q, ^field))
+          )
+        else
+          from(q in query, where: fragment("?::#{cast_type} = ?::#{cast_type}", field(q, ^field), ^value))
+        end
+
       # String comparison with case insensitive (default)
       is_binary(value) and not case_sensitive ->
         if include_nil do
@@ -1501,8 +1536,24 @@ defmodule Events.Repo.Query do
   defp apply_eq(query, binding, field, value, opts) do
     include_nil = Keyword.get(opts, :include_nil, false)
     case_sensitive = Keyword.get(opts, :case_sensitive, false)
+    data_type = Keyword.get(opts, :data_type)
 
     cond do
+      # Date/datetime/time comparison - cast to appropriate type
+      data_type in [:date, :datetime, :time] ->
+        cast_type = get_pg_cast_type(data_type)
+        if include_nil do
+          from(q in query,
+            where:
+              fragment("?::#{cast_type} = ?::#{cast_type}", field(as(^binding), ^field), ^value) or
+                is_nil(field(as(^binding), ^field))
+          )
+        else
+          from(q in query,
+            where: fragment("?::#{cast_type} = ?::#{cast_type}", field(as(^binding), ^field), ^value)
+          )
+        end
+
       # String comparison with case insensitive (default)
       is_binary(value) and not case_sensitive ->
         if include_nil do
@@ -1531,32 +1582,72 @@ defmodule Events.Repo.Query do
 
   defp apply_neq(query, 0, field, value, opts) do
     case_sensitive = Keyword.get(opts, :case_sensitive, false)
+    data_type = Keyword.get(opts, :data_type)
 
-    if is_binary(value) and not case_sensitive do
-      from(q in query, where: fragment("lower(?)", field(q, ^field)) != fragment("lower(?)", ^value))
-    else
-      from(q in query, where: field(q, ^field) != ^value)
+    cond do
+      # Date/datetime/time comparison - cast to appropriate type
+      data_type in [:date, :datetime, :time] ->
+        cast_type = get_pg_cast_type(data_type)
+        from(q in query, where: fragment("?::#{cast_type} != ?::#{cast_type}", field(q, ^field), ^value))
+
+      # String comparison with case insensitive
+      is_binary(value) and not case_sensitive ->
+        from(q in query, where: fragment("lower(?)", field(q, ^field)) != fragment("lower(?)", ^value))
+
+      # Normal comparison
+      true ->
+        from(q in query, where: field(q, ^field) != ^value)
     end
   end
 
   defp apply_neq(query, binding, field, value, opts) do
     case_sensitive = Keyword.get(opts, :case_sensitive, false)
+    data_type = Keyword.get(opts, :data_type)
 
-    if is_binary(value) and not case_sensitive do
-      from(q in query,
-        where: fragment("lower(?)", field(as(^binding), ^field)) != fragment("lower(?)", ^value)
-      )
-    else
-      from(q in query, where: field(as(^binding), ^field) != ^value)
+    cond do
+      # Date/datetime/time comparison - cast to appropriate type
+      data_type in [:date, :datetime, :time] ->
+        cast_type = get_pg_cast_type(data_type)
+        from(q in query,
+          where: fragment("?::#{cast_type} != ?::#{cast_type}", field(as(^binding), ^field), ^value)
+        )
+
+      # String comparison with case insensitive
+      is_binary(value) and not case_sensitive ->
+        from(q in query,
+          where: fragment("lower(?)", field(as(^binding), ^field)) != fragment("lower(?)", ^value)
+        )
+
+      # Normal comparison
+      true ->
+        from(q in query, where: field(as(^binding), ^field) != ^value)
     end
   end
 
-  defp apply_comparison(query, 0, field, op, value) do
-    from(q in query, where: field(q, ^field) |> fragment("? #{op} ?", ^value))
+  defp apply_comparison(query, 0, field, op, value, opts) do
+    data_type = Keyword.get(opts, :data_type)
+
+    if data_type in [:date, :datetime, :time] do
+      cast_type = get_pg_cast_type(data_type)
+      from(q in query,
+        where: fragment("?::#{cast_type} #{op} ?::#{cast_type}", field(q, ^field), ^value)
+      )
+    else
+      from(q in query, where: field(q, ^field) |> fragment("? #{op} ?", ^value))
+    end
   end
 
-  defp apply_comparison(query, binding, field, op, value) do
-    from(q in query, where: field(as(^binding), ^field) |> fragment("? #{op} ?", ^value))
+  defp apply_comparison(query, binding, field, op, value, opts) do
+    data_type = Keyword.get(opts, :data_type)
+
+    if data_type in [:date, :datetime, :time] do
+      cast_type = get_pg_cast_type(data_type)
+      from(q in query,
+        where: fragment("?::#{cast_type} #{op} ?::#{cast_type}", field(as(^binding), ^field), ^value)
+      )
+    else
+      from(q in query, where: field(as(^binding), ^field) |> fragment("? #{op} ?", ^value))
+    end
   end
 
   defp apply_in(query, 0, field, values) when is_list(values) do
@@ -1651,14 +1742,36 @@ defmodule Events.Repo.Query do
     from(q in query, where: not is_nil(field(as(^binding), ^field)))
   end
 
-  defp apply_between(query, 0, field, {min, max}) do
-    from(q in query, where: field(q, ^field) >= ^min and field(q, ^field) <= ^max)
+  defp apply_between(query, 0, field, {min, max}, opts) do
+    data_type = Keyword.get(opts, :data_type)
+
+    if data_type in [:date, :datetime, :time] do
+      cast_type = get_pg_cast_type(data_type)
+      from(q in query,
+        where:
+          fragment("?::#{cast_type} >= ?::#{cast_type}", field(q, ^field), ^min) and
+            fragment("?::#{cast_type} <= ?::#{cast_type}", field(q, ^field), ^max)
+      )
+    else
+      from(q in query, where: field(q, ^field) >= ^min and field(q, ^field) <= ^max)
+    end
   end
 
-  defp apply_between(query, binding, field, {min, max}) do
-    from(q in query,
-      where: field(as(^binding), ^field) >= ^min and field(as(^binding), ^field) <= ^max
-    )
+  defp apply_between(query, binding, field, {min, max}, opts) do
+    data_type = Keyword.get(opts, :data_type)
+
+    if data_type in [:date, :datetime, :time] do
+      cast_type = get_pg_cast_type(data_type)
+      from(q in query,
+        where:
+          fragment("?::#{cast_type} >= ?::#{cast_type}", field(as(^binding), ^field), ^min) and
+            fragment("?::#{cast_type} <= ?::#{cast_type}", field(as(^binding), ^field), ^max)
+      )
+    else
+      from(q in query,
+        where: field(as(^binding), ^field) >= ^min and field(as(^binding), ^field) <= ^max
+      )
+    end
   end
 
   defp apply_contains(query, 0, field, value) do
@@ -1708,6 +1821,11 @@ defmodule Events.Repo.Query do
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
+
+  # Convert data type to PostgreSQL cast type
+  defp get_pg_cast_type(:date), do: "date"
+  defp get_pg_cast_type(:datetime), do: "timestamp"
+  defp get_pg_cast_type(:time), do: "time"
 end
 
 # Implement Ecto.Queryable protocol so Query works with Repo.all, Repo.one, etc
