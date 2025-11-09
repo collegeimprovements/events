@@ -98,48 +98,88 @@ Query.where(query, {:id, :not_in, [id1, id2, id3]})
 # Include NULL values
 Query.where(query, {:email, :eq, "user@example.com", include_nil: true})
 
-# Case-insensitive matching
-Query.where(query, {:name, :ilike, "%widget%", case_sensitive: false})
+# Case-sensitive matching (disabled by default)
+Query.where(query, {:name, :eq, "Widget", case_sensitive: true})
+
+# Disable trimming (enabled by default)
+Query.where(query, {:code, :eq, " ABC ", trim: false})
 ```
+
+## Default Behavior (Important!)
+
+**By default, all string filters are:**
+- ✅ **Trimmed** - Leading/trailing whitespace is automatically removed (`trim: true`)
+- ✅ **Case insensitive** - Comparisons ignore case differences (`case_sensitive: false`)
+
+This means these queries are **equivalent**:
+
+```elixir
+Query.where(query, name: "widget")
+Query.where(query, name: "Widget")
+Query.where(query, name: "WIDGET")
+Query.where(query, name: " widget ")
+Query.where(query, name: "  WIDGET  ")
+
+# All match records where name is "Widget", "widget", "WIDGET", etc.
+```
+
+**To disable these defaults:**
+
+```elixir
+# Case-sensitive exact match
+Query.where(query, {:name, :eq, "Widget", case_sensitive: true})
+
+# No trimming
+Query.where(query, {:code, :eq, " ABC ", trim: false})
+
+# Both disabled - exact match only
+Query.where(query, {:name, :eq, "Widget", trim: false, case_sensitive: true})
+```
+
+**Why these defaults?**
+- Most user input has accidental whitespace that should be ignored
+- Case-insensitive searches are more user-friendly
+- You can always override when you need exact matching (codes, IDs, etc.)
+
+**Applies to all operations:**
+- `:eq`, `:neq` - Uses `LOWER()` for case insensitivity
+- `:like`, `:not_like` - Uses `ILIKE` by default instead of `LIKE`
+- `:in`, `:not_in` - Trims and lowercases each value in the list
+- `:between` - Trims and lowercases both min and max values
 
 ### Value Transformation
 
-The `value_fn` option allows you to transform filter values before they're applied to the query. This is useful for normalizing user input, trimming whitespace, changing case, or any other preprocessing.
+The `value_fn` option allows custom transformations (applied **after** trimming):
 
 ```elixir
-# Trim whitespace from user input
-Query.where(query, {:name, :eq, " Widget ", value_fn: &String.trim/1})
+# Custom normalization
+Query.where(query, {:sku, :eq, "abc-123", value_fn: &String.upcase/1})
+# Value is first trimmed, then uppercased
 
-# Normalize email to lowercase
+# Normalize email to lowercase (trimming is automatic)
 Query.where(query, {:email, :eq, "USER@EXAMPLE.COM", value_fn: &String.downcase/1})
 
-# Apply to lists - transforms each element
-Query.where(query, {:status, :in, [" active ", " pending ", " published "], value_fn: &String.trim/1})
+# Apply to lists - transforms each element (after trimming)
+Query.where(query, {:tags, :in, ["tag1", "tag2"], value_fn: &String.upcase/1})
 
 # Apply to :between - transforms both min and max
 Query.where(query, {:price, :between, {10.5555, 99.9999}, value_fn: &Float.round(&1, 2)})
 
-# Combine with other options
-Query.where(query, {:email, :eq, " ADMIN@SITE.COM ",
-  value_fn: fn v -> v |> String.trim() |> String.downcase() end,
-  include_nil: true
-})
-
 # Custom transformation function
 normalize_sku = fn sku ->
   sku
-  |> String.trim()
   |> String.upcase()
   |> String.replace(~r/[^A-Z0-9]/, "")
 end
 
 Query.where(query, {:sku, :eq, " abc-123 ", value_fn: normalize_sku})
+# First trimmed to "abc-123", then transformed to "ABC123"
 
 # In filters list
 Query.new(Product, filters: [
-  {:name, :eq, " Widget ", value_fn: &String.trim/1},
-  {:email, :eq, "USER@EXAMPLE.COM", value_fn: &String.downcase/1},
-  {:tags, :in, [" featured ", " new "], value_fn: &String.trim/1}
+  {:name, :eq, "Widget"},  # Automatically trimmed and case-insensitive
+  {:sku, :eq, "abc-123", value_fn: &String.upcase/1},
+  {:tags, :in, ["featured", "new"]}  # Each tag trimmed and case-insensitive
 ])
 ```
 

@@ -92,26 +92,41 @@ defmodule Events.Repo.Query do
 
   ## Options
 
-  - `:case_sensitive` - For string comparisons (default: true)
+  - `:case_sensitive` - For string comparisons (default: false - case insensitive)
+  - `:trim` - Trim string values before comparison (default: true)
   - `:include_nil` - Include NULL values (default: false)
   - `:type` - Cast value to type (:integer, :string, :float, etc)
   - `:value_fn` - Function to transform the value before filtering (1-arity function)
 
+  ## Default Behavior
+
+  By default, all string filters are:
+  - **Trimmed** - Leading/trailing whitespace is removed (`:trim` defaults to `true`)
+  - **Case insensitive** - Comparisons ignore case (`:case_sensitive` defaults to `false`)
+
+  This means these are equivalent:
+
+      Query.where(query, name: "widget")
+      Query.where(query, name: "Widget")
+      Query.where(query, name: " WIDGET ")
+
+  To disable these defaults:
+
+      Query.where(query, {:name, :eq, "Widget", trim: false, case_sensitive: true})
+
   ## Value Transformation
 
-  The `:value_fn` option accepts a 1-arity function that transforms the filter value:
+  The `:value_fn` option accepts a 1-arity function for custom transformations
+  (applied after trimming):
 
-      # Trim and downcase string before comparing
-      Query.where(query, {:name, :eq, " Widget ", value_fn: &String.trim/1})
+      # Custom normalization
+      Query.where(query, {:sku, :eq, "abc-123", value_fn: &String.upcase/1})
 
       # Transform multiple values in :in operation
-      Query.where(query, {:status, :in, [" active ", " pending "], value_fn: &String.trim/1})
+      Query.where(query, {:tags, :in, ["tag1", "tag2"], value_fn: &String.upcase/1})
 
       # Apply to both values in :between
       Query.where(query, {:price, :between, {10.5, 99.9}, value_fn: &Float.round(&1, 2)})
-
-      # Combine with other options
-      Query.where(query, {:email, :eq, "USER@EXAMPLE.COM", value_fn: &String.downcase/1, include_nil: true})
   """
 
   import Ecto.Query
@@ -1393,6 +1408,10 @@ defmodule Events.Repo.Query do
 
   # Apply value transformation function if provided in options
   defp apply_value_fn(value, op, opts) do
+    # First apply trimming if enabled (default: true)
+    value = apply_trim(value, op, opts)
+
+    # Then apply custom value_fn if provided
     case Keyword.get(opts, :value_fn) do
       nil ->
         value
@@ -1419,34 +1438,117 @@ defmodule Events.Repo.Query do
     end
   end
 
+  # Apply trimming to string values (default: enabled)
+  defp apply_trim(value, op, opts) do
+    trim_enabled = Keyword.get(opts, :trim, true)
+
+    if trim_enabled do
+      case op do
+        # For :in and :not_in, trim each string element in the list
+        op when op in [:in, :not_in] and is_list(value) ->
+          Enum.map(value, fn
+            v when is_binary(v) -> String.trim(v)
+            v -> v
+          end)
+
+        # For :between, trim both values if they're strings
+        :between when is_tuple(value) ->
+          {min, max} = value
+          min = if is_binary(min), do: String.trim(min), else: min
+          max = if is_binary(max), do: String.trim(max), else: max
+          {min, max}
+
+        # For :is_nil and :not_nil, don't transform
+        op when op in [:is_nil, :not_nil] ->
+          value
+
+        # For all other operations, trim if it's a string
+        _ ->
+          if is_binary(value), do: String.trim(value), else: value
+      end
+    else
+      value
+    end
+  end
+
   defp apply_eq(query, 0, field, value, opts) do
     include_nil = Keyword.get(opts, :include_nil, false)
+    case_sensitive = Keyword.get(opts, :case_sensitive, false)
 
-    if include_nil do
-      from(q in query, where: field(q, ^field) == ^value or is_nil(field(q, ^field)))
-    else
-      from(q in query, where: field(q, ^field) == ^value)
+    cond do
+      # String comparison with case insensitive (default)
+      is_binary(value) and not case_sensitive ->
+        if include_nil do
+          from(q in query,
+            where:
+              fragment("lower(?)", field(q, ^field)) == fragment("lower(?)", ^value) or
+                is_nil(field(q, ^field))
+          )
+        else
+          from(q in query, where: fragment("lower(?)", field(q, ^field)) == fragment("lower(?)", ^value))
+        end
+
+      # Normal comparison (non-string or case sensitive)
+      true ->
+        if include_nil do
+          from(q in query, where: field(q, ^field) == ^value or is_nil(field(q, ^field)))
+        else
+          from(q in query, where: field(q, ^field) == ^value)
+        end
     end
   end
 
   defp apply_eq(query, binding, field, value, opts) do
     include_nil = Keyword.get(opts, :include_nil, false)
+    case_sensitive = Keyword.get(opts, :case_sensitive, false)
 
-    if include_nil do
-      from(q in query,
-        where: field(as(^binding), ^field) == ^value or is_nil(field(as(^binding), ^field))
-      )
-    else
-      from(q in query, where: field(as(^binding), ^field) == ^value)
+    cond do
+      # String comparison with case insensitive (default)
+      is_binary(value) and not case_sensitive ->
+        if include_nil do
+          from(q in query,
+            where:
+              fragment("lower(?)", field(as(^binding), ^field)) == fragment("lower(?)", ^value) or
+                is_nil(field(as(^binding), ^field))
+          )
+        else
+          from(q in query,
+            where: fragment("lower(?)", field(as(^binding), ^field)) == fragment("lower(?)", ^value)
+          )
+        end
+
+      # Normal comparison (non-string or case sensitive)
+      true ->
+        if include_nil do
+          from(q in query,
+            where: field(as(^binding), ^field) == ^value or is_nil(field(as(^binding), ^field))
+          )
+        else
+          from(q in query, where: field(as(^binding), ^field) == ^value)
+        end
     end
   end
 
-  defp apply_neq(query, 0, field, value, _opts) do
-    from(q in query, where: field(q, ^field) != ^value)
+  defp apply_neq(query, 0, field, value, opts) do
+    case_sensitive = Keyword.get(opts, :case_sensitive, false)
+
+    if is_binary(value) and not case_sensitive do
+      from(q in query, where: fragment("lower(?)", field(q, ^field)) != fragment("lower(?)", ^value))
+    else
+      from(q in query, where: field(q, ^field) != ^value)
+    end
   end
 
-  defp apply_neq(query, binding, field, value, _opts) do
-    from(q in query, where: field(as(^binding), ^field) != ^value)
+  defp apply_neq(query, binding, field, value, opts) do
+    case_sensitive = Keyword.get(opts, :case_sensitive, false)
+
+    if is_binary(value) and not case_sensitive do
+      from(q in query,
+        where: fragment("lower(?)", field(as(^binding), ^field)) != fragment("lower(?)", ^value)
+      )
+    else
+      from(q in query, where: field(as(^binding), ^field) != ^value)
+    end
   end
 
   defp apply_comparison(query, 0, field, op, value) do
@@ -1473,12 +1575,26 @@ defmodule Events.Repo.Query do
     from(q in query, where: field(as(^binding), ^field) not in ^values)
   end
 
-  defp apply_like(query, 0, field, pattern, _opts) do
-    from(q in query, where: like(field(q, ^field), ^pattern))
+  defp apply_like(query, 0, field, pattern, opts) do
+    # Default to case insensitive (ILIKE)
+    case_sensitive = Keyword.get(opts, :case_sensitive, false)
+
+    if case_sensitive do
+      from(q in query, where: like(field(q, ^field), ^pattern))
+    else
+      from(q in query, where: ilike(field(q, ^field), ^pattern))
+    end
   end
 
-  defp apply_like(query, binding, field, pattern, _opts) do
-    from(q in query, where: like(field(as(^binding), ^field), ^pattern))
+  defp apply_like(query, binding, field, pattern, opts) do
+    # Default to case insensitive (ILIKE)
+    case_sensitive = Keyword.get(opts, :case_sensitive, false)
+
+    if case_sensitive do
+      from(q in query, where: like(field(as(^binding), ^field), ^pattern))
+    else
+      from(q in query, where: ilike(field(as(^binding), ^field), ^pattern))
+    end
   end
 
   defp apply_ilike(query, 0, field, pattern, _opts) do
@@ -1489,12 +1605,26 @@ defmodule Events.Repo.Query do
     from(q in query, where: ilike(field(as(^binding), ^field), ^pattern))
   end
 
-  defp apply_not_like(query, 0, field, pattern, _opts) do
-    from(q in query, where: not like(field(q, ^field), ^pattern))
+  defp apply_not_like(query, 0, field, pattern, opts) do
+    # Default to case insensitive (NOT ILIKE)
+    case_sensitive = Keyword.get(opts, :case_sensitive, false)
+
+    if case_sensitive do
+      from(q in query, where: not like(field(q, ^field), ^pattern))
+    else
+      from(q in query, where: not ilike(field(q, ^field), ^pattern))
+    end
   end
 
-  defp apply_not_like(query, binding, field, pattern, _opts) do
-    from(q in query, where: not like(field(as(^binding), ^field), ^pattern))
+  defp apply_not_like(query, binding, field, pattern, opts) do
+    # Default to case insensitive (NOT ILIKE)
+    case_sensitive = Keyword.get(opts, :case_sensitive, false)
+
+    if case_sensitive do
+      from(q in query, where: not like(field(as(^binding), ^field), ^pattern))
+    else
+      from(q in query, where: not ilike(field(as(^binding), ^field), ^pattern))
+    end
   end
 
   defp apply_not_ilike(query, 0, field, pattern, _opts) do
