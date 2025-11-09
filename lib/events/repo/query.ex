@@ -132,22 +132,35 @@ defmodule Events.Repo.Query do
   ## Date/Time Comparisons
 
   The `:data_type` option handles date, datetime, and time comparisons properly by
-  casting both the field and value to the appropriate PostgreSQL type:
+  casting both the field and value to the appropriate PostgreSQL type. It also
+  automatically parses date strings in various formats.
 
-      # Compare only date parts (ignores time)
+      # Compare only date parts (ignores time) - using Date struct
       Query.where(query, {:created_at, :eq, ~D[2024-01-15], data_type: :date})
 
-      # Date range comparison
-      Query.where(query, {:created_at, :between, {~D[2024-01-01], ~D[2024-12-31]}, data_type: :date})
+      # Using string dates - automatically parsed to Date
+      Query.where(query, {:created_at, :eq, "2024-01-15", data_type: :date})      # yyyy-mm-dd
+      Query.where(query, {:created_at, :eq, "2024/01/15", data_type: :date})      # yyyy/mm/dd
+      Query.where(query, {:created_at, :eq, "01-15-2024", data_type: :date})      # mm-dd-yyyy
+      Query.where(query, {:created_at, :eq, "01/15/2024", data_type: :date})      # mm/dd/yyyy
+
+      # Date range comparison with string dates
+      Query.where(query, {:created_at, :between, {"2024-01-01", "2024-12-31"}, data_type: :date})
 
       # Greater than comparison on dates
-      Query.where(query, {:expires_at, :gt, ~D[2024-06-01], data_type: :date})
+      Query.where(query, {:expires_at, :gt, "06/01/2024", data_type: :date})
 
       # Datetime comparison (with timezone handling)
       Query.where(query, {:updated_at, :gte, ~U[2024-01-01 00:00:00Z], data_type: :datetime})
 
       # Time-only comparison
       Query.where(query, {:start_time, :lt, ~T[18:00:00], data_type: :time})
+
+  Supported date formats:
+  - `yyyy-mm-dd` (ISO format with dash)
+  - `yyyy/mm/dd` (ISO format with slash)
+  - `mm-dd-yyyy` (US format with dash)
+  - `mm/dd/yyyy` (US format with slash)
   """
 
   import Ecto.Query
@@ -1403,6 +1416,9 @@ defmodule Events.Repo.Query do
     # Apply value transformation function if provided
     value = apply_value_fn(value, op, opts)
 
+    # Normalize data type values (e.g., convert date strings to Date)
+    value = normalize_data_type_value(value, op, opts)
+
     case op do
       :eq -> apply_eq(query, binding, field, value, opts)
       :neq -> apply_neq(query, binding, field, value, opts)
@@ -1491,6 +1507,150 @@ defmodule Events.Repo.Query do
       value
     end
   end
+
+  # Normalize values based on data_type option
+  # Converts string date/time values to appropriate Elixir types
+  defp normalize_data_type_value(value, op, opts) do
+    data_type = Keyword.get(opts, :data_type)
+
+    case data_type do
+      :date ->
+        case op do
+          # For :in and :not_in, convert each element in the list
+          op when op in [:in, :not_in] and is_list(value) ->
+            Enum.map(value, &parse_date_value/1)
+
+          # For :between, convert both min and max
+          :between when is_tuple(value) ->
+            {min, max} = value
+            {parse_date_value(min), parse_date_value(max)}
+
+          # For :is_nil and :not_nil, don't transform
+          op when op in [:is_nil, :not_nil] ->
+            value
+
+          # For all other operations, convert the value
+          _ ->
+            parse_date_value(value)
+        end
+
+      :datetime ->
+        case op do
+          op when op in [:in, :not_in] and is_list(value) ->
+            Enum.map(value, &parse_datetime_value/1)
+
+          :between when is_tuple(value) ->
+            {min, max} = value
+            {parse_datetime_value(min), parse_datetime_value(max)}
+
+          op when op in [:is_nil, :not_nil] ->
+            value
+
+          _ ->
+            parse_datetime_value(value)
+        end
+
+      :time ->
+        case op do
+          op when op in [:in, :not_in] and is_list(value) ->
+            Enum.map(value, &parse_time_value/1)
+
+          :between when is_tuple(value) ->
+            {min, max} = value
+            {parse_time_value(min), parse_time_value(max)}
+
+          op when op in [:is_nil, :not_nil] ->
+            value
+
+          _ ->
+            parse_time_value(value)
+        end
+
+      _ ->
+        value
+    end
+  end
+
+  # Parse date from various string formats or return existing Date
+  defp parse_date_value(%Date{} = date), do: date
+  defp parse_date_value(%DateTime{} = datetime), do: DateTime.to_date(datetime)
+  defp parse_date_value(%NaiveDateTime{} = naive), do: NaiveDateTime.to_date(naive)
+
+  defp parse_date_value(value) when is_binary(value) do
+    cond do
+      # yyyy-mm-dd or yyyy/mm/dd
+      Regex.match?(~r/^\d{4}[-\/]\d{1,2}[-\/]\d{1,2}$/, value) ->
+        parse_date_iso_format(value)
+
+      # mm-dd-yyyy or mm/dd/yyyy
+      Regex.match?(~r/^\d{1,2}[-\/]\d{1,2}[-\/]\d{4}$/, value) ->
+        parse_date_us_format(value)
+
+      # If already a valid ISO date string (from Date sigil)
+      true ->
+        case Date.from_iso8601(value) do
+          {:ok, date} -> date
+          {:error, _} -> raise "Invalid date format: #{value}. Expected formats: yyyy-mm-dd, yyyy/mm/dd, mm-dd-yyyy, mm/dd/yyyy"
+        end
+    end
+  end
+
+  defp parse_date_value(value), do: value
+
+  # Parse ISO format: yyyy-mm-dd or yyyy/mm/dd
+  defp parse_date_iso_format(value) do
+    normalized = String.replace(value, "/", "-")
+    case Date.from_iso8601(normalized) do
+      {:ok, date} -> date
+      {:error, _} -> raise "Invalid date: #{value}"
+    end
+  end
+
+  # Parse US format: mm-dd-yyyy or mm/dd/yyyy
+  defp parse_date_us_format(value) do
+    parts = String.split(value, ~r/[-\/]/)
+    case parts do
+      [month, day, year] ->
+        # Convert to ISO format: yyyy-mm-dd
+        iso_string = "#{year}-#{String.pad_leading(month, 2, "0")}-#{String.pad_leading(day, 2, "0")}"
+        case Date.from_iso8601(iso_string) do
+          {:ok, date} -> date
+          {:error, _} -> raise "Invalid date: #{value}"
+        end
+      _ ->
+        raise "Invalid date format: #{value}"
+    end
+  end
+
+  # Parse datetime from string or return existing DateTime
+  defp parse_datetime_value(%DateTime{} = datetime), do: datetime
+  defp parse_datetime_value(%NaiveDateTime{} = naive), do: DateTime.from_naive!(naive, "Etc/UTC")
+
+  defp parse_datetime_value(value) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, datetime, _offset} -> datetime
+      {:error, _} ->
+        # Try NaiveDateTime
+        case NaiveDateTime.from_iso8601(value) do
+          {:ok, naive} -> DateTime.from_naive!(naive, "Etc/UTC")
+          {:error, _} -> raise "Invalid datetime format: #{value}. Expected ISO8601 format."
+        end
+    end
+  end
+
+  defp parse_datetime_value(value), do: value
+
+  # Parse time from string or return existing Time
+  defp parse_time_value(%Time{} = time), do: time
+
+  defp parse_time_value(value) when is_binary(value) do
+    case Time.from_iso8601(value) do
+      {:ok, time} -> time
+      {:error, _} -> raise "Invalid time format: #{value}. Expected ISO8601 format (HH:MM:SS)."
+    end
+  end
+
+  defp parse_time_value(value), do: value
 
   defp apply_eq(query, 0, field, value, opts) do
     include_nil = Keyword.get(opts, :include_nil, false)

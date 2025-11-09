@@ -191,7 +191,7 @@ Query.new(Product, filters: [
 
 ## Date/Time Comparisons
 
-The `data_type` option handles date, datetime, and time comparisons properly by casting both the database field and comparison value to the appropriate PostgreSQL type.
+The `data_type` option handles date, datetime, and time comparisons properly by casting both the database field and comparison value to the appropriate PostgreSQL type. It also **automatically parses date strings** in various formats for maximum convenience.
 
 ### Why This Is Needed
 
@@ -205,6 +205,10 @@ Query.where(query, {:created_at, :eq, ~D[2024-01-15]})
 # With data_type - compares only date parts
 Query.where(query, {:created_at, :eq, ~D[2024-01-15], data_type: :date})
 # Matches all records created on 2024-01-15, regardless of time
+
+# Can also use string dates - automatically parsed!
+Query.where(query, {:created_at, :eq, "2024-01-15", data_type: :date})
+Query.where(query, {:created_at, :eq, "01/15/2024", data_type: :date})  # US format
 ```
 
 ### Supported Data Types
@@ -213,27 +217,67 @@ Query.where(query, {:created_at, :eq, ~D[2024-01-15], data_type: :date})
 - `:datetime` - Casts to PostgreSQL `timestamp` type (full datetime comparison)
 - `:time` - Casts to PostgreSQL `time` type (compares only time, ignores date)
 
+### Automatic Date Format Parsing
+
+When `data_type: :date` is specified, string values are **automatically parsed** into Date structs. Supported formats:
+
+- **`yyyy-mm-dd`** - ISO format with dash (e.g., "2024-01-15")
+- **`yyyy/mm/dd`** - ISO format with slash (e.g., "2024/01/15")
+- **`mm-dd-yyyy`** - US format with dash (e.g., "01-15-2024")
+- **`mm/dd/yyyy`** - US format with slash (e.g., "01/15/2024")
+
+This works with all date operations: `:eq`, `:neq`, `:gt`, `:gte`, `:lt`, `:lte`, `:between`, `:in`, `:not_in`
+
+```elixir
+# All of these are equivalent and work correctly:
+Query.where(query, {:created_at, :eq, ~D[2024-01-15], data_type: :date})
+Query.where(query, {:created_at, :eq, "2024-01-15", data_type: :date})
+Query.where(query, {:created_at, :eq, "2024/01/15", data_type: :date})
+Query.where(query, {:created_at, :eq, "01-15-2024", data_type: :date})
+Query.where(query, {:created_at, :eq, "01/15/2024", data_type: :date})
+
+# Works with all operations
+Query.where(query, {:expires_at, :gt, "06/01/2024", data_type: :date})
+Query.where(query, {:start_date, :gte, "2024-01-01", data_type: :date})
+
+# Works with :between
+Query.where(query, {:created_at, :between, {"01/01/2024", "12/31/2024"}, data_type: :date})
+
+# Works with :in for multiple dates
+Query.where(query, {:event_date, :in, ["2024-01-15", "2024-02-20", "03/15/2024"], data_type: :date})
+```
+
 ### Date Comparisons (`:date`)
 
 ```elixir
-# Find records created on a specific date
+# Find records created on a specific date (using various formats)
 Query.where(query, {:created_at, :eq, ~D[2024-01-15], data_type: :date})
+Query.where(query, {:created_at, :eq, "2024-01-15", data_type: :date})
+Query.where(query, {:created_at, :eq, "01/15/2024", data_type: :date})
 
 # Find records created after a date
-Query.where(query, {:expires_at, :gt, ~D[2024-06-01], data_type: :date})
+Query.where(query, {:expires_at, :gt, "06/01/2024", data_type: :date})
 
-# Date range - all records in 2024
-Query.where(query, {:created_at, :between, {~D[2024-01-01], ~D[2024-12-31]}, data_type: :date})
+# Date range - all records in 2024 (using string dates)
+Query.where(query, {:created_at, :between, {"2024-01-01", "2024-12-31"}, data_type: :date})
 
 # Find records NOT created on a specific date
-Query.where(query, {:created_at, :neq, ~D[2024-01-15], data_type: :date})
+Query.where(query, {:created_at, :neq, "01-15-2024", data_type: :date})
 
-# Complex date filtering
+# Complex date filtering with mixed formats
 Query.new(Order, filters: [
-  {:created_at, :gte, ~D[2024-01-01], data_type: :date},
-  {:created_at, :lte, ~D[2024-03-31], data_type: :date},
+  {:created_at, :gte, "2024-01-01", data_type: :date},
+  {:created_at, :lte, "03/31/2024", data_type: :date},
   status: "completed"
 ])
+
+# Using :in for multiple specific dates
+Query.where(query, {
+  :event_date,
+  :in,
+  ["2024-01-15", "2024-02-20", "03/15/2024"],
+  data_type: :date
+})
 ```
 
 ### DateTime Comparisons (`:datetime`)
@@ -311,13 +355,29 @@ Query.new(Order)
 |> Query.where({:placed_at, :eq, today, data_type: :date})
 |> Repo.all()
 
-# Find events happening this week
-{start_of_week, end_of_week} = get_week_range()
+# Find orders placed on a specific date (using string - great for user input!)
+Query.new(Order)
+|> Query.where({:placed_at, :eq, "01/15/2024", data_type: :date})
+|> Repo.all()
+
+# Find events happening this week (using string dates from user input)
 Query.new(Event, filters: [
-  {:event_date, :between, {start_of_week, end_of_week}, data_type: :date},
+  {:event_date, :between, {"01/01/2024", "01/07/2024"}, data_type: :date},
   status: "active"
 ])
 |> Repo.all()
+
+# Dynamic date filtering from user input (various formats accepted)
+def find_orders_by_date(date_string) do
+  Query.new(Order)
+  |> Query.where({:created_at, :eq, date_string, data_type: :date})
+  |> Repo.all()
+end
+
+# Works with any supported format:
+find_orders_by_date("2024-01-15")  # ISO format
+find_orders_by_date("01/15/2024")  # US format
+find_orders_by_date("2024/01/15")  # ISO with slashes
 
 # Find appointments in morning hours (before noon)
 Query.new(Appointment)
@@ -325,14 +385,44 @@ Query.new(Appointment)
 |> Query.order_by(asc: :scheduled_time)
 |> Repo.all()
 
-# Complex date filtering with joins
+# Complex date filtering with joins and string dates
 Query.new(Product)
 |> Query.join(:category)
 |> Query.where([
-  {:created_at, :gte, ~D[2024-01-01], data_type: :date},
+  {:created_at, :gte, "2024-01-01", data_type: :date},
+  {:created_at, :lte, "03/31/2024", data_type: :date},  # Mixed formats OK!
   {:category, :name, "Electronics"}
 ])
 |> Repo.all()
+
+# Filter by multiple specific dates (great for holiday/event queries)
+Query.new(Sale, filters: [
+  {:sale_date, :in, ["12/25/2024", "12/26/2024", "01/01/2025"], data_type: :date},
+  status: "active"
+])
+|> Repo.all()
+
+# Building filters dynamically from user input
+def build_date_filters(params) do
+  filters = []
+
+  filters = if params["start_date"] do
+    [{:created_at, :gte, params["start_date"], data_type: :date} | filters]
+  else
+    filters
+  end
+
+  filters = if params["end_date"] do
+    [{:created_at, :lte, params["end_date"], data_type: :date} | filters]
+  else
+    filters
+  end
+
+  Query.new(Order, filters: filters) |> Repo.all()
+end
+
+# Handles user input in any format automatically!
+build_date_filters(%{"start_date" => "01/01/2024", "end_date" => "2024-12-31"})
 ```
 
 ## List-Based Filters
