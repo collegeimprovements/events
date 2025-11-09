@@ -294,37 +294,37 @@ defmodule Events.Repo.Query do
   """
   @spec where(t(), keyword() | tuple()) :: t()
   def where(%__MODULE__{} = builder, conditions) when is_list(conditions) do
-    Enum.reduce(conditions, builder, fn condition, acc ->
-      where(acc, condition)
+    Enum.reduce(conditions, builder, fn cond_item, acc ->
+      __MODULE__.where(acc, cond_item)
     end)
   end
 
   def where(%__MODULE__{} = builder, {field, value}) when is_atom(field) do
     # Simple field: value - infer operation
-    where(builder, {field, infer_operation(value), value})
+    __MODULE__.where(builder, {field, infer_operation(value), value})
   end
 
   def where(%__MODULE__{} = builder, {field, op, value}) when is_atom(field) and is_atom(op) do
     # Field on main table
-    where(builder, {nil, field, op, value, []})
+    __MODULE__.where(builder, {nil, field, op, value, []})
   end
 
   def where(%__MODULE__{} = builder, {field, op, value, opts})
       when is_atom(field) and is_atom(op) and is_list(opts) do
     # Field on main table with options
-    where(builder, {nil, field, op, value, opts})
+    __MODULE__.where(builder, {nil, field, op, value, opts})
   end
 
   def where(%__MODULE__{} = builder, {join_name, field, value})
       when is_atom(join_name) and is_atom(field) do
     # Field on joined table - infer operation
-    where(builder, {join_name, field, infer_operation(value), value, []})
+    __MODULE__.where(builder, {join_name, field, infer_operation(value), value, []})
   end
 
   def where(%__MODULE__{} = builder, {join_name, field, op, value})
       when is_atom(join_name) and is_atom(field) and is_atom(op) do
     # Field on joined table with operation
-    where(builder, {join_name, field, op, value, []})
+    __MODULE__.where(builder, {join_name, field, op, value, []})
   end
 
   def where(%__MODULE__{} = builder, {join_name, field, op, value, opts})
@@ -358,7 +358,7 @@ defmodule Events.Repo.Query do
       Query.join(query, :tags, type: :left, through: :product_tags)
   """
   @spec join(t(), atom(), atom() | keyword()) :: t()
-  def join(%__MODULE__{} = builder, assoc_name, join_type_or_opts \\ :inner)
+  def join(builder, assoc_name, join_type_or_opts \\ :inner)
 
   # When opts is a keyword list with :through option
   def join(%__MODULE__{} = builder, assoc_name, opts) when is_list(opts) do
@@ -377,7 +377,7 @@ defmodule Events.Repo.Query do
       # Apply filters on intermediate table if provided
       builder =
         if through_filters do
-          where(builder, normalize_through_filter(through_assoc, through_filters))
+          __MODULE__.where(builder, normalize_through_filter(through_assoc, through_filters))
         else
           builder
         end
@@ -405,7 +405,7 @@ defmodule Events.Repo.Query do
     else
       # Keyword list but no :through, might have other options
       join_type = Keyword.get(opts, :type, :inner)
-      join(builder, assoc_name, join_type)
+      __MODULE__.join(builder, assoc_name, join_type)
     end
   end
 
@@ -464,7 +464,7 @@ defmodule Events.Repo.Query do
     # Apply filters on intermediate table if provided
     builder =
       if through_filters do
-        where(builder, normalize_through_filter(through_assoc, through_filters))
+        __MODULE__.where(builder, normalize_through_filter(through_assoc, through_filters))
       else
         builder
       end
@@ -582,19 +582,11 @@ defmodule Events.Repo.Query do
 
       Query.group_by(query, :category_id)
       |> Query.having([count: {:gt, 5}])
-
-      Query.group_by(query, :category_id)
-      |> Query.having("count(*) > ?", [5])
   """
-  @spec having(t(), keyword() | String.t(), list()) :: t()
-  def having(%__MODULE__{} = builder, conditions, bindings \\ [])
+  @spec having(t(), keyword()) :: t()
+  def having(builder, conditions)
 
-  def having(%__MODULE__{} = builder, sql, bindings) when is_binary(sql) and is_list(bindings) do
-    query = from(s in builder.query, having: fragment(^sql, ^bindings))
-    %{builder | query: query}
-  end
-
-  def having(%__MODULE__{} = builder, conditions, _) when is_list(conditions) do
+  def having(%__MODULE__{} = builder, conditions) when is_list(conditions) do
     # Simple keyword-based having
     query =
       Enum.reduce(conditions, builder.query, fn {aggregate, {op, value}}, q ->
@@ -639,10 +631,9 @@ defmodule Events.Repo.Query do
       Query.window(query, :w, partition_by: [:category_id, :status])
   """
   @spec window(t(), atom(), keyword()) :: t()
-  def window(%__MODULE__{} = builder, name, opts) when is_atom(name) and is_list(opts) do
-    window_spec = build_window_spec(opts)
-    query = from(s in builder.query, windows: [{^name, ^window_spec}])
-    %{builder | query: query}
+  def window(%__MODULE__{} = _builder, _name, _opts) do
+    raise "Window functions are not currently supported due to Ecto macro limitations. " <>
+            "Please use raw SQL queries for window functions."
   end
 
   @doc """
@@ -693,9 +684,25 @@ defmodule Events.Repo.Query do
   end
 
   def select(%__MODULE__{} = builder, field_map) when is_map(field_map) do
-    # Map with potentially window functions
-    # Build select using SQL fragments for window functions
-    query = build_select_query(builder.query, field_map)
+    # Check if any values are window function tuples
+    has_window_functions =
+      Enum.any?(field_map, fn
+        {_key, {:window, _func, _opts}} -> true
+        _ -> false
+      end)
+
+    if has_window_functions do
+      raise "Window functions in select are not currently supported due to Ecto macro limitations. " <>
+              "Please use raw SQL queries for window functions."
+    end
+
+    # Simple map selection without window functions
+    select_expr =
+      Enum.reduce(field_map, %{}, fn {key, field}, acc when is_atom(field) ->
+        Map.put(acc, key, dynamic([s], field(s, ^field)))
+      end)
+
+    query = from(s in builder.query, select: ^select_expr)
     %{builder | query: query}
   end
 
@@ -758,28 +765,28 @@ defmodule Events.Repo.Query do
       |> Query.where_exists(subquery)
   """
   @spec where_in_subquery(t(), atom(), t()) :: t()
-  def where_in_subquery(%__MODULE__{} = builder, field, %__MODULE__{query: subquery})
+  def where_in_subquery(%__MODULE__{} = builder, field, %__MODULE__{query: sq})
       when is_atom(field) do
-    query = from(s in builder.query, where: field(s, ^field) in subquery(^subquery))
+    query = from(s in builder.query, where: field(s, ^field) in subquery(sq))
     %{builder | query: query}
   end
 
   @spec where_not_in_subquery(t(), atom(), t()) :: t()
-  def where_not_in_subquery(%__MODULE__{} = builder, field, %__MODULE__{query: subquery})
+  def where_not_in_subquery(%__MODULE__{} = builder, field, %__MODULE__{query: sq})
       when is_atom(field) do
-    query = from(s in builder.query, where: field(s, ^field) not in subquery(^subquery))
+    query = from(s in builder.query, where: field(s, ^field) not in subquery(sq))
     %{builder | query: query}
   end
 
   @spec where_exists(t(), t()) :: t()
-  def where_exists(%__MODULE__{} = builder, %__MODULE__{query: subquery}) do
-    query = from(s in builder.query, where: exists(^subquery))
+  def where_exists(%__MODULE__{} = builder, %__MODULE__{query: sq}) do
+    query = from(s in builder.query, where: exists(sq))
     %{builder | query: query}
   end
 
   @spec where_not_exists(t(), t()) :: t()
-  def where_not_exists(%__MODULE__{} = builder, %__MODULE__{query: subquery}) do
-    query = from(s in builder.query, where: not exists(^subquery))
+  def where_not_exists(%__MODULE__{} = builder, %__MODULE__{query: sq}) do
+    query = from(s in builder.query, where: not exists(sq))
     %{builder | query: query}
   end
 
@@ -804,17 +811,17 @@ defmodule Events.Repo.Query do
       |> Query.select_subquery(:inactive_products, inactive_count_query)
   """
   @spec select_subquery(t(), atom(), t() | Ecto.Query.t()) :: t()
-  def select_subquery(%__MODULE__{} = builder, field_name, %__MODULE__{query: subquery})
+  def select_subquery(%__MODULE__{} = builder, field_name, %__MODULE__{query: sq})
       when is_atom(field_name) do
     # Add scalar subquery to select
-    query = from(s in builder.query, select_merge: %{^field_name => subquery(^subquery)})
+    query = from(s in builder.query, select_merge: %{^field_name => subquery(sq)})
     %{builder | query: query}
   end
 
-  def select_subquery(%__MODULE__{} = builder, field_name, subquery)
+  def select_subquery(%__MODULE__{} = builder, field_name, sq)
       when is_atom(field_name) do
     # Support raw Ecto.Query
-    query = from(s in builder.query, select_merge: %{^field_name => subquery(^subquery)})
+    query = from(s in builder.query, select_merge: %{^field_name => subquery(sq)})
     %{builder | query: query}
   end
 
@@ -920,11 +927,11 @@ defmodule Events.Repo.Query do
       Query.new(Product)
       |> Query.where(status: "active")
       |> Query.join(:tags, through: :product_tags, where: {:type, "featured"})
-      |> Query.inspect()
+      |> Query.debug()
       # => Returns formatted string representation
   """
-  @spec inspect(t()) :: String.t()
-  def inspect(%__MODULE__{} = builder) do
+  @spec debug(t()) :: String.t()
+  def debug(%__MODULE__{} = builder) do
     Kernel.inspect(builder.query, pretty: true, limit: :infinity, printable_limit: :infinity)
   end
 
@@ -1060,131 +1067,19 @@ defmodule Events.Repo.Query do
 
   ## Private Helpers
 
-  # Build window specification from options
-  defp build_window_spec(opts) do
-    partition_by = Keyword.get(opts, :partition_by)
-    order_by = Keyword.get(opts, :order_by)
-
-    spec = []
-
-    spec =
-      if partition_by do
-        partition_fields = if is_list(partition_by), do: partition_by, else: [partition_by]
-        [{:partition_by, partition_fields} | spec]
-      else
-        spec
-      end
-
-    spec =
-      if order_by do
-        [{:order_by, order_by} | spec]
-      else
-        spec
-      end
-
-    spec
-  end
-
-  # Build select query with window functions
-  defp build_select_query(query, field_map) do
-    # Build the select map with proper expressions
-    select_fields = build_select_map_expr(field_map)
-
-    from s in query,
-      select: ^select_fields
-  end
-
-  # Build select map expression
-  defp build_select_map_expr(field_map) do
-    Enum.reduce(field_map, %{}, fn
-      {key, {:window, func, window_or_opts}}, acc ->
-        Map.put(acc, key, build_window_dynamic(func, window_or_opts))
-
-      {key, field}, acc when is_atom(field) ->
-        Map.put(acc, key, dynamic([s], field(s, ^field)))
-    end)
-  end
-
-  # Build window function as dynamic expression
-  defp build_window_dynamic(func, window_name) when is_atom(window_name) do
-    # Using named window - the window must be defined separately
-    func_sql = build_window_func_sql(func)
-    # For named windows, we reference them by name
-    # This needs the window to be already defined in the query
-    dynamic([], fragment("#{func_sql} OVER ?", ^window_name))
-  end
-
-  defp build_window_dynamic(func, opts) when is_list(opts) do
-    # Inline window definition - build full SQL
-    func_sql = build_window_func_sql(func)
-    window_sql = build_window_clause_sql(opts)
-    full_sql = "#{func_sql} OVER (#{window_sql})"
-    dynamic([], fragment(^full_sql))
-  end
-
-  # Build window function SQL
-  defp build_window_func_sql(:row_number), do: "ROW_NUMBER()"
-  defp build_window_func_sql(:rank), do: "RANK()"
-  defp build_window_func_sql(:dense_rank), do: "DENSE_RANK()"
-  defp build_window_func_sql({:lead, field}), do: "LEAD(#{field})"
-  defp build_window_func_sql({:lag, field}), do: "LAG(#{field})"
-  defp build_window_func_sql({:first_value, field}), do: "FIRST_VALUE(#{field})"
-  defp build_window_func_sql({:last_value, field}), do: "LAST_VALUE(#{field})"
-  defp build_window_func_sql({:sum, field}), do: "SUM(#{field})"
-  defp build_window_func_sql({:avg, field}), do: "AVG(#{field})"
-  defp build_window_func_sql({:count, field}), do: "COUNT(#{field})"
-  defp build_window_func_sql({:min, field}), do: "MIN(#{field})"
-  defp build_window_func_sql({:max, field}), do: "MAX(#{field})"
-
-  # Build window clause SQL
-  defp build_window_clause_sql(opts) do
-    partition_by = Keyword.get(opts, :partition_by)
-    order_by = Keyword.get(opts, :order_by)
-
-    parts = []
-
-    parts =
-      if partition_by do
-        fields = if is_list(partition_by), do: partition_by, else: [partition_by]
-        field_list = Enum.map_join(fields, ", ", &to_string/1)
-        ["PARTITION BY #{field_list}" | parts]
-      else
-        parts
-      end
-
-    parts =
-      if order_by do
-        order_clause = build_order_by_sql(order_by)
-        ["ORDER BY #{order_clause}" | parts]
-      else
-        parts
-      end
-
-    Enum.join(Enum.reverse(parts), " ")
-  end
-
-  # Build ORDER BY SQL from keyword list
-  defp build_order_by_sql(order_list) when is_list(order_list) do
-    Enum.map_join(order_list, ", ", fn
-      {:asc, field} -> "#{field} ASC"
-      {:desc, field} -> "#{field} DESC"
-      field when is_atom(field) -> "#{field}"
-    end)
-  end
-
   defp apply_opts(builder, opts) do
     Enum.reduce(opts, builder, fn
-      {:where, conditions}, acc -> where(acc, conditions)
-      {:filters, filter_list}, acc -> where(acc, filter_list)
-      {:join, assoc}, acc -> join(acc, assoc)
-      {:select, fields}, acc -> select(acc, fields)
-      {:distinct, value}, acc -> distinct(acc, value)
-      {:group_by, fields}, acc -> group_by(acc, fields)
-      {:having, conditions}, acc -> having(acc, conditions)
-      {:order_by, ordering}, acc -> order_by(acc, ordering)
-      {:limit, value}, acc -> limit(acc, value)
-      {:offset, value}, acc -> offset(acc, value)
-      {:preload, assocs}, acc -> preload(acc, assocs)
+      {:where, conditions}, acc -> __MODULE__.where(acc, conditions)
+      {:filters, filter_list}, acc -> __MODULE__.where(acc, filter_list)
+      {:join, assoc}, acc -> __MODULE__.join(acc, assoc)
+      {:select, fields}, acc -> __MODULE__.select(acc, fields)
+      {:distinct, value}, acc -> __MODULE__.distinct(acc, value)
+      {:group_by, fields}, acc -> __MODULE__.group_by(acc, fields)
+      {:having, conditions}, acc -> __MODULE__.having(acc, conditions)
+      {:order_by, ordering}, acc -> __MODULE__.order_by(acc, ordering)
+      {:limit, value}, acc -> __MODULE__.limit(acc, value)
+      {:offset, value}, acc -> __MODULE__.offset(acc, value)
+      {:preload, assocs}, acc -> __MODULE__.preload(acc, assocs)
       # Already handled in new/2
       {:include_deleted, _}, acc -> acc
       _, acc -> acc
@@ -1420,11 +1315,25 @@ defmodule Events.Repo.Query do
   end
 
   defp apply_filter(query, binding, field, op, value, opts) do
+    # Check if data_type option is being used and raise error
+    if Keyword.has_key?(opts, :data_type) do
+      raise ArgumentError, """
+      The :data_type option is currently not supported due to Ecto macro limitations.
+
+      Please use Ecto's type/2 function for type casting instead:
+
+        # Instead of:
+        Query.where(query, {:created_at, :eq, "2024-01-01", data_type: :date})
+
+        # Use:
+        Query.where(query, {:created_at, :eq, ~D[2024-01-01]})
+
+      Or use Ecto's type/2 in custom queries.
+      """
+    end
+
     # Apply value transformation function if provided
     value = apply_value_fn(value, op, opts)
-
-    # Normalize data type values (e.g., convert date strings to Date)
-    value = normalize_data_type_value(value, op, opts)
 
     case op do
       :eq -> apply_eq(query, binding, field, value, opts)
@@ -1515,182 +1424,11 @@ defmodule Events.Repo.Query do
     end
   end
 
-  # Normalize values based on data_type option
-  # Converts string date/time values to appropriate Elixir types
-  defp normalize_data_type_value(value, op, opts) do
-    data_type = Keyword.get(opts, :data_type)
-
-    case data_type do
-      :date ->
-        case op do
-          # For :in and :not_in, convert each element in the list
-          op when op in [:in, :not_in] and is_list(value) ->
-            Enum.map(value, &parse_date_value/1)
-
-          # For :between, convert both min and max
-          :between when is_tuple(value) ->
-            {min, max} = value
-            {parse_date_value(min), parse_date_value(max)}
-
-          # For :is_nil and :not_nil, don't transform
-          op when op in [:is_nil, :not_nil] ->
-            value
-
-          # For all other operations, convert the value
-          _ ->
-            parse_date_value(value)
-        end
-
-      :datetime ->
-        case op do
-          op when op in [:in, :not_in] and is_list(value) ->
-            Enum.map(value, &parse_datetime_value/1)
-
-          :between when is_tuple(value) ->
-            {min, max} = value
-            {parse_datetime_value(min), parse_datetime_value(max)}
-
-          op when op in [:is_nil, :not_nil] ->
-            value
-
-          _ ->
-            parse_datetime_value(value)
-        end
-
-      :time ->
-        case op do
-          op when op in [:in, :not_in] and is_list(value) ->
-            Enum.map(value, &parse_time_value/1)
-
-          :between when is_tuple(value) ->
-            {min, max} = value
-            {parse_time_value(min), parse_time_value(max)}
-
-          op when op in [:is_nil, :not_nil] ->
-            value
-
-          _ ->
-            parse_time_value(value)
-        end
-
-      _ ->
-        value
-    end
-  end
-
-  # Parse date from various string formats or return existing Date
-  defp parse_date_value(%Date{} = date), do: date
-  defp parse_date_value(%DateTime{} = datetime), do: DateTime.to_date(datetime)
-  defp parse_date_value(%NaiveDateTime{} = naive), do: NaiveDateTime.to_date(naive)
-
-  defp parse_date_value(value) when is_binary(value) do
-    cond do
-      # yyyy-mm-dd or yyyy/mm/dd
-      Regex.match?(~r/^\d{4}[-\/]\d{1,2}[-\/]\d{1,2}$/, value) ->
-        parse_date_iso_format(value)
-
-      # mm-dd-yyyy or mm/dd/yyyy
-      Regex.match?(~r/^\d{1,2}[-\/]\d{1,2}[-\/]\d{4}$/, value) ->
-        parse_date_us_format(value)
-
-      # If already a valid ISO date string (from Date sigil)
-      true ->
-        case Date.from_iso8601(value) do
-          {:ok, date} ->
-            date
-
-          {:error, _} ->
-            raise "Invalid date format: #{value}. Expected formats: yyyy-mm-dd, yyyy/mm/dd, mm-dd-yyyy, mm/dd/yyyy"
-        end
-    end
-  end
-
-  defp parse_date_value(value), do: value
-
-  # Parse ISO format: yyyy-mm-dd or yyyy/mm/dd
-  defp parse_date_iso_format(value) do
-    normalized = String.replace(value, "/", "-")
-
-    case Date.from_iso8601(normalized) do
-      {:ok, date} -> date
-      {:error, _} -> raise "Invalid date: #{value}"
-    end
-  end
-
-  # Parse US format: mm-dd-yyyy or mm/dd/yyyy
-  defp parse_date_us_format(value) do
-    parts = String.split(value, ~r/[-\/]/)
-
-    case parts do
-      [month, day, year] ->
-        # Convert to ISO format: yyyy-mm-dd
-        iso_string =
-          "#{year}-#{String.pad_leading(month, 2, "0")}-#{String.pad_leading(day, 2, "0")}"
-
-        case Date.from_iso8601(iso_string) do
-          {:ok, date} -> date
-          {:error, _} -> raise "Invalid date: #{value}"
-        end
-
-      _ ->
-        raise "Invalid date format: #{value}"
-    end
-  end
-
-  # Parse datetime from string or return existing DateTime
-  defp parse_datetime_value(%DateTime{} = datetime), do: datetime
-  defp parse_datetime_value(%NaiveDateTime{} = naive), do: DateTime.from_naive!(naive, "Etc/UTC")
-
-  defp parse_datetime_value(value) when is_binary(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, datetime, _offset} ->
-        datetime
-
-      {:error, _} ->
-        # Try NaiveDateTime
-        case NaiveDateTime.from_iso8601(value) do
-          {:ok, naive} -> DateTime.from_naive!(naive, "Etc/UTC")
-          {:error, _} -> raise "Invalid datetime format: #{value}. Expected ISO8601 format."
-        end
-    end
-  end
-
-  defp parse_datetime_value(value), do: value
-
-  # Parse time from string or return existing Time
-  defp parse_time_value(%Time{} = time), do: time
-
-  defp parse_time_value(value) when is_binary(value) do
-    case Time.from_iso8601(value) do
-      {:ok, time} -> time
-      {:error, _} -> raise "Invalid time format: #{value}. Expected ISO8601 format (HH:MM:SS)."
-    end
-  end
-
-  defp parse_time_value(value), do: value
-
   defp apply_eq(query, 0, field, value, opts) do
     include_nil = Keyword.get(opts, :include_nil, false)
     case_sensitive = Keyword.get(opts, :case_sensitive, false)
-    data_type = Keyword.get(opts, :data_type)
 
     cond do
-      # Date/datetime/time comparison - cast to appropriate type
-      data_type in [:date, :datetime, :time] ->
-        cast_type = get_pg_cast_type(data_type)
-
-        if include_nil do
-          from(q in query,
-            where:
-              fragment("?::#{cast_type} = ?::#{cast_type}", field(q, ^field), ^value) or
-                is_nil(field(q, ^field))
-          )
-        else
-          from(q in query,
-            where: fragment("?::#{cast_type} = ?::#{cast_type}", field(q, ^field), ^value)
-          )
-        end
-
       # String comparison with case insensitive (default)
       is_binary(value) and not case_sensitive ->
         if include_nil do
@@ -1718,26 +1456,8 @@ defmodule Events.Repo.Query do
   defp apply_eq(query, binding, field, value, opts) do
     include_nil = Keyword.get(opts, :include_nil, false)
     case_sensitive = Keyword.get(opts, :case_sensitive, false)
-    data_type = Keyword.get(opts, :data_type)
 
     cond do
-      # Date/datetime/time comparison - cast to appropriate type
-      data_type in [:date, :datetime, :time] ->
-        cast_type = get_pg_cast_type(data_type)
-
-        if include_nil do
-          from(q in query,
-            where:
-              fragment("?::#{cast_type} = ?::#{cast_type}", field(as(^binding), ^field), ^value) or
-                is_nil(field(as(^binding), ^field))
-          )
-        else
-          from(q in query,
-            where:
-              fragment("?::#{cast_type} = ?::#{cast_type}", field(as(^binding), ^field), ^value)
-          )
-        end
-
       # String comparison with case insensitive (default)
       is_binary(value) and not case_sensitive ->
         if include_nil do
@@ -1767,17 +1487,8 @@ defmodule Events.Repo.Query do
 
   defp apply_neq(query, 0, field, value, opts) do
     case_sensitive = Keyword.get(opts, :case_sensitive, false)
-    data_type = Keyword.get(opts, :data_type)
 
     cond do
-      # Date/datetime/time comparison - cast to appropriate type
-      data_type in [:date, :datetime, :time] ->
-        cast_type = get_pg_cast_type(data_type)
-
-        from(q in query,
-          where: fragment("?::#{cast_type} != ?::#{cast_type}", field(q, ^field), ^value)
-        )
-
       # String comparison with case insensitive
       is_binary(value) and not case_sensitive ->
         from(q in query,
@@ -1792,18 +1503,8 @@ defmodule Events.Repo.Query do
 
   defp apply_neq(query, binding, field, value, opts) do
     case_sensitive = Keyword.get(opts, :case_sensitive, false)
-    data_type = Keyword.get(opts, :data_type)
 
     cond do
-      # Date/datetime/time comparison - cast to appropriate type
-      data_type in [:date, :datetime, :time] ->
-        cast_type = get_pg_cast_type(data_type)
-
-        from(q in query,
-          where:
-            fragment("?::#{cast_type} != ?::#{cast_type}", field(as(^binding), ^field), ^value)
-        )
-
       # String comparison with case insensitive
       is_binary(value) and not case_sensitive ->
         from(q in query,
@@ -1816,32 +1517,21 @@ defmodule Events.Repo.Query do
     end
   end
 
-  defp apply_comparison(query, 0, field, op, value, opts) do
-    data_type = Keyword.get(opts, :data_type)
-
-    if data_type in [:date, :datetime, :time] do
-      cast_type = get_pg_cast_type(data_type)
-
-      from(q in query,
-        where: fragment("?::#{cast_type} #{op} ?::#{cast_type}", field(q, ^field), ^value)
-      )
-    else
-      from(q in query, where: field(q, ^field) |> fragment("? #{op} ?", ^value))
+  defp apply_comparison(query, 0, field, op, value, _opts) do
+    case op do
+      :> -> from(q in query, where: field(q, ^field) > ^value)
+      :>= -> from(q in query, where: field(q, ^field) >= ^value)
+      :< -> from(q in query, where: field(q, ^field) < ^value)
+      :<= -> from(q in query, where: field(q, ^field) <= ^value)
     end
   end
 
-  defp apply_comparison(query, binding, field, op, value, opts) do
-    data_type = Keyword.get(opts, :data_type)
-
-    if data_type in [:date, :datetime, :time] do
-      cast_type = get_pg_cast_type(data_type)
-
-      from(q in query,
-        where:
-          fragment("?::#{cast_type} #{op} ?::#{cast_type}", field(as(^binding), ^field), ^value)
-      )
-    else
-      from(q in query, where: field(as(^binding), ^field) |> fragment("? #{op} ?", ^value))
+  defp apply_comparison(query, binding, field, op, value, _opts) do
+    case op do
+      :> -> from(q in query, where: field(as(^binding), ^field) > ^value)
+      :>= -> from(q in query, where: field(as(^binding), ^field) >= ^value)
+      :< -> from(q in query, where: field(as(^binding), ^field) < ^value)
+      :<= -> from(q in query, where: field(as(^binding), ^field) <= ^value)
     end
   end
 
@@ -1937,38 +1627,14 @@ defmodule Events.Repo.Query do
     from(q in query, where: not is_nil(field(as(^binding), ^field)))
   end
 
-  defp apply_between(query, 0, field, {min, max}, opts) do
-    data_type = Keyword.get(opts, :data_type)
-
-    if data_type in [:date, :datetime, :time] do
-      cast_type = get_pg_cast_type(data_type)
-
-      from(q in query,
-        where:
-          fragment("?::#{cast_type} >= ?::#{cast_type}", field(q, ^field), ^min) and
-            fragment("?::#{cast_type} <= ?::#{cast_type}", field(q, ^field), ^max)
-      )
-    else
-      from(q in query, where: field(q, ^field) >= ^min and field(q, ^field) <= ^max)
-    end
+  defp apply_between(query, 0, field, {min, max}, _opts) do
+    from(q in query, where: field(q, ^field) >= ^min and field(q, ^field) <= ^max)
   end
 
-  defp apply_between(query, binding, field, {min, max}, opts) do
-    data_type = Keyword.get(opts, :data_type)
-
-    if data_type in [:date, :datetime, :time] do
-      cast_type = get_pg_cast_type(data_type)
-
-      from(q in query,
-        where:
-          fragment("?::#{cast_type} >= ?::#{cast_type}", field(as(^binding), ^field), ^min) and
-            fragment("?::#{cast_type} <= ?::#{cast_type}", field(as(^binding), ^field), ^max)
-      )
-    else
-      from(q in query,
-        where: field(as(^binding), ^field) >= ^min and field(as(^binding), ^field) <= ^max
-      )
-    end
+  defp apply_between(query, binding, field, {min, max}, _opts) do
+    from(q in query,
+      where: field(as(^binding), ^field) >= ^min and field(as(^binding), ^field) <= ^max
+    )
   end
 
   defp apply_contains(query, 0, field, value) do
@@ -2018,11 +1684,6 @@ defmodule Events.Repo.Query do
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
-
-  # Convert data type to PostgreSQL cast type
-  defp get_pg_cast_type(:date), do: "date"
-  defp get_pg_cast_type(:datetime), do: "timestamp"
-  defp get_pg_cast_type(:time), do: "time"
 end
 
 # Implement Ecto.Queryable protocol so Query works with Repo.all, Repo.one, etc

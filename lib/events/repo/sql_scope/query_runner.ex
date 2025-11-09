@@ -22,7 +22,7 @@ defmodule Events.Repo.SqlScope.QueryRunner do
   """
 
   alias Events.Repo
-  alias Events.Repo.SqlScope.{Error, SecurityError}
+  alias Events.Repo.SqlScope.Error
 
   require Logger
 
