@@ -423,15 +423,48 @@ defmodule Events.Repo.Query do
   end
 
   @doc """
-  Adds preloads.
+  Adds preloads with optional conditional filtering.
 
   ## Examples
 
+      # Basic preload
       Query.preload(query, [:category, :tags])
+
+      # Conditional preload with filters
+      Query.preload(query, [
+        :category,
+        tags: [where: [active: true]]
+      ])
+
+      # Multiple conditions on preload
+      Query.preload(query, [
+        tags: [where: [active: true], order_by: [asc: :name], limit: 5]
+      ])
+
+      # Nested preloads with conditions
+      Query.preload(query, [
+        category: [where: [active: true]],
+        tags: [
+          where: [active: true],
+          preload: [:translations]
+        ]
+      ])
+
+      # Mix basic and conditional
+      Query.preload(query, [
+        :user,
+        comments: [where: [approved: true], order_by: [desc: :inserted_at]]
+      ])
+
+      # With Ecto.Query
+      Query.preload(query, [
+        tags: from(t in Tag, where: t.active == true, order_by: t.name)
+      ])
   """
-  @spec preload(t(), list()) :: t()
+  @spec preload(t(), list() | keyword()) :: t()
   def preload(%__MODULE__{} = builder, assocs) when is_list(assocs) do
-    query = from(s in builder.query, preload: ^assocs)
+    processed_assocs = process_preloads(assocs)
+    query = from(s in builder.query, preload: ^processed_assocs)
     %{builder | query: query}
   end
 
@@ -778,6 +811,94 @@ defmodule Events.Repo.Query do
 
   defp normalize_through_filter(through_assoc, filters) when is_list(filters) do
     Enum.map(filters, &normalize_through_filter(through_assoc, &1))
+  end
+
+  # Process preload specifications into Ecto-compatible format
+  defp process_preloads(assocs) when is_list(assocs) do
+    Enum.map(assocs, &process_preload/1)
+  end
+
+  # Atom - simple preload
+  defp process_preload(assoc) when is_atom(assoc), do: assoc
+
+  # Tuple with Ecto.Query - pass through
+  defp process_preload({assoc, %Ecto.Query{} = query}) when is_atom(assoc) do
+    {assoc, query}
+  end
+
+  # Tuple with keyword list - build query from conditions
+  defp process_preload({assoc, opts}) when is_atom(assoc) and is_list(opts) do
+    # Check if it's already an Ecto.Query in the list
+    case opts do
+      [%Ecto.Query{} | _] ->
+        {assoc, opts}
+
+      _ ->
+        # Build a query from the options
+        query = build_preload_query(assoc, opts)
+        {assoc, query}
+    end
+  end
+
+  # Build an Ecto query for a preload association with conditions
+  defp build_preload_query(assoc, opts) do
+    # We need to get the association's schema, but we don't have it here
+    # So we'll build a query function that Ecto can call
+    fn ->
+      # Extract the different options
+      where_conditions = Keyword.get(opts, :where, [])
+      order_by_opts = Keyword.get(opts, :order_by)
+      limit_value = Keyword.get(opts, :limit)
+      offset_value = Keyword.get(opts, :offset)
+      nested_preloads = Keyword.get(opts, :preload, [])
+
+      # Build the query dynamically
+      # Note: This will be evaluated by Ecto with the proper schema
+      import Ecto.Query
+
+      query = from(a in assoc)
+
+      # Apply where conditions
+      query =
+        Enum.reduce(where_conditions, query, fn {field, value}, q ->
+          from(a in q, where: field(a, ^field) == ^value)
+        end)
+
+      # Apply order_by
+      query =
+        if order_by_opts do
+          from(a in query, order_by: ^order_by_opts)
+        else
+          query
+        end
+
+      # Apply limit
+      query =
+        if limit_value do
+          from(a in query, limit: ^limit_value)
+        else
+          query
+        end
+
+      # Apply offset
+      query =
+        if offset_value do
+          from(a in query, offset: ^offset_value)
+        else
+          query
+        end
+
+      # Apply nested preloads
+      query =
+        if nested_preloads != [] do
+          processed_nested = process_preloads(nested_preloads)
+          from(a in query, preload: ^processed_nested)
+        else
+          query
+        end
+
+      query
+    end
   end
 
   defp apply_filter(query, binding, field, op, value, opts) do

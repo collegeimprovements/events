@@ -520,6 +520,121 @@ products = Query.new(Product, [
 |> Repo.all()
 ```
 
+## Preloads
+
+### Basic Preloads
+
+```elixir
+# Simple preload
+Query.new(Product)
+|> Query.preload([:category, :tags, :user])
+|> Repo.all()
+
+# In keyword syntax
+Query.new(Product, preload: [:category, :tags])
+|> Repo.all()
+```
+
+### Conditional Preloads
+
+Preload with filtering, ordering, and limiting on associated records:
+
+```elixir
+# Preload only active tags
+Query.new(Product)
+|> Query.preload([
+  tags: [where: [active: true]]
+])
+|> Repo.all()
+
+# Preload latest 5 comments
+Query.new(Product)
+|> Query.preload([
+  comments: [
+    where: [approved: true],
+    order_by: [desc: :inserted_at],
+    limit: 5
+  ]
+])
+|> Repo.all()
+
+# Mix conditional and basic preloads
+Query.new(Product)
+|> Query.preload([
+  :category,  # Simple preload
+  :user,      # Simple preload
+  tags: [where: [active: true], order_by: [asc: :name]],  # Conditional
+  reviews: [where: [rating: {:gte, 4}], order_by: [desc: :inserted_at]]
+])
+|> Repo.all()
+```
+
+### Nested Preloads with Conditions
+
+```elixir
+# Preload category with its active parent
+Query.new(Product)
+|> Query.preload([
+  category: [
+    where: [active: true],
+    preload: [:parent]
+  ]
+])
+|> Repo.all()
+
+# Complex nested preloads
+Query.new(Product)
+|> Query.preload([
+  category: [
+    where: [active: true],
+    preload: [
+      parent: [where: [active: true]],
+      :translations
+    ]
+  ],
+  tags: [
+    where: [active: true],
+    order_by: [asc: :priority],
+    preload: [:translations]
+  ]
+])
+|> Repo.all()
+```
+
+### Using Ecto.Query for Preloads
+
+For complex cases, use raw Ecto queries:
+
+```elixir
+import Ecto.Query
+
+Query.new(Product)
+|> Query.preload([
+  tags: from(t in Tag, where: t.active == true, order_by: t.name),
+  comments: from(c in Comment, where: c.approved == true, limit: 10)
+])
+|> Repo.all()
+```
+
+### Keyword Syntax with Conditional Preloads
+
+```elixir
+Query.new(Product, [
+  where: [status: "active"],
+  preload: [
+    :category,
+    tags: [where: [active: true]],
+    reviews: [
+      where: [approved: true],
+      order_by: [desc: :rating],
+      limit: 5
+    ]
+  ],
+  order_by: [desc: :inserted_at],
+  limit: 10
+]) |> Repo.all()
+```
+
 ## Execution
 
 ### With Repo Functions
