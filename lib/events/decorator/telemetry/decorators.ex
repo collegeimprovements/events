@@ -37,6 +37,22 @@ defmodule Events.Decorator.Telemetry do
 
   ## Schemas
 
+  # Shared log level specification
+  @log_levels [:emergency, :alert, :critical, :error, :warning, :warn, :notice, :info, :debug]
+
+  # Magic number constants
+  @default_attempt 1
+  @p95_percentile 0.95
+  @p99_percentile 0.99
+
+  defp log_level_option(default) do
+    [
+      type: {:in, @log_levels},
+      default: default,
+      doc: "Log level"
+    ]
+  end
+
   @telemetry_span_schema NimbleOptions.new!(
                            event: [
                              type: {:list, :atom},
@@ -74,23 +90,7 @@ defmodule Events.Decorator.Telemetry do
                     )
 
   @log_call_schema NimbleOptions.new!(
-                     level: [
-                       type:
-                         {:in,
-                          [
-                            :emergency,
-                            :alert,
-                            :critical,
-                            :error,
-                            :warning,
-                            :warn,
-                            :notice,
-                            :info,
-                            :debug
-                          ]},
-                       default: :info,
-                       doc: "Log level"
-                     ],
+                     level: log_level_option(:info),
                      message: [
                        type: :string,
                        required: false,
@@ -117,23 +117,7 @@ defmodule Events.Decorator.Telemetry do
                           required: true,
                           doc: "Threshold in milliseconds to consider operation slow"
                         ],
-                        level: [
-                          type:
-                            {:in,
-                             [
-                               :emergency,
-                               :alert,
-                               :critical,
-                               :error,
-                               :warning,
-                               :warn,
-                               :notice,
-                               :info,
-                               :debug
-                             ]},
-                          default: :warn,
-                          doc: "Log level for slow operations"
-                        ],
+                        level: log_level_option(:warn),
                         message: [
                           type: :string,
                           required: false,
@@ -147,23 +131,7 @@ defmodule Events.Decorator.Telemetry do
                            required: true,
                            doc: "Memory threshold in bytes"
                          ],
-                         level: [
-                           type:
-                             {:in,
-                              [
-                                :emergency,
-                                :alert,
-                                :critical,
-                                :error,
-                                :warning,
-                                :warn,
-                                :notice,
-                                :info,
-                                :debug
-                              ]},
-                           default: :warn,
-                           doc: "Log level for high memory usage"
-                         ]
+                         level: log_level_option(:warn)
                        )
 
   @capture_errors_schema NimbleOptions.new!(
@@ -185,40 +153,8 @@ defmodule Events.Decorator.Telemetry do
                         default: 1000,
                         doc: "Threshold in ms to log as slow query"
                       ],
-                      level: [
-                        type:
-                          {:in,
-                           [
-                             :emergency,
-                             :alert,
-                             :critical,
-                             :error,
-                             :warning,
-                             :warn,
-                             :notice,
-                             :info,
-                             :debug
-                           ]},
-                        default: :debug,
-                        doc: "Log level for normal queries"
-                      ],
-                      slow_level: [
-                        type:
-                          {:in,
-                           [
-                             :emergency,
-                             :alert,
-                             :critical,
-                             :error,
-                             :warning,
-                             :warn,
-                             :notice,
-                             :info,
-                             :debug
-                           ]},
-                        default: :warn,
-                        doc: "Log level for slow queries"
-                      ],
+                      level: log_level_option(:debug),
+                      slow_level: log_level_option(:warn),
                       include_query: [
                         type: :boolean,
                         default: true,
@@ -602,7 +538,7 @@ defmodule Events.Decorator.Telemetry do
         error ->
           stacktrace = __STACKTRACE__
 
-          attempt = var!(attempt, nil) || 1
+          attempt = var!(attempt, nil) || unquote(@default_attempt)
 
           if attempt >= unquote(threshold) do
             unquote(reporter).capture_exception(error,
@@ -694,7 +630,7 @@ defmodule Events.Decorator.Telemetry do
     slow_threshold = validated_opts[:slow_threshold]
     level = validate_log_level!(validated_opts[:level])
     slow_level = validate_log_level!(validated_opts[:slow_level])
-    _include_query? = validated_opts[:include_query]
+    # TODO: include_query option is validated but not yet implemented in query logging
 
     quote do
       require Logger
@@ -920,8 +856,8 @@ defmodule Events.Decorator.Telemetry do
               length(timings)
 
           std_dev = :math.sqrt(variance)
-          p95 = Enum.at(sorted_times, round(length(sorted_times) * 0.95))
-          p99 = Enum.at(sorted_times, round(length(sorted_times) * 0.99))
+          p95 = Enum.at(sorted_times, round(length(sorted_times) * unquote(@p95_percentile)))
+          p99 = Enum.at(sorted_times, round(length(sorted_times) * unquote(@p99_percentile)))
 
           IO.puts("  Iterations: #{unquote(iterations)}")
           IO.puts("  Average: #{Float.round(avg_time, 3)}ms")
