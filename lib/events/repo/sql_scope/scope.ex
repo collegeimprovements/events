@@ -365,7 +365,12 @@ defmodule Events.Repo.SqlScope.Scope do
       Scope.new() |> Scope.jsonb_array_length(:items, 0, :eq)
       #=> WHERE jsonb_array_length(items) = $1
   """
-  @spec jsonb_array_length(t(), atom() | String.t(), integer(), :eq | :neq | :lt | :lte | :gt | :gte) :: t()
+  @spec jsonb_array_length(
+          t(),
+          atom() | String.t(),
+          integer(),
+          :eq | :neq | :lt | :lte | :gt | :gte
+        ) :: t()
   def jsonb_array_length(scope, field, length, operator \\ :eq) when is_integer(length) do
     field_str = Security.validate_identifier!(field)
 
@@ -492,7 +497,11 @@ defmodule Events.Repo.SqlScope.Scope do
   def and_where(scope, scopes) when is_list(scopes) do
     combined = combine_scopes(scopes, :and)
 
-    %{scope | conditions: scope.conditions ++ combined.conditions, bindings: scope.bindings ++ combined.bindings}
+    %{
+      scope
+      | conditions: scope.conditions ++ combined.conditions,
+        bindings: scope.bindings ++ combined.bindings
+    }
   end
 
   @doc """
@@ -510,7 +519,11 @@ defmodule Events.Repo.SqlScope.Scope do
   def or_where(scope, scopes) when is_list(scopes) do
     combined = combine_scopes(scopes, :or)
 
-    %{scope | conditions: scope.conditions ++ combined.conditions, bindings: scope.bindings ++ combined.bindings}
+    %{
+      scope
+      | conditions: scope.conditions ++ combined.conditions,
+        bindings: scope.bindings ++ combined.bindings
+    }
   end
 
   @doc """

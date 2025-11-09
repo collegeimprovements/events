@@ -28,7 +28,8 @@ defmodule Events.Repo.SqlScope.Security do
   alias Events.Repo.SqlScope.SecurityError
 
   @identifier_regex ~r/^[a-zA-Z_][a-zA-Z0-9_]*$/
-  @max_identifier_length 63  # PostgreSQL limit
+  # PostgreSQL limit
+  @max_identifier_length 63
 
   @doc """
   Validates an identifier (table, column, index, constraint name).
@@ -227,13 +228,20 @@ defmodule Events.Repo.SqlScope.Security do
     # Check for dangerous patterns
     dangerous_patterns = [
       ~r/;\s*(DROP|DELETE|UPDATE|INSERT|CREATE|ALTER|TRUNCATE)/i,
-      ~r/--/,  # SQL comments
-      ~r/\/\*/,  # Multi-line comments
-      ~r/xp_/i,  # SQL Server extended procedures
-      ~r/(exec|execute)\s+/i,  # Execute commands
-      ~r/\bUNION\b/i,  # UNION-based injection
-      ~r/\bINTO\s+OUTFILE\b/i,  # File operations
-      ~r/\bLOAD_FILE\b/i  # MySQL file reading
+      # SQL comments
+      ~r/--/,
+      # Multi-line comments
+      ~r/\/\*/,
+      # SQL Server extended procedures
+      ~r/xp_/i,
+      # Execute commands
+      ~r/(exec|execute)\s+/i,
+      # UNION-based injection
+      ~r/\bUNION\b/i,
+      # File operations
+      ~r/\bINTO\s+OUTFILE\b/i,
+      # MySQL file reading
+      ~r/\bLOAD_FILE\b/i
     ]
 
     if Enum.any?(dangerous_patterns, &String.match?(fragment, &1)) do

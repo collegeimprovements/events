@@ -333,7 +333,12 @@ defmodule Events.Repo.SqlScope.CheckConstraint do
       |> CheckConstraint.jsonb_array_length(:tags, 1, :gte)
       #=> "jsonb_array_length(tags) >= 1"
   """
-  @spec jsonb_array_length(t(), atom() | String.t(), integer(), :eq | :neq | :lt | :lte | :gt | :gte) :: t()
+  @spec jsonb_array_length(
+          t(),
+          atom() | String.t(),
+          integer(),
+          :eq | :neq | :lt | :lte | :gt | :gte
+        ) :: t()
   def jsonb_array_length(constraint, field, length, operator \\ :gte)
       when is_integer(length) and length >= 0 do
     field_str = Security.validate_identifier!(field)

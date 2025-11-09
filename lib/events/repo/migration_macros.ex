@@ -389,8 +389,10 @@ defmodule Events.Repo.MigrationMacros do
 
       should_add_name? =
         Events.Repo.MigrationMacros.__should_add_field__(:name, only, except)
+
       should_add_slug? =
         Events.Repo.MigrationMacros.__should_add_field__(:slug, only, except)
+
       should_add_description? =
         Events.Repo.MigrationMacros.__should_add_field__(:description, only, except)
 
@@ -521,10 +523,13 @@ defmodule Events.Repo.MigrationMacros do
 
       should_add_title? =
         Events.Repo.MigrationMacros.__should_add_field__(:title, only, except)
+
       should_add_subtitle? =
         Events.Repo.MigrationMacros.__should_add_field__(:subtitle, only, except)
+
       should_add_description? =
         Events.Repo.MigrationMacros.__should_add_field__(:description, only, except)
+
       should_add_slug? =
         Events.Repo.MigrationMacros.__should_add_field__(:slug, only, except)
 
@@ -1566,8 +1571,10 @@ defmodule Events.Repo.MigrationMacros do
 
       should_add_name? =
         Events.Repo.MigrationMacros.__should_add_field__(:name, only, except)
+
       should_add_slug? =
         Events.Repo.MigrationMacros.__should_add_field__(:slug, only, except)
+
       should_add_description? =
         Events.Repo.MigrationMacros.__should_add_field__(:description, only, except)
 
@@ -1674,10 +1681,13 @@ defmodule Events.Repo.MigrationMacros do
 
       should_add_title? =
         Events.Repo.MigrationMacros.__should_add_field__(:title, only, except)
+
       should_add_subtitle? =
         Events.Repo.MigrationMacros.__should_add_field__(:subtitle, only, except)
+
       should_add_description? =
         Events.Repo.MigrationMacros.__should_add_field__(:description, only, except)
+
       should_add_slug? =
         Events.Repo.MigrationMacros.__should_add_field__(:slug, only, except)
 
@@ -2409,14 +2419,30 @@ defmodule Events.Repo.MigrationMacros do
   @doc false
   def __resolve_scope__(scope_option) do
     case scope_option do
-      nil -> nil
-      :all -> nil
-      :active -> "deleted_at IS NULL"
-      :non_deleted -> "deleted_at IS NULL"
-      :exclude_deleted -> "deleted_at IS NULL"
-      :deleted -> "deleted_at IS NOT NULL"
-      custom when is_binary(custom) -> custom
-      _ -> raise ArgumentError, "invalid :scope value #{inspect(scope_option)}. Expected :all, :active, :non_deleted, :exclude_deleted, :deleted, or a custom string"
+      nil ->
+        nil
+
+      :all ->
+        nil
+
+      :active ->
+        "deleted_at IS NULL"
+
+      :non_deleted ->
+        "deleted_at IS NULL"
+
+      :exclude_deleted ->
+        "deleted_at IS NULL"
+
+      :deleted ->
+        "deleted_at IS NOT NULL"
+
+      custom when is_binary(custom) ->
+        custom
+
+      _ ->
+        raise ArgumentError,
+              "invalid :scope value #{inspect(scope_option)}. Expected :all, :active, :non_deleted, :exclude_deleted, :deleted, or a custom string"
     end
   end
 

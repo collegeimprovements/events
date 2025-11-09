@@ -719,7 +719,8 @@ defmodule Events.Repo.Query do
       |> Query.join(:category, on: {:p, :category_id, :eq, {:category, :id}})
   """
   @spec from_subquery(t(), atom()) :: t()
-  def from_subquery(%__MODULE__{query: subquery, schema: schema}, alias_name) when is_atom(alias_name) do
+  def from_subquery(%__MODULE__{query: subquery, schema: schema}, alias_name)
+      when is_atom(alias_name) do
     # Create a new query from the subquery
     query = from(s in subquery(subquery), as: ^alias_name)
 
@@ -936,7 +937,8 @@ defmodule Events.Repo.Query do
 
       {:ok, product} = Query.insert(Product, %{name: "Widget"}, created_by: user_id)
   """
-  @spec insert(module(), map(), keyword()) :: {:ok, Ecto.Schema.t()} | {:error, Ecto.Changeset.t()}
+  @spec insert(module(), map(), keyword()) ::
+          {:ok, Ecto.Schema.t()} | {:error, Ecto.Changeset.t()}
   def insert(schema, attrs, opts \\ []) do
     attrs = add_audit_fields(attrs, :insert, opts)
 
@@ -1183,7 +1185,8 @@ defmodule Events.Repo.Query do
       {:limit, value}, acc -> limit(acc, value)
       {:offset, value}, acc -> offset(acc, value)
       {:preload, assocs}, acc -> preload(acc, assocs)
-      {:include_deleted, _}, acc -> acc  # Already handled in new/2
+      # Already handled in new/2
+      {:include_deleted, _}, acc -> acc
       _, acc -> acc
     end)
   end
@@ -1195,7 +1198,8 @@ defmodule Events.Repo.Query do
 
   defp get_binding(builder, join_name) do
     if Map.has_key?(builder.joins, join_name) do
-      join_name  # Return the atom name for use with as()
+      # Return the atom name for use with as()
+      join_name
     else
       raise "Join :#{join_name} not found. Did you forget to call Query.join/2?"
     end
@@ -1218,7 +1222,10 @@ defmodule Events.Repo.Query do
     query =
       case join_type do
         :inner ->
-          from(s in builder.query, join: i in assoc(s, ^intermediate_assoc), as: ^intermediate_assoc)
+          from(s in builder.query,
+            join: i in assoc(s, ^intermediate_assoc),
+            as: ^intermediate_assoc
+          )
 
         :left ->
           from(s in builder.query,
@@ -1589,8 +1596,11 @@ defmodule Events.Repo.Query do
       # If already a valid ISO date string (from Date sigil)
       true ->
         case Date.from_iso8601(value) do
-          {:ok, date} -> date
-          {:error, _} -> raise "Invalid date format: #{value}. Expected formats: yyyy-mm-dd, yyyy/mm/dd, mm-dd-yyyy, mm/dd/yyyy"
+          {:ok, date} ->
+            date
+
+          {:error, _} ->
+            raise "Invalid date format: #{value}. Expected formats: yyyy-mm-dd, yyyy/mm/dd, mm-dd-yyyy, mm/dd/yyyy"
         end
     end
   end
@@ -1600,6 +1610,7 @@ defmodule Events.Repo.Query do
   # Parse ISO format: yyyy-mm-dd or yyyy/mm/dd
   defp parse_date_iso_format(value) do
     normalized = String.replace(value, "/", "-")
+
     case Date.from_iso8601(normalized) do
       {:ok, date} -> date
       {:error, _} -> raise "Invalid date: #{value}"
@@ -1609,14 +1620,18 @@ defmodule Events.Repo.Query do
   # Parse US format: mm-dd-yyyy or mm/dd/yyyy
   defp parse_date_us_format(value) do
     parts = String.split(value, ~r/[-\/]/)
+
     case parts do
       [month, day, year] ->
         # Convert to ISO format: yyyy-mm-dd
-        iso_string = "#{year}-#{String.pad_leading(month, 2, "0")}-#{String.pad_leading(day, 2, "0")}"
+        iso_string =
+          "#{year}-#{String.pad_leading(month, 2, "0")}-#{String.pad_leading(day, 2, "0")}"
+
         case Date.from_iso8601(iso_string) do
           {:ok, date} -> date
           {:error, _} -> raise "Invalid date: #{value}"
         end
+
       _ ->
         raise "Invalid date format: #{value}"
     end
@@ -1628,7 +1643,9 @@ defmodule Events.Repo.Query do
 
   defp parse_datetime_value(value) when is_binary(value) do
     case DateTime.from_iso8601(value) do
-      {:ok, datetime, _offset} -> datetime
+      {:ok, datetime, _offset} ->
+        datetime
+
       {:error, _} ->
         # Try NaiveDateTime
         case NaiveDateTime.from_iso8601(value) do
@@ -1661,6 +1678,7 @@ defmodule Events.Repo.Query do
       # Date/datetime/time comparison - cast to appropriate type
       data_type in [:date, :datetime, :time] ->
         cast_type = get_pg_cast_type(data_type)
+
         if include_nil do
           from(q in query,
             where:
@@ -1668,7 +1686,9 @@ defmodule Events.Repo.Query do
                 is_nil(field(q, ^field))
           )
         else
-          from(q in query, where: fragment("?::#{cast_type} = ?::#{cast_type}", field(q, ^field), ^value))
+          from(q in query,
+            where: fragment("?::#{cast_type} = ?::#{cast_type}", field(q, ^field), ^value)
+          )
         end
 
       # String comparison with case insensitive (default)
@@ -1680,7 +1700,9 @@ defmodule Events.Repo.Query do
                 is_nil(field(q, ^field))
           )
         else
-          from(q in query, where: fragment("lower(?)", field(q, ^field)) == fragment("lower(?)", ^value))
+          from(q in query,
+            where: fragment("lower(?)", field(q, ^field)) == fragment("lower(?)", ^value)
+          )
         end
 
       # Normal comparison (non-string or case sensitive)
@@ -1702,6 +1724,7 @@ defmodule Events.Repo.Query do
       # Date/datetime/time comparison - cast to appropriate type
       data_type in [:date, :datetime, :time] ->
         cast_type = get_pg_cast_type(data_type)
+
         if include_nil do
           from(q in query,
             where:
@@ -1710,7 +1733,8 @@ defmodule Events.Repo.Query do
           )
         else
           from(q in query,
-            where: fragment("?::#{cast_type} = ?::#{cast_type}", field(as(^binding), ^field), ^value)
+            where:
+              fragment("?::#{cast_type} = ?::#{cast_type}", field(as(^binding), ^field), ^value)
           )
         end
 
@@ -1724,7 +1748,8 @@ defmodule Events.Repo.Query do
           )
         else
           from(q in query,
-            where: fragment("lower(?)", field(as(^binding), ^field)) == fragment("lower(?)", ^value)
+            where:
+              fragment("lower(?)", field(as(^binding), ^field)) == fragment("lower(?)", ^value)
           )
         end
 
@@ -1748,11 +1773,16 @@ defmodule Events.Repo.Query do
       # Date/datetime/time comparison - cast to appropriate type
       data_type in [:date, :datetime, :time] ->
         cast_type = get_pg_cast_type(data_type)
-        from(q in query, where: fragment("?::#{cast_type} != ?::#{cast_type}", field(q, ^field), ^value))
+
+        from(q in query,
+          where: fragment("?::#{cast_type} != ?::#{cast_type}", field(q, ^field), ^value)
+        )
 
       # String comparison with case insensitive
       is_binary(value) and not case_sensitive ->
-        from(q in query, where: fragment("lower(?)", field(q, ^field)) != fragment("lower(?)", ^value))
+        from(q in query,
+          where: fragment("lower(?)", field(q, ^field)) != fragment("lower(?)", ^value)
+        )
 
       # Normal comparison
       true ->
@@ -1768,8 +1798,10 @@ defmodule Events.Repo.Query do
       # Date/datetime/time comparison - cast to appropriate type
       data_type in [:date, :datetime, :time] ->
         cast_type = get_pg_cast_type(data_type)
+
         from(q in query,
-          where: fragment("?::#{cast_type} != ?::#{cast_type}", field(as(^binding), ^field), ^value)
+          where:
+            fragment("?::#{cast_type} != ?::#{cast_type}", field(as(^binding), ^field), ^value)
         )
 
       # String comparison with case insensitive
@@ -1789,6 +1821,7 @@ defmodule Events.Repo.Query do
 
     if data_type in [:date, :datetime, :time] do
       cast_type = get_pg_cast_type(data_type)
+
       from(q in query,
         where: fragment("?::#{cast_type} #{op} ?::#{cast_type}", field(q, ^field), ^value)
       )
@@ -1802,8 +1835,10 @@ defmodule Events.Repo.Query do
 
     if data_type in [:date, :datetime, :time] do
       cast_type = get_pg_cast_type(data_type)
+
       from(q in query,
-        where: fragment("?::#{cast_type} #{op} ?::#{cast_type}", field(as(^binding), ^field), ^value)
+        where:
+          fragment("?::#{cast_type} #{op} ?::#{cast_type}", field(as(^binding), ^field), ^value)
       )
     else
       from(q in query, where: field(as(^binding), ^field) |> fragment("? #{op} ?", ^value))
@@ -1907,6 +1942,7 @@ defmodule Events.Repo.Query do
 
     if data_type in [:date, :datetime, :time] do
       cast_type = get_pg_cast_type(data_type)
+
       from(q in query,
         where:
           fragment("?::#{cast_type} >= ?::#{cast_type}", field(q, ^field), ^min) and
@@ -1922,6 +1958,7 @@ defmodule Events.Repo.Query do
 
     if data_type in [:date, :datetime, :time] do
       cast_type = get_pg_cast_type(data_type)
+
       from(q in query,
         where:
           fragment("?::#{cast_type} >= ?::#{cast_type}", field(as(^binding), ^field), ^min) and

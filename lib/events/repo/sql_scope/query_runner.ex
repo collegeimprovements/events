@@ -26,7 +26,8 @@ defmodule Events.Repo.SqlScope.QueryRunner do
 
   require Logger
 
-  @default_timeout 30_000  # 30 seconds
+  # 30 seconds
+  @default_timeout 30_000
 
   @doc """
   Executes a query with proper error handling.
@@ -89,7 +90,8 @@ defmodule Events.Repo.SqlScope.QueryRunner do
       execute_query!("SELECT * FROM nonexistent")
       #=> ** (Events.Repo.SqlScope.Error) Table 'nonexistent' not found
   """
-  @spec execute_query!(String.t(), list(), keyword()) :: Postgrex.Result.t() | {:dry_run, String.t()}
+  @spec execute_query!(String.t(), list(), keyword()) ::
+          Postgrex.Result.t() | {:dry_run, String.t()}
   def execute_query!(sql, params \\ [], opts \\ []) do
     case execute_query(sql, params, opts) do
       {:ok, result} -> result
@@ -172,7 +174,7 @@ defmodule Events.Repo.SqlScope.QueryRunner do
       {:error, _} ->
         # Fallback: assume recent version
         Logger.warning("Could not determine PostgreSQL version, assuming 14.0")
-        140000
+        140_000
     end
   end
 
