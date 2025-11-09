@@ -483,6 +483,22 @@ defmodule Events.Repo.Query do
     Ecto.Adapters.SQL.to_sql(:all, Repo, query)
   end
 
+  @doc """
+  Returns a human-readable inspection of the query for debugging.
+
+  ## Examples
+
+      Query.new(Product)
+      |> Query.where(status: "active")
+      |> Query.join(:tags, through: :product_tags, where: {:type, "featured"})
+      |> Query.inspect()
+      # => Returns formatted string representation
+  """
+  @spec inspect(t()) :: String.t()
+  def inspect(%__MODULE__{} = builder) do
+    Kernel.inspect(builder.query, pretty: true, limit: :infinity, printable_limit: :infinity)
+  end
+
   ## CRUD Operations
 
   @doc """

@@ -580,6 +580,19 @@ IO.inspect(params)
 # => ["active", 100]
 ```
 
+### Inspect Query (Human-Readable)
+
+```elixir
+# Get human-readable Ecto query representation
+query_str = Query.new(Product)
+  |> Query.where(status: "active")
+  |> Query.join(:tags, through: :product_tags, where: {:type, "featured"})
+  |> Query.inspect()
+
+IO.puts(query_str)
+# Prints formatted Ecto.Query struct with all details
+```
+
 ## CRUD Operations
 
 ### Insert
