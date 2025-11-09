@@ -1,24 +1,32 @@
 defmodule Events.Repo.Query do
   @moduledoc """
-  Simple, keyword-based query interface for database operations.
+  Simple CRUD helpers that compose naturally with Ecto.Query.
 
-  This module provides a composable, keyword-based API for all database operations
-  following the project's conventions:
-
-  - **Keyword lists for all options**
-  - **Simple function calls** - no builders or complex DSLs
-  - **Composable** - easy to build on top of
-  - **Pattern matching** - {:ok, result} | {:error, reason}
-  - **Soft delete by default**
+  This module provides simple functions that work seamlessly with Ecto's
+  `from` syntax and keyword-based queries.
 
   ## Basic Usage
 
-      # Fetch records
-      Query.all(Product, where: [status: "active"], limit: 10)
-      Query.one(Product, where: [id: id])
-      Query.one!(Product, where: [slug: "my-product"])
+      # Works with schemas
+      Query.all(Product)
 
-      # Create
+      # Works with Ecto queries
+      from(p in Product, where: p.status == "active")
+      |> Query.all()
+
+      # Supports keyword where clauses
+      Query.all(Product, where: [status: "active", type: "widget"])
+
+      # Composable
+      from(p in Product, where: p.price > 10)
+      |> Query.where(status: "active")
+      |> Query.order_by(desc: :inserted_at)
+      |> Query.limit(10)
+      |> Query.all()
+
+  ## CRUD Operations
+
+      # Insert
       {:ok, product} = Query.insert(Product, %{name: "Widget"}, created_by: user_id)
 
       # Update
@@ -27,106 +35,63 @@ defmodule Events.Repo.Query do
       # Delete (soft by default)
       {:ok, product} = Query.delete(product, deleted_by: user_id)
 
-      # Restore
-      {:ok, product} = Query.restore(product)
-
-  ## Query Options
-
-  All query functions accept these options via keyword list:
-
-  - `:where` - Filter conditions (keyword list or map)
-  - `:limit` - Limit results
-  - `:offset` - Offset for pagination
-  - `:order_by` - Order results (e.g., `[desc: :inserted_at]`)
-  - `:preload` - Preload associations
-  - `:select` - Select specific fields
-  - `:include_deleted` - Include soft-deleted records (default: false)
-
-  ## Examples
-
-      # Simple where clause
-      Query.all(Product, where: [status: "active", type: "widget"])
-
-      # With pagination
-      Query.all(Product,
-        where: [status: "active"],
-        order_by: [desc: :inserted_at],
-        limit: 20,
-        offset: 40
-      )
-
-      # With preloads
-      Query.all(Product,
-        where: [status: "published"],
-        preload: [:category, :tags]
-      )
-
-      # Count
-      count = Query.count(Product, where: [status: "active"])
-
-      # Exists?
-      exists? = Query.exists?(Product, where: [slug: "my-product"])
-
-  ## Transactions
-
-      {:ok, results} = Query.transaction(fn ->
-        with {:ok, product} <- Query.insert(Product, %{name: "Widget"}, created_by: user_id),
-             {:ok, _} <- Query.update(product, %{status: "active"}, updated_by: user_id) do
-          {:ok, product}
-        end
-      end)
+      # Update all matching a query
+      from(p in Product, where: p.status == "draft")
+      |> Query.update_all([set: [status: "published"]], updated_by: user_id)
   """
 
   import Ecto.Query
   alias Events.Repo
 
-  @type schema :: module()
   @type queryable :: Ecto.Query.t() | module()
+  @type schema :: module()
   @type attrs :: map()
   @type opts :: keyword()
-  @type where_clause :: keyword() | map()
 
   ## Query Functions
 
   @doc """
-  Fetches all records matching the given options.
+  Fetches all records.
 
-  ## Options
-
-  - `:where` - Filter conditions
-  - `:limit` - Limit results
-  - `:offset` - Offset for pagination
-  - `:order_by` - Order results
-  - `:preload` - Preload associations
-  - `:include_deleted` - Include soft-deleted records (default: false)
+  Automatically excludes soft-deleted records unless `:include_deleted` is true.
 
   ## Examples
 
-      Query.all(Product, where: [status: "active"], limit: 10)
-      Query.all(Product, where: [type: "widget"], order_by: [desc: :price])
+      Query.all(Product)
+
+      from(p in Product, where: p.status == "active")
+      |> Query.all()
+
+      Query.all(Product, where: [status: "active"])
+      Query.all(Product, where: [status: "active"], include_deleted: true)
   """
-  @spec all(schema(), opts()) :: [Ecto.Schema.t()]
-  def all(schema, opts \\ []) do
-    schema
-    |> build_query(opts)
+  @spec all(queryable(), opts()) :: [Ecto.Schema.t()]
+  def all(queryable, opts \\ []) do
+    queryable
+    |> maybe_filter_deleted(opts)
+    |> maybe_apply_where(opts)
     |> Repo.all()
   end
 
   @doc """
-  Fetches a single record matching the given options.
+  Fetches a single record.
 
   Returns `nil` if no record is found.
 
   ## Examples
 
-      Query.one(Product, where: [id: id])
+      Query.one(Product)
+
+      from(p in Product, where: p.slug == ^slug)
+      |> Query.one()
+
       Query.one(Product, where: [slug: "my-product"])
   """
-  @spec one(schema(), opts()) :: Ecto.Schema.t() | nil
-  def one(schema, opts \\ []) do
-    schema
-    |> build_query(opts)
-    |> limit(1)
+  @spec one(queryable(), opts()) :: Ecto.Schema.t() | nil
+  def one(queryable, opts \\ []) do
+    queryable
+    |> maybe_filter_deleted(opts)
+    |> maybe_apply_where(opts)
     |> Repo.one()
   end
 
@@ -135,51 +100,30 @@ defmodule Events.Repo.Query do
 
   ## Examples
 
-      product = Query.one!(Product, where: [id: id])
+      from(p in Product, where: p.id == ^id)
+      |> Query.one!()
   """
-  @spec one!(schema(), opts()) :: Ecto.Schema.t()
-  def one!(schema, opts \\ []) do
-    case one(schema, opts) do
-      nil -> raise Ecto.NoResultsError, queryable: schema
-      record -> record
-    end
+  @spec one!(queryable(), opts()) :: Ecto.Schema.t()
+  def one!(queryable, opts \\ []) do
+    queryable
+    |> maybe_filter_deleted(opts)
+    |> maybe_apply_where(opts)
+    |> Repo.one!()
   end
 
   @doc """
   Fetches a record by ID.
 
-  ## Options
-
-  - `:preload` - Preload associations
-  - `:include_deleted` - Include soft-deleted records (default: false)
-
   ## Examples
 
-      {:ok, product} = Query.fetch(Product, id)
-      {:ok, product} = Query.fetch(Product, id, preload: [:category])
+      {:ok, product} = Query.get(Product, id)
+      {:ok, product} = Query.get(Product, id, include_deleted: true)
   """
-  @spec fetch(schema(), term(), opts()) :: {:ok, Ecto.Schema.t()} | {:error, :not_found}
-  def fetch(schema, id, opts \\ []) do
-    include_deleted = Keyword.get(opts, :include_deleted, false)
-    preloads = Keyword.get(opts, :preload, [])
-
-    query = from(s in schema, where: s.id == ^id)
-
-    query =
-      if include_deleted do
-        query
-      else
-        from(s in query, where: is_nil(s.deleted_at))
-      end
-
-    query =
-      if preloads != [] do
-        from(s in query, preload: ^preloads)
-      else
-        query
-      end
-
-    case Repo.one(query) do
+  @spec get(schema(), term(), opts()) :: {:ok, Ecto.Schema.t()} | {:error, :not_found}
+  def get(schema, id, opts \\ []) do
+    case from(s in schema, where: s.id == ^id)
+         |> maybe_filter_deleted(opts)
+         |> Repo.one() do
       nil -> {:error, :not_found}
       record -> {:ok, record}
     end
@@ -190,56 +134,60 @@ defmodule Events.Repo.Query do
 
   ## Examples
 
-      product = Query.fetch!(Product, id)
+      product = Query.get!(Product, id)
   """
-  @spec fetch!(schema(), term(), opts()) :: Ecto.Schema.t()
-  def fetch!(schema, id, opts \\ []) do
-    case fetch(schema, id, opts) do
+  @spec get!(schema(), term(), opts()) :: Ecto.Schema.t()
+  def get!(schema, id, opts \\ []) do
+    case get(schema, id, opts) do
       {:ok, record} -> record
       {:error, :not_found} -> raise Ecto.NoResultsError, queryable: schema
     end
   end
 
   @doc """
-  Counts records matching the given options.
+  Counts records.
 
   ## Examples
 
-      count = Query.count(Product, where: [status: "active"])
+      Query.count(Product)
+
+      from(p in Product, where: p.status == "active")
+      |> Query.count()
+
+      Query.count(Product, where: [status: "active"])
   """
-  @spec count(schema(), opts()) :: integer()
-  def count(schema, opts \\ []) do
-    schema
-    |> build_query(opts)
+  @spec count(queryable(), opts()) :: integer()
+  def count(queryable, opts \\ []) do
+    queryable
+    |> maybe_filter_deleted(opts)
+    |> maybe_apply_where(opts)
     |> Repo.aggregate(:count)
   end
 
   @doc """
-  Checks if any records exist matching the given options.
+  Checks if any records exist.
 
   ## Examples
 
-      exists? = Query.exists?(Product, where: [slug: "my-product"])
+      from(p in Product, where: p.slug == ^slug)
+      |> Query.exists?()
   """
-  @spec exists?(schema(), opts()) :: boolean()
-  def exists?(schema, opts \\ []) do
-    schema
-    |> build_query(opts)
+  @spec exists?(queryable(), opts()) :: boolean()
+  def exists?(queryable, opts \\ []) do
+    queryable
+    |> maybe_filter_deleted(opts)
+    |> maybe_apply_where(opts)
     |> Repo.exists?()
   end
 
-  ## CRUD Functions
+  ## CRUD Operations
 
   @doc """
   Inserts a new record.
 
-  ## Options
-
-  - `:created_by` - User ID for audit trail
-
   ## Examples
 
-      {:ok, product} = Query.insert(Product, %{name: "Widget", price: 9.99}, created_by: user_id)
+      {:ok, product} = Query.insert(Product, %{name: "Widget"}, created_by: user_id)
   """
   @spec insert(schema(), attrs(), opts()) :: {:ok, Ecto.Schema.t()} | {:error, Ecto.Changeset.t()}
   def insert(schema, attrs, opts \\ []) do
@@ -258,18 +206,15 @@ defmodule Events.Repo.Query do
   @doc """
   Inserts multiple records.
 
-  ## Options
-
-  - `:created_by` - User ID for audit trail
-
   ## Examples
 
-      {:ok, products} = Query.insert_all(Product, [
-        %{name: "Widget A"},
-        %{name: "Widget B"}
+      {:ok, {3, products}} = Query.insert_all(Product, [
+        %{name: "A"},
+        %{name: "B"},
+        %{name: "C"}
       ], created_by: user_id)
   """
-  @spec insert_all(schema(), [attrs()], opts()) :: {:ok, list()} | {:error, term()}
+  @spec insert_all(schema(), [attrs()], opts()) :: {:ok, {integer(), list()}} | {:error, term()}
   def insert_all(schema, records, opts \\ []) when is_list(records) do
     now = DateTime.utc_now() |> DateTime.truncate(:second)
     created_by = Keyword.get(opts, :created_by)
@@ -283,18 +228,12 @@ defmodule Events.Repo.Query do
         |> maybe_put(:updated_by_urm_id, created_by)
       end)
 
-    case Repo.insert_all(schema, records, returning: true) do
-      {_count, records} -> {:ok, records}
-      error -> {:error, error}
-    end
+    {count, results} = Repo.insert_all(schema, records, returning: true)
+    {:ok, {count, results}}
   end
 
   @doc """
   Updates a record.
-
-  ## Options
-
-  - `:updated_by` - User ID for audit trail
 
   ## Examples
 
@@ -317,53 +256,46 @@ defmodule Events.Repo.Query do
   end
 
   @doc """
-  Updates all records matching the given options.
-
-  Returns `{:ok, count}` where count is the number of updated records.
-
-  ## Options
-
-  - `:where` - Filter conditions (required)
-  - `:updated_by` - User ID for audit trail
+  Updates all records matching a query.
 
   ## Examples
 
-      {:ok, 5} = Query.update_all(Product,
-        %{status: "published"},
+      # Using from query
+      from(p in Product, where: p.status == "draft")
+      |> Query.update_all([set: [status: "published"]], updated_by: user_id)
+
+      # Using keyword where
+      Query.update_all(Product, [set: [status: "published"]],
         where: [status: "draft"],
         updated_by: user_id
       )
   """
-  @spec update_all(schema(), attrs(), opts()) :: {:ok, integer()} | {:error, term()}
-  def update_all(schema, attrs, opts \\ []) do
-    attrs = add_audit_fields(attrs, :update, opts)
-    updates = Map.to_list(attrs)
+  @spec update_all(queryable(), keyword(), opts()) :: {:ok, integer()} | {:error, term()}
+  def update_all(queryable, updates, opts \\ []) do
+    # Add audit fields to updates if provided
+    updates =
+      case Keyword.get(opts, :updated_by) do
+        nil -> updates
+        user_id -> Keyword.put(updates, :set, Keyword.get(updates, :set, []) ++ [updated_by_urm_id: user_id])
+      end
 
     query =
-      schema
-      |> build_query(opts)
-      |> update(set: ^updates)
+      queryable
+      |> maybe_filter_deleted(opts)
+      |> maybe_apply_where(opts)
 
-    case Repo.update_all(query, []) do
-      {count, _} -> {:ok, count}
-      error -> {:error, error}
-    end
+    {count, _} = Repo.update_all(query, updates)
+    {:ok, count}
   end
 
   @doc """
   Soft deletes a record.
 
-  ## Options
-
-  - `:deleted_by` - User ID for audit trail
-  - `:hard` - If true, permanently deletes the record (default: false)
+  Use `hard: true` for permanent deletion.
 
   ## Examples
 
-      # Soft delete
       {:ok, product} = Query.delete(product, deleted_by: user_id)
-
-      # Hard delete
       {:ok, product} = Query.delete(product, hard: true)
   """
   @spec delete(Ecto.Schema.t(), opts()) ::
@@ -372,65 +304,67 @@ defmodule Events.Repo.Query do
     if Keyword.get(opts, :hard, false) do
       Repo.delete(struct)
     else
-      soft_delete(struct, opts)
+      now = DateTime.utc_now()
+      deleted_by = Keyword.get(opts, :deleted_by)
+
+      changes = %{deleted_at: now}
+      changes = maybe_put(changes, :deleted_by_urm_id, deleted_by)
+
+      struct
+      |> Ecto.Changeset.cast(changes, [:deleted_at, :deleted_by_urm_id])
+      |> Repo.update()
     end
   end
 
   @doc """
-  Deletes all records matching the given options.
+  Deletes all records matching a query.
 
   Soft deletes by default. Use `hard: true` for permanent deletion.
 
-  ## Options
-
-  - `:where` - Filter conditions (required)
-  - `:deleted_by` - User ID for audit trail
-  - `:hard` - If true, permanently deletes (default: false)
-
   ## Examples
 
-      {:ok, 3} = Query.delete_all(Product,
-        where: [status: "draft"],
-        deleted_by: user_id
-      )
+      # Soft delete
+      from(p in Product, where: p.status == "draft")
+      |> Query.delete_all(deleted_by: user_id)
+
+      # Hard delete
+      from(p in Product, where: p.status == "draft")
+      |> Query.delete_all(hard: true)
+
+      # With keyword where
+      Query.delete_all(Product, where: [status: "draft"], deleted_by: user_id)
   """
-  @spec delete_all(schema(), opts()) :: {:ok, integer()} | {:error, term()}
-  def delete_all(schema, opts \\ []) do
+  @spec delete_all(queryable(), opts()) :: {:ok, integer()} | {:error, term()}
+  def delete_all(queryable, opts \\ []) do
     if Keyword.get(opts, :hard, false) do
-      query = build_query(schema, opts)
+      query =
+        queryable
+        |> maybe_filter_deleted(opts)
+        |> maybe_apply_where(opts)
 
-      case Repo.delete_all(query) do
-        {count, _} -> {:ok, count}
-        error -> {:error, error}
-      end
+      {count, _} = Repo.delete_all(query)
+      {:ok, count}
     else
-      update_all(schema, %{deleted_at: DateTime.utc_now()}, opts)
+      now = DateTime.utc_now()
+      deleted_by = Keyword.get(opts, :deleted_by)
+
+      updates = [set: [deleted_at: now]]
+
+      updates =
+        if deleted_by do
+          Keyword.put(updates, :set, Keyword.get(updates, :set) ++ [deleted_by_urm_id: deleted_by])
+        else
+          updates
+        end
+
+      query =
+        queryable
+        |> maybe_filter_deleted(opts)
+        |> maybe_apply_where(opts)
+
+      {count, _} = Repo.update_all(query, updates)
+      {:ok, count}
     end
-  end
-
-  @doc """
-  Soft deletes a record.
-
-  ## Options
-
-  - `:deleted_by` - User ID for audit trail
-
-  ## Examples
-
-      {:ok, product} = Query.soft_delete(product, deleted_by: user_id)
-  """
-  @spec soft_delete(Ecto.Schema.t(), opts()) ::
-          {:ok, Ecto.Schema.t()} | {:error, Ecto.Changeset.t()}
-  def soft_delete(struct, opts \\ []) when is_struct(struct) do
-    now = DateTime.utc_now()
-    deleted_by = Keyword.get(opts, :deleted_by)
-
-    changes = %{deleted_at: now}
-    changes = maybe_put(changes, :deleted_by_urm_id, deleted_by)
-
-    struct
-    |> Ecto.Changeset.cast(changes, [:deleted_at, :deleted_by_urm_id])
-    |> Repo.update()
   end
 
   @doc """
@@ -451,41 +385,38 @@ defmodule Events.Repo.Query do
   end
 
   @doc """
-  Restores all soft-deleted records matching the given options.
-
-  ## Options
-
-  - `:where` - Filter conditions (required)
+  Restores all soft-deleted records matching a query.
 
   ## Examples
 
-      {:ok, 2} = Query.restore_all(Product, where: [type: "widget"])
+      from(p in Product, where: p.type == "widget")
+      |> Query.restore_all()
+
+      Query.restore_all(Product, where: [type: "widget"])
   """
-  @spec restore_all(schema(), opts()) :: {:ok, integer()} | {:error, term()}
-  def restore_all(schema, opts \\ []) do
-    updates = [deleted_at: nil, deleted_by_urm_id: nil]
+  @spec restore_all(queryable(), opts()) :: {:ok, integer()} | {:error, term()}
+  def restore_all(queryable, opts \\ []) do
+    updates = [set: [deleted_at: nil, deleted_by_urm_id: nil]]
 
     query =
-      schema
-      |> build_query(opts)
-      |> update(set: ^updates)
+      queryable
+      |> maybe_apply_where(opts)
+      |> where([q], not is_nil(q.deleted_at))
 
-    case Repo.update_all(query, []) do
-      {count, _} -> {:ok, count}
-      error -> {:error, error}
-    end
+    {count, _} = Repo.update_all(query, updates)
+    {:ok, count}
   end
 
-  ## Transaction Functions
+  ## Transaction
 
   @doc """
   Runs a function inside a transaction.
 
   ## Examples
 
-      {:ok, result} = Query.transaction(fn ->
-        with {:ok, product} <- Query.insert(Product, %{name: "Widget"}, created_by: user_id),
-             {:ok, _} <- Query.update(product, %{status: "active"}, updated_by: user_id) do
+      {:ok, product} = Query.transaction(fn ->
+        with {:ok, product} <- Query.insert(Product, attrs, created_by: user_id),
+             {:ok, _} <- Query.update(category, %{count: count + 1}, updated_by: user_id) do
           {:ok, product}
         end
       end)
@@ -495,19 +426,176 @@ defmodule Events.Repo.Query do
     Repo.transaction(fun)
   end
 
-  ## Aggregation Functions
+  ## Query Helpers - Composable with from
+
+  @doc """
+  Adds where conditions to a query.
+
+  Composable with Ecto.Query.
+
+  ## Examples
+
+      Product
+      |> Query.where(status: "active")
+      |> Query.where(type: "widget")
+      |> Query.all()
+
+      from(p in Product, where: p.price > 10)
+      |> Query.where(status: "active")
+      |> Query.all()
+  """
+  @spec where(queryable(), keyword()) :: Ecto.Query.t()
+  def where(queryable, conditions) when is_list(conditions) do
+    Enum.reduce(conditions, queryable, fn {field, value}, query ->
+      from(q in query, where: field(q, ^field) == ^value)
+    end)
+  end
+
+  @doc """
+  Adds a limit to a query.
+
+  ## Examples
+
+      Product
+      |> Query.where(status: "active")
+      |> Query.limit(10)
+      |> Query.all()
+  """
+  @spec limit(queryable(), pos_integer()) :: Ecto.Query.t()
+  def limit(queryable, value) when is_integer(value) and value > 0 do
+    from(q in queryable, limit: ^value)
+  end
+
+  @doc """
+  Adds an offset to a query.
+
+  ## Examples
+
+      Product
+      |> Query.offset(20)
+      |> Query.limit(10)
+      |> Query.all()
+  """
+  @spec offset(queryable(), non_neg_integer()) :: Ecto.Query.t()
+  def offset(queryable, value) when is_integer(value) and value >= 0 do
+    from(q in queryable, offset: ^value)
+  end
+
+  @doc """
+  Adds ordering to a query.
+
+  ## Examples
+
+      Product
+      |> Query.order_by(desc: :inserted_at)
+      |> Query.all()
+
+      Product
+      |> Query.order_by([asc: :name, desc: :price])
+      |> Query.all()
+  """
+  @spec order_by(queryable(), keyword()) :: Ecto.Query.t()
+  def order_by(queryable, ordering) when is_list(ordering) do
+    from(q in queryable, order_by: ^ordering)
+  end
+
+  @doc """
+  Adds preloads to a query.
+
+  ## Examples
+
+      Product
+      |> Query.preload([:category, :tags])
+      |> Query.all()
+  """
+  @spec preload(queryable(), list()) :: Ecto.Query.t()
+  def preload(queryable, assocs) when is_list(assocs) do
+    from(q in queryable, preload: ^assocs)
+  end
+
+  @doc """
+  Paginates a query.
+
+  ## Examples
+
+      Product
+      |> Query.paginate(page: 2, per_page: 20)
+      |> Query.all()
+  """
+  @spec paginate(queryable(), keyword()) :: Ecto.Query.t()
+  def paginate(queryable, opts) do
+    page = Keyword.get(opts, :page, 1)
+    per_page = Keyword.get(opts, :per_page, 20)
+
+    queryable
+    |> limit(per_page)
+    |> offset((page - 1) * per_page)
+  end
+
+  ## Soft Delete Scopes
+
+  @doc """
+  Filters out soft-deleted records.
+
+  ## Examples
+
+      Product
+      |> Query.not_deleted()
+      |> Repo.all()
+
+      from(p in Product, where: p.status == "active")
+      |> Query.not_deleted()
+      |> Repo.all()
+  """
+  @spec not_deleted(queryable()) :: Ecto.Query.t()
+  def not_deleted(queryable) do
+    from(q in queryable, where: is_nil(q.deleted_at))
+  end
+
+  @doc """
+  Returns only soft-deleted records.
+
+  ## Examples
+
+      Product
+      |> Query.only_deleted()
+      |> Repo.all()
+  """
+  @spec only_deleted(queryable()) :: Ecto.Query.t()
+  def only_deleted(queryable) do
+    from(q in queryable, where: not is_nil(q.deleted_at))
+  end
+
+  @doc """
+  Filters for active status and not deleted.
+
+  ## Examples
+
+      Product
+      |> Query.active()
+      |> Repo.all()
+  """
+  @spec active(queryable()) :: Ecto.Query.t()
+  def active(queryable) do
+    from(q in queryable,
+      where: q.status == "active",
+      where: is_nil(q.deleted_at)
+    )
+  end
+
+  ## Aggregations
 
   @doc """
   Calculates the sum of a field.
 
   ## Examples
 
-      total = Query.sum(Order, :total, where: [status: "completed"])
+      from(o in Order, where: o.status == "completed")
+      |> Query.sum(:total)
   """
-  @spec sum(schema(), atom(), opts()) :: number() | nil
-  def sum(schema, field, opts \\ []) when is_atom(field) do
-    schema
-    |> build_query(opts)
+  @spec sum(queryable(), atom()) :: number() | nil
+  def sum(queryable, field) when is_atom(field) do
+    queryable
     |> Repo.aggregate(:sum, field)
   end
 
@@ -516,12 +604,13 @@ defmodule Events.Repo.Query do
 
   ## Examples
 
-      avg_price = Query.avg(Product, :price, where: [status: "active"])
+      Product
+      |> Query.not_deleted()
+      |> Query.avg(:price)
   """
-  @spec avg(schema(), atom(), opts()) :: number() | nil
-  def avg(schema, field, opts \\ []) when is_atom(field) do
-    schema
-    |> build_query(opts)
+  @spec avg(queryable(), atom()) :: number() | nil
+  def avg(queryable, field) when is_atom(field) do
+    queryable
     |> Repo.aggregate(:avg, field)
   end
 
@@ -530,14 +619,13 @@ defmodule Events.Repo.Query do
 
   ## Examples
 
-      min_price = Query.min(Product, :price, where: [status: "active"])
+      Product |> Query.min(:price)
   """
-  @spec min(schema(), atom(), opts()) :: any()
-  def min(schema, field, opts \\ []) when is_atom(field) do
-    schema
-    |> build_query(opts)
-    |> select([s], field(s, ^field))
-    |> order_by([s], asc: field(s, ^field))
+  @spec min(queryable(), atom()) :: any()
+  def min(queryable, field) when is_atom(field) do
+    queryable
+    |> select([q], field(q, ^field))
+    |> order_by([q], asc: field(q, ^field))
     |> limit(1)
     |> Repo.one()
   end
@@ -547,119 +635,32 @@ defmodule Events.Repo.Query do
 
   ## Examples
 
-      max_price = Query.max(Product, :price, where: [status: "active"])
+      Product |> Query.max(:price)
   """
-  @spec max(schema(), atom(), opts()) :: any()
-  def max(schema, field, opts \\ []) when is_atom(field) do
-    schema
-    |> build_query(opts)
-    |> select([s], field(s, ^field))
-    |> order_by([s], desc: field(s, ^field))
+  @spec max(queryable(), atom()) :: any()
+  def max(queryable, field) when is_atom(field) do
+    queryable
+    |> select([q], field(q, ^field))
+    |> order_by([q], desc: field(q, ^field))
     |> limit(1)
     |> Repo.one()
   end
 
-  ## Helper Functions
+  ## Private Helpers
 
-  @doc """
-  Returns records that are not soft-deleted.
-
-  ## Examples
-
-      products = Product |> Query.not_deleted() |> Repo.all()
-  """
-  @spec not_deleted(queryable()) :: Ecto.Query.t()
-  def not_deleted(query) do
-    from(q in query, where: is_nil(q.deleted_at))
-  end
-
-  @doc """
-  Returns only soft-deleted records.
-
-  ## Examples
-
-      deleted = Product |> Query.only_deleted() |> Repo.all()
-  """
-  @spec only_deleted(queryable()) :: Ecto.Query.t()
-  def only_deleted(query) do
-    from(q in query, where: not is_nil(q.deleted_at))
-  end
-
-  @doc """
-  Returns records with active status and not deleted.
-
-  ## Examples
-
-      active = Product |> Query.active() |> Repo.all()
-  """
-  @spec active(queryable()) :: Ecto.Query.t()
-  def active(query) do
-    from(q in query,
-      where: q.status == "active",
-      where: is_nil(q.deleted_at)
-    )
-  end
-
-  ## Private Functions
-
-  defp build_query(schema, opts) do
-    query = from(s in schema)
-
-    # Apply soft delete filter (unless explicitly including deleted)
-    query =
-      if Keyword.get(opts, :include_deleted, false) do
-        query
-      else
-        from(s in query, where: is_nil(s.deleted_at))
-      end
-
-    # Apply where clause
-    query =
-      case Keyword.get(opts, :where) do
-        nil -> query
-        where_clause -> apply_where(query, where_clause)
-      end
-
-    # Apply limit
-    query =
-      case Keyword.get(opts, :limit) do
-        nil -> query
-        limit_value -> from(s in query, limit: ^limit_value)
-      end
-
-    # Apply offset
-    query =
-      case Keyword.get(opts, :offset) do
-        nil -> query
-        offset_value -> from(s in query, offset: ^offset_value)
-      end
-
-    # Apply order_by
-    query =
-      case Keyword.get(opts, :order_by) do
-        nil -> query
-        order_value -> from(s in query, order_by: ^order_value)
-      end
-
-    # Apply preload
-    query =
-      case Keyword.get(opts, :preload) do
-        nil -> query
-        [] -> query
-        preload_value -> from(s in query, preload: ^preload_value)
-      end
-
-    # Apply select
-    case Keyword.get(opts, :select) do
-      nil -> query
-      select_fields -> from(s in query, select: ^select_fields)
+  defp maybe_filter_deleted(queryable, opts) do
+    if Keyword.get(opts, :include_deleted, false) do
+      queryable
+    else
+      not_deleted(queryable)
     end
   end
 
-  defp apply_where(query, where_clause) when is_list(where_clause) or is_map(where_clause) do
-    Enum.reduce(where_clause, query, fn {field, value}, acc ->
-      from(s in acc, where: field(s, ^field) == ^value)
-    end)
+  defp maybe_apply_where(queryable, opts) do
+    case Keyword.get(opts, :where) do
+      nil -> queryable
+      conditions -> where(queryable, conditions)
+    end
   end
 
   defp add_audit_fields(attrs, :insert, opts) do
