@@ -508,6 +508,207 @@ defmodule Events.Repo.Query do
   end
 
   @doc """
+  Defines a named window for use with window functions.
+
+  Windows define partitioning and ordering for window functions like
+  ROW_NUMBER(), RANK(), DENSE_RANK(), LEAD(), LAG(), etc.
+
+  ## Examples
+
+      # Define a window partitioned by category_id
+      Query.window(query, :w, partition_by: :category_id, order_by: [desc: :price])
+
+      # Multiple windows
+      Query.new(Product)
+      |> Query.window(:price_rank, partition_by: :category_id, order_by: [desc: :price])
+      |> Query.window(:date_rank, partition_by: :category_id, order_by: [desc: :inserted_at])
+
+      # Window with just ordering
+      Query.window(query, :w, order_by: [desc: :price])
+
+      # Window with just partitioning
+      Query.window(query, :w, partition_by: [:category_id, :status])
+  """
+  @spec window(t(), atom(), keyword()) :: t()
+  def window(%__MODULE__{} = builder, name, opts) when is_atom(name) and is_list(opts) do
+    window_spec = build_window_spec(opts)
+    query = from(s in builder.query, windows: [{^name, ^window_spec}])
+    %{builder | query: query}
+  end
+
+  @doc """
+  Adds a SELECT clause with support for window functions.
+
+  ## Examples
+
+      # Select specific fields
+      Query.select(query, [:id, :name, :price])
+
+      # Select with map (useful for custom field names)
+      Query.select(query, %{product_id: :id, product_name: :name})
+
+      # Use window functions with named window
+      Query.new(Product)
+      |> Query.window(:w, partition_by: :category_id, order_by: [desc: :price])
+      |> Query.select(%{
+        id: :id,
+        name: :name,
+        row_number: {:window, :row_number, :w},
+        rank: {:window, :rank, :w}
+      })
+
+      # Use window functions with inline definition
+      Query.select(query, %{
+        id: :id,
+        row_number: {:window, :row_number, [partition_by: :category_id, order_by: [desc: :price]]}
+      })
+
+      # Window functions: :row_number, :rank, :dense_rank
+      # With field: :lead, :lag, :first_value, :last_value
+      Query.select(query, %{
+        id: :id,
+        next_price: {:window, {:lead, :price}, :w}
+      })
+
+      # Aggregates as window functions
+      Query.select(query, %{
+        id: :id,
+        running_total: {:window, {:sum, :amount}, :w}
+      })
+  """
+  @spec select(t(), list() | map()) :: t()
+  def select(%__MODULE__{} = builder, fields) when is_list(fields) do
+    # Simple field list
+    query = from(s in builder.query, select: map(s, ^fields))
+    %{builder | query: query}
+  end
+
+  def select(%__MODULE__{} = builder, field_map) when is_map(field_map) do
+    # Map with potentially window functions
+    # Build select using SQL fragments for window functions
+    query = build_select_query(builder.query, field_map)
+    %{builder | query: query}
+  end
+
+  @doc """
+  Creates a query from a subquery (for use in FROM clause).
+
+  ## Examples
+
+      # Build subquery
+      active_products = Query.new(Product)
+        |> Query.where(status: "active")
+        |> Query.select([:id, :name, :category_id])
+
+      # Use as FROM clause
+      Query.from_subquery(active_products, :products)
+      |> Query.where({:products, :name, :ilike, "%widget%"})
+      |> Repo.all()
+
+      # With alias
+      Query.from_subquery(active_products, :p)
+      |> Query.join(:category, on: {:p, :category_id, :eq, {:category, :id}})
+  """
+  @spec from_subquery(t(), atom()) :: t()
+  def from_subquery(%__MODULE__{query: subquery, schema: schema}, alias_name) when is_atom(alias_name) do
+    # Create a new query from the subquery
+    query = from(s in subquery(subquery), as: ^alias_name)
+
+    %__MODULE__{
+      schema: schema,
+      query: query,
+      joins: %{alias_name => alias_name},
+      include_deleted: false
+    }
+  end
+
+  @doc """
+  Adds a WHERE condition using a subquery.
+
+  ## Examples
+
+      # WHERE id IN (subquery)
+      subquery = Query.new(Product)
+        |> Query.where(status: "active")
+        |> Query.select([:id])
+
+      Query.new(Order)
+      |> Query.where_in_subquery(:product_id, subquery)
+      |> Repo.all()
+
+      # WHERE id NOT IN (subquery)
+      Query.new(Order)
+      |> Query.where_not_in_subquery(:product_id, subquery)
+
+      # WHERE EXISTS (subquery)
+      subquery = Query.new(OrderItem)
+        |> Query.where({:order_id, :eq, {:parent, :id}})
+
+      Query.new(Order)
+      |> Query.where_exists(subquery)
+  """
+  @spec where_in_subquery(t(), atom(), t()) :: t()
+  def where_in_subquery(%__MODULE__{} = builder, field, %__MODULE__{query: subquery})
+      when is_atom(field) do
+    query = from(s in builder.query, where: field(s, ^field) in subquery(^subquery))
+    %{builder | query: query}
+  end
+
+  @spec where_not_in_subquery(t(), atom(), t()) :: t()
+  def where_not_in_subquery(%__MODULE__{} = builder, field, %__MODULE__{query: subquery})
+      when is_atom(field) do
+    query = from(s in builder.query, where: field(s, ^field) not in subquery(^subquery))
+    %{builder | query: query}
+  end
+
+  @spec where_exists(t(), t()) :: t()
+  def where_exists(%__MODULE__{} = builder, %__MODULE__{query: subquery}) do
+    query = from(s in builder.query, where: exists(^subquery))
+    %{builder | query: query}
+  end
+
+  @spec where_not_exists(t(), t()) :: t()
+  def where_not_exists(%__MODULE__{} = builder, %__MODULE__{query: subquery}) do
+    query = from(s in builder.query, where: not exists(^subquery))
+    %{builder | query: query}
+  end
+
+  @doc """
+  Adds a scalar subquery to the SELECT clause.
+
+  ## Examples
+
+      # Add count from related table
+      product_count_subquery = Query.new(Product)
+        |> Query.where(dynamic([p, parent: c], p.category_id == c.id))
+        |> Query.select(fragment("count(*)"))
+
+      Query.new(Category)
+      |> Query.select([:id, :name])
+      |> Query.select_subquery(:product_count, product_count_subquery)
+      |> Repo.all()
+
+      # Multiple scalar subqueries
+      Query.new(Category)
+      |> Query.select_subquery(:active_products, active_count_query)
+      |> Query.select_subquery(:inactive_products, inactive_count_query)
+  """
+  @spec select_subquery(t(), atom(), t() | Ecto.Query.t()) :: t()
+  def select_subquery(%__MODULE__{} = builder, field_name, %__MODULE__{query: subquery})
+      when is_atom(field_name) do
+    # Add scalar subquery to select
+    query = from(s in builder.query, select_merge: %{^field_name => subquery(^subquery)})
+    %{builder | query: query}
+  end
+
+  def select_subquery(%__MODULE__{} = builder, field_name, subquery)
+      when is_atom(field_name) do
+    # Support raw Ecto.Query
+    query = from(s in builder.query, select_merge: %{^field_name => subquery(^subquery)})
+    %{builder | query: query}
+  end
+
+  @doc """
   Adds preloads with optional conditional filtering.
 
   ## Examples
@@ -747,6 +948,118 @@ defmodule Events.Repo.Query do
   end
 
   ## Private Helpers
+
+  # Build window specification from options
+  defp build_window_spec(opts) do
+    partition_by = Keyword.get(opts, :partition_by)
+    order_by = Keyword.get(opts, :order_by)
+
+    spec = []
+
+    spec =
+      if partition_by do
+        partition_fields = if is_list(partition_by), do: partition_by, else: [partition_by]
+        [{:partition_by, partition_fields} | spec]
+      else
+        spec
+      end
+
+    spec =
+      if order_by do
+        [{:order_by, order_by} | spec]
+      else
+        spec
+      end
+
+    spec
+  end
+
+  # Build select query with window functions
+  defp build_select_query(query, field_map) do
+    # Build the select map with proper expressions
+    select_fields = build_select_map_expr(field_map)
+
+    from s in query,
+      select: ^select_fields
+  end
+
+  # Build select map expression
+  defp build_select_map_expr(field_map) do
+    Enum.reduce(field_map, %{}, fn
+      {key, {:window, func, window_or_opts}}, acc ->
+        Map.put(acc, key, build_window_dynamic(func, window_or_opts))
+
+      {key, field}, acc when is_atom(field) ->
+        Map.put(acc, key, dynamic([s], field(s, ^field)))
+    end)
+  end
+
+  # Build window function as dynamic expression
+  defp build_window_dynamic(func, window_name) when is_atom(window_name) do
+    # Using named window - the window must be defined separately
+    func_sql = build_window_func_sql(func)
+    # For named windows, we reference them by name
+    # This needs the window to be already defined in the query
+    dynamic([], fragment("#{func_sql} OVER ?", ^window_name))
+  end
+
+  defp build_window_dynamic(func, opts) when is_list(opts) do
+    # Inline window definition - build full SQL
+    func_sql = build_window_func_sql(func)
+    window_sql = build_window_clause_sql(opts)
+    full_sql = "#{func_sql} OVER (#{window_sql})"
+    dynamic([], fragment(^full_sql))
+  end
+
+  # Build window function SQL
+  defp build_window_func_sql(:row_number), do: "ROW_NUMBER()"
+  defp build_window_func_sql(:rank), do: "RANK()"
+  defp build_window_func_sql(:dense_rank), do: "DENSE_RANK()"
+  defp build_window_func_sql({:lead, field}), do: "LEAD(#{field})"
+  defp build_window_func_sql({:lag, field}), do: "LAG(#{field})"
+  defp build_window_func_sql({:first_value, field}), do: "FIRST_VALUE(#{field})"
+  defp build_window_func_sql({:last_value, field}), do: "LAST_VALUE(#{field})"
+  defp build_window_func_sql({:sum, field}), do: "SUM(#{field})"
+  defp build_window_func_sql({:avg, field}), do: "AVG(#{field})"
+  defp build_window_func_sql({:count, field}), do: "COUNT(#{field})"
+  defp build_window_func_sql({:min, field}), do: "MIN(#{field})"
+  defp build_window_func_sql({:max, field}), do: "MAX(#{field})"
+
+  # Build window clause SQL
+  defp build_window_clause_sql(opts) do
+    partition_by = Keyword.get(opts, :partition_by)
+    order_by = Keyword.get(opts, :order_by)
+
+    parts = []
+
+    parts =
+      if partition_by do
+        fields = if is_list(partition_by), do: partition_by, else: [partition_by]
+        field_list = Enum.map_join(fields, ", ", &to_string/1)
+        ["PARTITION BY #{field_list}" | parts]
+      else
+        parts
+      end
+
+    parts =
+      if order_by do
+        order_clause = build_order_by_sql(order_by)
+        ["ORDER BY #{order_clause}" | parts]
+      else
+        parts
+      end
+
+    Enum.join(Enum.reverse(parts), " ")
+  end
+
+  # Build ORDER BY SQL from keyword list
+  defp build_order_by_sql(order_list) when is_list(order_list) do
+    Enum.map_join(order_list, ", ", fn
+      {:asc, field} -> "#{field} ASC"
+      {:desc, field} -> "#{field} DESC"
+      field when is_atom(field) -> "#{field}"
+    end)
+  end
 
   defp apply_opts(builder, opts) do
     Enum.reduce(opts, builder, fn

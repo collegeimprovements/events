@@ -6,9 +6,13 @@ A powerful query builder that composes with both keyword and pipe syntax, featur
 
 ✅ **Builder Pattern** - Accumulates query operations
 ✅ **Smart Filter Syntax** - `{field, operation, value, options}` with intelligent defaults
-✅ **Join Support** - Filter on joined tables
+✅ **Join Support** - Filter on joined tables including many-to-many
 ✅ **Soft Delete** - Automatically excludes deleted records
 ✅ **Dual Syntax** - Works with both keyword and pipe syntax
+✅ **Window Functions** - ROW_NUMBER, RANK, DENSE_RANK, LEAD, LAG, and more
+✅ **Subqueries** - Support for WHERE IN, EXISTS, FROM, and SELECT subqueries
+✅ **Conditional Preloads** - Preload associations with filters and ordering
+✅ **Aggregation** - GROUP BY, HAVING, DISTINCT support
 ✅ **Final Execution** - Use with `Repo.all()`, `Repo.one()`, or `to_sql()`
 
 ## Quick Start
@@ -720,6 +724,338 @@ Query.new(Product)
 |> Repo.all()
 ```
 
+## Window Functions
+
+Window functions perform calculations across a set of rows related to the current row, without collapsing the result set like GROUP BY does.
+
+### Common Window Functions
+
+```elixir
+# ROW_NUMBER - assigns unique sequential number
+Query.new(Product)
+|> Query.window(:w, partition_by: :category_id, order_by: [desc: :price])
+|> Query.select(%{
+  id: :id,
+  name: :name,
+  row_number: {:window, :row_number, :w}
+})
+|> Repo.all()
+
+# RANK - assigns rank with gaps for ties
+Query.new(Product)
+|> Query.window(:rank_window, partition_by: :category_id, order_by: [desc: :sales])
+|> Query.select(%{
+  id: :id,
+  sales: :sales,
+  rank: {:window, :rank, :rank_window}
+})
+|> Repo.all()
+
+# DENSE_RANK - assigns rank without gaps
+Query.new(Product)
+|> Query.window(:w, partition_by: :category_id, order_by: [desc: :rating])
+|> Query.select(%{
+  id: :id,
+  rating: :rating,
+  dense_rank: {:window, :dense_rank, :w}
+})
+|> Repo.all()
+```
+
+### Inline Window Definitions
+
+You can define windows inline without pre-declaring them:
+
+```elixir
+# Inline window definition
+Query.new(Product)
+|> Query.select(%{
+  id: :id,
+  name: :name,
+  row_number: {:window, :row_number, [partition_by: :category_id, order_by: [desc: :price]]}
+})
+|> Repo.all()
+```
+
+### Aggregate Functions as Windows
+
+```elixir
+# Running totals
+Query.new(Order)
+|> Query.window(:running, order_by: [asc: :inserted_at])
+|> Query.select(%{
+  id: :id,
+  amount: :amount,
+  running_total: {:window, {:sum, :amount}, :running}
+})
+|> Repo.all()
+
+# Moving averages
+Query.new(Product)
+|> Query.window(:w, partition_by: :category_id, order_by: [asc: :inserted_at])
+|> Query.select(%{
+  id: :id,
+  price: :price,
+  avg_price: {:window, {:avg, :price}, :w}
+})
+|> Repo.all()
+
+# Count within partitions
+Query.new(Product)
+|> Query.window(:category_window, partition_by: :category_id)
+|> Query.select(%{
+  id: :id,
+  category_id: :category_id,
+  products_in_category: {:window, {:count, :id}, :category_window}
+})
+|> Repo.all()
+```
+
+### Lead and Lag Functions
+
+Access values from preceding or following rows:
+
+```elixir
+# Compare with next price
+Query.new(Product)
+|> Query.window(:w, partition_by: :category_id, order_by: [asc: :price])
+|> Query.select(%{
+  id: :id,
+  price: :price,
+  next_price: {:window, {:lead, :price}, :w},
+  prev_price: {:window, {:lag, :price}, :w}
+})
+|> Repo.all()
+
+# First and last values in window
+Query.new(Product)
+|> Query.window(:w, partition_by: :category_id, order_by: [desc: :inserted_at])
+|> Query.select(%{
+  id: :id,
+  price: :price,
+  first_price: {:window, {:first_value, :price}, :w},
+  last_price: {:window, {:last_value, :price}, :w}
+})
+|> Repo.all()
+```
+
+### Multiple Windows
+
+Define and use multiple windows in a single query:
+
+```elixir
+Query.new(Product)
+|> Query.window(:price_rank, partition_by: :category_id, order_by: [desc: :price])
+|> Query.window(:date_rank, partition_by: :category_id, order_by: [desc: :inserted_at])
+|> Query.select(%{
+  id: :id,
+  name: :name,
+  price_rank: {:window, :rank, :price_rank},
+  recency_rank: {:window, :rank, :date_rank}
+})
+|> Repo.all()
+```
+
+### Real-World Examples
+
+#### Top N Per Category
+
+```elixir
+# Get top 3 products per category by price
+Query.new(Product)
+|> Query.window(:rank_window, partition_by: :category_id, order_by: [desc: :price])
+|> Query.select(%{
+  id: :id,
+  name: :name,
+  category_id: :category_id,
+  price: :price,
+  rank: {:window, :rank, :rank_window}
+})
+|> Repo.all()
+|> Enum.filter(fn product -> product.rank <= 3 end)
+```
+
+#### Sales Comparison
+
+```elixir
+# Compare each month's sales to previous month
+Query.new(MonthlySales)
+|> Query.window(:w, order_by: [asc: :month])
+|> Query.select(%{
+  month: :month,
+  sales: :sales,
+  prev_month_sales: {:window, {:lag, :sales}, :w},
+  growth: {:window, {:lead, :sales}, :w}
+})
+|> Repo.all()
+```
+
+## Subqueries
+
+Subqueries allow you to use the result of one query within another query.
+
+### Subquery in WHERE Clause
+
+#### IN Subquery
+
+```elixir
+# Find orders for active products
+active_product_ids = Query.new(Product)
+  |> Query.where(status: "active")
+  |> Query.select([:id])
+
+Query.new(Order)
+|> Query.where_in_subquery(:product_id, active_product_ids)
+|> Repo.all()
+
+# NOT IN - orders for inactive products
+Query.new(Order)
+|> Query.where_not_in_subquery(:product_id, active_product_ids)
+|> Repo.all()
+```
+
+#### EXISTS Subquery
+
+```elixir
+# Find categories that have products
+products_subquery = Query.new(Product)
+  |> Query.where(dynamic([p, parent: c], p.category_id == c.id))
+
+Query.new(Category)
+|> Query.where_exists(products_subquery)
+|> Repo.all()
+
+# NOT EXISTS - categories without products
+Query.new(Category)
+|> Query.where_not_exists(products_subquery)
+|> Repo.all()
+```
+
+### Subquery in FROM Clause
+
+Use a subquery as the source table:
+
+```elixir
+# Build filtered subquery
+active_products = Query.new(Product)
+  |> Query.where(status: "active")
+  |> Query.where({:price, :gt, 100})
+  |> Query.select([:id, :name, :category_id, :price])
+
+# Use as FROM clause
+Query.from_subquery(active_products, :products)
+|> Query.where({:products, :price, :lt, 500})
+|> Query.order_by([desc: :price])
+|> Repo.all()
+```
+
+### Subquery in SELECT Clause
+
+Add scalar subqueries (single value) to your SELECT:
+
+```elixir
+# Add product count to each category
+product_count = Query.new(Product)
+  |> Query.where(dynamic([p, parent: c], p.category_id == c.id))
+  |> Query.select(fragment("count(*)"))
+
+Query.new(Category)
+|> Query.select([:id, :name])
+|> Query.select_subquery(:product_count, product_count)
+|> Repo.all()
+
+# Multiple scalar subqueries
+active_count = Query.new(Product)
+  |> Query.where(dynamic([p, parent: c], p.category_id == c.id and p.status == "active"))
+  |> Query.select(fragment("count(*)"))
+
+inactive_count = Query.new(Product)
+  |> Query.where(dynamic([p, parent: c], p.category_id == c.id and p.status == "inactive"))
+  |> Query.select(fragment("count(*)"))
+
+Query.new(Category)
+|> Query.select([:id, :name])
+|> Query.select_subquery(:active_products, active_count)
+|> Query.select_subquery(:inactive_products, inactive_count)
+|> Repo.all()
+```
+
+### Real-World Subquery Examples
+
+#### Find Users with No Orders
+
+```elixir
+users_with_orders = Query.new(Order)
+  |> Query.select([:user_id])
+  |> Query.distinct(true)
+
+Query.new(User)
+|> Query.where_not_in_subquery(:id, users_with_orders)
+|> Repo.all()
+```
+
+#### Products Never Ordered
+
+```elixir
+ordered_product_ids = Query.new(OrderItem)
+  |> Query.select([:product_id])
+  |> Query.distinct(true)
+
+Query.new(Product)
+|> Query.where_not_in_subquery(:id, ordered_product_ids)
+|> Repo.all()
+```
+
+#### Categories with High-Value Products
+
+```elixir
+high_value_category_ids = Query.new(Product)
+  |> Query.where({:price, :gt, 1000})
+  |> Query.select([:category_id])
+  |> Query.distinct(true)
+
+Query.new(Category)
+|> Query.where_in_subquery(:id, high_value_category_ids)
+|> Repo.all()
+```
+
+#### Complex Filtering with Subqueries
+
+```elixir
+# Find products in categories that have at least 10 products
+categories_with_many_products = Query.new(Product)
+  |> Query.group_by(:category_id)
+  |> Query.having("count(*) >= ?", [10])
+  |> Query.select([:category_id])
+
+Query.new(Product)
+|> Query.where_in_subquery(:category_id, categories_with_many_products)
+|> Query.order_by(desc: :inserted_at)
+|> Repo.all()
+```
+
+#### Subquery with Aggregation
+
+```elixir
+# Find products priced above their category average
+avg_price_by_category = from p in Product,
+  group_by: p.category_id,
+  select: %{category_id: p.category_id, avg_price: avg(p.price)}
+
+expensive_products = Query.new(Product)
+|> Query.join(:category)
+|> Query.where(
+  dynamic([p],
+    p.price > subquery(
+      from ap in subquery(avg_price_by_category),
+      where: ap.category_id == parent_as(:products).category_id,
+      select: ap.avg_price
+    )
+  )
+)
+|> Repo.all()
+```
+
 ## Execution
 
 ### With Repo Functions
@@ -1241,9 +1577,13 @@ The Query API provides:
 
 - **Builder pattern** with `Query.new/2`
 - **Smart filters** with `{field, op, value, opts}`
-- **Join support** with filters on joined tables
+- **Join support** with filters on joined tables (including many-to-many)
 - **Soft delete** by default
+- **Window functions** for advanced analytics (ROW_NUMBER, RANK, LEAD, LAG, etc.)
+- **Subqueries** for complex filtering (IN, EXISTS, FROM, SELECT)
+- **Conditional preloads** with filters and ordering
+- **Aggregation** with GROUP BY, HAVING, DISTINCT
 - **Dual syntax** - keyword and pipe
 - **Final execution** - `Repo.all()`, `Repo.one()`, `to_sql()`
 
-**Build queries naturally. Filter intelligently. Execute simply.**
+**Build queries naturally. Filter intelligently. Analyze powerfully. Execute simply.**
