@@ -109,8 +109,13 @@ defmodule Events.Decorator.Testing do
   @doc """
   Property-based testing decorator.
 
-  Runs a test function multiple times with generated inputs,
-  useful for property-based testing patterns.
+  > #### Warning {: .warning}
+  >
+  > This decorator is incomplete and lacks full implementation of property-based testing features.
+  > The `generators` and `max_size` options are currently not used.
+  > For comprehensive property-based testing, use StreamData or PropCheck libraries instead.
+
+  Runs a test function multiple times, useful for basic repeated testing patterns.
 
   ## Options
 
@@ -125,18 +130,12 @@ defmodule Events.Decorator.Testing do
         assert add(b, a) == result  # commutative
       end
 
-      @decorate property_test(runs: 50, generators: [int: &pos_integer/0, str: &string/0])
-      def test_with_custom_generators(int, str) do
-        # int and str generated using custom generators
-        assert is_integer(int) and int > 0
-        assert is_binary(str)
-      end
-
   ## Note
 
-  This is a simplified property testing decorator. For comprehensive
-  property-based testing, use StreamData or PropCheck libraries.
+  For full property-based testing with data generators, shrinking, and other advanced features,
+  please use the StreamData or PropCheck libraries.
   """
+  @deprecated "This decorator is incomplete. Use StreamData or PropCheck for property-based testing."
   def property_test(opts, body, _context) when is_list(opts) do
     validated_opts = NimbleOptions.validate!(opts, @property_test_schema)
 

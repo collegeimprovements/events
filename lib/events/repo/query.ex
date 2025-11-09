@@ -53,6 +53,25 @@ defmodule Events.Repo.Query do
 
       {sql, params} = Query.to_sql(query)
 
+  ## Audit Fields
+
+  This module supports audit tracking fields with the following naming convention:
+
+  - `created_by_urm_id` - ID of the user_role_mapping who created the record
+  - `updated_by_urm_id` - ID of the user_role_mapping who last updated the record
+  - `deleted_by_urm_id` - ID of the user_role_mapping who soft-deleted the record
+
+  > **Note**: The `_urm_id` suffix stands for "user_role_mapping ID", referencing the
+  > `user_role_mappings` table. This table maps users to their roles in the system.
+
+  These fields are automatically populated when using the query builder's modification functions:
+
+      # Automatically sets updated_by_urm_id
+      Query.update_all(query, [set: [status: "published"]], updated_by: user_role_mapping_id)
+
+      # Automatically sets deleted_by_urm_id
+      Query.delete(record, deleted_by: user_role_mapping_id)
+
   ## Filter Syntax
 
       # Simple equality (inferred)
@@ -1516,6 +1535,10 @@ defmodule Events.Repo.Query do
         from(q in query, where: field(as(^binding), ^field) != ^value)
     end
   end
+
+  # NOTE: The following apply_* functions have duplication between binding 0 (main table)
+  # and binding N (joined tables). The only difference is field(q, ^field) vs field(as(^binding), ^field).
+  # Future refactoring opportunity: Extract a helper macro to consolidate these patterns.
 
   defp apply_comparison(query, 0, field, op, value, _opts) do
     case op do
