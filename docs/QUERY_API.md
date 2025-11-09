@@ -102,6 +102,53 @@ Query.where(query, {:email, :eq, "user@example.com", include_nil: true})
 Query.where(query, {:name, :ilike, "%widget%", case_sensitive: false})
 ```
 
+### Value Transformation
+
+The `value_fn` option allows you to transform filter values before they're applied to the query. This is useful for normalizing user input, trimming whitespace, changing case, or any other preprocessing.
+
+```elixir
+# Trim whitespace from user input
+Query.where(query, {:name, :eq, " Widget ", value_fn: &String.trim/1})
+
+# Normalize email to lowercase
+Query.where(query, {:email, :eq, "USER@EXAMPLE.COM", value_fn: &String.downcase/1})
+
+# Apply to lists - transforms each element
+Query.where(query, {:status, :in, [" active ", " pending ", " published "], value_fn: &String.trim/1})
+
+# Apply to :between - transforms both min and max
+Query.where(query, {:price, :between, {10.5555, 99.9999}, value_fn: &Float.round(&1, 2)})
+
+# Combine with other options
+Query.where(query, {:email, :eq, " ADMIN@SITE.COM ",
+  value_fn: fn v -> v |> String.trim() |> String.downcase() end,
+  include_nil: true
+})
+
+# Custom transformation function
+normalize_sku = fn sku ->
+  sku
+  |> String.trim()
+  |> String.upcase()
+  |> String.replace(~r/[^A-Z0-9]/, "")
+end
+
+Query.where(query, {:sku, :eq, " abc-123 ", value_fn: normalize_sku})
+
+# In filters list
+Query.new(Product, filters: [
+  {:name, :eq, " Widget ", value_fn: &String.trim/1},
+  {:email, :eq, "USER@EXAMPLE.COM", value_fn: &String.downcase/1},
+  {:tags, :in, [" featured ", " new "], value_fn: &String.trim/1}
+])
+```
+
+**How it works:**
+- For simple values (`:eq`, `:neq`, `:gt`, etc.): applies the function to the value
+- For `:in` and `:not_in`: applies the function to each element in the list
+- For `:between`: applies the function to both min and max values
+- For `:is_nil` and `:not_nil`: no transformation (these don't use values)
+
 ## List-Based Filters
 
 The Query API supports passing all filters as a list for easy composition and dynamic query building. The `filters:` option accepts the full range of filter syntax including operators, options, and join table filters.
@@ -268,6 +315,35 @@ def search_products_with_category(params) do
 
   opts = opts ++ [filters: filters, order_by: [desc: :inserted_at]]
   Query.new(Product, opts) |> Repo.all()
+end
+
+# With value transformation - normalize user input
+def search_products_normalized(params) do
+  filters = []
+
+  # Normalize status (trim whitespace)
+  filters = if params[:status] do
+    filters ++ [{:status, :eq, params[:status], value_fn: &String.trim/1}]
+  else
+    filters
+  end
+
+  # Normalize email (trim and lowercase)
+  filters = if params[:email] do
+    normalize_email = fn email -> email |> String.trim() |> String.downcase() end
+    filters ++ [{:email, :eq, params[:email], value_fn: normalize_email}]
+  else
+    filters
+  end
+
+  # Normalize tags (trim each tag)
+  filters = if params[:tags] && is_list(params[:tags]) do
+    filters ++ [{:tags, :in, params[:tags], value_fn: &String.trim/1}]
+  else
+    filters
+  end
+
+  Query.new(Product, filters: filters) |> Repo.all()
 end
 ```
 

@@ -95,6 +95,23 @@ defmodule Events.Repo.Query do
   - `:case_sensitive` - For string comparisons (default: true)
   - `:include_nil` - Include NULL values (default: false)
   - `:type` - Cast value to type (:integer, :string, :float, etc)
+  - `:value_fn` - Function to transform the value before filtering (1-arity function)
+
+  ## Value Transformation
+
+  The `:value_fn` option accepts a 1-arity function that transforms the filter value:
+
+      # Trim and downcase string before comparing
+      Query.where(query, {:name, :eq, " Widget ", value_fn: &String.trim/1})
+
+      # Transform multiple values in :in operation
+      Query.where(query, {:status, :in, [" active ", " pending "], value_fn: &String.trim/1})
+
+      # Apply to both values in :between
+      Query.where(query, {:price, :between, {10.5, 99.9}, value_fn: &Float.round(&1, 2)})
+
+      # Combine with other options
+      Query.where(query, {:email, :eq, "USER@EXAMPLE.COM", value_fn: &String.downcase/1, include_nil: true})
   """
 
   import Ecto.Query
@@ -149,6 +166,13 @@ defmodule Events.Repo.Query do
         {:name, :ilike, "%widget%", case_sensitive: false},
         {:email, :eq, nil, include_nil: true},
         {:price, :between, {10, 100}}
+      ])
+
+      # Filters with value transformation
+      Query.new(Product, filters: [
+        {:name, :eq, " Widget ", value_fn: &String.trim/1},
+        {:email, :eq, "USER@EXAMPLE.COM", value_fn: &String.downcase/1},
+        {:status, :in, [" active ", " pending "], value_fn: &String.trim/1}
       ])
 
       # Filters on join tables (requires join first)
@@ -1340,6 +1364,9 @@ defmodule Events.Repo.Query do
   end
 
   defp apply_filter(query, binding, field, op, value, opts) do
+    # Apply value transformation function if provided
+    value = apply_value_fn(value, op, opts)
+
     case op do
       :eq -> apply_eq(query, binding, field, value, opts)
       :neq -> apply_neq(query, binding, field, value, opts)
@@ -1361,6 +1388,34 @@ defmodule Events.Repo.Query do
       :jsonb_contains -> apply_jsonb_contains(query, binding, field, value)
       :jsonb_has_key -> apply_jsonb_has_key(query, binding, field, value)
       _ -> raise "Unknown operation: #{op}"
+    end
+  end
+
+  # Apply value transformation function if provided in options
+  defp apply_value_fn(value, op, opts) do
+    case Keyword.get(opts, :value_fn) do
+      nil ->
+        value
+
+      fn_transform when is_function(fn_transform, 1) ->
+        case op do
+          # For :in and :not_in, apply function to each element in the list
+          op when op in [:in, :not_in] and is_list(value) ->
+            Enum.map(value, fn_transform)
+
+          # For :between, apply function to both min and max
+          :between when is_tuple(value) ->
+            {min, max} = value
+            {fn_transform.(min), fn_transform.(max)}
+
+          # For :is_nil and :not_nil, don't transform (no value used)
+          op when op in [:is_nil, :not_nil] ->
+            value
+
+          # For all other operations, apply function to the value
+          _ ->
+            fn_transform.(value)
+        end
     end
   end
 
