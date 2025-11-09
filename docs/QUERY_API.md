@@ -1,110 +1,278 @@
-# Query API Guide
+# Query API - Composable Builder with Smart Filters
 
-Simple CRUD helpers that compose naturally with Ecto.Query.
+A powerful query builder that composes with both keyword and pipe syntax, featuring smart filter operations, join support, and built-in soft delete awareness.
 
-## Philosophy
+## Features
 
-- **Compose with `from`** - Works seamlessly with Ecto's query syntax
-- **Simple functions** - No builders, no magic
-- **Soft delete by default** - Automatically excludes deleted records
-- **Pattern matching** - {:ok, result} | {:error, reason}
+✅ **Builder Pattern** - Accumulates query operations
+✅ **Smart Filter Syntax** - `{field, operation, value, options}` with intelligent defaults
+✅ **Join Support** - Filter on joined tables
+✅ **Soft Delete** - Automatically excludes deleted records
+✅ **Dual Syntax** - Works with both keyword and pipe syntax
+✅ **Final Execution** - Use with `Repo.all()`, `Repo.one()`, or `to_sql()`
 
 ## Quick Start
 
 ```elixir
 alias Events.Repo.Query
-import Ecto.Query
+alias Events.Repo
 
-# Compose with from
-from(p in Product, where: p.status == "active")
-|> Query.all()
-
-# Pipe through helpers
-Product
-|> Query.where(status: "active", type: "widget")
-|> Query.order_by(desc: :inserted_at)
+# Pipe syntax
+Query.new(Product)
+|> Query.where(status: "active")
+|> Query.where({:price, :gt, 100})
 |> Query.limit(10)
-|> Query.all()
+|> Repo.all()
 
-# CRUD operations
-{:ok, product} = Query.insert(Product, %{name: "Widget"}, created_by: user_id)
-{:ok, product} = Query.update(product, %{price: 19.99}, updated_by: user_id)
-{:ok, product} = Query.delete(product, deleted_by: user_id)
+# Keyword syntax
+Query.new(Product, [
+  where: [status: "active"],
+  where: {:price, :gt, 100},
+  limit: 10
+])
+|> Repo.all()
+
+# Get SQL for debugging
+{sql, params} = Query.new(Product)
+  |> Query.where(status: "active")
+  |> Query.to_sql()
 ```
 
-## Querying Records
+## Filter Syntax
 
-### Basic Queries
+The `where/2` function supports multiple formats for maximum flexibility:
+
+### Simple Equality (Inferred)
 
 ```elixir
-# All records (excludes soft-deleted by default)
-Query.all(Product)
+# String/integer equality
+Query.where(query, status: "active")
+Query.where(query, price: 100)
 
-# With Ecto query
-from(p in Product, where: p.status == "active")
-|> Query.all()
-
-# With keyword where
-Query.all(Product, where: [status: "active", type: "widget"])
-
-# Include soft-deleted
-Query.all(Product, include_deleted: true)
+# Multiple conditions
+Query.where(query, [status: "active", type: "widget"])
 ```
 
-### Composable Helpers
+### List = IN Operator (Inferred)
 
 ```elixir
-# Chain helpers
-Product
-|> Query.where(status: "active")
-|> Query.where(type: "widget")
-|> Query.order_by(desc: :inserted_at)
-|> Query.limit(10)
-|> Query.all()
+# List automatically uses :in
+Query.where(query, status: ["active", "pending", "published"])
 
-# Mix with from
-from(p in Product, where: p.price > 10)
-|> Query.where(status: "active")
+# Equivalent to
+Query.where(query, {:status, :in, ["active", "pending", "published"]})
+```
+
+### With Explicit Operators
+
+```elixir
+# Comparisons
+Query.where(query, {:price, :gt, 100})
+Query.where(query, {:price, :gte, 100})
+Query.where(query, {:price, :lt, 1000})
+Query.where(query, {:price, :lte, 1000})
+
+# Range
+Query.where(query, {:price, :between, {10, 100}})
+
+# Pattern matching
+Query.where(query, {:name, :like, "%widget%"})
+Query.where(query, {:name, :ilike, "%widget%"})  # case-insensitive
+
+# NULL checks
+Query.where(query, {:deleted_at, :is_nil, nil})
+Query.where(query, {:deleted_at, :not_nil, nil})
+
+# List operations
+Query.where(query, {:id, :in, [id1, id2, id3]})
+Query.where(query, {:id, :not_in, [id1, id2, id3]})
+```
+
+### With Options
+
+```elixir
+# Include NULL values
+Query.where(query, {:email, :eq, "user@example.com", include_nil: true})
+
+# Case-insensitive matching
+Query.where(query, {:name, :ilike, "%widget%", case_sensitive: false})
+```
+
+## Operations Reference
+
+| Operation | Description | Example |
+|-----------|-------------|---------|
+| `:eq` | Equal | `{:status, :eq, "active"}` |
+| `:neq` | Not equal | `{:status, :neq, "deleted"}` |
+| `:gt` | Greater than | `{:price, :gt, 100}` |
+| `:gte` | Greater than or equal | `{:price, :gte, 100}` |
+| `:lt` | Less than | `{:price, :lt, 1000}` |
+| `:lte` | Less than or equal | `{:price, :lte, 1000}` |
+| `:in` | In list | `{:status, :in, ["active", "pending"]}` |
+| `:not_in` | Not in list | `{:status, :not_in, ["deleted"]}` |
+| `:like` | Pattern match (case-sensitive) | `{:name, :like, "%widget%"}` |
+| `:ilike` | Pattern match (case-insensitive) | `{:name, :ilike, "%widget%"}` |
+| `:not_like` | Not like | `{:name, :not_like, "%test%"}` |
+| `:not_ilike` | Not ilike | `{:name, :not_ilike, "%test%"}` |
+| `:is_nil` | Is NULL | `{:deleted_at, :is_nil, nil}` |
+| `:not_nil` | Is not NULL | `{:email, :not_nil, nil}` |
+| `:between` | Between range | `{:price, :between, {10, 100}}` |
+| `:contains` | Array contains | `{:tags, :contains, ["featured"]}` |
+| `:contained_by` | Array contained by | `{:tags, :contained_by, [...]}` |
+| `:jsonb_contains` | JSONB contains | `{:metadata, :jsonb_contains, %{key: "value"}}` |
+| `:jsonb_has_key` | JSONB has key | `{:metadata, :jsonb_has_key, "featured"}` |
+
+## Joins
+
+### Basic Joins
+
+```elixir
+# Inner join (default)
+Query.new(Product)
+|> Query.join(:category)
+|> Query.where({:category, :name, "Electronics"})
+|> Repo.all()
+
+# Left join
+Query.new(Product)
+|> Query.join(:category, :left)
+|> Repo.all()
+
+# Right join
+Query.new(Product)
+|> Query.join(:category, :right)
+|> Repo.all()
+```
+
+### Filtering on Joined Tables
+
+```elixir
+# Filter on main table AND joined table
+Query.new(Product)
+|> Query.where(status: "active")  # Main table
+|> Query.join(:category)
+|> Query.where({:category, :name, "Electronics"})  # Joined table
+|> Query.where({:category, :active, true})  # Another joined filter
+|> Repo.all()
+
+# With operators on joined tables
+Query.new(Product)
+|> Query.join(:category)
+|> Query.where({:category, :priority, :gt, 5})
+|> Repo.all()
+```
+
+### Multiple Joins
+
+```elixir
+Query.new(Product)
+|> Query.join(:category)
+|> Query.join(:brand)
+|> Query.where({:category, :name, "Electronics"})
+|> Query.where({:brand, :name, "ACME"})
+|> Repo.all()
+```
+
+## Query Building
+
+### Pipe Syntax
+
+```elixir
+products = Query.new(Product)
+  |> Query.where(status: "active")
+  |> Query.where({:price, :gte, 10})
+  |> Query.where({:price, :lte, 100})
+  |> Query.order_by(desc: :inserted_at)
+  |> Query.limit(20)
+  |> Query.offset(40)
+  |> Repo.all()
+```
+
+### Keyword Syntax
+
+```elixir
+products = Query.new(Product, [
+  where: [status: "active"],
+  where: {:price, :gte, 10},
+  where: {:price, :lte, 100},
+  order_by: [desc: :inserted_at],
+  limit: 20,
+  offset: 40
+])
+|> Repo.all()
+```
+
+### Mixed Syntax
+
+```elixir
+# Start with keyword, continue with pipe
+products = Query.new(Product, [
+  where: [status: "active"],
+  limit: 10
+])
+|> Query.where({:price, :gt, 100})
 |> Query.order_by(desc: :price)
-|> Query.all()
-
-# Pagination
-Product
-|> Query.where(status: "active")
-|> Query.paginate(page: 2, per_page: 20)
-|> Query.all()
+|> Repo.all()
 ```
 
-### Single Record
+## Execution
+
+### With Repo Functions
 
 ```elixir
-# One (returns nil if not found)
-product = Query.one(Product, where: [slug: "my-product"])
+# All records
+products = Query.new(Product)
+  |> Query.where(status: "active")
+  |> Repo.all()
 
-from(p in Product, where: p.slug == ^slug)
-|> Query.one()
+# One record
+product = Query.new(Product)
+  |> Query.where(slug: "my-product")
+  |> Repo.one()
 
-# One! (raises if not found)
-product = from(p in Product, where: p.id == ^id)
-  |> Query.one!()
+# One record (raises if not found)
+product = Query.new(Product)
+  |> Query.where(id: id)
+  |> Repo.one!()
 
-# Get by ID
-{:ok, product} = Query.get(Product, id)
-product = Query.get!(Product, id)
-```
-
-### Counting & Existence
-
-```elixir
 # Count
-count = Query.count(Product)
-
-from(p in Product, where: p.status == "active")
-|> Query.count()
+count = Query.new(Product)
+  |> Query.where(status: "active")
+  |> Repo.aggregate(:count)
 
 # Exists?
-exists = from(p in Product, where: p.slug == ^slug)
-  |> Query.exists?()
+exists = Query.new(Product)
+  |> Query.where(slug: "my-product")
+  |> Repo.exists?()
+```
+
+### Convert to Ecto.Query
+
+```elixir
+# Get the underlying Ecto.Query
+ecto_query = Query.new(Product)
+  |> Query.where(status: "active")
+  |> Query.to_query()
+
+# Use with any Ecto functions
+Repo.all(ecto_query)
+Repo.stream(ecto_query)
+```
+
+### Get SQL
+
+```elixir
+# For debugging or logging
+{sql, params} = Query.new(Product)
+  |> Query.where(status: "active")
+  |> Query.where({:price, :gt, 100})
+  |> Query.to_sql()
+
+IO.puts(sql)
+# => SELECT p0.* FROM products AS p0 WHERE (p0.deleted_at IS NULL) AND (p0.status = $1) AND (p0.price > $2)
+
+IO.inspect(params)
+# => ["active", 100]
 ```
 
 ## CRUD Operations
@@ -112,36 +280,25 @@ exists = from(p in Product, where: p.slug == ^slug)
 ### Insert
 
 ```elixir
-# Single record
 {:ok, product} = Query.insert(Product, %{
   name: "Widget",
   price: 9.99,
   status: "active"
 }, created_by: user_id)
-
-# Multiple records
-{:ok, {3, products}} = Query.insert_all(Product, [
-  %{name: "Widget A", price: 9.99},
-  %{name: "Widget B", price: 12.99},
-  %{name: "Widget C", price: 15.99}
-], created_by: user_id)
 ```
 
 ### Update
 
 ```elixir
-# Single record
-{:ok, product} = Query.update(product, %{price: 19.99}, updated_by: user_id)
+# Update single record
+{:ok, product} = Query.update(product, %{
+  price: 12.99
+}, updated_by: user_id)
 
 # Update all matching query
-{:ok, count} = from(p in Product, where: p.status == "draft")
+{:ok, count} = Query.new(Product)
+  |> Query.where(status: "draft")
   |> Query.update_all([set: [status: "published"]], updated_by: user_id)
-
-# With keyword where
-{:ok, count} = Query.update_all(Product, [set: [status: "published"]],
-  where: [status: "draft"],
-  updated_by: user_id
-)
 ```
 
 ### Delete
@@ -154,77 +311,180 @@ exists = from(p in Product, where: p.slug == ^slug)
 {:ok, product} = Query.delete(product, hard: true)
 
 # Delete all matching query
-{:ok, count} = from(p in Product, where: p.status == "draft")
+{:ok, count} = Query.new(Product)
+  |> Query.where(status: "draft")
   |> Query.delete_all(deleted_by: user_id)
 
 # Hard delete all
-{:ok, count} = from(p in Product, where: p.status == "draft")
+{:ok, count} = Query.new(Product)
+  |> Query.where(status: "old")
   |> Query.delete_all(hard: true)
 ```
 
-### Restore
+## Soft Delete
+
+### Default Behavior
+
+By default, all queries exclude soft-deleted records:
 
 ```elixir
-# Single record
-{:ok, product} = Query.restore(product)
-
-# Restore all matching query
-{:ok, count} = from(p in Product, where: p.type == "widget")
-  |> Query.restore_all()
-
-# With keyword where
-{:ok, count} = Query.restore_all(Product, where: [type: "widget"])
+# Only returns non-deleted products
+products = Query.new(Product)
+  |> Query.where(status: "active")
+  |> Repo.all()
 ```
 
-## Soft Delete Scopes
+### Including Deleted Records
 
 ```elixir
-# Not deleted (default behavior)
-Product
-|> Query.not_deleted()
-|> Repo.all()
+# Include soft-deleted records
+products = Query.new(Product, include_deleted: true)
+  |> Query.where(status: "active")
+  |> Repo.all()
 
-from(p in Product, where: p.status == "active")
-|> Query.not_deleted()
-|> Repo.all()
-
-# Only deleted
-Product
-|> Query.only_deleted()
-|> Repo.all()
-
-# Active (status = active AND not deleted)
-Product
-|> Query.active()
-|> Repo.all()
+# Or with pipe
+products = Query.new(Product)
+  |> Query.include_deleted()
+  |> Query.where(status: "active")
+  |> Repo.all()
 ```
 
-## Transactions
+### Lifecycle
 
 ```elixir
-{:ok, product} = Query.transaction(fn ->
-  with {:ok, product} <- Query.insert(Product, %{name: "Widget"}, created_by: user_id),
-       {:ok, _} <- Query.update(category, %{product_count: count + 1}, updated_by: user_id) do
-    {:ok, product}
+# Create
+{:ok, product} = Query.insert(Product, %{name: "Widget"}, created_by: user_id)
+
+# Soft delete
+{:ok, deleted} = Query.delete(product, deleted_by: user_id)
+# deleted.deleted_at => ~U[2024-01-15 10:30:00]
+# deleted.deleted_by_urm_id => user_id
+
+# Query won't find it (soft-deleted)
+Query.new(Product) |> Query.where(id: product.id) |> Repo.one()
+# => nil
+
+# Unless we include deleted
+Query.new(Product, include_deleted: true)
+|> Query.where(id: product.id)
+|> Repo.one()
+# => %Product{deleted_at: ~U[...]}
+```
+
+## Complex Examples
+
+### E-Commerce Product Search
+
+```elixir
+def search_products(params) do
+  query = Query.new(Product)
+
+  query = if params[:category] do
+    query
+    |> Query.join(:category)
+    |> Query.where({:category, :slug, params[:category]})
+  else
+    query
   end
-end)
+
+  query = if params[:min_price] do
+    Query.where(query, {:price, :gte, params[:min_price]})
+  else
+    query
+  end
+
+  query = if params[:max_price] do
+    Query.where(query, {:price, :lte, params[:max_price]})
+  else
+    query
+  end
+
+  query = if params[:search] do
+    Query.where(query, {:name, :ilike, "%#{params[:search]}%"})
+  else
+    query
+  end
+
+  query
+  |> Query.order_by(desc: :inserted_at)
+  |> Query.limit(params[:per_page] || 20)
+  |> Query.offset((params[:page] || 0) * (params[:per_page] || 20))
+  |> Repo.all()
+end
 ```
 
-## Aggregations
+### Paginated List with Filters
 
 ```elixir
-# Sum
-total = from(o in Order, where: o.status == "completed")
-  |> Query.sum(:total)
+def list_products_paginated(filters, page, per_page) do
+  base_query = Query.new(Product)
 
-# Average
-avg_price = Product
-  |> Query.not_deleted()
-  |> Query.avg(:price)
+  query = Enum.reduce(filters, base_query, fn
+    {:status, status}, acc ->
+      Query.where(acc, status: status)
 
-# Min/Max
-min_price = Product |> Query.min(:price)
-max_price = Product |> Query.max(:price)
+    {:type, type}, acc ->
+      Query.where(acc, type: type)
+
+    {:min_price, min}, acc ->
+      Query.where(acc, {:price, :gte, min})
+
+    {:max_price, max}, acc ->
+      Query.where(acc, {:price, :lte, max})
+
+    {:category_id, cat_id}, acc ->
+      acc
+      |> Query.join(:category)
+      |> Query.where({:category, :id, cat_id})
+
+    _, acc -> acc
+  end)
+
+  products = query
+    |> Query.order_by(desc: :inserted_at)
+    |> Query.limit(per_page)
+    |> Query.offset((page - 1) * per_page)
+    |> Repo.all()
+
+  total = query |> Repo.aggregate(:count)
+
+  %{
+    entries: products,
+    page: page,
+    per_page: per_page,
+    total_count: total,
+    total_pages: ceil(total / per_page)
+  }
+end
+```
+
+### JSONB Metadata Filtering
+
+```elixir
+# Find products with featured flag
+Query.new(Product)
+|> Query.where({:metadata, :jsonb_contains, %{"featured" => true}})
+|> Repo.all()
+
+# Find products with video_url in metadata
+Query.new(Product)
+|> Query.where({:metadata, :jsonb_has_key, "video_url"})
+|> Repo.all()
+```
+
+### Multi-Table Search
+
+```elixir
+Query.new(Product)
+|> Query.join(:category)
+|> Query.join(:brand)
+|> Query.where(status: "active")
+|> Query.where({:category, :name, "Electronics"})
+|> Query.where({:brand, :country, "USA"})
+|> Query.where({:price, :between, {100, 500}})
+|> Query.order_by([desc: :popularity, asc: :price])
+|> Query.limit(10)
+|> Repo.all()
 ```
 
 ## Context Pattern
@@ -234,28 +494,21 @@ defmodule Events.Products do
   alias Events.Product
   alias Events.Repo
   alias Events.Repo.Query
-  import Ecto.Query
 
-  def list_products(opts \\ []) do
-    Product
-    |> Query.not_deleted()
-    |> apply_filters(opts)
-    |> Query.all()
+  def list_products(filters \\ []) do
+    build_query(filters)
+    |> Repo.all()
   end
 
-  def list_products_paginated(opts \\ []) do
-    page = Keyword.get(opts, :page, 1)
-    per_page = Keyword.get(opts, :per_page, 20)
-
-    query = Product
-    |> Query.not_deleted()
-    |> apply_filters(opts)
+  def list_products_paginated(filters, page, per_page) do
+    query = build_query(filters)
 
     products = query
-    |> Query.paginate(page: page, per_page: per_page)
-    |> Query.all()
+      |> Query.limit(per_page)
+      |> Query.offset((page - 1) * per_page)
+      |> Repo.all()
 
-    total = Query.count(query)
+    total = query |> Repo.aggregate(:count)
 
     %{
       entries: products,
@@ -267,11 +520,12 @@ defmodule Events.Products do
   end
 
   def get_product(id) do
-    Query.get(Product, id)
-  end
-
-  def get_product!(id) do
-    Query.get!(Product, id)
+    case Query.new(Product)
+         |> Query.where(id: id)
+         |> Repo.one() do
+      nil -> {:error, :not_found}
+      product -> {:ok, product}
+    end
   end
 
   def create_product(attrs, opts \\ []) do
@@ -286,189 +540,89 @@ defmodule Events.Products do
     Query.delete(product, opts)
   end
 
-  def restore_product(product) do
-    Query.restore(product)
+  def publish_products(product_ids, user_id) do
+    Query.new(Product)
+    |> Query.where({:id, :in, product_ids})
+    |> Query.where(status: "draft")
+    |> Query.update_all([set: [status: "published"]], updated_by: user_id)
   end
 
-  def publish_products(product_ids, opts \\ []) do
-    from(p in Product, where: p.id in ^product_ids, where: p.status == "draft")
-    |> Query.update_all([set: [status: "published"]], opts)
-  end
+  # Private
 
-  # Private helpers
-  defp apply_filters(query, opts) do
-    Enum.reduce(opts, query, fn
-      {:status, status}, q -> Query.where(q, status: status)
-      {:type, type}, q -> Query.where(q, type: type)
-      {:min_price, min}, q -> from(p in q, where: p.price >= ^min)
-      {:max_price, max}, q -> from(p in q, where: p.price <= ^max)
-      {:order, order}, q -> Query.order_by(q, order)
-      _, q -> q
+  defp build_query(filters) do
+    Enum.reduce(filters, Query.new(Product), fn
+      {:status, status}, acc ->
+        Query.where(acc, status: status)
+
+      {:type, type}, acc ->
+        Query.where(acc, type: type)
+
+      {:price_min, min}, acc ->
+        Query.where(acc, {:price, :gte, min})
+
+      {:price_max, max}, acc ->
+        Query.where(acc, {:price, :lte, max})
+
+      {:search, term}, acc ->
+        Query.where(acc, {:name, :ilike, "%#{term}%"})
+
+      {:category, category}, acc ->
+        acc
+        |> Query.join(:category)
+        |> Query.where({:category, :slug, category})
+
+      {:order, order}, acc ->
+        Query.order_by(acc, order)
+
+      _, acc -> acc
     end)
   end
 end
 ```
 
-### Usage
-
-```elixir
-# List products
-products = Products.list_products(status: "active", type: "widget")
-
-# Paginated
-%{entries: products, total_count: total} = Products.list_products_paginated(
-  page: 2,
-  per_page: 20,
-  status: "active"
-)
-
-# Get one
-{:ok, product} = Products.get_product(id)
-product = Products.get_product!(id)
-
-# Create
-{:ok, product} = Products.create_product(%{name: "Widget"}, created_by: user_id)
-
-# Update
-{:ok, product} = Products.update_product(product, %{price: 19.99}, updated_by: user_id)
-
-# Delete
-{:ok, product} = Products.delete_product(product, deleted_by: user_id)
-
-# Bulk operations
-{:ok, count} = Products.publish_products([id1, id2, id3], updated_by: user_id)
-```
-
-## Complex Queries
-
-### JSONB Queries
-
-```elixir
-# JSONB contains
-from(p in Product,
-  where: fragment("? @> ?", p.metadata, ^%{featured: true})
-)
-|> Query.all()
-
-# JSONB has key
-from(p in Product,
-  where: fragment("? ? ?", p.metadata, "?", "video_url")
-)
-|> Query.all()
-```
-
-### Joins
-
-```elixir
-from(p in Product,
-  join: c in assoc(p, :category),
-  where: c.name == "Electronics",
-  where: p.price > 10
-)
-|> Query.not_deleted()
-|> Query.all()
-```
-
-### Subqueries
-
-```elixir
-expensive_products = from(p in Product,
-  where: p.price > 100,
-  select: p.id
-)
-
-from(o in Order,
-  where: o.product_id in subquery(expensive_products)
-)
-|> Query.all()
-```
-
-### Aggregations with Group By
-
-```elixir
-from(p in Product,
-  group_by: p.type,
-  select: {p.type, count(p.id), avg(p.price)}
-)
-|> Query.not_deleted()
-|> Repo.all()
-```
-
-## Helper Functions
-
-All these functions are composable and work with both schemas and queries:
-
-### Query Builders
-- `Query.where(queryable, keyword)` - Add where conditions
-- `Query.limit(queryable, integer)` - Limit results
-- `Query.offset(queryable, integer)` - Offset results
-- `Query.order_by(queryable, keyword)` - Order results
-- `Query.preload(queryable, list)` - Preload associations
-- `Query.paginate(queryable, keyword)` - Paginate results
-
-### Fetching
-- `Query.all(queryable, opts)` - Fetch all records
-- `Query.one(queryable, opts)` - Fetch one record (nil if not found)
-- `Query.one!(queryable, opts)` - Fetch one record (raises if not found)
-- `Query.get(schema, id, opts)` - Get by ID
-- `Query.get!(schema, id, opts)` - Get by ID (raises if not found)
-- `Query.count(queryable, opts)` - Count records
-- `Query.exists?(queryable, opts)` - Check existence
-
-### CRUD
-- `Query.insert(schema, attrs, opts)` - Insert record
-- `Query.insert_all(schema, records, opts)` - Insert multiple
-- `Query.update(struct, attrs, opts)` - Update record
-- `Query.update_all(queryable, updates, opts)` - Update all matching
-- `Query.delete(struct, opts)` - Delete record
-- `Query.delete_all(queryable, opts)` - Delete all matching
-- `Query.restore(struct)` - Restore soft-deleted record
-- `Query.restore_all(queryable, opts)` - Restore all matching
-- `Query.transaction(fun)` - Run in transaction
-
-### Scopes
-- `Query.not_deleted(queryable)` - Exclude soft-deleted
-- `Query.only_deleted(queryable)` - Only soft-deleted
-- `Query.active(queryable)` - Active and not deleted
-
-### Aggregations
-- `Query.sum(queryable, field)` - Sum field values
-- `Query.avg(queryable, field)` - Average field values
-- `Query.min(queryable, field)` - Minimum value
-- `Query.max(queryable, field)` - Maximum value
-
 ## Best Practices
 
-### 1. Use `from` for Complex Queries
+### 1. Use Smart Defaults
 
 ```elixir
-# ✅ Good - clear and expressive
-from(p in Product,
-  where: p.price > 10,
-  where: p.price < 100,
-  where: fragment("? @> ?", p.metadata, ^%{featured: true})
-)
-|> Query.not_deleted()
-|> Query.all()
+# ✅ Good - let Query infer the operation
+Query.where(query, status: "active")
+Query.where(query, tags: ["featured", "new"])
 
-# ❌ Less ideal - harder to express complex conditions
-Product
-|> Query.where(status: "active")
-|> Query.all()
+# ❌ Unnecessary - operation is inferred
+Query.where(query, {:status, :eq, "active"})
+Query.where(query, {:tags, :in, ["featured", "new"]})
 ```
 
-### 2. Compose Naturally
+### 2. Compose Filters
 
 ```elixir
-# ✅ Good - compose Ecto queries with Query helpers
-from(p in Product, where: p.price > 10)
-|> Query.where(status: "active")
-|> Query.order_by(desc: :price)
-|> Query.limit(10)
-|> Query.all()
+# ✅ Good - build filters incrementally
+def build_query(filters) do
+  Enum.reduce(filters, Query.new(Product), fn filter, acc ->
+    apply_filter(acc, filter)
+  end)
+end
+
+defp apply_filter(query, {:status, status}), do: Query.where(query, status: status)
+defp apply_filter(query, {:min_price, min}), do: Query.where(query, {:price, :gte, min})
+defp apply_filter(query, _), do: query
 ```
 
-### 3. Always Use Audit Fields
+### 3. Use to_sql() for Debugging
+
+```elixir
+# ✅ Good - inspect generated SQL during development
+query = Query.new(Product)
+  |> Query.where(status: "active")
+  |> Query.join(:category)
+
+{sql, params} = Query.to_sql(query)
+IO.puts("\nSQL: #{sql}")
+IO.inspect(params, label: "Params")
+```
+
+### 4. Always Use Audit Fields
 
 ```elixir
 # ✅ Good
@@ -481,53 +635,25 @@ Query.insert(Product, attrs)
 Query.update(product, attrs)
 ```
 
-### 4. Soft Delete by Default
+### 5. Prefer Soft Delete
 
 ```elixir
-# ✅ Good - can be restored
+# ✅ Good - preserves data
 Query.delete(product, deleted_by: user_id)
 
 # ⚠️ Use sparingly - permanent
 Query.delete(product, hard: true)
 ```
 
-### 5. Use Transactions
-
-```elixir
-# ✅ Good - atomic
-Query.transaction(fn ->
-  with {:ok, order} <- Query.insert(Order, attrs, created_by: user_id),
-       {:ok, _} <- Query.update(product, %{stock: stock - 1}, updated_by: user_id) do
-    {:ok, order}
-  end
-end)
-```
-
-### 6. Pattern Match Results
-
-```elixir
-# ✅ Good
-case Query.get(Product, id) do
-  {:ok, product} -> # use product
-  {:error, :not_found} -> # handle not found
-end
-
-# ✅ Also good with `with`
-with {:ok, product} <- Query.get(Product, id),
-     {:ok, updated} <- Query.update(product, attrs, updated_by: user_id) do
-  {:ok, updated}
-end
-```
-
 ## Summary
 
-The Query API provides simple helpers that compose naturally with Ecto.Query:
+The Query API provides:
 
-- **Compose with `from`** - Use Ecto's powerful query syntax
-- **Pipe through helpers** - Chain operations naturally
-- **Soft delete aware** - Automatically excludes deleted records
-- **Simple CRUD** - Insert, update, delete with audit tracking
-- **Pattern matching** - {:ok, result} | {:error, reason}
-- **Keyword opts** - All options via keyword lists
+- **Builder pattern** with `Query.new/2`
+- **Smart filters** with `{field, op, value, opts}`
+- **Join support** with filters on joined tables
+- **Soft delete** by default
+- **Dual syntax** - keyword and pipe
+- **Final execution** - `Repo.all()`, `Repo.one()`, `to_sql()`
 
-**Write queries the Ecto way. Let Query handle the rest.**
+**Build queries naturally. Filter intelligently. Execute simply.**
