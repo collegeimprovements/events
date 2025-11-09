@@ -423,6 +423,91 @@ defmodule Events.Repo.Query do
   end
 
   @doc """
+  Adds DISTINCT clause.
+
+  ## Examples
+
+      # Distinct on all fields
+      Query.distinct(query, true)
+
+      # Distinct on specific fields
+      Query.distinct(query, [:category_id, :status])
+
+      # Distinct on expression
+      Query.distinct(query, [desc: :inserted_at])
+  """
+  @spec distinct(t(), boolean() | list()) :: t()
+  def distinct(%__MODULE__{} = builder, true) do
+    query = from(s in builder.query, distinct: true)
+    %{builder | query: query}
+  end
+
+  def distinct(%__MODULE__{} = builder, fields) when is_list(fields) do
+    query = from(s in builder.query, distinct: ^fields)
+    %{builder | query: query}
+  end
+
+  @doc """
+  Adds GROUP BY clause.
+
+  ## Examples
+
+      Query.group_by(query, :category_id)
+      Query.group_by(query, [:category_id, :status])
+  """
+  @spec group_by(t(), atom() | list()) :: t()
+  def group_by(%__MODULE__{} = builder, field) when is_atom(field) do
+    query = from(s in builder.query, group_by: field(s, ^field))
+    %{builder | query: query}
+  end
+
+  def group_by(%__MODULE__{} = builder, fields) when is_list(fields) do
+    query = from(s in builder.query, group_by: ^fields)
+    %{builder | query: query}
+  end
+
+  @doc """
+  Adds HAVING clause for filtering grouped results.
+
+  ## Examples
+
+      Query.group_by(query, :category_id)
+      |> Query.having([count: {:gt, 5}])
+
+      Query.group_by(query, :category_id)
+      |> Query.having("count(*) > ?", [5])
+  """
+  @spec having(t(), keyword() | String.t(), list()) :: t()
+  def having(%__MODULE__{} = builder, conditions, bindings \\ [])
+
+  def having(%__MODULE__{} = builder, sql, bindings) when is_binary(sql) and is_list(bindings) do
+    query = from(s in builder.query, having: fragment(^sql, ^bindings))
+    %{builder | query: query}
+  end
+
+  def having(%__MODULE__{} = builder, conditions, _) when is_list(conditions) do
+    # Simple keyword-based having
+    query =
+      Enum.reduce(conditions, builder.query, fn {aggregate, {op, value}}, q ->
+        case aggregate do
+          :count ->
+            case op do
+              :gt -> from(s in q, having: fragment("count(*) > ?", ^value))
+              :gte -> from(s in q, having: fragment("count(*) >= ?", ^value))
+              :lt -> from(s in q, having: fragment("count(*) < ?", ^value))
+              :lte -> from(s in q, having: fragment("count(*) <= ?", ^value))
+              :eq -> from(s in q, having: fragment("count(*) = ?", ^value))
+            end
+
+          _ ->
+            q
+        end
+      end)
+
+    %{builder | query: query}
+  end
+
+  @doc """
   Adds preloads with optional conditional filtering.
 
   ## Examples
@@ -668,6 +753,9 @@ defmodule Events.Repo.Query do
       {:where, conditions}, acc -> where(acc, conditions)
       {:filters, filter_list}, acc -> where(acc, filter_list)
       {:join, assoc}, acc -> join(acc, assoc)
+      {:distinct, value}, acc -> distinct(acc, value)
+      {:group_by, fields}, acc -> group_by(acc, fields)
+      {:having, conditions}, acc -> having(acc, conditions)
       {:order_by, ordering}, acc -> order_by(acc, ordering)
       {:limit, value}, acc -> limit(acc, value)
       {:offset, value}, acc -> offset(acc, value)

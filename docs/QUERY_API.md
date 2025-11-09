@@ -635,6 +635,91 @@ Query.new(Product, [
 ]) |> Repo.all()
 ```
 
+## Advanced Queries
+
+### Distinct
+
+Get unique results:
+
+```elixir
+# Distinct on all fields
+Query.new(Product)
+|> Query.where(status: "active")
+|> Query.distinct(true)
+|> Repo.all()
+
+# Distinct on specific fields
+Query.new(Product)
+|> Query.distinct([:category_id, :status])
+|> Repo.all()
+
+# In keyword syntax
+Query.new(Product, [
+  where: [status: "active"],
+  distinct: true
+]) |> Repo.all()
+```
+
+### Group By and Having
+
+Aggregate and filter grouped results:
+
+```elixir
+# Group by single field
+Query.new(Product)
+|> Query.group_by(:category_id)
+|> Repo.all()
+
+# Group by multiple fields
+Query.new(Product)
+|> Query.group_by([:category_id, :status])
+|> Repo.all()
+
+# Group by with HAVING clause
+Query.new(Product)
+|> Query.group_by(:category_id)
+|> Query.having([count: {:gt, 5}])
+|> Repo.all()
+
+# Using SQL fragment for complex having
+Query.new(Product)
+|> Query.group_by(:category_id)
+|> Query.having("count(*) > ? AND avg(price) > ?", [5, 100])
+|> Repo.all()
+
+# Keyword syntax
+Query.new(Product, [
+  group_by: :category_id,
+  having: [count: {:gt, 5}]
+]) |> Repo.all()
+```
+
+### Real-World Group By Examples
+
+```elixir
+# Count products per category
+Query.new(Product)
+|> Query.where(status: "active")
+|> Query.group_by(:category_id)
+|> Repo.all()
+|> Enum.map(fn product ->
+  %{category_id: product.category_id, count: Repo.aggregate(query, :count)}
+end)
+
+# Categories with more than 10 products
+Query.new(Product)
+|> Query.group_by(:category_id)
+|> Query.having([count: {:gt, 10}])
+|> Repo.all()
+
+# Find tags used on multiple products
+Query.new(Product)
+|> Query.join(:tags)
+|> Query.group_by([{:tags, :id}])
+|> Query.having([count: {:gt, 1}])
+|> Repo.all()
+```
+
 ## Execution
 
 ### With Repo Functions
