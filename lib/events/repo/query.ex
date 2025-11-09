@@ -242,9 +242,66 @@ defmodule Events.Repo.Query do
       Query.join(query, :tags)  # Creates bindings for :product_tags AND :tags
       |> Query.where({:product_tags, :type, "featured"})  # Filter join table
       |> Query.where({:tags, :name, "red"})  # Filter final table
+
+      # Explicit through with options
+      Query.join(query, :tags, through: :product_tags)
+      Query.join(query, :tags, through: :product_tags, where: {:type, "featured"})
+      Query.join(query, :tags, type: :left, through: :product_tags)
   """
-  @spec join(t(), atom(), atom()) :: t()
-  def join(%__MODULE__{} = builder, assoc_name, join_type \\ :inner) do
+  @spec join(t(), atom(), atom() | keyword()) :: t()
+  def join(%__MODULE__{} = builder, assoc_name, join_type_or_opts \\ :inner)
+
+  # When opts is a keyword list with :through option
+  def join(%__MODULE__{} = builder, assoc_name, opts) when is_list(opts) do
+    if Keyword.has_key?(opts, :through) do
+      # Explicit through join with options
+      through_assoc = Keyword.get(opts, :through)
+      through_filters = Keyword.get(opts, :where)
+      join_type = Keyword.get(opts, :type, :inner)
+
+      # Get the final field name from the through association
+      final_field = get_through_final_field(builder.schema, through_assoc, assoc_name)
+
+      # Join the intermediate table
+      builder = join_direct(builder, through_assoc, join_type)
+
+      # Apply filters on intermediate table if provided
+      builder =
+        if through_filters do
+          where(builder, normalize_through_filter(through_assoc, through_filters))
+        else
+          builder
+        end
+
+      # Join the final table from the intermediate binding
+      query =
+        case join_type do
+          :inner ->
+            from [{^through_assoc, t}] in builder.query,
+              join: f in assoc(t, ^final_field),
+              as: ^assoc_name
+
+          :left ->
+            from [{^through_assoc, t}] in builder.query,
+              left_join: f in assoc(t, ^final_field),
+              as: ^assoc_name
+
+          :right ->
+            from [{^through_assoc, t}] in builder.query,
+              right_join: f in assoc(t, ^final_field),
+              as: ^assoc_name
+        end
+
+      %{builder | query: query, joins: Map.put(builder.joins, assoc_name, assoc_name)}
+    else
+      # Keyword list but no :through, might have other options
+      join_type = Keyword.get(opts, :type, :inner)
+      join(builder, assoc_name, join_type)
+    end
+  end
+
+  # When join_type is an atom
+  def join(%__MODULE__{} = builder, assoc_name, join_type) when is_atom(join_type) do
     # Check if this is a through association
     case get_association_type(builder.schema, assoc_name) do
       {:through, [intermediate_assoc, final_field]} ->
