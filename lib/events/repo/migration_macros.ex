@@ -286,6 +286,350 @@ defmodule Events.Repo.MigrationMacros do
   end
 
   # ==============================================================================
+  # PUBLIC API - Name and Title Fields
+  # ==============================================================================
+
+  @doc """
+  Adds standard name-based identification fields for entities.
+
+  Use this for entities identified by a name (e.g., Products, Categories,
+  Organizations, Users). For content-based entities like articles or events,
+  use `title_fields/1` instead.
+
+  **Important**: Requires PostgreSQL citext extension. Enable it with:
+  `execute "CREATE EXTENSION IF NOT EXISTS citext"`
+
+  ## Fields Added
+
+  | Field | Type | Nullable | Description |
+  |-------|------|----------|-------------|
+  | `name` | citext | NO | Entity display name (case-insensitive) |
+  | `slug` | citext | NO | URL-friendly identifier (case-insensitive) |
+  | `description` | text | YES | Long-form description |
+
+  ## Options
+
+  - `:only` - Add only specific field (`:name`, `:slug`, or `:description`)
+  - `:except` - Exclude specific field (`:name`, `:slug`, or `:description`)
+  - `:name_default` - Default value for name field
+  - `:slug_default` - Default value for slug field
+  - `:description_default` - Default value for description field
+  - `:null` - Override NULL constraints (default: name/slug NOT NULL, description NULL)
+
+  **Note**: `:only` and `:except` are mutually exclusive.
+
+  ## Examples
+
+      # All three fields (default)
+      name_fields()
+      # => add :name, :citext, null: false
+      # => add :slug, :citext, null: false
+      # => add :description, :text, null: true
+
+      # Only name and slug (no description)
+      name_fields(except: :description)
+
+      # Only name
+      name_fields(only: :name)
+
+      # With defaults
+      name_fields(name_default: "Untitled", slug_default: "untitled")
+
+      # Allow NULL name (unusual)
+      name_fields(null: true)
+
+  ## Common Patterns
+
+      # Product catalog
+      create table(:products) do
+        name_fields()
+        add :price, :decimal, null: false
+        add :sku, :string
+        timestamps()
+      end
+
+      # Categories (no description needed)
+      create table(:categories) do
+        name_fields(except: :description)
+        add :parent_id, references(:categories, type: :uuid)
+        timestamps()
+      end
+
+      # Organizations
+      create table(:organizations) do
+        name_fields()
+        status_field()
+        type_fields(only: :type, type_default: "standard")
+        metadata_field()
+        audit_fields()
+        timestamps()
+      end
+
+  ## Recommended Indexes
+
+      name_indexes(:products, scope: :active, slug_index: :unique)
+      # Creates:
+      #   - CREATE UNIQUE INDEX ON products (slug) WHERE deleted_at IS NULL
+      #   - CREATE INDEX ON products (name) WHERE deleted_at IS NULL
+  """
+  defmacro name_fields(opts \\ []) do
+    quote bind_quoted: [opts: opts] do
+      Events.Repo.MigrationMacros.__validate_only_except__(opts, [:name, :slug, :description])
+
+      only = Keyword.get(opts, :only)
+      except = Keyword.get(opts, :except)
+
+      name_default = Keyword.get(opts, :name_default)
+      slug_default = Keyword.get(opts, :slug_default)
+      description_default = Keyword.get(opts, :description_default)
+
+      # For name/slug, default is NOT NULL unless overridden
+      # For description, default is NULL
+      null_override = Keyword.get(opts, :null)
+
+      should_add_name? =
+        Events.Repo.MigrationMacros.__should_add_field__(:name, only, except)
+      should_add_slug? =
+        Events.Repo.MigrationMacros.__should_add_field__(:slug, only, except)
+      should_add_description? =
+        Events.Repo.MigrationMacros.__should_add_field__(:description, only, except)
+
+      if should_add_name? do
+        name_null = if is_nil(null_override), do: false, else: null_override
+        add(:name, :citext, default: name_default, null: name_null)
+      end
+
+      if should_add_slug? do
+        slug_null = if is_nil(null_override), do: false, else: null_override
+        add(:slug, :citext, default: slug_default, null: slug_null)
+      end
+
+      if should_add_description? do
+        desc_null = if is_nil(null_override), do: true, else: null_override
+        add(:description, :text, default: description_default, null: desc_null)
+      end
+    end
+  end
+
+  @doc """
+  Adds standard title-based identification fields for content entities.
+
+  Use this for content-based entities like articles, blog posts, events,
+  and documents. For entities identified by a name (e.g., Products, Categories),
+  use `name_fields/1` instead.
+
+  **Important**: Requires PostgreSQL citext extension. Enable it with:
+  `execute "CREATE EXTENSION IF NOT EXISTS citext"`
+
+  ## Fields Added
+
+  | Field | Type | Nullable | Description |
+  |-------|------|----------|-------------|
+  | `title` | citext | NO | Primary heading (case-insensitive) |
+  | `subtitle` | citext | YES | Secondary heading (case-insensitive) |
+  | `description` | text | YES | Long-form description/summary |
+  | `slug` | citext | NO | URL-friendly identifier (case-insensitive) |
+
+  ## Options
+
+  - `:only` - Add only specific field (`:title`, `:subtitle`, `:description`, or `:slug`)
+  - `:except` - Exclude specific field
+  - `:title_default` - Default value for title field
+  - `:subtitle_default` - Default value for subtitle field
+  - `:description_default` - Default value for description field
+  - `:slug_default` - Default value for slug field
+  - `:null` - Override NULL constraints (default: title/slug NOT NULL, subtitle/description NULL)
+
+  **Note**: `:only` and `:except` are mutually exclusive.
+
+  ## Examples
+
+      # All four fields (default)
+      title_fields()
+      # => add :title, :citext, null: false
+      # => add :subtitle, :citext, null: true
+      # => add :description, :text, null: true
+      # => add :slug, :citext, null: false
+
+      # Without subtitle
+      title_fields(except: :subtitle)
+
+      # Only title and slug
+      title_fields(only: [:title, :slug])
+
+      # With defaults
+      title_fields(title_default: "Untitled", slug_default: "untitled")
+
+  ## Common Patterns
+
+      # Blog posts
+      create table(:posts) do
+        title_fields()
+        add :content, :text, null: false
+        add :published_at, :utc_datetime_usec
+        status_field(default: "draft")
+        type_fields(only: :type, type_default: "article")
+        audit_fields()
+        timestamps()
+      end
+
+      # Events
+      create table(:events) do
+        title_fields()
+        add :starts_at, :utc_datetime_usec, null: false
+        add :ends_at, :utc_datetime_usec
+        add :location, :string
+        status_field(default: "draft")
+        type_fields(type_default: "conference")
+        metadata_field()
+        audit_fields()
+        deleted_fields()
+        timestamps()
+      end
+
+      # Documentation pages (no subtitle)
+      create table(:docs) do
+        title_fields(except: :subtitle)
+        add :content, :text, null: false
+        add :version, :string
+        timestamps()
+      end
+
+  ## Recommended Indexes
+
+      title_indexes(:posts, scope: :active, slug_index: :unique)
+      # Creates:
+      #   - CREATE UNIQUE INDEX ON posts (slug) WHERE deleted_at IS NULL
+      #   - CREATE INDEX ON posts (title) WHERE deleted_at IS NULL
+  """
+  defmacro title_fields(opts \\ []) do
+    quote bind_quoted: [opts: opts] do
+      Events.Repo.MigrationMacros.__validate_only_except__(
+        opts,
+        [:title, :subtitle, :description, :slug]
+      )
+
+      only = Keyword.get(opts, :only)
+      except = Keyword.get(opts, :except)
+
+      title_default = Keyword.get(opts, :title_default)
+      subtitle_default = Keyword.get(opts, :subtitle_default)
+      description_default = Keyword.get(opts, :description_default)
+      slug_default = Keyword.get(opts, :slug_default)
+
+      null_override = Keyword.get(opts, :null)
+
+      should_add_title? =
+        Events.Repo.MigrationMacros.__should_add_field__(:title, only, except)
+      should_add_subtitle? =
+        Events.Repo.MigrationMacros.__should_add_field__(:subtitle, only, except)
+      should_add_description? =
+        Events.Repo.MigrationMacros.__should_add_field__(:description, only, except)
+      should_add_slug? =
+        Events.Repo.MigrationMacros.__should_add_field__(:slug, only, except)
+
+      if should_add_title? do
+        title_null = if is_nil(null_override), do: false, else: null_override
+        add(:title, :citext, default: title_default, null: title_null)
+      end
+
+      if should_add_subtitle? do
+        subtitle_null = if is_nil(null_override), do: true, else: null_override
+        add(:subtitle, :citext, default: subtitle_default, null: subtitle_null)
+      end
+
+      if should_add_description? do
+        desc_null = if is_nil(null_override), do: true, else: null_override
+        add(:description, :text, default: description_default, null: desc_null)
+      end
+
+      if should_add_slug? do
+        slug_null = if is_nil(null_override), do: false, else: null_override
+        add(:slug, :citext, default: slug_default, null: slug_null)
+      end
+    end
+  end
+
+  # ==============================================================================
+  # PUBLIC API - Status Field
+  # ==============================================================================
+
+  @doc """
+  Adds a status field for entity lifecycle management.
+
+  Use this for tracking entity states like active/inactive, draft/published,
+  pending/approved, etc. The field uses citext for case-insensitive matching.
+
+  **Important**: Requires PostgreSQL citext extension. Enable it with:
+  `execute "CREATE EXTENSION IF NOT EXISTS citext"`
+
+  ## Field Added
+
+  | Field | Type | Default | Nullable | Description |
+  |-------|------|---------|----------|-------------|
+  | `status` | citext | "active" | NO | Entity lifecycle state (case-insensitive) |
+
+  ## Options
+
+  - `:default` - Default status value (default: `"active"`)
+  - `:null` - Allow NULL values (default: `false`)
+  - `:values` - List of valid values for check constraint (optional)
+
+  ## Examples
+
+      # Standard usage (default: "active")
+      status_field()
+      # => add :status, :citext, default: "active", null: false
+
+      # Custom default
+      status_field(default: "draft")
+
+      # Allow NULL
+      status_field(null: true, default: nil)
+
+      # With check constraint
+      create table(:posts) do
+        title_fields()
+        status_field(default: "draft", values: ["draft", "published", "archived"])
+      end
+
+      create constraint(:posts, :valid_status,
+        check: "status IN ('draft', 'published', 'archived')")
+
+  ## Common Status Values
+
+      # Simple active/inactive
+      status_field(default: "active")
+      # Values: "active", "inactive"
+
+      # Content workflow
+      status_field(default: "draft")
+      # Values: "draft", "pending", "published", "archived"
+
+      # Approval workflow
+      status_field(default: "pending")
+      # Values: "pending", "approved", "rejected"
+
+      # E-commerce orders
+      status_field(default: "pending")
+      # Values: "pending", "processing", "shipped", "delivered", "cancelled"
+
+  ## Recommended Indexes
+
+      status_indexes(:products, scope: :active)
+      # Creates:
+      #   - CREATE INDEX ON products (status) WHERE deleted_at IS NULL
+  """
+  defmacro status_field(opts \\ []) do
+    quote bind_quoted: [opts: opts] do
+      default_value = Keyword.get(opts, :default, "active")
+      null_allowed = Keyword.get(opts, :null, false)
+
+      add(:status, :citext, default: default_value, null: null_allowed)
+    end
+  end
+
+  # ==============================================================================
   # PUBLIC API - Type Classification Fields
   # ==============================================================================
 
@@ -953,9 +1297,17 @@ defmodule Events.Repo.MigrationMacros do
   @doc """
   Adds a complete set of standard fields for typical business entities.
 
-  Combines common field patterns into a single macro for consistent entity
-  definitions across the application. Includes name, slug, status, description,
-  type classification, metadata, audit tracking, and timestamps.
+  **DEPRECATED**: This macro is maintained for backward compatibility.
+  For new code, use explicit field macros for better clarity and control:
+
+      create table(:products) do
+        name_fields()              # name, slug, description
+        status_field()             # status
+        type_fields()              # type, subtype
+        metadata_field()           # metadata
+        audit_fields()             # created_by_urm_id, updated_by_urm_id
+        timestamps()               # inserted_at, updated_at
+      end
 
   **Important**: Requires PostgreSQL citext extension for case-insensitive fields.
   Enable with: `execute "CREATE EXTENSION IF NOT EXISTS citext"`
@@ -964,27 +1316,24 @@ defmodule Events.Repo.MigrationMacros do
 
   | Field | Type | Options | Description |
   |-------|------|---------|-------------|
-  | `name` | citext | null: false | Entity display name (case-insensitive) |
-  | `slug` | citext | null: false | URL-friendly identifier (case-insensitive) |
-  | `status` | citext | default: "active", null: false | Entity lifecycle state |
-  | `description` | text | null: true | Long-form description |
-  | `type` | citext | null: true | Primary classification |
-  | `subtype` | citext | null: true | Secondary classification |
-  | `metadata` | jsonb | default: {} | Flexible attributes |
-  | `created_by_urm_id` | uuid | null: true | Creator reference |
-  | `updated_by_urm_id` | uuid | null: true | Last updater reference |
-  | `inserted_at` | timestamp | null: false | Creation timestamp |
-  | `updated_at` | timestamp | null: false | Update timestamp |
+  | `name` | citext | null: false | Entity display name (via `name_fields/1`) |
+  | `slug` | citext | null: false | URL-friendly identifier (via `name_fields/1`) |
+  | `description` | text | null: true | Long-form description (via `name_fields/1`) |
+  | `status` | citext | default: "active", null: false | Entity lifecycle state (via `status_field/1`) |
+  | `type` | citext | null: true | Primary classification (via `type_fields/1`) |
+  | `subtype` | citext | null: true | Secondary classification (via `type_fields/1`) |
+  | `metadata` | jsonb | default: {} | Flexible attributes (via `metadata_field/1`) |
+  | `created_by_urm_id` | uuid | null: true | Creator reference (via `audit_fields/1`) |
+  | `updated_by_urm_id` | uuid | null: true | Last updater reference (via `audit_fields/1`) |
+  | `inserted_at` | timestamp | null: false | Creation timestamp (via `timestamps/0`) |
+  | `updated_at` | timestamp | null: false | Update timestamp (via `timestamps/0`) |
 
   **Note**: Does NOT add `id` field - use `table()` macro which automatically
   adds UUIDv7 primary key.
 
   ## Options
 
-  - `:include_name` - Add name field (default: `true`)
-  - `:include_slug` - Add slug field (default: `true`)
-  - `:include_description` - Add description field (default: `true`)
-  - `:except` - Exclude specific field groups (list of: `:name`, `:slug`, `:status`, `:description`, `:type_fields`, `:metadata`, `:audit_fields`, `:timestamps`)
+  - `:except` - Exclude specific field groups (list of: `:name_fields`, `:status_field`, `:type_fields`, `:metadata`, `:audit_fields`, `:timestamps`)
   - `:status_default` - Default status value (default: `"active"`)
   - `:type_default` - Default type value (default: `nil`)
   - `:null` - Allow NULL for audit fields (default: `true`)
@@ -992,16 +1341,10 @@ defmodule Events.Repo.MigrationMacros do
 
   ## Examples
 
-      # Full standard entity
+      # Full standard entity (all fields)
       create table(:products) do
         standard_entity_fields()
         add :price, :decimal, null: false
-      end
-
-      # Without slug (simple lookup tables)
-      create table(:categories) do
-        standard_entity_fields(include_slug: false)
-        add :parent_id, references(:categories, type: :uuid)
       end
 
       # With custom status
@@ -1010,38 +1353,36 @@ defmodule Events.Repo.MigrationMacros do
         add :balance, :decimal
       end
 
-      # With required audit trail
-      create table(:transactions) do
-        standard_entity_fields(null: false)  # FK references are default
-        add :amount, :decimal, null: false
-      end
-
-      # Minimal entity (no name/slug)
-      create table(:events) do
-        standard_entity_fields(include_name: false, include_slug: false)
-        add :title, :string, null: false
-        add :starts_at, :utc_datetime_usec
-      end
-
-      # Exclude multiple field groups
+      # Exclude some field groups
       create table(:simple_logs) do
-        standard_entity_fields(except: [:slug, :description, :type_fields, :audit_fields])
+        standard_entity_fields(except: [:type_fields, :audit_fields])
         add :message, :text
       end
 
-  ## Typical Indexes
+  ## Recommended Approach (More Explicit)
 
-      # Always index slugs (if included)
-      create unique_index(:products, [:slug])
+  Instead of using this macro, consider using the individual field macros:
 
-      # Common query patterns
-      create index(:products, [:status])
-      create index(:products, [:type])
-      create index(:products, [:created_by_urm_id])
+      # Better approach - explicit and clear
+      create table(:products) do
+        name_fields()              # name, slug, description
+        status_field()             # status (default: "active")
+        type_fields()              # type, subtype
+        metadata_field()           # metadata (JSONB)
+        audit_fields()             # created_by_urm_id, updated_by_urm_id
+        timestamps()               # inserted_at, updated_at
+      end
 
-      # Composite indexes for filtered queries
-      create index(:products, [:type, :status])
-      create index(:products, [:status, :updated_at])
+      # For title-based entities (blogs, articles, events)
+      create table(:posts) do
+        title_fields()             # title, subtitle, description, slug
+        status_field(default: "draft")
+        type_fields(only: :type)
+        metadata_field()
+        audit_fields()
+        deleted_fields()           # Soft delete support
+        timestamps()
+      end
 
   ## Schema Definition
 
@@ -1051,13 +1392,11 @@ defmodule Events.Repo.MigrationMacros do
         schema "products" do
           field :name, :string
           field :slug, :string
-          field :status, :string
           field :description, :string
+          field :status, :string
           field :type, :string
           field :subtype, :string
           field :metadata, :map
-
-          field :price, :decimal
 
           belongs_to :created_by_urm, Events.Accounts.UserRoleMapping,
             foreign_key: :created_by_urm_id
@@ -1067,73 +1406,32 @@ defmodule Events.Repo.MigrationMacros do
           timestamps(type: :utc_datetime_usec)
         end
       end
-
-  ## Customization After Generation
-
-      create table(:products) do
-        # Use standard fields
-        standard_entity_fields()
-
-        # Add domain-specific fields
-        add :price, :decimal, null: false
-        add :sku, :string
-        add :inventory_count, :integer, default: 0
-
-        # Override status constraint
-        # ALTER TABLE products ADD CONSTRAINT ...
-      end
-
-      # Add constraints
-      create constraint(:products, :price_must_be_positive, check: "price > 0")
-      create constraint(:products, :valid_status,
-        check: "status IN ('draft', 'active', 'archived')")
   """
   defmacro standard_entity_fields(opts \\ []) do
     quote bind_quoted: [opts: opts] do
-      include_name = Keyword.get(opts, :include_name, true)
-      include_slug = Keyword.get(opts, :include_slug, true)
-      include_description = Keyword.get(opts, :include_description, true)
       except_fields = List.wrap(Keyword.get(opts, :except, []))
       status_default = Keyword.get(opts, :status_default, "active")
       type_default = Keyword.get(opts, :type_default)
 
-      # Name field
+      # Name, slug, description fields (via name_fields macro)
       cond do
-        include_name and :name not in except_fields ->
-          add(:name, :citext, null: false)
-
-        true ->
-          :ok
-      end
-
-      # Slug field
-      cond do
-        include_slug and :slug not in except_fields ->
-          add(:slug, :citext, null: false)
-
-        true ->
-          :ok
-      end
-
-      # Status field
-      cond do
-        :status in except_fields ->
+        :name_fields in except_fields ->
           :ok
 
         true ->
-          add(:status, :citext, default: status_default, null: false)
+          name_fields()
       end
 
-      # Description field
+      # Status field (via status_field macro)
       cond do
-        include_description and :description not in except_fields ->
-          add(:description, :text)
+        :status_field in except_fields ->
+          :ok
 
         true ->
-          :ok
+          status_field(default: status_default)
       end
 
-      # Type classification
+      # Type classification (via type_fields macro)
       cond do
         :type_fields in except_fields ->
           :ok
@@ -1148,7 +1446,7 @@ defmodule Events.Repo.MigrationMacros do
           type_fields(type_opts)
       end
 
-      # Metadata
+      # Metadata (via metadata_field macro)
       cond do
         :metadata in except_fields ->
           :ok
@@ -1157,7 +1455,7 @@ defmodule Events.Repo.MigrationMacros do
           metadata_field()
       end
 
-      # Audit tracking
+      # Audit tracking (via audit_fields macro)
       cond do
         :audit_fields in except_fields ->
           :ok
@@ -1166,7 +1464,7 @@ defmodule Events.Repo.MigrationMacros do
           audit_fields(Keyword.take(opts, [:null, :references, :on_delete]))
       end
 
-      # Timestamps
+      # Timestamps (via timestamps macro)
       cond do
         :timestamps in except_fields ->
           :ok
@@ -1182,17 +1480,330 @@ defmodule Events.Repo.MigrationMacros do
   # ==============================================================================
 
   @doc """
+  Creates indexes for name-based entity fields.
+
+  Automatically creates indexes for fields added by `name_fields/1`.
+  By default, creates a unique index on `slug` and standard indexes on `name`
+  and `description`.
+
+  ## Options
+
+  - `:only` - Index only specific field (`:name`, `:slug`, or `:description`)
+  - `:except` - Skip indexing specific field
+  - `:scope` - Partial index scope (`:all`, `:active`, `:non_deleted`, `:exclude_deleted`, `:deleted`, or custom string)
+  - `:slug_index` - Control slug indexing (`:unique` (default), `:standard`, or `false` to skip)
+  - `:name` - Custom index name
+  - `:concurrently` - Create concurrently (default: false)
+
+  ## Scope Values
+
+  - `:all` or `nil` - No WHERE clause (indexes everything)
+  - `:active`, `:non_deleted`, `:exclude_deleted` - WHERE deleted_at IS NULL
+  - `:deleted` - WHERE deleted_at IS NOT NULL
+  - Custom string - e.g., `"status = 'published'"`
+
+  ## Examples
+
+      # Standard usage (unique slug index)
+      name_indexes(:products)
+      # => create unique_index(:products, [:slug])
+      # => create index(:products, [:name])
+
+      # With soft delete filtering
+      name_indexes(:products, scope: :active)
+      # => create unique_index(:products, [:slug], where: "deleted_at IS NULL")
+      # => create index(:products, [:name], where: "deleted_at IS NULL")
+
+      # Only slug index
+      name_indexes(:products, only: :slug, scope: :active)
+      # => create unique_index(:products, [:slug], where: "deleted_at IS NULL")
+
+      # Non-unique slug (unusual)
+      name_indexes(:products, slug_index: :standard)
+      # => create index(:products, [:slug])
+
+      # Skip slug index entirely
+      name_indexes(:products, slug_index: false)
+      # => create index(:products, [:name])
+
+      # Custom scope
+      name_indexes(:products, scope: "status = 'published'")
+      # => create unique_index(:products, [:slug], where: "status = 'published'")
+      # => create index(:products, [:name], where: "status = 'published'")
+
+  ## Common Patterns
+
+      # Active products only
+      name_indexes(:products, scope: :active)
+
+      # Skip description index
+      name_indexes(:products, except: :description, scope: :active)
+
+      # Concurrent creation (large tables)
+      name_indexes(:products, scope: :active, concurrently: true)
+  """
+  defmacro name_indexes(table_name, opts \\ []) do
+    quote bind_quoted: [table_name: table_name, opts: opts] do
+      Events.Repo.MigrationMacros.__validate_only_except__(
+        opts,
+        [:name, :slug, :description]
+      )
+
+      only = Keyword.get(opts, :only)
+      except = Keyword.get(opts, :except)
+      slug_index = Keyword.get(opts, :slug_index, :unique)
+      scope = Keyword.get(opts, :scope)
+
+      # Resolve scope to WHERE clause
+      where_clause = Events.Repo.MigrationMacros.__resolve_scope__(scope)
+
+      # Build base index options (exclude scope, slug_index, only, except)
+      base_opts =
+        opts
+        |> Keyword.drop([:scope, :slug_index, :only, :except])
+        |> Events.Repo.MigrationMacros.__build_index_opts__()
+        |> Events.Repo.MigrationMacros.__maybe_add_where__(where_clause)
+
+      should_add_name? =
+        Events.Repo.MigrationMacros.__should_add_field__(:name, only, except)
+      should_add_slug? =
+        Events.Repo.MigrationMacros.__should_add_field__(:slug, only, except)
+      should_add_description? =
+        Events.Repo.MigrationMacros.__should_add_field__(:description, only, except)
+
+      # Create slug index (unique by default)
+      if should_add_slug? and slug_index != false do
+        case slug_index do
+          :unique ->
+            create unique_index(table_name, [:slug], base_opts)
+
+          :standard ->
+            create index(table_name, [:slug], base_opts)
+
+          false ->
+            :ok
+
+          _ ->
+            raise ArgumentError,
+                  "invalid :slug_index value #{inspect(slug_index)}. Expected :unique, :standard, or false"
+        end
+      end
+
+      # Create name index
+      if should_add_name? do
+        create index(table_name, [:name], base_opts)
+      end
+
+      # Create description index (optional - usually not needed)
+      if should_add_description? do
+        create index(table_name, [:description], base_opts)
+      end
+    end
+  end
+
+  @doc """
+  Creates indexes for title-based entity fields.
+
+  Automatically creates indexes for fields added by `title_fields/1`.
+  By default, creates a unique index on `slug` and standard indexes on `title`.
+
+  ## Options
+
+  - `:only` - Index only specific field (`:title`, `:subtitle`, `:description`, or `:slug`)
+  - `:except` - Skip indexing specific field
+  - `:scope` - Partial index scope (`:all`, `:active`, `:non_deleted`, `:exclude_deleted`, `:deleted`, or custom string)
+  - `:slug_index` - Control slug indexing (`:unique` (default), `:standard`, or `false` to skip)
+  - `:name` - Custom index name
+  - `:concurrently` - Create concurrently (default: false)
+
+  ## Scope Values
+
+  - `:all` or `nil` - No WHERE clause (indexes everything)
+  - `:active`, `:non_deleted`, `:exclude_deleted` - WHERE deleted_at IS NULL
+  - `:deleted` - WHERE deleted_at IS NOT NULL
+  - Custom string - e.g., `"status = 'published'"`
+
+  ## Examples
+
+      # Standard usage (unique slug index)
+      title_indexes(:posts)
+      # => create unique_index(:posts, [:slug])
+      # => create index(:posts, [:title])
+
+      # With soft delete filtering
+      title_indexes(:posts, scope: :active)
+      # => create unique_index(:posts, [:slug], where: "deleted_at IS NULL")
+      # => create index(:posts, [:title], where: "deleted_at IS NULL")
+
+      # Only slug and title
+      title_indexes(:posts, except: [:subtitle, :description], scope: :active)
+
+      # Custom scope for published content
+      title_indexes(:posts, scope: "status = 'published' AND deleted_at IS NULL")
+
+  ## Common Patterns
+
+      # Blog posts (active only)
+      title_indexes(:posts, scope: :active)
+
+      # Events (minimal indexes)
+      title_indexes(:events, only: [:slug, :title], scope: :active)
+
+      # Concurrent creation
+      title_indexes(:articles, scope: :active, concurrently: true)
+  """
+  defmacro title_indexes(table_name, opts \\ []) do
+    quote bind_quoted: [table_name: table_name, opts: opts] do
+      Events.Repo.MigrationMacros.__validate_only_except__(
+        opts,
+        [:title, :subtitle, :description, :slug]
+      )
+
+      only = Keyword.get(opts, :only)
+      except = Keyword.get(opts, :except)
+      slug_index = Keyword.get(opts, :slug_index, :unique)
+      scope = Keyword.get(opts, :scope)
+
+      where_clause = Events.Repo.MigrationMacros.__resolve_scope__(scope)
+
+      base_opts =
+        opts
+        |> Keyword.drop([:scope, :slug_index, :only, :except])
+        |> Events.Repo.MigrationMacros.__build_index_opts__()
+        |> Events.Repo.MigrationMacros.__maybe_add_where__(where_clause)
+
+      should_add_title? =
+        Events.Repo.MigrationMacros.__should_add_field__(:title, only, except)
+      should_add_subtitle? =
+        Events.Repo.MigrationMacros.__should_add_field__(:subtitle, only, except)
+      should_add_description? =
+        Events.Repo.MigrationMacros.__should_add_field__(:description, only, except)
+      should_add_slug? =
+        Events.Repo.MigrationMacros.__should_add_field__(:slug, only, except)
+
+      # Create slug index (unique by default)
+      if should_add_slug? and slug_index != false do
+        case slug_index do
+          :unique ->
+            create unique_index(table_name, [:slug], base_opts)
+
+          :standard ->
+            create index(table_name, [:slug], base_opts)
+
+          false ->
+            :ok
+
+          _ ->
+            raise ArgumentError,
+                  "invalid :slug_index value #{inspect(slug_index)}. Expected :unique, :standard, or false"
+        end
+      end
+
+      # Create title index
+      if should_add_title? do
+        create index(table_name, [:title], base_opts)
+      end
+
+      # Create subtitle index (usually not needed)
+      if should_add_subtitle? do
+        create index(table_name, [:subtitle], base_opts)
+      end
+
+      # Create description index (usually not needed)
+      if should_add_description? do
+        create index(table_name, [:description], base_opts)
+      end
+    end
+  end
+
+  @doc """
+  Creates index for status field.
+
+  By default, creates a standard index on the `status` column.
+  Use `scope` option to add partial index filtering.
+
+  ## Options
+
+  - `:scope` - Partial index scope (`:all`, `:active`, `:non_deleted`, `:exclude_deleted`, `:deleted`, or custom string)
+  - `:unique` - Create unique index (default: false)
+  - `:name` - Custom index name
+  - `:concurrently` - Create concurrently (default: false)
+
+  ## Scope Values
+
+  - `:all` or `nil` - No WHERE clause
+  - `:active`, `:non_deleted`, `:exclude_deleted` - WHERE deleted_at IS NULL
+  - `:deleted` - WHERE deleted_at IS NOT NULL
+  - Custom string - e.g., `"type = 'premium'"`
+
+  ## Examples
+
+      # Standard usage
+      status_indexes(:products)
+      # => create index(:products, [:status])
+
+      # Active records only
+      status_indexes(:products, scope: :active)
+      # => create index(:products, [:status], where: "deleted_at IS NULL")
+
+      # Unique status (unusual but possible)
+      status_indexes(:singleton_settings, unique: true)
+      # => create unique_index(:singleton_settings, [:status])
+
+      # Custom scope
+      status_indexes(:products, scope: "type = 'premium'")
+      # => create index(:products, [:status], where: "type = 'premium'")
+
+  ## Common Patterns
+
+      # Standard with soft delete
+      status_indexes(:products, scope: :active)
+
+      # Concurrent creation
+      status_indexes(:products, scope: :active, concurrently: true)
+  """
+  defmacro status_indexes(table_name, opts \\ []) do
+    quote bind_quoted: [table_name: table_name, opts: opts] do
+      scope = Keyword.get(opts, :scope)
+      unique = Keyword.get(opts, :unique, false)
+
+      where_clause = Events.Repo.MigrationMacros.__resolve_scope__(scope)
+
+      index_opts =
+        opts
+        |> Keyword.drop([:scope, :unique])
+        |> Events.Repo.MigrationMacros.__build_index_opts__()
+        |> Events.Repo.MigrationMacros.__maybe_add_where__(where_clause)
+
+      Events.Repo.MigrationMacros.__create_index__(
+        table_name,
+        [:status],
+        unique,
+        index_opts
+      )
+    end
+  end
+
+  @doc """
   Creates indexes for type classification fields.
 
   ## Options
 
   - `:only` - Index only specific field (`:type` or `:subtype`)
   - `:except` - Skip indexing specific field
-  - `:where` - Partial index condition
+  - `:scope` - Partial index scope (`:all`, `:active`, `:non_deleted`, `:exclude_deleted`, `:deleted`, or custom string)
+  - `:where` - Partial index condition (deprecated - use `:scope` instead)
   - `:name` - Custom index name
   - `:unique` - Create unique index (default: false)
   - `:concurrently` - Create concurrently (default: false)
   - `:composite` - Create single composite index on `[:type, :subtype]` (default: false)
+
+  ## Scope Values
+
+  - `:all` or `nil` - No WHERE clause
+  - `:active`, `:non_deleted`, `:exclude_deleted` - WHERE deleted_at IS NULL
+  - `:deleted` - WHERE deleted_at IS NOT NULL
+  - Custom string - e.g., `"category = 'premium'"`
 
   ## Examples
 
@@ -1200,11 +1811,15 @@ defmodule Events.Repo.MigrationMacros do
       # => create index(:products, [:type])
       # => create index(:products, [:subtype])
 
-      type_indexes(:products, only: :type, where: "deleted_at IS NULL")
+      type_indexes(:products, only: :type, scope: :active)
       # => create index(:products, [:type], where: "deleted_at IS NULL")
 
-      type_indexes(:products, composite: true)
-      # => create index(:products, [:type, :subtype])
+      type_indexes(:products, composite: true, scope: :active)
+      # => create index(:products, [:type, :subtype], where: "deleted_at IS NULL")
+
+      type_indexes(:products, unique: true, scope: :active)
+      # => create unique_index(:products, [:type], where: "deleted_at IS NULL")
+      # => create unique_index(:products, [:subtype], where: "deleted_at IS NULL")
   """
   defmacro type_indexes(table_name, opts \\ []) do
     quote bind_quoted: [table_name: table_name, opts: opts] do
@@ -1212,7 +1827,15 @@ defmodule Events.Repo.MigrationMacros do
 
       composite = Keyword.get(opts, :composite, false)
       unique = Keyword.get(opts, :unique, false)
-      index_opts = Events.Repo.MigrationMacros.__build_index_opts__(opts)
+      scope = Keyword.get(opts, :scope)
+
+      where_clause = Events.Repo.MigrationMacros.__resolve_scope__(scope)
+
+      index_opts =
+        opts
+        |> Keyword.drop([:scope, :composite, :unique])
+        |> Events.Repo.MigrationMacros.__build_index_opts__()
+        |> Events.Repo.MigrationMacros.__maybe_add_where__(where_clause)
 
       case composite do
         true ->
@@ -1273,9 +1896,17 @@ defmodule Events.Repo.MigrationMacros do
 
   - `:only` - Index only specific field (`:created_by_urm_id` or `:updated_by_urm_id`)
   - `:except` - Skip indexing specific field
-  - `:where` - Partial index condition
+  - `:scope` - Partial index scope (`:all`, `:active`, `:non_deleted`, `:exclude_deleted`, `:deleted`, or custom string)
+  - `:where` - Partial index condition (deprecated - use `:scope` instead)
   - `:name` - Custom index name
   - `:concurrently` - Create concurrently
+
+  ## Scope Values
+
+  - `:all` or `nil` - No WHERE clause
+  - `:active`, `:non_deleted`, `:exclude_deleted` - WHERE deleted_at IS NULL
+  - `:deleted` - WHERE deleted_at IS NOT NULL
+  - Custom string - Custom WHERE clause
 
   ## Examples
 
@@ -1286,7 +1917,9 @@ defmodule Events.Repo.MigrationMacros do
       audit_indexes(:products, only: :created_by_urm_id)
       # => create index(:products, [:created_by_urm_id])
 
-      audit_indexes(:products, where: "deleted_at IS NULL", concurrently: true)
+      audit_indexes(:products, scope: :active, concurrently: true)
+      # => create index(:products, [:created_by_urm_id], where: "deleted_at IS NULL", concurrently: true)
+      # => create index(:products, [:updated_by_urm_id], where: "deleted_at IS NULL", concurrently: true)
   """
   defmacro audit_indexes(table_name, opts \\ []) do
     quote bind_quoted: [table_name: table_name, opts: opts] do
@@ -1301,7 +1934,14 @@ defmodule Events.Repo.MigrationMacros do
           [:created_by_urm_id, :updated_by_urm_id]
         )
 
-      index_opts = Events.Repo.MigrationMacros.__build_index_opts__(opts)
+      scope = Keyword.get(opts, :scope)
+      where_clause = Events.Repo.MigrationMacros.__resolve_scope__(scope)
+
+      index_opts =
+        opts
+        |> Keyword.drop([:scope])
+        |> Events.Repo.MigrationMacros.__build_index_opts__()
+        |> Events.Repo.MigrationMacros.__maybe_add_where__(where_clause)
 
       cond do
         add_created? and add_updated? ->
@@ -1376,10 +2016,18 @@ defmodule Events.Repo.MigrationMacros do
 
   - `:only` - Index only specific field (`:inserted_at` or `:updated_at`)
   - `:except` - Skip indexing specific field
-  - `:where` - Partial index condition
+  - `:scope` - Partial index scope (`:all`, `:active`, `:non_deleted`, `:exclude_deleted`, `:deleted`, or custom string)
+  - `:where` - Partial index condition (deprecated - use `:scope` instead)
   - `:name` - Custom index name
   - `:concurrently` - Create concurrently
   - `:composite_with` - List of other fields to include in composite index
+
+  ## Scope Values
+
+  - `:all` or `nil` - No WHERE clause
+  - `:active`, `:non_deleted`, `:exclude_deleted` - WHERE deleted_at IS NULL
+  - `:deleted` - WHERE deleted_at IS NOT NULL
+  - Custom string - Custom WHERE clause
 
   ## Examples
 
@@ -1392,6 +2040,10 @@ defmodule Events.Repo.MigrationMacros do
 
       timestamp_indexes(:products, only: :updated_at, composite_with: [:status])
       # => create index(:products, [:status, :updated_at])
+
+      timestamp_indexes(:products, scope: :active)
+      # => create index(:products, [:inserted_at], where: "deleted_at IS NULL")
+      # => create index(:products, [:updated_at], where: "deleted_at IS NULL")
   """
   defmacro timestamp_indexes(table_name, opts \\ []) do
     quote bind_quoted: [table_name: table_name, opts: opts] do
@@ -1401,7 +2053,14 @@ defmodule Events.Repo.MigrationMacros do
         Events.Repo.MigrationMacros.__determine_fields_to_add__(opts, [:inserted_at, :updated_at])
 
       composite_with = Keyword.get(opts, :composite_with)
-      index_opts = Events.Repo.MigrationMacros.__build_index_opts__(opts)
+      scope = Keyword.get(opts, :scope)
+      where_clause = Events.Repo.MigrationMacros.__resolve_scope__(scope)
+
+      index_opts =
+        opts
+        |> Keyword.drop([:scope, :composite_with])
+        |> Events.Repo.MigrationMacros.__build_index_opts__()
+        |> Events.Repo.MigrationMacros.__maybe_add_where__(where_clause)
 
       fields_fn = fn field ->
         case {composite_with, is_list(composite_with)} do
@@ -1435,10 +2094,18 @@ defmodule Events.Repo.MigrationMacros do
 
   ## Options
 
+  - `:scope` - Partial index scope (`:all`, `:active`, `:non_deleted`, `:exclude_deleted`, `:deleted`, or custom string)
   - `:name` - Custom index name
   - `:concurrently` - Create concurrently (recommended for large tables)
   - `:json_path` - Index specific JSON key instead of entire field
   - `:using` - Index method (default: :gin)
+
+  ## Scope Values
+
+  - `:all` or `nil` - No WHERE clause
+  - `:active`, `:non_deleted`, `:exclude_deleted` - WHERE deleted_at IS NULL
+  - `:deleted` - WHERE deleted_at IS NOT NULL
+  - Custom string - Custom WHERE clause
 
   ## Examples
 
@@ -1448,13 +2115,21 @@ defmodule Events.Repo.MigrationMacros do
       metadata_index(:products, json_path: "status")
       # => create index(:products, [fragment("(metadata->>'status')")])
 
-      metadata_index(:products, concurrently: true)
+      metadata_index(:products, concurrently: true, scope: :active)
+      # => create index(:products, [:metadata], using: :gin, where: "deleted_at IS NULL", concurrently: true)
   """
   defmacro metadata_index(table_name, opts \\ []) do
     quote bind_quoted: [table_name: table_name, opts: opts] do
       json_path = Keyword.get(opts, :json_path)
       using = Keyword.get(opts, :using, :gin)
-      base_opts = Events.Repo.MigrationMacros.__build_index_opts__(opts)
+      scope = Keyword.get(opts, :scope)
+      where_clause = Events.Repo.MigrationMacros.__resolve_scope__(scope)
+
+      base_opts =
+        opts
+        |> Keyword.drop([:scope, :json_path, :using])
+        |> Events.Repo.MigrationMacros.__build_index_opts__()
+        |> Events.Repo.MigrationMacros.__maybe_add_where__(where_clause)
 
       case json_path do
         nil ->
@@ -1719,6 +2394,31 @@ defmodule Events.Repo.MigrationMacros do
   @doc false
   def __maybe_add_where__(opts, nil), do: opts
   def __maybe_add_where__(opts, where), do: Keyword.put(opts, :where, where)
+
+  @doc false
+  def __should_add_field__(field, only, except) do
+    cond do
+      is_list(only) -> field in only
+      is_atom(only) and not is_nil(only) -> field == only
+      is_list(except) -> field not in except
+      is_atom(except) and not is_nil(except) -> field != except
+      true -> true
+    end
+  end
+
+  @doc false
+  def __resolve_scope__(scope_option) do
+    case scope_option do
+      nil -> nil
+      :all -> nil
+      :active -> "deleted_at IS NULL"
+      :non_deleted -> "deleted_at IS NULL"
+      :exclude_deleted -> "deleted_at IS NULL"
+      :deleted -> "deleted_at IS NOT NULL"
+      custom when is_binary(custom) -> custom
+      _ -> raise ArgumentError, "invalid :scope value #{inspect(scope_option)}. Expected :all, :active, :non_deleted, :exclude_deleted, :deleted, or a custom string"
+    end
+  end
 
   defp __valid_field?(field, valid) when is_atom(field), do: field in valid
   defp __valid_field?(fields, valid) when is_list(fields), do: Enum.all?(fields, &(&1 in valid))
