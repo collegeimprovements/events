@@ -313,6 +313,100 @@ Query.new(Product)
 |> Repo.all()
 ```
 
+### Many-to-Many Joins (Auto-Detection)
+
+When you have a many-to-many relationship through a join table, the Query builder automatically detects it and creates bindings for **both** the intermediate table and the final table.
+
+**Schema Setup:**
+```elixir
+defmodule Product do
+  schema "products" do
+    has_many :product_tags, ProductTag
+    has_many :tags, through: [:product_tags, :tag]
+  end
+end
+
+defmodule ProductTag do
+  schema "product_tags" do
+    belongs_to :product, Product
+    belongs_to :tag, Tag
+    field :type, :string  # Custom field on join table
+  end
+end
+```
+
+**Usage:**
+```elixir
+# Simple many-to-many join
+Query.new(Product)
+|> Query.join(:tags)
+|> Query.where({:tags, :name, "red"})
+|> Repo.all()
+
+# Filter on BOTH the join table AND the final table
+Query.new(Product)
+|> Query.join(:tags)
+|> Query.where({:product_tags, :type, "featured"})  # Filter join table
+|> Query.where({:tags, :name, "red"})  # Filter final table
+|> Repo.all()
+
+# Multiple tag filters with join table conditions
+Query.new(Product)
+|> Query.join(:tags)
+|> Query.where({:product_tags, :type, "featured"})
+|> Query.where({:product_tags, :active, true})
+|> Query.where({:tags, :name, :in, ["red", "green", "blue"]})
+|> Repo.all()
+
+# Keyword syntax
+Query.new(Product, [
+  join: :tags,
+  filters: [
+    {:product_tags, :type, "featured"},
+    {:tags, :name, "red"}
+  ]
+]) |> Repo.all()
+```
+
+### Explicit Join Through
+
+For more control over many-to-many joins, use `join_through/3`:
+
+```elixir
+# Explicit join with filtering on join table
+Query.new(Product)
+|> Query.join_through(:tags,
+     through: :product_tags,
+     where: {:type, "featured"}
+   )
+|> Query.where({:tags, :name, "red"})
+|> Repo.all()
+
+# Multiple filters on join table
+Query.new(Product)
+|> Query.join_through(:tags,
+     through: :product_tags,
+     where: [
+       {:type, "featured"},
+       {:active, true},
+       {:priority, :gt, 5}
+     ]
+   )
+|> Query.where({:tags, :name, :in, ["red", "green", "blue"]})
+|> Repo.all()
+
+# Keyword syntax with join_through
+Query.new(Product, [
+  filters: [status: "active"]
+])
+|> Query.join_through(:tags,
+     through: :product_tags,
+     where: {:type, "featured"}
+   )
+|> Query.where({:tags, :name, "red"})
+|> Repo.all()
+```
+
 ### Filtering on Joined Tables
 
 ```elixir
@@ -680,6 +774,72 @@ Query.new(Product)
 |> Query.order_by([desc: :popularity, asc: :price])
 |> Query.limit(10)
 |> Repo.all()
+```
+
+### Many-to-Many with Join Table Filtering
+
+Real-world example: Find non-deleted products with specific tags and tag types.
+
+```elixir
+# Products with "red" tag that are marked as "featured" type
+Query.new(Product)
+|> Query.join(:tags)
+|> Query.where({:product_tags, :type, "featured"})
+|> Query.where({:tags, :name, "red"})
+|> Repo.all()
+
+# Products with multiple tag colors, all must be "primary" type
+Query.new(Product)
+|> Query.join(:tags)
+|> Query.where({:product_tags, :type, "primary"})
+|> Query.where({:tags, :name, :in, ["red", "green", "blue"]})
+|> Repo.all()
+
+# Using explicit join_through for clarity
+Query.new(Product)
+|> Query.join_through(:tags,
+     through: :product_tags,
+     where: [
+       {:type, "featured"},
+       {:active, true}
+     ]
+   )
+|> Query.where({:tags, :name, :in, ["red", "green", "blue"]})
+|> Query.order_by(desc: :inserted_at)
+|> Repo.all()
+
+# Keyword syntax - very clean
+Query.new(Product, [
+  join: :tags,
+  filters: [
+    status: "active",
+    {:product_tags, :type, "featured"},
+    {:product_tags, :active, true},
+    {:tags, :name, :in, ["red", "green", "blue"]}
+  ],
+  order_by: [desc: :inserted_at],
+  limit: 20
+]) |> Repo.all()
+
+# Function to search by tag with options
+def find_products_by_tags(tag_names, tag_type \\ nil) do
+  query = Query.new(Product)
+    |> Query.join(:tags)
+
+  query = if tag_type do
+    Query.where(query, {:product_tags, :type, tag_type})
+  else
+    query
+  end
+
+  query
+  |> Query.where({:tags, :name, :in, tag_names})
+  |> Repo.all()
+end
+
+# Usage
+find_products_by_tags(["red", "green"], "featured")
+find_products_by_tags(["red", "green"])  # Any type
 ```
 
 ## Context Pattern

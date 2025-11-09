@@ -229,30 +229,100 @@ defmodule Events.Repo.Query do
   @doc """
   Joins an association.
 
+  Automatically detects many-to-many through associations and creates bindings
+  for both the intermediate join table and the final table.
+
   ## Examples
 
+      # Direct association
       Query.join(query, :category)
       Query.join(query, :category, :left)
+
+      # Many-to-many through (auto-detected)
+      Query.join(query, :tags)  # Creates bindings for :product_tags AND :tags
+      |> Query.where({:product_tags, :type, "featured"})  # Filter join table
+      |> Query.where({:tags, :name, "red"})  # Filter final table
   """
   @spec join(t(), atom(), atom()) :: t()
   def join(%__MODULE__{} = builder, assoc_name, join_type \\ :inner) do
-    # Track the join binding
-    binding_name = assoc_name
-    next_binding = map_size(builder.joins)
+    # Check if this is a through association
+    case get_association_type(builder.schema, assoc_name) do
+      {:through, [intermediate_assoc, final_field]} ->
+        join_through_auto(builder, intermediate_assoc, final_field, assoc_name, join_type)
 
+      :direct ->
+        join_direct(builder, assoc_name, join_type)
+    end
+  end
+
+  @doc """
+  Explicitly joins through an intermediate table with optional filtering.
+
+  Use this when you want explicit control over the join path and filtering
+  on the intermediate table.
+
+  ## Examples
+
+      # Join through product_tags to tags, filter on product_tags.type
+      Query.join_through(query, :tags,
+        through: :product_tags,
+        where: {:type, "featured"}
+      )
+      |> Query.where({:tags, :name, "red"})
+
+      # Multiple filters on join table
+      Query.join_through(query, :tags,
+        through: :product_tags,
+        where: [
+          {:type, "featured"},
+          {:active, true}
+        ]
+      )
+  """
+  @spec join_through(t(), atom(), keyword()) :: t()
+  def join_through(%__MODULE__{} = builder, final_assoc, opts) do
+    through_assoc = Keyword.get(opts, :through)
+    through_filters = Keyword.get(opts, :where)
+    join_type = Keyword.get(opts, :type, :inner)
+
+    unless through_assoc do
+      raise ArgumentError, "join_through requires :through option"
+    end
+
+    # Get the final field name from the through association
+    final_field = get_through_final_field(builder.schema, through_assoc, final_assoc)
+
+    # Join the intermediate table
+    builder = join_direct(builder, through_assoc, join_type)
+
+    # Apply filters on intermediate table if provided
+    builder =
+      if through_filters do
+        where(builder, normalize_through_filter(through_assoc, through_filters))
+      else
+        builder
+      end
+
+    # Join the final table from the intermediate binding
     query =
       case join_type do
         :inner ->
-          from(s in builder.query, join: a in assoc(s, ^assoc_name), as: ^binding_name)
+          from [{^through_assoc, t}] in builder.query,
+            join: f in assoc(t, ^final_field),
+            as: ^final_assoc
 
         :left ->
-          from(s in builder.query, left_join: a in assoc(s, ^assoc_name), as: ^binding_name)
+          from [{^through_assoc, t}] in builder.query,
+            left_join: f in assoc(t, ^final_field),
+            as: ^final_assoc
 
         :right ->
-          from(s in builder.query, right_join: a in assoc(s, ^assoc_name), as: ^binding_name)
+          from [{^through_assoc, t}] in builder.query,
+            right_join: f in assoc(t, ^final_field),
+            as: ^final_assoc
       end
 
-    %{builder | query: query, joins: Map.put(builder.joins, binding_name, next_binding + 1)}
+    %{builder | query: query, joins: Map.put(builder.joins, final_assoc, final_assoc)}
   end
 
   @doc """
@@ -507,10 +577,134 @@ defmodule Events.Repo.Query do
   defp get_binding(_builder, nil), do: 0
 
   defp get_binding(builder, join_name) do
-    case Map.get(builder.joins, join_name) do
-      nil -> raise "Join :#{join_name} not found. Did you forget to call Query.join/2?"
-      binding -> binding
+    if Map.has_key?(builder.joins, join_name) do
+      join_name  # Return the atom name for use with as()
+    else
+      raise "Join :#{join_name} not found. Did you forget to call Query.join/2?"
     end
+  end
+
+  # Determine if an association is a through association
+  defp get_association_type(schema, assoc_name) do
+    case schema.__schema__(:association, assoc_name) do
+      %{through: through_path} when is_list(through_path) and length(through_path) == 2 ->
+        {:through, through_path}
+
+      _ ->
+        :direct
+    end
+  end
+
+  # Join through association automatically (for has_many :through)
+  defp join_through_auto(builder, intermediate_assoc, final_field, final_name, join_type) do
+    # Join intermediate table first
+    query =
+      case join_type do
+        :inner ->
+          from(s in builder.query, join: i in assoc(s, ^intermediate_assoc), as: ^intermediate_assoc)
+
+        :left ->
+          from(s in builder.query,
+            left_join: i in assoc(s, ^intermediate_assoc),
+            as: ^intermediate_assoc
+          )
+
+        :right ->
+          from(s in builder.query,
+            right_join: i in assoc(s, ^intermediate_assoc),
+            as: ^intermediate_assoc
+          )
+      end
+
+    # Join final table from intermediate
+    query =
+      case join_type do
+        :inner ->
+          from [{^intermediate_assoc, i}] in query,
+            join: f in assoc(i, ^final_field),
+            as: ^final_name
+
+        :left ->
+          from [{^intermediate_assoc, i}] in query,
+            left_join: f in assoc(i, ^final_field),
+            as: ^final_name
+
+        :right ->
+          from [{^intermediate_assoc, i}] in query,
+            right_join: f in assoc(i, ^final_field),
+            as: ^final_name
+      end
+
+    # Store both bindings
+    joins =
+      builder.joins
+      |> Map.put(intermediate_assoc, intermediate_assoc)
+      |> Map.put(final_name, final_name)
+
+    %{builder | query: query, joins: joins}
+  end
+
+  # Direct join (non-through association)
+  defp join_direct(builder, assoc_name, join_type) do
+    query =
+      case join_type do
+        :inner ->
+          from(s in builder.query, join: a in assoc(s, ^assoc_name), as: ^assoc_name)
+
+        :left ->
+          from(s in builder.query, left_join: a in assoc(s, ^assoc_name), as: ^assoc_name)
+
+        :right ->
+          from(s in builder.query, right_join: a in assoc(s, ^assoc_name), as: ^assoc_name)
+      end
+
+    %{builder | query: query, joins: Map.put(builder.joins, assoc_name, assoc_name)}
+  end
+
+  # Get the final field name from through association
+  defp get_through_final_field(schema, through_assoc, _final_assoc) do
+    # Get the through schema
+    case schema.__schema__(:association, through_assoc) do
+      %{related: through_schema} ->
+        # Look for associations in the through schema that match
+        # For ProductTag, this would find :tag association
+        through_schema.__schema__(:associations)
+        |> Enum.find(fn assoc_name ->
+          case through_schema.__schema__(:association, assoc_name) do
+            %{owner: ^through_schema, related: _} -> true
+            _ -> false
+          end
+        end)
+        |> case do
+          nil ->
+            raise ArgumentError,
+                  "Could not find final association in #{inspect(through_schema)}"
+
+          field ->
+            field
+        end
+
+      _ ->
+        raise ArgumentError, "#{inspect(through_assoc)} is not a valid association"
+    end
+  end
+
+  # Normalize through filter to include the join table name
+  defp normalize_through_filter(through_assoc, filter) when is_tuple(filter) do
+    case filter do
+      {field, value} when is_atom(field) ->
+        {through_assoc, field, value}
+
+      {field, op, value} when is_atom(field) and is_atom(op) ->
+        {through_assoc, field, op, value}
+
+      {field, op, value, opts} when is_atom(field) and is_atom(op) and is_list(opts) ->
+        {through_assoc, field, op, value, opts}
+    end
+  end
+
+  defp normalize_through_filter(through_assoc, filters) when is_list(filters) do
+    Enum.map(filters, &normalize_through_filter(through_assoc, &1))
   end
 
   defp apply_filter(query, binding, field, op, value, opts) do
