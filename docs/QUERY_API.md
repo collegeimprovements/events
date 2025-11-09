@@ -98,6 +98,175 @@ Query.where(query, {:email, :eq, "user@example.com", include_nil: true})
 Query.where(query, {:name, :ilike, "%widget%", case_sensitive: false})
 ```
 
+## List-Based Filters
+
+The Query API supports passing all filters as a list for easy composition and dynamic query building.
+
+### Using `filters:` Option
+
+```elixir
+# Simple list of filters
+Query.new(Product, filters: [
+  status: "active",
+  {:price, :gt, 100},
+  {:name, :ilike, "%widget%"}
+]) |> Repo.all()
+
+# Mix keyword and tuple formats
+Query.new(Product, filters: [
+  status: "active",
+  type: "physical",
+  {:price, :between, {10, 100}},
+  {:name, :ilike, "%widget%", case_sensitive: false}
+]) |> Repo.all()
+```
+
+### Using `where:` with a List
+
+```elixir
+# Pass list to where: option
+Query.new(Product, where: [
+  status: "active",
+  {:price, :gt, 100},
+  {:stock, :gte, 1}
+]) |> Repo.all()
+
+# Build filter list dynamically
+filters = [
+  status: "active",
+  {:price, :gt, 100}
+]
+
+if include_featured do
+  filters = filters ++ [tags: ["featured"]]
+end
+
+Query.new(Product, where: filters) |> Repo.all()
+```
+
+### Passing Lists to `where/2`
+
+```elixir
+# Pass list directly to where/2
+query = Query.new(Product)
+
+filters = [
+  status: "active",
+  {:price, :gt, 100},
+  {:name, :ilike, "%widget%"}
+]
+
+query
+|> Query.where(filters)
+|> Repo.all()
+```
+
+### Dynamic Filter Building
+
+```elixir
+# Build filters from params
+def search_products(params) do
+  filters = []
+
+  filters = if params[:status], do: filters ++ [status: params[:status]], else: filters
+  filters = if params[:min_price], do: filters ++ [{:price, :gte, params[:min_price]}], else: filters
+  filters = if params[:max_price], do: filters ++ [{:price, :lte, params[:max_price]}], else: filters
+  filters = if params[:search], do: filters ++ [{:name, :ilike, "%#{params[:search]}%"}], else: filters
+
+  Query.new(Product, filters: filters) |> Repo.all()
+end
+
+# More functional approach
+def search_products_v2(params) do
+  filters = [
+    {:status, params[:status]},
+    {:min_price, params[:min_price]},
+    {:max_price, params[:max_price]},
+    {:search, params[:search]}
+  ]
+  |> Enum.reject(fn {_key, val} -> is_nil(val) end)
+  |> Enum.flat_map(fn
+    {:status, status} -> [status: status]
+    {:min_price, min} -> [{:price, :gte, min}]
+    {:max_price, max} -> [{:price, :lte, max}]
+    {:search, term} -> [{:name, :ilike, "%#{term}%"}]
+  end)
+
+  Query.new(Product, filters: filters) |> Repo.all()
+end
+```
+
+### Combining Multiple Options
+
+```elixir
+# Combine filters with other options
+Query.new(Product, [
+  filters: [
+    status: "active",
+    {:price, :gt, 100}
+  ],
+  order_by: [desc: :inserted_at],
+  limit: 20,
+  offset: 40
+]) |> Repo.all()
+
+# Mix filters: and where: options
+Query.new(Product, [
+  filters: [status: "active"],
+  where: {:price, :gt, 100},
+  limit: 10
+]) |> Repo.all()
+```
+
+### Filters with Joins
+
+```elixir
+# Filters list can include join filters
+Query.new(Product, [
+  join: :category,
+  filters: [
+    status: "active",
+    {:price, :gt, 100},
+    {:category, :name, "Electronics"}  # Filter on joined table
+  ]
+]) |> Repo.all()
+
+# More complex example
+Query.new(Product, [
+  join: :category,
+  filters: [
+    status: "active",
+    type: "physical",
+    {:price, :between, {10, 100}},
+    {:category, :name, "Electronics"},
+    {:category, :active, true}
+  ],
+  order_by: [desc: :price],
+  limit: 10
+]) |> Repo.all()
+```
+
+### Nested Lists
+
+```elixir
+# where: accepts nested lists
+Query.new(Product, where: [
+  [status: "active"],  # First batch of filters
+  {:price, :gt, 100},  # Single filter
+  [type: "physical", stock: 1]  # Another batch
+]) |> Repo.all()
+
+# Useful for grouping related filters
+base_filters = [status: "active", type: "physical"]
+price_filters = [{:price, :gte, 10}, {:price, :lte, 100}]
+category_filters = [{:category, :name, "Electronics"}]
+
+Query.new(Product, [
+  join: :category,
+  where: [base_filters, price_filters, category_filters]
+]) |> Repo.all()
+```
+
 ## Operations Reference
 
 | Operation | Description | Example |
@@ -191,6 +360,7 @@ products = Query.new(Product)
 ### Keyword Syntax
 
 ```elixir
+# Using multiple where: options
 products = Query.new(Product, [
   where: [status: "active"],
   where: {:price, :gte, 10},
@@ -198,6 +368,31 @@ products = Query.new(Product, [
   order_by: [desc: :inserted_at],
   limit: 20,
   offset: 40
+])
+|> Repo.all()
+
+# Using filters: option (recommended for multiple filters)
+products = Query.new(Product, [
+  filters: [
+    status: "active",
+    {:price, :gte, 10},
+    {:price, :lte, 100}
+  ],
+  order_by: [desc: :inserted_at],
+  limit: 20,
+  offset: 40
+])
+|> Repo.all()
+
+# With joins
+products = Query.new(Product, [
+  join: :category,
+  filters: [
+    status: "active",
+    {:category, :name, "Electronics"}
+  ],
+  order_by: [desc: :inserted_at],
+  limit: 10
 ])
 |> Repo.all()
 ```

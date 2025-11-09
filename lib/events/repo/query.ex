@@ -9,6 +9,7 @@ defmodule Events.Repo.Query do
   - Support for joins with filters on joined tables
   - Soft delete by default
   - Returns Ecto.Query - use with `Repo.all`, `Repo.one`, or `to_sql()`
+  - Accept filters as a list for easy composition
 
   ## Basic Usage
 
@@ -26,6 +27,20 @@ defmodule Events.Repo.Query do
         limit: 10
       ])
       |> Repo.all()
+
+      # List of filters
+      filters = [
+        [status: "active"],
+        {:price, :gt, 100},
+        {:name, :ilike, "%widget%"}
+      ]
+      Query.new(Product, where: filters) |> Repo.all()
+
+      # Using filters: option
+      Query.new(Product, filters: [
+        status: "active",
+        {:price, :gt, 100}
+      ]) |> Repo.all()
 
       # Get SQL
       query = Query.new(Product)
@@ -103,9 +118,25 @@ defmodule Events.Repo.Query do
 
       Query.new(Product)
 
+      # Keyword syntax
       Query.new(Product, [
         where: [status: "active"],
         limit: 10
+      ])
+
+      # With list of filters
+      Query.new(Product, [
+        where: [
+          [status: "active"],
+          {:price, :gt, 100},
+          {:name, :ilike, "%widget%"}
+        ]
+      ])
+
+      # Using filters: option
+      Query.new(Product, filters: [
+        status: "active",
+        {:price, :gt, 100}
       ])
   """
   @spec new(module(), keyword()) :: t()
@@ -459,6 +490,7 @@ defmodule Events.Repo.Query do
   defp apply_opts(builder, opts) do
     Enum.reduce(opts, builder, fn
       {:where, conditions}, acc -> where(acc, conditions)
+      {:filters, filter_list}, acc -> where(acc, filter_list)
       {:join, assoc}, acc -> join(acc, assoc)
       {:order_by, ordering}, acc -> order_by(acc, ordering)
       {:limit, value}, acc -> limit(acc, value)
