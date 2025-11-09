@@ -116,10 +116,37 @@ defmodule Events.Repo.SqlScope.Security do
   end
 
   def validate_identifier!(other) do
+    type_name =
+      cond do
+        is_map(other) and Map.has_key?(other, :__struct__) ->
+          inspect(other.__struct__)
+
+        is_integer(other) ->
+          "integer"
+
+        is_float(other) ->
+          "float"
+
+        is_list(other) ->
+          "list"
+
+        is_tuple(other) ->
+          "tuple"
+
+        is_pid(other) ->
+          "PID"
+
+        is_reference(other) ->
+          "reference"
+
+        true ->
+          "unknown"
+      end
+
     raise SecurityError, """
     Invalid identifier type: #{inspect(other)}
 
-    Expected atom or string, got: #{inspect(other.__struct__)}
+    Expected atom or string, got: #{type_name}
     """
   end
 

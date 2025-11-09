@@ -165,7 +165,7 @@ defmodule Events.Repo.SqlScope.Scope do
         "$#{length(scope.bindings) + i}"
       end)
 
-    add_condition(scope, "#{field_str} IN (#{placeholders})", values, raw: true)
+    add_condition(scope, "#{field_str} IN (#{placeholders})", values)
   end
 
   @doc """
@@ -180,7 +180,7 @@ defmodule Events.Repo.SqlScope.Scope do
         "$#{length(scope.bindings) + i}"
       end)
 
-    add_condition(scope, "#{field_str} NOT IN (#{placeholders})", values, raw: true)
+    add_condition(scope, "#{field_str} NOT IN (#{placeholders})", values)
   end
 
   # === RANGE OPERATIONS ===
@@ -445,6 +445,20 @@ defmodule Events.Repo.SqlScope.Scope do
         Keyword.has_key?(opts, :minutes) -> {Keyword.get(opts, :minutes), "minutes"}
         true -> {7, "days"}
       end
+
+    # Validate that value is an integer to prevent SQL injection
+    unless is_integer(value) do
+      raise ArgumentError, """
+      Invalid interval value: #{inspect(value)}
+
+      Expected an integer for interval value.
+
+      Examples:
+        Scope.recent(days: 7)
+        Scope.recent(hours: 24)
+        Scope.recent(minutes: 30)
+      """
+    end
 
     add_condition(scope, "inserted_at > NOW() - INTERVAL '#{value} #{unit}'", [], raw: true)
   end

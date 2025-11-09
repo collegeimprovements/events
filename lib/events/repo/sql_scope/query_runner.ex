@@ -326,11 +326,24 @@ defmodule Events.Repo.SqlScope.QueryRunner do
   defp extract_column_from_error(_), do: nil
 
   # Check if currently in a migration transaction
-  # This is a heuristic - actual implementation would need to check Ecto state
+  # Ecto stores migration adapter state in the process dictionary
   defp in_migration_transaction? do
-    # For now, return false
-    # In real implementation, check if we're inside Ecto.Migration context
-    false
+    # Check if we're inside an Ecto migration by looking for the migration runner process
+    case Process.get(:ecto_migration_runner) do
+      nil ->
+        # Also check for SQL sandbox mode which indicates we're in a test transaction
+        case Ecto.Adapters.SQL.Sandbox.mode(Repo) do
+          {:ok, :manual} -> true
+          {:ok, :shared} -> true
+          _ -> false
+        end
+
+      _runner ->
+        true
+    end
+  rescue
+    # If Sandbox module doesn't exist or any other error, assume not in transaction
+    _ -> false
   end
 
   # Log query execution

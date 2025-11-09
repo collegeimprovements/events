@@ -1,9 +1,9 @@
 defmodule Events.Repo.MigrationMacros do
   @moduledoc """
-  Reusable macros for standardized database migrations with UUIDv7 primary keys.
+  Reusable macros for standardized database migrations with UUID primary keys.
 
   This module provides a consistent API for adding common field patterns to database tables,
-  with PostgreSQL 18's native UUIDv7 support for time-ordered, indexable primary keys.
+  with PostgreSQL's gen_random_uuid() for cryptographically secure primary keys.
 
   ## Quick Start
 
@@ -42,11 +42,11 @@ defmodule Events.Repo.MigrationMacros do
 
   ## Architecture Overview
 
-  ### UUIDv7 by Default
-  All tables automatically use UUIDv7 primary keys unless explicitly opted out:
-  - **Time-ordered**: UUIDs are sortable by creation time
-  - **Index-friendly**: Better B-tree performance than UUIDv4
-  - **PostgreSQL 18**: Uses native `uuidv7()` function
+  ### UUID by Default
+  All tables automatically use UUID primary keys (via gen_random_uuid()) unless explicitly opted out:
+  - **Cryptographically secure**: Random UUIDs that are globally unique
+  - **Widely supported**: Works on PostgreSQL 13+ (requires pgcrypto extension)
+  - **Standard compliant**: UUIDv4 format
 
   ### Field Categories
   1. **Type Classification**: `type` and `subtype` for polymorphic entities
@@ -59,7 +59,7 @@ defmodule Events.Repo.MigrationMacros do
 
   | Macro | Purpose | Example |
   |-------|---------|---------|
-  | `table/2` | Override Ecto's table with UUIDv7 | `create table(:users) do ... end` |
+  | `table/2` | Override Ecto's table with UUID PKs | `create table(:users) do ... end` |
   | `type_fields/0, type_fields/1` | Add type/subtype columns | `type_fields(null: false)` |
   | `metadata_field/0, metadata_field/1` | Add JSONB metadata | `metadata_field(default: fragment("'{}'"))` |
   | `audit_fields/0, audit_fields/1` | Add created_by/updated_by | `audit_fields()` |
@@ -181,11 +181,11 @@ defmodule Events.Repo.MigrationMacros do
   # ==============================================================================
 
   @doc """
-  Creates a table with UUIDv7 primary key by default.
+  Creates a table with UUID primary key by default.
 
-  This macro overrides Ecto's `table/2` to automatically configure PostgreSQL 18's
-  native `uuidv7()` function for primary keys, providing time-ordered UUIDs with
-  better index performance.
+  This macro overrides Ecto's `table/2` to automatically configure PostgreSQL's
+  `gen_random_uuid()` function for primary keys, providing cryptographically secure
+  random UUIDs.
 
   ## Options
 
@@ -196,21 +196,21 @@ defmodule Events.Repo.MigrationMacros do
 
   | Value | Behavior |
   |-------|----------|
-  | `nil` (default) | UUIDv7 primary key named `:id` |
-  | `:uuid_v7` | Explicitly request UUIDv7 |
+  | `nil` (default) | UUID primary key named `:id` via gen_random_uuid() |
+  | `:uuid_v7` | UUID primary key (for backwards compatibility) |
   | `false` | No primary key (for join tables) |
   | `true` | Integer primary key (Ecto default) |
   | `{:id, :uuid, ...}` | Custom UUID config |
 
   ## Examples
 
-      # Default: UUIDv7 primary key
+      # Default: UUID primary key
       create table(:products) do
         add :name, :citext
       end
-      # Equivalent to: id uuid PRIMARY KEY DEFAULT uuidv7()
+      # Equivalent to: id uuid PRIMARY KEY DEFAULT gen_random_uuid()
 
-      # Explicit UUIDv7
+      # Explicit UUID (backwards compatibility)
       create table(:categories, primary_key: :uuid_v7) do
         add :name, :citext
       end
@@ -233,17 +233,18 @@ defmodule Events.Repo.MigrationMacros do
 
   ## Technical Details
 
-  UUIDv7 format (RFC 9562):
-  - 48 bits: Unix timestamp (milliseconds)
-  - 12 bits: Random sequence
-  - 62 bits: Random data
-  - Total: 128 bits (standard UUID size)
+  UUID format (UUIDv4 via gen_random_uuid()):
+  - Cryptographically secure random UUID
+  - Standard 128-bit UUID format
+  - Requires PostgreSQL 13+ with pgcrypto extension
 
   Benefits:
-  - Chronologically sortable
-  - Better B-tree index clustering
   - Globally unique without coordination
+  - Cryptographically secure
+  - No collision risk
   - Compatible with all UUID tooling
+
+  Note: For time-ordered UUIDs, consider adding an explicit index on created_at/inserted_at
   """
   defmacro table(name, opts \\ [])
 
@@ -260,7 +261,7 @@ defmodule Events.Repo.MigrationMacros do
   defmacro table(name, do: block) do
     quote do
       Ecto.Migration.table unquote(name),
-        primary_key: {:id, :uuid, default: {:fragment, "uuidv7()"}} do
+        primary_key: {:id, :uuid, default: {:fragment, "gen_random_uuid()"}} do
         unquote(block)
       end
     end
@@ -269,15 +270,15 @@ defmodule Events.Repo.MigrationMacros do
   @doc false
   def resolve_primary_key_opts(opts) do
     case Keyword.get(opts, :primary_key) do
-      # Not specified - use UUIDv7 default
+      # Not specified - use gen_random_uuid() (Postgres 13+)
       nil ->
-        Keyword.put(opts, :primary_key, {:id, :uuid, default: {:fragment, "uuidv7()"}})
+        Keyword.put(opts, :primary_key, {:id, :uuid, default: {:fragment, "gen_random_uuid()"}})
 
-      # Explicitly requested UUIDv7
+      # Explicitly requested UUID (for backwards compatibility with :uuid_v7)
       :uuid_v7 ->
         opts
         |> Keyword.delete(:primary_key)
-        |> Keyword.put(:primary_key, {:id, :uuid, default: {:fragment, "uuidv7()"}})
+        |> Keyword.put(:primary_key, {:id, :uuid, default: {:fragment, "gen_random_uuid()"}})
 
       # User specified something else (false, true, or custom tuple) - respect it
       _other ->
@@ -730,19 +731,19 @@ defmodule Events.Repo.MigrationMacros do
   ## Options
 
   - `:null` - Allow NULL values (default: `false`)
-  - `:default` - Default value (default: `fragment("'{}'")` - empty JSON object)
+  - `:default` - Default value (default: `fragment("'{}'::jsonb")` - empty JSON object)
 
   ## Examples
 
       # Standard usage (empty object default, NOT NULL)
       metadata_field()
-      # => add :metadata, :jsonb, default: fragment("'{}'"), null: false
+      # => add :metadata, :jsonb, default: fragment("'{}'::jsonb"), null: false
 
       # Allow NULL
       metadata_field(null: true)
 
       # Custom default with version
-      metadata_field(default: fragment("'{\"version\": 1}'"))
+      metadata_field(default: fragment("'{\"version\": 1}'::jsonb"))
 
       # Nullable with no default
       metadata_field(null: true, default: nil)
@@ -784,7 +785,7 @@ defmodule Events.Repo.MigrationMacros do
   defmacro metadata_field(opts \\ []) do
     quote bind_quoted: [opts: opts] do
       null_value = Keyword.get(opts, :null, false)
-      default_value = Keyword.get(opts, :default, fragment("'{}'"))
+      default_value = Keyword.get(opts, :default, fragment("'{}'::jsonb"))
 
       add(:metadata, :jsonb, default: default_value, null: null_value)
     end
@@ -2136,8 +2137,21 @@ defmodule Events.Repo.MigrationMacros do
           index_opts = Keyword.put(base_opts, :using, using)
           create index(table_name, [:metadata], index_opts)
 
+        path when is_binary(path) ->
+          # Validate the JSON path to prevent SQL injection
+          validated_path = Events.Repo.SqlScope.Security.validate_identifier!(path)
+          create index(table_name, [fragment("(metadata->>'#{validated_path}')")], base_opts)
+
         path ->
-          create index(table_name, [fragment("(metadata->>'#{path}')")], base_opts)
+          raise ArgumentError, """
+          Invalid :json_path value: #{inspect(path)}
+
+          Expected a string representing a JSON key.
+
+          Examples:
+            metadata_index(:products, json_path: "status")
+            metadata_index(:products, json_path: "user_id")
+          """
       end
     end
   end
@@ -2212,7 +2226,12 @@ defmodule Events.Repo.MigrationMacros do
           except_groups
         )
 
-      base_index_opts = Events.Repo.MigrationMacros.__build_index_opts__(opts)
+      # Build base index options without :where and :scope to allow each index group
+      # to handle their own scope independently
+      base_index_opts =
+        opts
+        |> Keyword.drop([:where, :scope, :status_where])
+        |> Events.Repo.MigrationMacros.__build_index_opts__()
 
       # Slug - unique index
       cond do
@@ -2247,7 +2266,8 @@ defmodule Events.Repo.MigrationMacros do
       # Type fields
       cond do
         should_index?.(:type_fields) ->
-          type_indexes(table_name, base_index_opts)
+          # Pass full opts so the helper can resolve its own scope
+          type_indexes(table_name, opts)
 
         true ->
           :ok
@@ -2256,7 +2276,8 @@ defmodule Events.Repo.MigrationMacros do
       # Audit fields
       cond do
         should_index?.(:audit_fields) ->
-          audit_indexes(table_name, base_index_opts)
+          # Pass full opts so the helper can resolve its own scope
+          audit_indexes(table_name, opts)
 
         true ->
           :ok
@@ -2265,7 +2286,8 @@ defmodule Events.Repo.MigrationMacros do
       # Deleted fields
       cond do
         should_index?.(:deleted_fields) ->
-          deleted_indexes(table_name, base_index_opts)
+          # Pass full opts so the helper can resolve its own scope
+          deleted_indexes(table_name, opts)
 
         true ->
           :ok
@@ -2274,7 +2296,8 @@ defmodule Events.Repo.MigrationMacros do
       # Metadata GIN index
       cond do
         should_index?.(:metadata) ->
-          metadata_index(table_name, base_index_opts)
+          # Pass full opts so the helper can resolve its own scope
+          metadata_index(table_name, opts)
 
         true ->
           :ok
@@ -2283,7 +2306,8 @@ defmodule Events.Repo.MigrationMacros do
       # Timestamp indexes
       cond do
         should_index?.(:timestamps) ->
-          timestamp_indexes(table_name, base_index_opts)
+          # Pass full opts so the helper can resolve its own scope
+          timestamp_indexes(table_name, opts)
 
         true ->
           :ok
