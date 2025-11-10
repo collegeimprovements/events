@@ -28,7 +28,7 @@ defmodule Events.Decorator do
   - **Debugging**: Interactive debugging with pry, inspect, and dbg integration
   - **Tracing**: Function call tracing, module dependency tracking
   - **Purity**: Function purity verification, determinism checking, idempotence testing
-  - **Testing**: Property testing helpers, fixture management, mocking support
+  - **Testing**: Fixture management, test data generation, mocking support
   - **Composition**: Combine multiple decorators seamlessly
 
   ## Decorator Categories
@@ -78,7 +78,6 @@ defmodule Events.Decorator do
 
   ### Testing Decorators
 
-  - `@decorate property_test(opts)` - Property-based testing helpers
   - `@decorate with_fixtures(opts)` - Automatic fixture loading
   - `@decorate sample_data(opts)` - Generate test data
   - `@decorate timeout_test(opts)` - Enforce test timeouts

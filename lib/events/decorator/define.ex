@@ -72,7 +72,6 @@ defmodule Events.Decorator.Define do
     idempotent: 1,
     memoizable: 1,
     # Testing decorators
-    property_test: 1,
     with_fixtures: 1,
     sample_data: 1,
     timeout_test: 1,
@@ -83,6 +82,7 @@ defmodule Events.Decorator.Define do
     compose: 1
 
   # Delegate to respective decorator modules
+  # Manual delegation statements for all decorators
   defdelegate cacheable(opts, body, context), to: Events.Decorator.Caching
   defdelegate cache_put(opts, body, context), to: Events.Decorator.Caching
   defdelegate cache_evict(opts, body, context), to: Events.Decorator.Caching
@@ -115,7 +115,6 @@ defmodule Events.Decorator.Define do
   defdelegate idempotent(opts, body, context), to: Events.Decorator.Purity
   defdelegate memoizable(opts, body, context), to: Events.Decorator.Purity
 
-  defdelegate property_test(opts, body, context), to: Events.Decorator.Testing
   defdelegate with_fixtures(opts, body, context), to: Events.Decorator.Testing
   defdelegate sample_data(opts, body, context), to: Events.Decorator.Testing
   defdelegate timeout_test(opts, body, context), to: Events.Decorator.Testing

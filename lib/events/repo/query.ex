@@ -185,6 +185,12 @@ defmodule Events.Repo.Query do
   import Ecto.Query
   alias Events.Repo
 
+  # Configuration constants
+  @soft_delete_field :deleted_at
+  @default_trim_enabled true
+  @default_case_sensitive false
+  @default_include_nil false
+
   @type t :: %__MODULE__{
           schema: module(),
           query: Ecto.Query.t(),
@@ -276,7 +282,7 @@ defmodule Events.Repo.Query do
       if Keyword.get(opts, :include_deleted, false) do
         query
       else
-        from(s in query, where: is_nil(s.deleted_at))
+        from(s in query, where: is_nil(field(s, ^@soft_delete_field)))
       end
 
     builder = %__MODULE__{
@@ -606,26 +612,38 @@ defmodule Events.Repo.Query do
   def having(builder, conditions)
 
   def having(%__MODULE__{} = builder, conditions) when is_list(conditions) do
-    # Simple keyword-based having
-    query =
-      Enum.reduce(conditions, builder.query, fn {aggregate, {op, value}}, q ->
-        case aggregate do
-          :count ->
-            case op do
-              :gt -> from(s in q, having: fragment("count(*) > ?", ^value))
-              :gte -> from(s in q, having: fragment("count(*) >= ?", ^value))
-              :lt -> from(s in q, having: fragment("count(*) < ?", ^value))
-              :lte -> from(s in q, having: fragment("count(*) <= ?", ^value))
-              :eq -> from(s in q, having: fragment("count(*) = ?", ^value))
-            end
-
-          _ ->
-            q
-        end
-      end)
-
+    query = Enum.reduce(conditions, builder.query, &apply_having_condition/2)
     %{builder | query: query}
   end
+
+  # Apply individual having conditions based on aggregate type and operator
+  defp apply_having_condition({aggregate, {op, value}}, query) do
+    apply_aggregate_having(query, aggregate, op, value)
+  end
+
+  # Pattern match on specific aggregates and operations
+  defp apply_aggregate_having(query, :count, :gt, value) do
+    from(s in query, having: fragment("count(*) > ?", ^value))
+  end
+
+  defp apply_aggregate_having(query, :count, :gte, value) do
+    from(s in query, having: fragment("count(*) >= ?", ^value))
+  end
+
+  defp apply_aggregate_having(query, :count, :lt, value) do
+    from(s in query, having: fragment("count(*) < ?", ^value))
+  end
+
+  defp apply_aggregate_having(query, :count, :lte, value) do
+    from(s in query, having: fragment("count(*) <= ?", ^value))
+  end
+
+  defp apply_aggregate_having(query, :count, :eq, value) do
+    from(s in query, having: fragment("count(*) = ?", ^value))
+  end
+
+  # Default case for unknown aggregates
+  defp apply_aggregate_having(query, _aggregate, _op, _value), do: query
 
   @doc """
   Defines a named window for use with window functions.
@@ -900,10 +918,28 @@ defmodule Events.Repo.Query do
       |> Repo.all()
   """
   @spec include_deleted(t()) :: t()
-  def include_deleted(%__MODULE__{schema: schema} = builder) do
-    # Remove the deleted_at filter
-    query = from(s in schema)
-    %{builder | query: query, include_deleted: true}
+  def include_deleted(%__MODULE__{} = builder) do
+    # This is tricky - we need to rebuild the query without the soft delete filter
+    # but preserve all other filters. Since we apply soft delete at creation,
+    # the best approach is to mark it as included and warn if called after creation
+    if builder.include_deleted do
+      # Already including deleted records
+      builder
+    else
+      # Mark as including deleted and warn about usage
+      IO.warn("""
+      Query.include_deleted/1 should be called at query creation using the :include_deleted option.
+      Calling it after other filters may not work as expected.
+
+      Instead of:
+        Query.new(Product) |> Query.where(...) |> Query.include_deleted()
+
+      Use:
+        Query.new(Product, include_deleted: true) |> Query.where(...)
+      """)
+
+      %{builder | include_deleted: true}
+    end
   end
 
   @doc """
@@ -1273,10 +1309,10 @@ defmodule Events.Repo.Query do
   end
 
   # Build an Ecto query for a preload association with conditions
-  defp build_preload_query(assoc, opts) do
-    # We need to get the association's schema, but we don't have it here
-    # So we'll build a query function that Ecto can call
-    fn ->
+  defp build_preload_query(_assoc, opts) do
+    # Ecto expects a function that receives the association query
+    # The function is called with the association's queryable
+    fn queryable ->
       # Extract the different options
       where_conditions = Keyword.get(opts, :where, [])
       order_by_opts = Keyword.get(opts, :order_by)
@@ -1284,52 +1320,82 @@ defmodule Events.Repo.Query do
       offset_value = Keyword.get(opts, :offset)
       nested_preloads = Keyword.get(opts, :preload, [])
 
-      # Build the query dynamically
-      # Note: This will be evaluated by Ecto with the proper schema
-      import Ecto.Query
+      # Start with the queryable passed by Ecto
+      query = from(a in queryable)
 
-      query = from(a in assoc)
-
-      # Apply where conditions
+      # Apply where conditions with proper pattern matching
       query =
-        Enum.reduce(where_conditions, query, fn {field, value}, q ->
-          from(a in q, where: field(a, ^field) == ^value)
+        Enum.reduce(where_conditions, query, fn condition, q ->
+          case condition do
+            {field, value} when is_atom(field) ->
+              from(a in q, where: field(a, ^field) == ^value)
+
+            {field, op, value} when is_atom(field) and is_atom(op) ->
+              apply_preload_filter(q, field, op, value)
+
+            _ ->
+              # Invalid condition, skip it
+              q
+          end
         end)
 
       # Apply order_by
       query =
-        if order_by_opts do
-          from(a in query, order_by: ^order_by_opts)
-        else
-          query
+        case order_by_opts do
+          nil -> query
+          opts when is_list(opts) -> from(a in query, order_by: ^opts)
+          _ -> query
         end
 
       # Apply limit
       query =
-        if limit_value do
-          from(a in query, limit: ^limit_value)
-        else
-          query
+        case limit_value do
+          nil -> query
+          limit when is_integer(limit) and limit > 0 -> from(a in query, limit: ^limit)
+          _ -> query
         end
 
       # Apply offset
       query =
-        if offset_value do
-          from(a in query, offset: ^offset_value)
-        else
-          query
+        case offset_value do
+          nil -> query
+          offset when is_integer(offset) and offset >= 0 -> from(a in query, offset: ^offset)
+          _ -> query
         end
 
       # Apply nested preloads
       query =
-        if nested_preloads != [] do
-          processed_nested = process_preloads(nested_preloads)
-          from(a in query, preload: ^processed_nested)
-        else
-          query
+        case nested_preloads do
+          [] ->
+            query
+
+          [_ | _] = preloads ->
+            processed_nested = process_preloads(preloads)
+            from(a in query, preload: ^processed_nested)
+
+          _ ->
+            query
         end
 
       query
+    end
+  end
+
+  # Helper function to apply preload filters with operators
+  defp apply_preload_filter(query, field, op, value) do
+    case op do
+      :eq -> from(a in query, where: field(a, ^field) == ^value)
+      :neq -> from(a in query, where: field(a, ^field) != ^value)
+      :gt -> from(a in query, where: field(a, ^field) > ^value)
+      :gte -> from(a in query, where: field(a, ^field) >= ^value)
+      :lt -> from(a in query, where: field(a, ^field) < ^value)
+      :lte -> from(a in query, where: field(a, ^field) <= ^value)
+      :in when is_list(value) -> from(a in query, where: field(a, ^field) in ^value)
+      :not_in when is_list(value) -> from(a in query, where: field(a, ^field) not in ^value)
+      :is_nil -> from(a in query, where: is_nil(field(a, ^field)))
+      :not_nil -> from(a in query, where: not is_nil(field(a, ^field)))
+      # Unknown operator, skip
+      _ -> query
     end
   end
 
@@ -1380,132 +1446,135 @@ defmodule Events.Repo.Query do
 
   # Apply value transformation function if provided in options
   defp apply_value_fn(value, op, opts) do
-    # First apply trimming if enabled (default: true)
-    value = apply_trim(value, op, opts)
+    value
+    |> apply_trim(op, opts)
+    |> apply_custom_transform(op, opts)
+  end
 
-    # Then apply custom value_fn if provided
+  # Apply custom transformation if value_fn is provided
+  defp apply_custom_transform(value, _op, opts) when not is_map_key(opts, :value_fn), do: value
+
+  defp apply_custom_transform(value, op, opts) do
     case Keyword.get(opts, :value_fn) do
-      nil ->
-        value
-
-      fn_transform when is_function(fn_transform, 1) ->
-        case op do
-          # For :in and :not_in, apply function to each element in the list
-          op when op in [:in, :not_in] and is_list(value) ->
-            Enum.map(value, fn_transform)
-
-          # For :between, apply function to both min and max
-          :between when is_tuple(value) ->
-            {min, max} = value
-            {fn_transform.(min), fn_transform.(max)}
-
-          # For :is_nil and :not_nil, don't transform (no value used)
-          op when op in [:is_nil, :not_nil] ->
-            value
-
-          # For all other operations, apply function to the value
-          _ ->
-            fn_transform.(value)
-        end
+      nil -> value
+      fn_transform -> transform_by_operation(value, op, fn_transform)
     end
   end
+
+  # Pattern match on operations that need special transformation handling
+  defp transform_by_operation(value, op, _fn_transform) when op in [:is_nil, :not_nil], do: value
+
+  defp transform_by_operation(value, op, fn_transform)
+       when op in [:in, :not_in] and is_list(value) do
+    Enum.map(value, fn_transform)
+  end
+
+  defp transform_by_operation({min, max}, :between, fn_transform) do
+    {fn_transform.(min), fn_transform.(max)}
+  end
+
+  defp transform_by_operation(value, _op, fn_transform), do: fn_transform.(value)
 
   # Apply trimming to string values (default: enabled)
   defp apply_trim(value, op, opts) do
-    trim_enabled = Keyword.get(opts, :trim, true)
-
-    if trim_enabled do
-      case op do
-        # For :in and :not_in, trim each string element in the list
-        op when op in [:in, :not_in] and is_list(value) ->
-          Enum.map(value, fn
-            v when is_binary(v) -> String.trim(v)
-            v -> v
-          end)
-
-        # For :between, trim both values if they're strings
-        :between when is_tuple(value) ->
-          {min, max} = value
-          min = if is_binary(min), do: String.trim(min), else: min
-          max = if is_binary(max), do: String.trim(max), else: max
-          {min, max}
-
-        # For :is_nil and :not_nil, don't transform
-        op when op in [:is_nil, :not_nil] ->
-          value
-
-        # For all other operations, trim if it's a string
-        _ ->
-          if is_binary(value), do: String.trim(value), else: value
-      end
-    else
-      value
+    case Keyword.get(opts, :trim, @default_trim_enabled) do
+      false -> value
+      true -> trim_value_by_operation(value, op)
     end
   end
 
-  defp apply_eq(query, 0, field, value, opts) do
-    include_nil = Keyword.get(opts, :include_nil, false)
-    case_sensitive = Keyword.get(opts, :case_sensitive, false)
+  # Pattern match on operations that need special trimming logic
+  defp trim_value_by_operation(value, op) when op in [:is_nil, :not_nil], do: value
 
-    cond do
-      # String comparison with case insensitive (default)
-      is_binary(value) and not case_sensitive ->
-        if include_nil do
-          from(q in query,
-            where:
-              fragment("lower(?)", field(q, ^field)) == fragment("lower(?)", ^value) or
-                is_nil(field(q, ^field))
-          )
-        else
-          from(q in query,
-            where: fragment("lower(?)", field(q, ^field)) == fragment("lower(?)", ^value)
-          )
-        end
-
-      # Normal comparison (non-string or case sensitive)
-      true ->
-        if include_nil do
-          from(q in query, where: field(q, ^field) == ^value or is_nil(field(q, ^field)))
-        else
-          from(q in query, where: field(q, ^field) == ^value)
-        end
-    end
+  defp trim_value_by_operation(value, op) when op in [:in, :not_in] and is_list(value) do
+    Enum.map(value, &maybe_trim/1)
   end
 
+  defp trim_value_by_operation({min, max}, :between) do
+    {maybe_trim(min), maybe_trim(max)}
+  end
+
+  defp trim_value_by_operation(value, _op), do: maybe_trim(value)
+
+  # Helper to trim only binary values
+  defp maybe_trim(value) when is_binary(value), do: String.trim(value)
+  defp maybe_trim(value), do: value
+
+  # Pattern-matched versions of apply_eq for better readability
   defp apply_eq(query, binding, field, value, opts) do
-    include_nil = Keyword.get(opts, :include_nil, false)
-    case_sensitive = Keyword.get(opts, :case_sensitive, false)
+    include_nil = Keyword.get(opts, :include_nil, @default_include_nil)
+    case_sensitive = Keyword.get(opts, :case_sensitive, @default_case_sensitive)
 
-    cond do
-      # String comparison with case insensitive (default)
-      is_binary(value) and not case_sensitive ->
-        if include_nil do
-          from(q in query,
-            where:
-              fragment("lower(?)", field(as(^binding), ^field)) == fragment("lower(?)", ^value) or
-                is_nil(field(as(^binding), ^field))
-          )
-        else
-          from(q in query,
-            where:
-              fragment("lower(?)", field(as(^binding), ^field)) == fragment("lower(?)", ^value)
-          )
-        end
+    build_eq_query(query, binding, field, value,
+      string?: is_binary(value),
+      case_sensitive?: case_sensitive,
+      include_nil?: include_nil
+    )
+  end
 
-      # Normal comparison (non-string or case sensitive)
-      true ->
-        if include_nil do
-          from(q in query,
-            where: field(as(^binding), ^field) == ^value or is_nil(field(as(^binding), ^field))
-          )
-        else
-          from(q in query, where: field(as(^binding), ^field) == ^value)
-        end
-    end
+  # Build equality query based on options
+  defp build_eq_query(query, 0, field, value,
+         string?: true,
+         case_sensitive?: false,
+         include_nil?: include_nil
+       ) do
+    base_condition =
+      dynamic([q], fragment("lower(?)", field(q, ^field)) == fragment("lower(?)", ^value))
+
+    apply_nil_condition(query, base_condition, field, 0, include_nil)
+  end
+
+  defp build_eq_query(query, 0, field, value,
+         string?: _,
+         case_sensitive?: _,
+         include_nil?: include_nil
+       ) do
+    base_condition = dynamic([q], field(q, ^field) == ^value)
+    apply_nil_condition(query, base_condition, field, 0, include_nil)
+  end
+
+  defp build_eq_query(query, binding, field, value,
+         string?: true,
+         case_sensitive?: false,
+         include_nil?: include_nil
+       ) do
+    base_condition =
+      dynamic(
+        [{^binding, b}],
+        fragment("lower(?)", field(b, ^field)) == fragment("lower(?)", ^value)
+      )
+
+    apply_nil_condition(query, base_condition, field, binding, include_nil)
+  end
+
+  defp build_eq_query(query, binding, field, value,
+         string?: _,
+         case_sensitive?: _,
+         include_nil?: include_nil
+       ) do
+    base_condition = dynamic([{^binding, b}], field(b, ^field) == ^value)
+    apply_nil_condition(query, base_condition, field, binding, include_nil)
+  end
+
+  # Helper to apply nil condition if needed
+  defp apply_nil_condition(query, base_condition, field, 0, true) do
+    from(q in query, where: ^base_condition or is_nil(field(q, ^field)))
+  end
+
+  defp apply_nil_condition(query, base_condition, _field, 0, false) do
+    from(q in query, where: ^base_condition)
+  end
+
+  defp apply_nil_condition(query, base_condition, field, binding, true) do
+    from(q in query, where: ^base_condition or is_nil(field(as(^binding), ^field)))
+  end
+
+  defp apply_nil_condition(query, base_condition, _field, _binding, false) do
+    from(q in query, where: ^base_condition)
   end
 
   defp apply_neq(query, 0, field, value, opts) do
-    case_sensitive = Keyword.get(opts, :case_sensitive, false)
+    case_sensitive = Keyword.get(opts, :case_sensitive, @default_case_sensitive)
 
     cond do
       # String comparison with case insensitive
@@ -1521,7 +1590,7 @@ defmodule Events.Repo.Query do
   end
 
   defp apply_neq(query, binding, field, value, opts) do
-    case_sensitive = Keyword.get(opts, :case_sensitive, false)
+    case_sensitive = Keyword.get(opts, :case_sensitive, @default_case_sensitive)
 
     cond do
       # String comparison with case insensitive
@@ -1536,160 +1605,156 @@ defmodule Events.Repo.Query do
     end
   end
 
-  # NOTE: The following apply_* functions have duplication between binding 0 (main table)
-  # and binding N (joined tables). The only difference is field(q, ^field) vs field(as(^binding), ^field).
-  # Future refactoring opportunity: Extract a helper macro to consolidate these patterns.
-
-  defp apply_comparison(query, 0, field, op, value, _opts) do
-    case op do
-      :> -> from(q in query, where: field(q, ^field) > ^value)
-      :>= -> from(q in query, where: field(q, ^field) >= ^value)
-      :< -> from(q in query, where: field(q, ^field) < ^value)
-      :<= -> from(q in query, where: field(q, ^field) <= ^value)
-    end
-  end
-
+  # Refactored comparison function using pattern matching to reduce duplication
   defp apply_comparison(query, binding, field, op, value, _opts) do
-    case op do
-      :> -> from(q in query, where: field(as(^binding), ^field) > ^value)
-      :>= -> from(q in query, where: field(as(^binding), ^field) >= ^value)
-      :< -> from(q in query, where: field(as(^binding), ^field) < ^value)
-      :<= -> from(q in query, where: field(as(^binding), ^field) <= ^value)
+    case {binding, op} do
+      {0, :>} -> from(q in query, where: field(q, ^field) > ^value)
+      {0, :>=} -> from(q in query, where: field(q, ^field) >= ^value)
+      {0, :<} -> from(q in query, where: field(q, ^field) < ^value)
+      {0, :<=} -> from(q in query, where: field(q, ^field) <= ^value)
+      {b, :>} -> from(q in query, where: field(as(^b), ^field) > ^value)
+      {b, :>=} -> from(q in query, where: field(as(^b), ^field) >= ^value)
+      {b, :<} -> from(q in query, where: field(as(^b), ^field) < ^value)
+      {b, :<=} -> from(q in query, where: field(as(^b), ^field) <= ^value)
     end
   end
 
   defp apply_in(query, 0, field, values) when is_list(values) do
-    from(q in query, where: field(q, ^field) in ^values)
+    case values do
+      [] ->
+        # Empty list means no matches - return a query that will return no results
+        from(q in query, where: false)
+
+      _ ->
+        from(q in query, where: field(q, ^field) in ^values)
+    end
   end
 
   defp apply_in(query, binding, field, values) when is_list(values) do
-    from(q in query, where: field(as(^binding), ^field) in ^values)
+    case values do
+      [] ->
+        # Empty list means no matches - return a query that will return no results
+        from(q in query, where: false)
+
+      _ ->
+        from(q in query, where: field(as(^binding), ^field) in ^values)
+    end
   end
 
   defp apply_not_in(query, 0, field, values) when is_list(values) do
-    from(q in query, where: field(q, ^field) not in ^values)
+    case values do
+      [] ->
+        # Empty list means exclude nothing - return the query unchanged
+        query
+
+      _ ->
+        from(q in query, where: field(q, ^field) not in ^values)
+    end
   end
 
   defp apply_not_in(query, binding, field, values) when is_list(values) do
-    from(q in query, where: field(as(^binding), ^field) not in ^values)
-  end
+    case values do
+      [] ->
+        # Empty list means exclude nothing - return the query unchanged
+        query
 
-  defp apply_like(query, 0, field, pattern, opts) do
-    # Default to case insensitive (ILIKE)
-    case_sensitive = Keyword.get(opts, :case_sensitive, false)
-
-    if case_sensitive do
-      from(q in query, where: like(field(q, ^field), ^pattern))
-    else
-      from(q in query, where: ilike(field(q, ^field), ^pattern))
+      _ ->
+        from(q in query, where: field(as(^binding), ^field) not in ^values)
     end
   end
 
-  defp apply_like(query, binding, field, pattern, opts) do
-    # Default to case insensitive (ILIKE)
-    case_sensitive = Keyword.get(opts, :case_sensitive, false)
+  # Refactored LIKE operations using pattern matching with guards
+  defp apply_like(query, binding, field, pattern, opts) when is_binary(pattern) do
+    case_sensitive = Keyword.get(opts, :case_sensitive, @default_case_sensitive)
 
-    if case_sensitive do
-      from(q in query, where: like(field(as(^binding), ^field), ^pattern))
-    else
-      from(q in query, where: ilike(field(as(^binding), ^field), ^pattern))
+    case {binding, case_sensitive} do
+      {0, true} -> from(q in query, where: like(field(q, ^field), ^pattern))
+      {0, false} -> from(q in query, where: ilike(field(q, ^field), ^pattern))
+      {b, true} -> from(q in query, where: like(field(as(^b), ^field), ^pattern))
+      {b, false} -> from(q in query, where: ilike(field(as(^b), ^field), ^pattern))
     end
   end
 
-  defp apply_ilike(query, 0, field, pattern, _opts) do
-    from(q in query, where: ilike(field(q, ^field), ^pattern))
-  end
-
-  defp apply_ilike(query, binding, field, pattern, _opts) do
-    from(q in query, where: ilike(field(as(^binding), ^field), ^pattern))
-  end
-
-  defp apply_not_like(query, 0, field, pattern, opts) do
-    # Default to case insensitive (NOT ILIKE)
-    case_sensitive = Keyword.get(opts, :case_sensitive, false)
-
-    if case_sensitive do
-      from(q in query, where: not like(field(q, ^field), ^pattern))
-    else
-      from(q in query, where: not ilike(field(q, ^field), ^pattern))
+  defp apply_ilike(query, binding, field, pattern, _opts) when is_binary(pattern) do
+    case binding do
+      0 -> from(q in query, where: ilike(field(q, ^field), ^pattern))
+      b -> from(q in query, where: ilike(field(as(^b), ^field), ^pattern))
     end
   end
 
-  defp apply_not_like(query, binding, field, pattern, opts) do
-    # Default to case insensitive (NOT ILIKE)
-    case_sensitive = Keyword.get(opts, :case_sensitive, false)
+  defp apply_not_like(query, binding, field, pattern, opts) when is_binary(pattern) do
+    case_sensitive = Keyword.get(opts, :case_sensitive, @default_case_sensitive)
 
-    if case_sensitive do
-      from(q in query, where: not like(field(as(^binding), ^field), ^pattern))
-    else
-      from(q in query, where: not ilike(field(as(^binding), ^field), ^pattern))
+    case {binding, case_sensitive} do
+      {0, true} -> from(q in query, where: not like(field(q, ^field), ^pattern))
+      {0, false} -> from(q in query, where: not ilike(field(q, ^field), ^pattern))
+      {b, true} -> from(q in query, where: not like(field(as(^b), ^field), ^pattern))
+      {b, false} -> from(q in query, where: not ilike(field(as(^b), ^field), ^pattern))
     end
   end
 
-  defp apply_not_ilike(query, 0, field, pattern, _opts) do
-    from(q in query, where: not ilike(field(q, ^field), ^pattern))
+  defp apply_not_ilike(query, binding, field, pattern, _opts) when is_binary(pattern) do
+    case binding do
+      0 -> from(q in query, where: not ilike(field(q, ^field), ^pattern))
+      b -> from(q in query, where: not ilike(field(as(^b), ^field), ^pattern))
+    end
   end
 
-  defp apply_not_ilike(query, binding, field, pattern, _opts) do
-    from(q in query, where: not ilike(field(as(^binding), ^field), ^pattern))
-  end
-
-  defp apply_is_nil(query, 0, field) do
-    from(q in query, where: is_nil(field(q, ^field)))
-  end
-
+  # Refactored NIL checks using pattern matching
   defp apply_is_nil(query, binding, field) do
-    from(q in query, where: is_nil(field(as(^binding), ^field)))
-  end
-
-  defp apply_not_nil(query, 0, field) do
-    from(q in query, where: not is_nil(field(q, ^field)))
+    case binding do
+      0 -> from(q in query, where: is_nil(field(q, ^field)))
+      b -> from(q in query, where: is_nil(field(as(^b), ^field)))
+    end
   end
 
   defp apply_not_nil(query, binding, field) do
-    from(q in query, where: not is_nil(field(as(^binding), ^field)))
+    case binding do
+      0 -> from(q in query, where: not is_nil(field(q, ^field)))
+      b -> from(q in query, where: not is_nil(field(as(^b), ^field)))
+    end
   end
 
-  defp apply_between(query, 0, field, {min, max}, _opts) do
-    from(q in query, where: field(q, ^field) >= ^min and field(q, ^field) <= ^max)
+  # Refactored BETWEEN using pattern matching with guards
+  defp apply_between(query, binding, field, {min, max}, _opts) when min <= max do
+    case binding do
+      0 ->
+        from(q in query, where: field(q, ^field) >= ^min and field(q, ^field) <= ^max)
+
+      b ->
+        from(q in query,
+          where: field(as(^b), ^field) >= ^min and field(as(^b), ^field) <= ^max
+        )
+    end
   end
 
-  defp apply_between(query, binding, field, {min, max}, _opts) do
-    from(q in query,
-      where: field(as(^binding), ^field) >= ^min and field(as(^binding), ^field) <= ^max
-    )
-  end
-
-  defp apply_contains(query, 0, field, value) do
-    from(q in query, where: fragment("? @> ?", field(q, ^field), ^value))
-  end
-
+  # Refactored array/JSONB operations using pattern matching
   defp apply_contains(query, binding, field, value) do
-    from(q in query, where: fragment("? @> ?", field(as(^binding), ^field), ^value))
-  end
-
-  defp apply_contained_by(query, 0, field, value) do
-    from(q in query, where: fragment("? <@ ?", field(q, ^field), ^value))
+    case binding do
+      0 -> from(q in query, where: fragment("? @> ?", field(q, ^field), ^value))
+      b -> from(q in query, where: fragment("? @> ?", field(as(^b), ^field), ^value))
+    end
   end
 
   defp apply_contained_by(query, binding, field, value) do
-    from(q in query, where: fragment("? <@ ?", field(as(^binding), ^field), ^value))
-  end
-
-  defp apply_jsonb_contains(query, 0, field, value) do
-    from(q in query, where: fragment("? @> ?::jsonb", field(q, ^field), ^value))
+    case binding do
+      0 -> from(q in query, where: fragment("? <@ ?", field(q, ^field), ^value))
+      b -> from(q in query, where: fragment("? <@ ?", field(as(^b), ^field), ^value))
+    end
   end
 
   defp apply_jsonb_contains(query, binding, field, value) do
-    from(q in query, where: fragment("? @> ?::jsonb", field(as(^binding), ^field), ^value))
+    case binding do
+      0 -> from(q in query, where: fragment("? @> ?::jsonb", field(q, ^field), ^value))
+      b -> from(q in query, where: fragment("? @> ?::jsonb", field(as(^b), ^field), ^value))
+    end
   end
 
-  defp apply_jsonb_has_key(query, 0, field, key) do
-    from(q in query, where: fragment("? ? ?", field(q, ^field), "?", ^key))
-  end
-
-  defp apply_jsonb_has_key(query, binding, field, key) do
-    from(q in query, where: fragment("? ? ?", field(as(^binding), ^field), "?", ^key))
+  defp apply_jsonb_has_key(query, binding, field, key) when is_binary(key) do
+    case binding do
+      0 -> from(q in query, where: fragment("? \\? ?", field(q, ^field), ^key))
+      b -> from(q in query, where: fragment("? \\? ?", field(as(^b), ^field), ^key))
+    end
   end
 
   defp add_audit_fields(attrs, :insert, opts) do

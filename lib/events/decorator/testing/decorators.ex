@@ -3,7 +3,6 @@ defmodule Events.Decorator.Testing do
   Testing-focused decorators for common test patterns.
 
   Provides decorators that help with:
-  - Property-based testing helpers
   - Fixture management
   - Test data generation
   - Assertion helpers
@@ -11,21 +10,28 @@ defmodule Events.Decorator.Testing do
 
   These decorators are designed to be used in test modules only.
 
+  > #### Note on Property-Based Testing {: .info}
+  >
+  > For property-based testing, use the StreamData or PropCheck libraries
+  > which provide comprehensive features including data generators, shrinking,
+  > and advanced property testing capabilities.
+
   ## Examples
 
       defmodule MyApp.CalculatorTest do
         use ExUnit.Case
         use Events.Decorator
 
-        @decorate property_test(runs: 100)
-        def commutative_addition(a, b) do
-          assert add(a, b) == add(b, a)
-        end
-
         @decorate with_fixtures([:user, :organization])
         def test_user_permissions(user, organization) do
           # user and organization fixtures automatically provided
           assert can_access?(user, organization)
+        end
+
+        @decorate sample_data(generator: &Faker.Internet.email/0, count: 5)
+        def test_bulk_email_processing(emails) do
+          # emails is a list of 5 generated email addresses
+          assert Enum.all?(emails, &valid_email?/1)
         end
       end
   """
@@ -33,24 +39,6 @@ defmodule Events.Decorator.Testing do
   import Events.Decorator.Testing.Helpers
 
   ## Schemas
-
-  @property_test_schema NimbleOptions.new!(
-                          runs: [
-                            type: :pos_integer,
-                            default: 100,
-                            doc: "Number of test runs"
-                          ],
-                          max_size: [
-                            type: :pos_integer,
-                            default: 100,
-                            doc: "Maximum size for generated data"
-                          ],
-                          generators: [
-                            type: :keyword_list,
-                            default: [],
-                            doc: "Custom generators for arguments"
-                          ]
-                        )
 
   @with_fixtures_schema NimbleOptions.new!(
                           fixtures: [
@@ -105,64 +93,6 @@ defmodule Events.Decorator.Testing do
                )
 
   ## Decorator Implementations
-
-  @doc """
-  Property-based testing decorator.
-
-  > #### Warning {: .warning}
-  >
-  > This decorator is incomplete and lacks full implementation of property-based testing features.
-  > The `generators` and `max_size` options are currently not used.
-  > For comprehensive property-based testing, use StreamData or PropCheck libraries instead.
-
-  Runs a test function multiple times, useful for basic repeated testing patterns.
-
-  ## Options
-
-  #{NimbleOptions.docs(@property_test_schema)}
-
-  ## Examples
-
-      @decorate property_test(runs: 100)
-      def test_addition_properties(a, b) when is_integer(a) and is_integer(b) do
-        result = add(a, b)
-        assert result == a + b
-        assert add(b, a) == result  # commutative
-      end
-
-  ## Note
-
-  For full property-based testing with data generators, shrinking, and other advanced features,
-  please use the StreamData or PropCheck libraries.
-  """
-  @deprecated "This decorator is incomplete. Use StreamData or PropCheck for property-based testing."
-  def property_test(opts, body, _context) when is_list(opts) do
-    validated_opts = NimbleOptions.validate!(opts, @property_test_schema)
-
-    runs = validated_opts[:runs]
-    _max_size = validated_opts[:max_size]
-    _generators = validated_opts[:generators]
-
-    quote do
-      for run <- 1..unquote(runs) do
-        # Generate test data
-        # This is a placeholder - actual implementation would use StreamData
-        try do
-          unquote(body)
-        rescue
-          e ->
-            reraise """
-                    Property test failed on run #{run}/#{unquote(runs)}
-
-                    #{Exception.format(:error, e, __STACKTRACE__)}
-                    """,
-                    __STACKTRACE__
-        end
-      end
-
-      :ok
-    end
-  end
 
   @doc """
   Fixture loading decorator.
@@ -311,24 +241,34 @@ defmodule Events.Decorator.Testing do
     quote do
       task = Task.async(fn -> unquote(body) end)
 
-      case Task.yield(task, unquote(timeout)) || Task.shutdown(task) do
-        {:ok, result} ->
-          result
-
-        nil ->
-          case unquote(on_timeout) do
-            :raise ->
-              raise "Test timed out after #{unquote(timeout)}ms: #{unquote(context.module)}.#{unquote(context.name)}/#{unquote(context.arity)}"
-
-            :return_error ->
-              {:error, :timeout}
-
-            :return_nil ->
-              nil
-          end
-      end
+      task
+      |> Task.yield(unquote(timeout))
+      |> handle_task_result(task, unquote(timeout), unquote(on_timeout), unquote(context))
     end
   end
+
+  # Helper functions for task timeout handling with pattern matching
+  # These are public because they're called from within quote blocks
+  @doc false
+  def handle_task_result({:ok, result}, _task, _timeout, _on_timeout, _context), do: result
+
+  @doc false
+  def handle_task_result(nil, task, timeout, on_timeout, context) do
+    Task.shutdown(task)
+    handle_timeout_action(on_timeout, timeout, context)
+  end
+
+  # Pattern match on timeout actions
+  @doc false
+  def handle_timeout_action(:raise, timeout, context) do
+    raise "Test timed out after #{timeout}ms: #{context.module}.#{context.name}/#{context.arity}"
+  end
+
+  @doc false
+  def handle_timeout_action(:return_error, _timeout, _context), do: {:error, :timeout}
+
+  @doc false
+  def handle_timeout_action(:return_nil, _timeout, _context), do: nil
 
   @doc """
   Mock decorator for testing.

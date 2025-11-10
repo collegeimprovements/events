@@ -45,14 +45,6 @@ defmodule Events.Decorator.Telemetry do
   @p95_percentile 0.95
   @p99_percentile 0.99
 
-  defp log_level_option(default) do
-    [
-      type: {:in, @log_levels},
-      default: default,
-      doc: "Log level"
-    ]
-  end
-
   @telemetry_span_schema NimbleOptions.new!(
                            event: [
                              type: {:list, :atom},
@@ -90,7 +82,11 @@ defmodule Events.Decorator.Telemetry do
                     )
 
   @log_call_schema NimbleOptions.new!(
-                     level: log_level_option(:info),
+                     level: [
+                       type: {:in, @log_levels},
+                       default: :info,
+                       doc: "Log level"
+                     ],
                      message: [
                        type: :string,
                        required: false,
@@ -117,7 +113,11 @@ defmodule Events.Decorator.Telemetry do
                           required: true,
                           doc: "Threshold in milliseconds to consider operation slow"
                         ],
-                        level: log_level_option(:warn),
+                        level: [
+                          type: {:in, @log_levels},
+                          default: :warn,
+                          doc: "Log level"
+                        ],
                         message: [
                           type: :string,
                           required: false,
@@ -131,7 +131,11 @@ defmodule Events.Decorator.Telemetry do
                            required: true,
                            doc: "Memory threshold in bytes"
                          ],
-                         level: log_level_option(:warn)
+                         level: [
+                           type: {:in, @log_levels},
+                           default: :warn,
+                           doc: "Log level"
+                         ]
                        )
 
   @capture_errors_schema NimbleOptions.new!(
@@ -153,8 +157,16 @@ defmodule Events.Decorator.Telemetry do
                         default: 1000,
                         doc: "Threshold in ms to log as slow query"
                       ],
-                      level: log_level_option(:debug),
-                      slow_level: log_level_option(:warn),
+                      level: [
+                        type: {:in, @log_levels},
+                        default: :debug,
+                        doc: "Log level"
+                      ],
+                      slow_level: [
+                        type: {:in, @log_levels},
+                        default: :warn,
+                        doc: "Log level for slow queries"
+                      ],
                       include_query: [
                         type: :boolean,
                         default: true,
@@ -798,89 +810,134 @@ defmodule Events.Decorator.Telemetry do
       )
 
       # Warmup runs
-      if unquote(warmup) > 0 do
-        for _ <- 1..unquote(warmup) do
-          unquote(body)
-        end
-      end
+      perform_warmup(unquote(warmup), fn -> unquote(body) end)
 
-      # Benchmark runs
+      # Benchmark runs and collect metrics
       {timings, memories} =
-        Enum.reduce(1..unquote(iterations), {[], []}, fn _, {times, mems} ->
-          start_mem = if unquote(track_memory?), do: :erlang.memory(:total), else: 0
-          start_time = System.monotonic_time()
+        collect_benchmark_metrics(
+          unquote(iterations),
+          unquote(track_memory?),
+          fn -> unquote(body) end
+        )
 
-          _result = unquote(body)
+      # Calculate and display statistics
+      stats = calculate_benchmark_stats(timings, memories)
 
-          duration = System.monotonic_time() - start_time
-          duration_ms = System.convert_time_unit(duration, :native, :microsecond) / 1000
-          memory_used = if unquote(track_memory?), do: :erlang.memory(:total) - start_mem, else: 0
-
-          {[duration_ms | times], [memory_used | mems]}
-        end)
-
-      # Calculate statistics
-      avg_time = Enum.sum(timings) / length(timings)
-      min_time = Enum.min(timings)
-      max_time = Enum.max(timings)
-
-      case unquote(format) do
-        :simple ->
-          IO.puts("  Iterations: #{unquote(iterations)}")
-          IO.puts("  Average: #{Float.round(avg_time, 3)}ms")
-          IO.puts("  Min: #{Float.round(min_time, 3)}ms")
-          IO.puts("  Max: #{Float.round(max_time, 3)}ms")
-
-          if unquote(track_memory?) do
-            avg_mem = Enum.sum(memories) / length(memories)
-            IO.puts("  Avg Memory: #{Float.round(avg_mem / 1024, 2)}KB")
-          end
-
-        :detailed ->
-          sorted_times = Enum.sort(timings)
-          median = Enum.at(sorted_times, div(length(sorted_times), 2))
-
-          IO.puts("  Iterations: #{unquote(iterations)}")
-          IO.puts("  Average: #{Float.round(avg_time, 3)}ms")
-          IO.puts("  Median: #{Float.round(median, 3)}ms")
-          IO.puts("  Min: #{Float.round(min_time, 3)}ms")
-          IO.puts("  Max: #{Float.round(max_time, 3)}ms")
-          IO.puts("  Range: #{Float.round(max_time - min_time, 3)}ms")
-
-        :statistical ->
-          sorted_times = Enum.sort(timings)
-          median = Enum.at(sorted_times, div(length(sorted_times), 2))
-
-          variance =
-            Enum.reduce(timings, 0, fn t, acc -> acc + :math.pow(t - avg_time, 2) end) /
-              length(timings)
-
-          std_dev = :math.sqrt(variance)
-          p95 = Enum.at(sorted_times, round(length(sorted_times) * unquote(@p95_percentile)))
-          p99 = Enum.at(sorted_times, round(length(sorted_times) * unquote(@p99_percentile)))
-
-          IO.puts("  Iterations: #{unquote(iterations)}")
-          IO.puts("  Average: #{Float.round(avg_time, 3)}ms")
-          IO.puts("  Median: #{Float.round(median, 3)}ms")
-          IO.puts("  Std Dev: #{Float.round(std_dev, 3)}ms")
-          IO.puts("  Min: #{Float.round(min_time, 3)}ms")
-          IO.puts("  Max: #{Float.round(max_time, 3)}ms")
-          IO.puts("  95th percentile: #{Float.round(p95, 3)}ms")
-          IO.puts("  99th percentile: #{Float.round(p99, 3)}ms")
-
-          if unquote(track_memory?) do
-            avg_mem = Enum.sum(memories) / length(memories)
-            max_mem = Enum.max(memories)
-            IO.puts("  Avg Memory: #{Float.round(avg_mem / 1024, 2)}KB")
-            IO.puts("  Max Memory: #{Float.round(max_mem / 1024, 2)}KB")
-          end
-      end
+      display_benchmark_results(
+        stats,
+        unquote(format),
+        unquote(iterations),
+        unquote(track_memory?)
+      )
 
       IO.puts("")
 
       # Return single execution result
       unquote(body)
     end
+  end
+
+  # Helper functions for benchmark
+  # These are public because they're called from within quote blocks
+  @doc false
+  def perform_warmup(0, _fun), do: :ok
+
+  @doc false
+  def perform_warmup(warmup_count, fun) when warmup_count > 0 do
+    for _ <- 1..warmup_count, do: fun.()
+    :ok
+  end
+
+  @doc false
+  def collect_benchmark_metrics(iterations, track_memory?, fun) do
+    Enum.reduce(1..iterations, {[], []}, fn _, {times, mems} ->
+      start_mem = if track_memory?, do: :erlang.memory(:total), else: 0
+      start_time = System.monotonic_time()
+
+      _result = fun.()
+
+      duration = System.monotonic_time() - start_time
+      duration_ms = System.convert_time_unit(duration, :native, :microsecond) / 1000
+      memory_used = if track_memory?, do: :erlang.memory(:total) - start_mem, else: 0
+
+      {[duration_ms | times], [memory_used | mems]}
+    end)
+  end
+
+  @doc false
+  def calculate_benchmark_stats(timings, memories) do
+    sorted_times = Enum.sort(timings)
+    count = length(timings)
+
+    avg_time = Enum.sum(timings) / count
+
+    %{
+      avg_time: avg_time,
+      min_time: Enum.min(timings),
+      max_time: Enum.max(timings),
+      median: Enum.at(sorted_times, div(count, 2)),
+      sorted_times: sorted_times,
+      count: count,
+      avg_memory: if(memories != [], do: Enum.sum(memories) / length(memories), else: 0),
+      max_memory: if(memories != [], do: Enum.max(memories), else: 0)
+    }
+  end
+
+  @doc false
+  def display_benchmark_results(stats, :simple, iterations, track_memory?) do
+    IO.puts("  Iterations: #{iterations}")
+    IO.puts("  Average: #{Float.round(stats.avg_time, 3)}ms")
+    IO.puts("  Min: #{Float.round(stats.min_time, 3)}ms")
+    IO.puts("  Max: #{Float.round(stats.max_time, 3)}ms")
+
+    if track_memory? do
+      IO.puts("  Avg Memory: #{Float.round(stats.avg_memory / 1024, 2)}KB")
+    end
+  end
+
+  @doc false
+  def display_benchmark_results(stats, :detailed, iterations, _track_memory?) do
+    IO.puts("  Iterations: #{iterations}")
+    IO.puts("  Average: #{Float.round(stats.avg_time, 3)}ms")
+    IO.puts("  Median: #{Float.round(stats.median, 3)}ms")
+    IO.puts("  Min: #{Float.round(stats.min_time, 3)}ms")
+    IO.puts("  Max: #{Float.round(stats.max_time, 3)}ms")
+    IO.puts("  Range: #{Float.round(stats.max_time - stats.min_time, 3)}ms")
+  end
+
+  @doc false
+  def display_benchmark_results(stats, :statistical, iterations, track_memory?) do
+    # Calculate additional statistics
+    variance = calculate_variance(stats.sorted_times, stats.avg_time, stats.count)
+    std_dev = :math.sqrt(variance)
+    p95 = calculate_percentile(stats.sorted_times, stats.count, @p95_percentile)
+    p99 = calculate_percentile(stats.sorted_times, stats.count, @p99_percentile)
+
+    IO.puts("  Iterations: #{iterations}")
+    IO.puts("  Average: #{Float.round(stats.avg_time, 3)}ms")
+    IO.puts("  Median: #{Float.round(stats.median, 3)}ms")
+    IO.puts("  Std Dev: #{Float.round(std_dev, 3)}ms")
+    IO.puts("  Min: #{Float.round(stats.min_time, 3)}ms")
+    IO.puts("  Max: #{Float.round(stats.max_time, 3)}ms")
+    IO.puts("  95th percentile: #{Float.round(p95, 3)}ms")
+    IO.puts("  99th percentile: #{Float.round(p99, 3)}ms")
+
+    if track_memory? do
+      IO.puts("  Avg Memory: #{Float.round(stats.avg_memory / 1024, 2)}KB")
+      IO.puts("  Max Memory: #{Float.round(stats.max_memory / 1024, 2)}KB")
+    end
+  end
+
+  @doc false
+  def calculate_variance(timings, avg_time, count) do
+    Enum.reduce(timings, 0, fn t, acc ->
+      acc + :math.pow(t - avg_time, 2)
+    end) / count
+  end
+
+  @doc false
+  def calculate_percentile(sorted_times, count, percentile) do
+    Enum.at(sorted_times, round(count * percentile))
   end
 
   @doc """
