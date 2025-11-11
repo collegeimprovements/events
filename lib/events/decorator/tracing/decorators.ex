@@ -36,8 +36,6 @@ defmodule Events.Decorator.Tracing do
   Tracing adds significant overhead and should only be used in development/debugging.
   """
 
-  import Events.Decorator.Tracing.Helpers
-
   ## Schemas
 
   @trace_calls_schema NimbleOptions.new!(
@@ -261,5 +259,277 @@ defmodule Events.Decorator.Tracing do
     else
       body
     end
+  end
+
+  # Helper functions that were in the deleted helpers module
+
+  defp build_call_tracer(body, context, opts) do
+    _depth = opts[:depth]
+    filter = opts[:filter]
+    exclude = opts[:exclude]
+    format = opts[:format]
+
+    quote do
+      tracer_pid =
+        spawn(fn ->
+          Process.flag(:trap_exit, true)
+          unquote(__MODULE__).trace_loop([], unquote(format))
+        end)
+
+      :erlang.trace(self(), true, [:call, {:tracer, tracer_pid}])
+
+      # Set up trace patterns based on filter
+      unquote(setup_trace_patterns(filter, exclude))
+
+      result = unquote(body)
+
+      :erlang.trace(self(), false, [:call])
+      send(tracer_pid, {:done, self()})
+
+      receive do
+        {:trace_results, results} ->
+          IO.puts(
+            unquote(__MODULE__).format_trace_results(results, unquote(format), unquote(context))
+          )
+      after
+        1000 -> :ok
+      end
+
+      result
+    end
+  end
+
+  defp build_module_tracer(body, context, opts) do
+    filter = opts[:filter]
+    unique = opts[:unique]
+    exclude_stdlib = opts[:exclude_stdlib]
+
+    quote do
+      modules_ref = :ets.new(:trace_modules, [:set, :public])
+
+      tracer_pid =
+        spawn(fn ->
+          Events.Decorator.Tracing.__trace_modules_loop__(
+            modules_ref,
+            unquote(filter),
+            unquote(exclude_stdlib)
+          )
+        end)
+
+      :erlang.trace(self(), true, [:call, {:tracer, tracer_pid}])
+      :erlang.trace_pattern({:_, :_, :_}, true, [:local])
+
+      result = unquote(body)
+
+      :erlang.trace(self(), false, [:call])
+      send(tracer_pid, {:done, self()})
+
+      modules = :ets.tab2list(modules_ref)
+      :ets.delete(modules_ref)
+
+      unquote(__MODULE__).display_modules(modules, unquote(unique), unquote(context))
+
+      result
+    end
+  end
+
+  defp build_dependency_tracer(body, context, opts) do
+    type = opts[:type]
+    format = opts[:format]
+
+    quote do
+      deps_ref = :ets.new(:trace_deps, [:bag, :public])
+
+      tracer_pid =
+        spawn(fn ->
+          unquote(__MODULE__).trace_deps_loop(deps_ref, unquote(type))
+        end)
+
+      :erlang.trace(self(), true, [:call, {:tracer, tracer_pid}])
+      :erlang.trace_pattern({:_, :_, :_}, true, [:local])
+
+      result = unquote(body)
+
+      :erlang.trace(self(), false, [:call])
+      send(tracer_pid, {:done, self()})
+
+      deps = :ets.tab2list(deps_ref)
+      :ets.delete(deps_ref)
+
+      unquote(__MODULE__).display_dependencies(deps, unquote(format), unquote(context))
+
+      result
+    end
+  end
+
+  defp setup_trace_patterns(nil, exclude) do
+    quote do
+      :erlang.trace_pattern({:_, :_, :_}, true, [:local])
+
+      for mod <- unquote(exclude) do
+        :erlang.trace_pattern({mod, :_, :_}, false, [:local])
+      end
+    end
+  end
+
+  defp setup_trace_patterns(_filter, exclude) do
+    quote do
+      # This is simplified - in real implementation would need more complex pattern matching
+      :erlang.trace_pattern({:_, :_, :_}, true, [:local])
+
+      for mod <- unquote(exclude) do
+        :erlang.trace_pattern({mod, :_, :_}, false, [:local])
+      end
+    end
+  end
+
+  @doc false
+  def trace_loop(acc, format) do
+    receive do
+      {:trace, _pid, :call, {mod, fun, args}} ->
+        trace_loop([{mod, fun, length(args)} | acc], format)
+
+      {:done, pid} ->
+        send(pid, {:trace_results, Enum.reverse(acc)})
+
+      _ ->
+        trace_loop(acc, format)
+    end
+  end
+
+  @doc false
+  def __trace_modules_loop__(ets_ref, filter, exclude_stdlib) do
+    receive do
+      {:trace, _pid, :call, {mod, _fun, _args}} ->
+        if should_trace_module?(mod, filter, exclude_stdlib) do
+          :ets.insert(ets_ref, {mod})
+        end
+
+        __trace_modules_loop__(ets_ref, filter, exclude_stdlib)
+
+      {:done, _pid} ->
+        :ok
+
+      _ ->
+        __trace_modules_loop__(ets_ref, filter, exclude_stdlib)
+    end
+  end
+
+  @doc false
+  def trace_deps_loop(ets_ref, type) do
+    receive do
+      {:trace, _pid, :call, {mod, fun, args}} ->
+        if is_dependency?(mod, type) do
+          :ets.insert(ets_ref, {mod, fun, length(args)})
+        end
+
+        trace_deps_loop(ets_ref, type)
+
+      {:done, _pid} ->
+        :ok
+
+      _ ->
+        trace_deps_loop(ets_ref, type)
+    end
+  end
+
+  defp should_trace_module?(mod, filter, exclude_stdlib) do
+    mod_str = Atom.to_string(mod)
+
+    passes_filter =
+      case filter do
+        nil -> true
+        %Regex{} = regex -> Regex.match?(regex, mod_str)
+        prefix when is_atom(prefix) -> String.starts_with?(mod_str, Atom.to_string(prefix))
+        _ -> true
+      end
+
+    not_stdlib =
+      if exclude_stdlib do
+        not String.starts_with?(mod_str, "Elixir.")
+      else
+        true
+      end
+
+    passes_filter and not_stdlib
+  end
+
+  @doc false
+  def is_dependency?(mod, type) do
+    mod_str = Atom.to_string(mod)
+
+    case type do
+      :all -> true
+      :external -> not String.starts_with?(mod_str, "Elixir.MyApp")
+      :internal -> String.starts_with?(mod_str, "Elixir.MyApp")
+    end
+  end
+
+  @doc false
+  def format_trace_results(results, format, context) do
+    header = "[TRACE] #{context.module}.#{context.name}/#{context.arity}"
+
+    formatted =
+      case format do
+        :simple ->
+          Enum.map_join(results, "\n", fn {mod, fun, arity} ->
+            "  → #{mod}.#{fun}/#{arity}"
+          end)
+
+        :tree ->
+          Enum.map_join(results, "\n", fn {mod, fun, arity} ->
+            "  ↳ #{mod}.#{fun}/#{arity}"
+          end)
+
+        :detailed ->
+          # In real implementation, would include timing
+          Enum.map_join(results, "\n", fn {mod, fun, arity} ->
+            "  ↳ #{mod}.#{fun}/#{arity}"
+          end)
+      end
+
+    "#{header}\n#{formatted}"
+  end
+
+  @doc false
+  def display_modules(modules, unique, context) do
+    header = "[MODULES] #{context.module}.#{context.name}/#{context.arity} called:"
+
+    mods =
+      if unique do
+        modules |> Enum.map(&elem(&1, 0)) |> Enum.uniq() |> Enum.sort()
+      else
+        modules |> Enum.map(&elem(&1, 0)) |> Enum.sort()
+      end
+
+    formatted =
+      Enum.map_join(mods, "\n", fn mod ->
+        "  - #{mod}"
+      end)
+
+    IO.puts("#{header}\n#{formatted}")
+  end
+
+  @doc false
+  def display_dependencies(deps, format, context) do
+    header = "[DEPENDENCIES] #{context.module}.#{context.name}/#{context.arity}"
+
+    grouped = Enum.group_by(deps, &elem(&1, 0))
+
+    formatted =
+      case format do
+        :list ->
+          Enum.map_join(grouped, "\n", fn {mod, calls} ->
+            "  - #{mod} (#{length(calls)} calls)"
+          end)
+
+        _ ->
+          # Simplified for other formats
+          Enum.map_join(grouped, "\n", fn {mod, calls} ->
+            "  - #{mod} (#{length(calls)} calls)"
+          end)
+      end
+
+    IO.puts("#{header}\n#{formatted}")
   end
 end

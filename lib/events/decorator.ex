@@ -167,9 +167,9 @@ defmodule Events.Decorator do
     quote do
       use Events.Decorator.Define
 
-      # Make AST utilities available for advanced use cases
-      alias Events.Decorator.AST
-      alias Events.Decorator.Context
+      # Make utilities available for advanced use cases
+      alias Events.AST
+      alias Events.Context
     end
   end
 end

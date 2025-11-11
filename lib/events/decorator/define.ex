@@ -39,71 +39,69 @@ defmodule Events.Decorator.Define do
   """
 
   use Decorator.Define,
-    # Caching decorators
+    # Caching
     cacheable: 1,
     cache_put: 1,
     cache_evict: 1,
-    # Telemetry decorators
+    # Telemetry
     telemetry_span: 1,
     telemetry_span: 2,
-    otel_span: 1,
-    otel_span: 2,
     log_call: 1,
     log_context: 1,
     log_if_slow: 1,
+    # Performance
+    benchmark: 1,
+    measure: 1,
+    # Debugging
+    debug: 1,
+    inspect: 1,
+    pry: 1,
+    # Pipeline
+    pipe_through: 1,
+    around: 1,
+    compose: 1,
+    # Additional decorators preserved for compatibility
+    otel_span: 1,
+    otel_span: 2,
     track_memory: 1,
     capture_errors: 1,
     log_query: 1,
     log_remote: 1,
-    benchmark: 1,
-    measure: 1,
-    # Debugging decorators
-    debug: 1,
-    inspect: 1,
-    pry: 1,
     trace_vars: 1,
-    # Tracing decorators
     trace_calls: 1,
     trace_modules: 1,
     trace_dependencies: 1,
-    # Purity decorators
     pure: 1,
     deterministic: 1,
     idempotent: 1,
     memoizable: 1,
-    # Testing decorators
     with_fixtures: 1,
     sample_data: 1,
     timeout_test: 1,
-    mock: 1,
-    # Advanced decorators
-    pipe_through: 1,
-    around: 1,
-    compose: 1
+    mock: 1
 
-  # Delegate to respective decorator modules
-  # Manual delegation statements for all decorators
-  defdelegate cacheable(opts, body, context), to: Events.Decorator.Caching
-  defdelegate cache_put(opts, body, context), to: Events.Decorator.Caching
-  defdelegate cache_evict(opts, body, context), to: Events.Decorator.Caching
+  # Delegate to consolidated decorators module
+  defdelegate cacheable(opts, body, context), to: Events.Decorators
+  defdelegate cache_put(opts, body, context), to: Events.Decorators
+  defdelegate cache_evict(opts, body, context), to: Events.Decorators
 
-  defdelegate telemetry_span(opts, body, context), to: Events.Decorator.Telemetry
-  defdelegate telemetry_span(event, opts, body, context), to: Events.Decorator.Telemetry
+  defdelegate telemetry_span(opts, body, context), to: Events.Decorators
+  defdelegate telemetry_span(event, opts, body, context), to: Events.Decorators
   defdelegate otel_span(opts, body, context), to: Events.Decorator.Telemetry
   defdelegate otel_span(name, opts, body, context), to: Events.Decorator.Telemetry
-  defdelegate log_call(opts, body, context), to: Events.Decorator.Telemetry
-  defdelegate log_context(fields, body, context), to: Events.Decorator.Telemetry
-  defdelegate log_if_slow(opts, body, context), to: Events.Decorator.Telemetry
+  defdelegate log_call(opts, body, context), to: Events.Decorators
+  defdelegate log_context(fields, body, context), to: Events.Decorators
+  defdelegate log_if_slow(opts, body, context), to: Events.Decorators
   defdelegate track_memory(opts, body, context), to: Events.Decorator.Telemetry
   defdelegate capture_errors(opts, body, context), to: Events.Decorator.Telemetry
   defdelegate log_query(opts, body, context), to: Events.Decorator.Telemetry
   defdelegate log_remote(opts, body, context), to: Events.Decorator.Telemetry
-  defdelegate benchmark(opts, body, context), to: Events.Decorator.Telemetry
-  defdelegate measure(opts, body, context), to: Events.Decorator.Telemetry
+  defdelegate benchmark(opts, body, context), to: Events.Decorators
+  defdelegate measure(opts, body, context), to: Events.Decorators
 
-  defdelegate debug(opts, body, context), to: Events.Decorator.Debugging
-  defdelegate inspect(opts, body, context), to: Events.Decorator.Debugging
-  defdelegate pry(opts, body, context), to: Events.Decorator.Debugging
+  defdelegate debug(opts, body, context), to: Events.Decorators
+  defdelegate inspect(opts, body, context), to: Events.Decorators
+  defdelegate pry(opts, body, context), to: Events.Decorators
   defdelegate trace_vars(opts, body, context), to: Events.Decorator.Debugging
 
   defdelegate trace_calls(opts, body, context), to: Events.Decorator.Tracing
@@ -120,7 +118,7 @@ defmodule Events.Decorator.Define do
   defdelegate timeout_test(opts, body, context), to: Events.Decorator.Testing
   defdelegate mock(opts, body, context), to: Events.Decorator.Testing
 
-  defdelegate pipe_through(pipeline, body, context), to: Events.Decorator.Pipeline
-  defdelegate around(wrapper, body, context), to: Events.Decorator.Pipeline
-  defdelegate compose(decorators, body, context), to: Events.Decorator.Pipeline
+  defdelegate pipe_through(pipeline, body, context), to: Events.Decorators
+  defdelegate around(wrapper, body, context), to: Events.Decorators
+  defdelegate compose(decorators, body, context), to: Events.Decorators
 end

@@ -33,7 +33,7 @@ defmodule Events.Decorator.Telemetry do
       end
   """
 
-  import Events.Decorator.Telemetry.Helpers
+  import Events.Decorator.Shared
 
   ## Schemas
 

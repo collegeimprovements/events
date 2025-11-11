@@ -42,8 +42,6 @@ defmodule Events.Decorator.Debugging do
       end
   """
 
-  import Events.Decorator.Debugging.Helpers
-
   @type debug_opts :: [label: String.t(), opts: keyword()]
   @type inspect_opts :: [
           what: :args | :result | :both | :all,
@@ -343,5 +341,117 @@ defmodule Events.Decorator.Debugging do
 
   defp enabled? do
     Mix.env() in [:dev, :test]
+  end
+
+  # Helper functions that were in the deleted helpers module
+
+  defp inspect_args(body, context, label, inspect_opts) do
+    arg_inspectors =
+      context.args
+      |> extract_arg_names()
+      |> build_arg_inspectors(inspect_opts)
+
+    quote do
+      IO.puts("\n[INSPECT #{unquote(label)}] Arguments:")
+      unquote_splicing(arg_inspectors)
+
+      result = unquote(body)
+      result
+    end
+  end
+
+  defp inspect_result(body, label, inspect_opts) do
+    quote do
+      result = unquote(body)
+
+      IO.puts("\n[INSPECT #{unquote(label)}] Result:")
+      IO.inspect(result, [label: "  return"] ++ unquote(inspect_opts))
+
+      result
+    end
+  end
+
+  defp inspect_both(body, context, label, inspect_opts) do
+    arg_inspectors =
+      context.args
+      |> extract_arg_names()
+      |> build_arg_inspectors(inspect_opts)
+
+    quote do
+      IO.puts("\n[INSPECT #{unquote(label)}]")
+      IO.puts("  Arguments:")
+
+      unquote_splicing(arg_inspectors)
+
+      result = unquote(body)
+
+      IO.puts("  Result:")
+      IO.inspect(result, [label: "    return"] ++ unquote(inspect_opts))
+      IO.puts("")
+
+      result
+    end
+  end
+
+  defp build_pry(body, context, condition, before?, after?) do
+    function_label = build_function_label(context)
+
+    before_pry =
+      if before? do
+        quote do
+          if unquote(eval_condition(condition, nil)) do
+            require IEx
+            IO.puts("[PRY] Stopping before #{unquote(function_label)}")
+            IEx.pry()
+          end
+        end
+      else
+        nil
+      end
+
+    after_pry =
+      if after? do
+        quote do
+          if unquote(eval_condition(condition, quote(do: result))) do
+            require IEx
+            IO.puts("[PRY] Stopping after #{unquote(function_label)}")
+            IEx.pry()
+          end
+        end
+      else
+        nil
+      end
+
+    quote do
+      unquote(before_pry)
+      result = unquote(body)
+      unquote(after_pry)
+      result
+    end
+  end
+
+  defp eval_condition(true, _result), do: true
+  defp eval_condition(false, _result), do: false
+
+  defp eval_condition(condition, result) when is_function(condition) do
+    quote do: unquote(condition).(unquote(result))
+  end
+
+  defp extract_arg_names(args) do
+    Enum.map(args, fn
+      {name, _, _} when is_atom(name) -> name
+      _ -> :_unknown
+    end)
+  end
+
+  defp build_arg_inspectors(arg_names, inspect_opts) do
+    Enum.map(arg_names, fn name ->
+      quote do
+        IO.inspect(
+          var!(unquote(Macro.var(name, nil))),
+          [label: "    #{unquote(name)}"] ++ unquote(inspect_opts)
+        )
+      end
+    end)
   end
 end

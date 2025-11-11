@@ -37,7 +37,7 @@ defmodule Events.Decorator.Caching do
       end
   """
 
-  import Events.Decorator.Caching.Helpers
+  import Events.Decorator.Shared
 
   @cacheable_schema NimbleOptions.new!(
                       cache: [

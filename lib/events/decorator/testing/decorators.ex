@@ -36,8 +36,6 @@ defmodule Events.Decorator.Testing do
       end
   """
 
-  import Events.Decorator.Testing.Helpers
-
   ## Schemas
 
   @with_fixtures_schema NimbleOptions.new!(
@@ -319,6 +317,69 @@ defmodule Events.Decorator.Testing do
       """)
 
       unquote(body)
+    end
+  end
+
+  # Helper functions that were in the deleted helpers module
+
+  defp load_fixtures(fixtures) do
+    quote do
+      Enum.map(unquote(fixtures), fn fixture_name ->
+        # Try different methods to load fixture
+        cond do
+          # Check if Fixtures module exists with function
+          function_exported?(Fixtures, fixture_name, 0) ->
+            {fixture_name, apply(Fixtures, fixture_name, [])}
+
+          # Check process dictionary
+          Process.get(fixture_name) != nil ->
+            {fixture_name, Process.get(fixture_name)}
+
+          # Default to creating a simple fixture
+          true ->
+            {fixture_name, %{name: fixture_name, id: System.unique_integer()}}
+        end
+      end)
+      |> Enum.into(%{})
+    end
+  end
+
+  defp cleanup_fixtures(fixtures) do
+    quote do
+      Enum.each(unquote(fixtures), fn fixture_name ->
+        # Cleanup logic - simplified
+        Process.delete(fixture_name)
+
+        # If there's a cleanup function, call it
+        if function_exported?(Fixtures, :"cleanup_#{fixture_name}", 0) do
+          apply(Fixtures, :"cleanup_#{fixture_name}", [])
+        end
+      end)
+    end
+  end
+
+  defp generate_data(generator) do
+    quote do
+      case unquote(generator) do
+        # Function reference
+        f when is_function(f, 0) ->
+          f.()
+
+        # Function reference with arity 1
+        f when is_function(f, 1) ->
+          f.(:default)
+
+        # Module that should have build/0
+        module when is_atom(module) ->
+          if function_exported?(module, :build, 0) do
+            apply(module, :build, [])
+          else
+            raise "Generator module #{inspect(module)} must implement build/0"
+          end
+
+        other ->
+          raise "Invalid generator: #{inspect(other)}"
+      end
     end
   end
 end

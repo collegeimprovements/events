@@ -57,8 +57,6 @@ defmodule Events.Decorator.Purity do
   - Cannot detect all forms of impurity at compile time
   """
 
-  import Events.Decorator.Purity.Helpers
-
   ## Schemas
 
   @pure_schema NimbleOptions.new!(
@@ -335,4 +333,205 @@ defmodule Events.Decorator.Purity do
     # Just return body - this is primarily documentation
     body
   end
+
+  # Helper functions that were in the deleted helpers module
+
+  defp check_purity_strict(body, context, opts) do
+    # Analyze AST for impure operations
+    impure_calls = find_impure_calls(body)
+
+    if not Enum.empty?(impure_calls) and not opts[:allow_io] do
+      IO.warn("""
+      Function #{context.module}.#{context.name}/#{context.arity} may not be pure.
+      Found potentially impure operations: #{inspect(impure_calls)}
+
+      Consider:
+      - Removing side effects
+      - Using @decorate pure(allow_io: true) if logging is needed
+      - Refactoring to separate pure and impure parts
+      """)
+    end
+
+    body
+  end
+
+  defp build_purity_verifier(body, context, opts) do
+    samples = opts[:samples]
+
+    quote do
+      # Get initial state snapshot
+      initial_state = unquote(__MODULE__).capture_state_snapshot()
+
+      # Call function multiple times
+      results =
+        for _ <- 1..unquote(samples) do
+          unquote(body)
+        end
+
+      # Check all results are identical
+      first_result = hd(results)
+      all_same = Enum.all?(results, &(&1 == first_result))
+
+      if not all_same do
+        raise "Purity violation in #{unquote(context.module)}.#{unquote(context.name)}/#{unquote(context.arity)}: Non-deterministic results"
+      end
+
+      # Check state hasn't changed
+      final_state = unquote(__MODULE__).capture_state_snapshot()
+
+      if initial_state != final_state do
+        raise "Purity violation in #{unquote(context.module)}.#{unquote(context.name)}/#{unquote(context.arity)}: State was modified"
+      end
+
+      first_result
+    end
+  end
+
+  defp build_determinism_checker(body, context, samples, on_failure) do
+    quote do
+      results =
+        for _ <- 1..unquote(samples) do
+          unquote(body)
+        end
+
+      first_result = hd(results)
+      all_same = Enum.all?(results, &(&1 == first_result))
+
+      if not all_same do
+        case unquote(on_failure) do
+          :raise ->
+            raise "Determinism violation in #{unquote(context.module)}.#{unquote(context.name)}/#{unquote(context.arity)}"
+
+          :warn ->
+            IO.warn(
+              "Determinism violation in #{unquote(context.module)}.#{unquote(context.name)}/#{unquote(context.arity)}"
+            )
+
+            first_result
+
+          :ignore ->
+            first_result
+        end
+      else
+        first_result
+      end
+    end
+  end
+
+  defp build_idempotence_checker(body, context, calls, compare, comparator) do
+    quote do
+      results =
+        for _ <- 1..unquote(calls) do
+          unquote(body)
+        end
+
+      first_result = hd(results)
+
+      all_same =
+        case unquote(compare) do
+          :equality ->
+            Enum.all?(results, &(&1 == first_result))
+
+          :deep_equality ->
+            # Deep comparison for complex structures
+            Enum.all?(results, fn result ->
+              unquote(__MODULE__).compare_deep(result, first_result)
+            end)
+
+          :custom ->
+            comparator_fn = unquote(comparator)
+            Enum.all?(results, &comparator_fn.(&1, first_result))
+        end
+
+      if not all_same do
+        IO.warn("""
+        Idempotence violation in #{unquote(context.module)}.#{unquote(context.name)}/#{unquote(context.arity)}
+        Function produced different results when called #{unquote(calls)} times
+        """)
+      end
+
+      first_result
+    end
+  end
+
+  defp check_memoizability(body, context, opts) do
+    if opts[:warn_impure] do
+      impure_calls = find_impure_calls(body)
+
+      if not Enum.empty?(impure_calls) do
+        IO.warn("""
+        Function #{context.module}.#{context.name}/#{context.arity} may not be safe to memoize.
+        Found potentially impure operations: #{inspect(impure_calls)}
+
+        Memoizing impure functions can lead to:
+        - Stale cached values
+        - Missing side effects
+        - Incorrect behavior
+        """)
+      end
+    end
+
+    body
+  end
+
+  # Helper utilities
+
+  defp find_impure_calls(ast) do
+    {_, impure} =
+      Macro.prewalk(ast, [], fn
+        # IO operations
+        {{:., _, [{:__aliases__, _, [:IO]}, _]}, _, _} = node, acc ->
+          {node, [:io | acc]}
+
+        # Process operations
+        {{:., _, [{:__aliases__, _, [:Process]}, _]}, _, _} = node, acc ->
+          {node, [:process | acc]}
+
+        # System calls
+        {{:., _, [{:__aliases__, _, [:System]}, _]}, _, _} = node, acc ->
+          {node, [:system | acc]}
+
+        # Send operations
+        {:send, _, _} = node, acc ->
+          {node, [:send | acc]}
+
+        # Receive blocks
+        {:receive, _, _} = node, acc ->
+          {node, [:receive | acc]}
+
+        # Random operations
+        {{:., _, [:rand, _]}, _, _} = node, acc ->
+          {node, [:random | acc]}
+
+        # ETS operations
+        {{:., _, [:ets, _]}, _, _} = node, acc ->
+          {node, [:ets | acc]}
+
+        node, acc ->
+          {node, acc}
+      end)
+
+    Enum.uniq(impure)
+  end
+
+  @doc false
+  def capture_state_snapshot do
+    %{
+      process_dict: Process.get(),
+      message_queue_len: Process.info(self(), :message_queue_len)
+    }
+  end
+
+  @doc false
+  def compare_deep(a, b) when is_map(a) and is_map(b) do
+    Map.keys(a) == Map.keys(b) and
+      Enum.all?(a, fn {k, v} -> compare_deep(v, Map.get(b, k)) end)
+  end
+
+  def compare_deep(a, b) when is_list(a) and is_list(b) do
+    length(a) == length(b) and
+      Enum.zip(a, b) |> Enum.all?(fn {x, y} -> compare_deep(x, y) end)
+  end
+
+  def compare_deep(a, b), do: a == b
 end
