@@ -78,7 +78,16 @@ defmodule Events.Decorator.Define do
     with_fixtures: 1,
     sample_data: 1,
     timeout_test: 1,
-    mock: 1
+    mock: 1,
+    # Type decorators
+    returns_result: 1,
+    returns_maybe: 1,
+    returns_bang: 1,
+    returns_struct: 1,
+    returns_list: 1,
+    returns_union: 1,
+    returns_pipeline: 1,
+    normalize_result: 1
 
   # Delegate to consolidated decorators module
   defdelegate cacheable(opts, body, context), to: Events.Decorators
@@ -121,4 +130,13 @@ defmodule Events.Decorator.Define do
   defdelegate pipe_through(pipeline, body, context), to: Events.Decorators
   defdelegate around(wrapper, body, context), to: Events.Decorators
   defdelegate compose(decorators, body, context), to: Events.Decorators
+
+  defdelegate returns_result(opts, body, context), to: Events.Decorator.Types
+  defdelegate returns_maybe(opts, body, context), to: Events.Decorator.Types
+  defdelegate returns_bang(opts, body, context), to: Events.Decorator.Types
+  defdelegate returns_struct(opts, body, context), to: Events.Decorator.Types
+  defdelegate returns_list(opts, body, context), to: Events.Decorator.Types
+  defdelegate returns_union(opts, body, context), to: Events.Decorator.Types
+  defdelegate returns_pipeline(opts, body, context), to: Events.Decorator.Types
+  defdelegate normalize_result(opts, body, context), to: Events.Decorator.Types
 end
