@@ -14,8 +14,9 @@ defmodule Events.Repo.Migrations.EnablePostgresExtensions do
     # Allows efficient indexes combining JSONB with other types
     execute "CREATE EXTENSION IF NOT EXISTS btree_gin"
 
-    # Note: PostgreSQL 18+ has native gen_random_uuid() and uuidv7() functions
+    # Note: PostgreSQL 18+ has native gen_random_uuid(), uuidv4(), and uuidv7() functions
     # No need for uuid-ossp extension or custom UUIDv7 implementation
+    # Use uuidv7() for time-ordered UUIDs, gen_random_uuid() or uuidv4() for random UUIDs
   end
 
   def down do

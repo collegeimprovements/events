@@ -69,7 +69,8 @@ defmodule Events.MixProject do
       {:decorator, "~> 1.4"},
       {:deco, "~> 0.1.2"},
       {:nebulex, "~> 2.6"},
-      {:nebulex_redis_adapter, "~> 2.4"}
+      {:nebulex_redis_adapter, "~> 2.4"},
+      {:req_s3, "~> 0.2.3"}
     ]
   end
 
