@@ -13,6 +13,123 @@ This is a web application written using the Phoenix web framework.
 - **Pattern matching is our default**. This is what we love. This is what makes our Elixir code elegant, easy to debug, and easy to follow. This is what makes our code flat
   - **Always** use pattern matching whenever possible for function heads, case statements, and destructuring
   - Pattern matching makes our code self-documenting and reduces nesting
+- **Avoid macros, favor pattern matching and functions**
+  - Macros add complexity and make code harder to debug
+  - Use pattern matching, multiple function clauses, and higher-order functions instead
+  - Only use macros when absolutely necessary (like building DSLs or compile-time optimizations)
+  - If you're considering a macro, first explore: pattern matching, function composition, protocols, or behaviours
+
+#### Pattern Matching Examples
+
+**Preferred - Multiple function clauses:**
+```elixir
+def process_result({:ok, value}), do: transform(value)
+def process_result({:error, reason}), do: log_error(reason)
+def process_result(nil), do: :no_data
+```
+
+**Avoid - Nested conditionals:**
+```elixir
+def process_result(result) do
+  if result do
+    case result do
+      {:ok, value} -> transform(value)
+      {:error, reason} -> log_error(reason)
+    end
+  else
+    :no_data
+  end
+end
+```
+
+**Preferred - Guard clauses:**
+```elixir
+def calculate_discount(%{type: :premium, total: total}) when total > 1000, do: total * 0.20
+def calculate_discount(%{type: :premium, total: total}), do: total * 0.10
+def calculate_discount(%{type: :regular, total: total}) when total > 1000, do: total * 0.10
+def calculate_discount(%{type: :regular, total: total}), do: total * 0.05
+def calculate_discount(_), do: 0
+```
+
+**Avoid - Nested if statements:**
+```elixir
+def calculate_discount(order) do
+  if order.type == :premium do
+    if order.total > 1000, do: order.total * 0.20, else: order.total * 0.10
+  else
+    if order.total > 1000, do: order.total * 0.10, else: order.total * 0.05
+  end
+end
+```
+
+**Preferred - Destructuring in function heads:**
+```elixir
+def render_user(%User{name: name, email: email, role: :admin}) do
+  "Admin: #{name} (#{email})"
+end
+
+def render_user(%User{name: name, email: email}) do
+  "User: #{name} (#{email})"
+end
+```
+
+#### Macros vs Pattern Matching
+
+**Avoid macros - Use pattern matching and functions instead:**
+
+```elixir
+# ❌ AVOID - Using macro for simple conditional logic
+defmacro if_admin(user, do: block) do
+  quote do
+    if unquote(user).role == :admin do
+      unquote(block)
+    end
+  end
+end
+
+# ✅ PREFER - Pattern matching in function
+def execute_if_admin(%User{role: :admin}, fun), do: fun.()
+def execute_if_admin(%User{}, _fun), do: :ok
+
+# ❌ AVOID - Macro for data transformation
+defmacro transform_data(data, transform_type) do
+  quote do
+    case unquote(transform_type) do
+      :upcase -> String.upcase(unquote(data))
+      :downcase -> String.downcase(unquote(data))
+    end
+  end
+end
+
+# ✅ PREFER - Pattern matching with multiple function clauses
+def transform_data(data, :upcase), do: String.upcase(data)
+def transform_data(data, :downcase), do: String.downcase(data)
+def transform_data(data, :capitalize), do: String.capitalize(data)
+
+# ❌ AVOID - Macro for repeating similar code
+defmacro define_getter(name) do
+  quote do
+    def unquote(name)(struct), do: Map.get(struct, unquote(name))
+  end
+end
+
+# ✅ PREFER - Simple function or just use Map.get directly
+def get_field(struct, field), do: Map.get(struct, field)
+# Or even better: struct.field or pattern matching
+```
+
+**When macros ARE acceptable:**
+- Building DSLs (like Phoenix routes, Ecto schemas)
+- Compile-time optimizations that can't be done at runtime
+- Code generation from external sources (like GraphQL schemas)
+- Library-level abstractions (like our decorator system)
+
+**For application code, prefer:**
+1. Pattern matching in function clauses
+2. Higher-order functions
+3. Protocols for polymorphism
+4. Behaviours for contracts
+5. Plain functions with clear logic
 
 ### Date & Time Handling
 
@@ -49,6 +166,55 @@ This is a web application written using the Phoenix web framework.
 - **Follow functional programming** principles throughout the codebase
 - **Maintain consistent patterns** across the codebase so it's easy to optimize, follow, and fix issues
 
+#### Pipe Operator for Clean Transformations
+
+**Preferred - Flat pipeline:**
+```elixir
+def process_data(data) do
+  data
+  |> validate()
+  |> transform()
+  |> enrich()
+  |> persist()
+end
+```
+
+**Avoid - Nested function calls:**
+```elixir
+def process_data(data) do
+  persist(enrich(transform(validate(data))))
+end
+```
+
+#### Early Returns with Pattern Matching
+
+**Preferred - Early validation:**
+```elixir
+def process(nil), do: {:error, :nil_input}
+def process(""), do: {:error, :empty_input}
+def process(value) when byte_size(value) > 1000, do: {:error, :too_large}
+def process(value), do: {:ok, String.upcase(value)}
+```
+
+**Avoid - Deeply nested validation:**
+```elixir
+def process(value) do
+  if value do
+    if value != "" do
+      if byte_size(value) <= 1000 do
+        {:ok, String.upcase(value)}
+      else
+        {:error, :too_large}
+      end
+    else
+      {:error, :empty_input}
+    end
+  else
+    {:error, :nil_input}
+  end
+end
+```
+
 ### Function Design
 
 - **Consider the Token pattern** when creating functions
@@ -67,6 +233,44 @@ This is a web application written using the Phoenix web framework.
   - Other cross-cutting concerns
 - **Compose and reuse** these contexts across the application
 
+#### Module Organization
+
+**Keep modules focused and well-organized:**
+
+```elixir
+defmodule MyApp.Users do
+  @moduledoc """
+  User management context.
+  Handles user CRUD operations, authentication, and authorization.
+  """
+
+  # Module attributes
+  @default_role :user
+
+  # Types
+  @type user_attrs :: %{
+    required(:email) => String.t(),
+    required(:name) => String.t(),
+    optional(:role) => atom()
+  }
+
+  # Public API (exported functions)
+  def create_user(attrs), do: do_create(attrs, @default_role)
+  def get_user(id), do: Repo.get(User, id)
+
+  # Private functions
+  defp do_create(attrs, role) do
+    # Implementation
+  end
+end
+```
+
+**Key principles:**
+- One clear responsibility per module
+- Small, focused functions (< 10 lines ideally)
+- Extract complex logic into separate modules
+- Always document public functions with @doc and @spec
+
 ### HTTP Layer (Req)
 
 - **Always use `Req`** for HTTP requests
@@ -81,6 +285,86 @@ This is a web application written using the Phoenix web framework.
 - **Create database views** for common query patterns
 - **Prefer `Ecto.Multi`** for complex transactions
 - Always preload associations when needed (see Ecto Guidelines below)
+
+### Type Decorators & Result Types
+
+This project uses a comprehensive decorator system for type safety and consistency. See `TYPE_DECORATORS.md` for full documentation.
+
+#### Always Use Result Tuples
+
+**All functions that can fail MUST return `{:ok, result} | {:error, reason}`:**
+
+```elixir
+@spec create_user(map()) :: {:ok, User.t()} | {:error, Ecto.Changeset.t()}
+@decorate returns_result(ok: User.t(), error: Ecto.Changeset.t())
+def create_user(attrs) do
+  %User{}
+  |> User.changeset(attrs)
+  |> Repo.insert()
+end
+```
+
+#### Pattern Match on Result Types
+
+```elixir
+# Preferred - clear and flat
+def handle_user_creation(attrs) do
+  case create_user(attrs) do
+    {:ok, user} -> send_welcome_email(user)
+    {:error, changeset} -> log_validation_errors(changeset)
+  end
+end
+
+# Also good - using with for sequential operations
+def register_user(attrs) do
+  with {:ok, user} <- create_user(attrs),
+       {:ok, _email} <- send_welcome_email(user),
+       {:ok, _settings} <- create_default_settings(user) do
+    {:ok, user}
+  end
+end
+```
+
+#### Use normalize_result for External Code
+
+When wrapping external libraries or legacy code that doesn't return result tuples:
+
+```elixir
+@decorate normalize_result(
+  nil_is_error: true,
+  wrap_exceptions: true,
+  error_mapper: &format_api_error/1
+)
+def fetch_user_from_api(id) do
+  # External API that might return various formats
+  HTTPoison.get!("https://api.example.com/users/#{id}")
+end
+```
+
+#### Available Type Decorators
+
+- `@decorate returns_result(ok: Type, error: Type)` - Standard result pattern
+- `@decorate returns_maybe(Type)` - For `value | nil` returns
+- `@decorate returns_bang(Type)` - Unwraps `{:ok, value}` or raises
+- `@decorate returns_struct(Module)` - Validates struct returns
+- `@decorate returns_list(of: Type)` - List with element validation
+- `@decorate returns_union(types: [Type1, Type2])` - Multiple possible types
+- `@decorate returns_pipeline(ok: Type, error: Type)` - Chainable pipeline operations
+- `@decorate normalize_result()` - Converts any return to result tuple
+
+#### Combine with @spec for Full Type Safety
+
+```elixir
+# Best practice: Both @spec (for Dialyzer) and decorator (for runtime)
+@spec find_user(integer()) :: {:ok, User.t()} | {:error, :not_found}
+@decorate returns_result(ok: User.t(), error: :atom, validate: Mix.env() != :prod)
+def find_user(id) do
+  case Repo.get(User, id) do
+    nil -> {:error, :not_found}
+    user -> {:ok, user}
+  end
+end
+```
 
 ### Phoenix v1.8 guidelines
 
@@ -598,3 +882,171 @@ And **never** do this:
 <!-- phoenix:liveview-end -->
 
 <!-- usage-rules-end -->
+
+---
+
+## Code Style Golden Rules
+
+When working on this codebase, always remember:
+
+### 1. Pattern Matching First (Avoid Macros)
+- Use multiple function clauses instead of nested if/case
+- Destructure in function heads
+- Use guard clauses extensively
+- Pattern match on result tuples
+- **Avoid macros** - use pattern matching and functions instead
+- Only write macros for DSLs, compile-time optimizations, or library-level abstractions
+- If considering a macro, first try: pattern matching, higher-order functions, protocols, or behaviours
+
+### 2. Keep Code Flat
+- Zero `if...else` statements (use `case` or `cond`)
+- Prefer `with` over nested `case`
+- Early returns with pattern matching
+- Pipeline operator for transformations
+
+### 3. Result Tuples Everywhere
+- All functions that can fail return `{:ok, result} | {:error, reason}`
+- Use type decorators for consistency: `@decorate returns_result(...)`
+- Use `normalize_result` decorator for external code
+- Pattern match on errors with specific handlers
+
+### 4. Clean and Elegant
+- Small, focused functions (< 10 lines)
+- One responsibility per module
+- Self-documenting code through patterns
+- Clear naming, obvious intent
+
+### 5. Documentation
+- Always add `@doc` and `@spec` for public functions
+- Use `@moduledoc` to explain module purpose
+- Include examples in documentation
+- Combine `@spec` with decorators for full type safety
+
+### Anti-Patterns to Absolutely Avoid
+
+❌ **Using macros instead of functions**
+```elixir
+# NEVER do this - macro for simple logic
+defmacro double(x) do
+  quote do: unquote(x) * 2
+end
+
+# ALWAYS do this - plain function
+def double(x), do: x * 2
+
+# NEVER do this - macro for conditional
+defmacro when_admin(user, do: block) do
+  quote do
+    if unquote(user).role == :admin, do: unquote(block)
+  end
+end
+
+# ALWAYS do this - pattern matching
+def when_admin(%User{role: :admin}, fun), do: fun.()
+def when_admin(%User{}, _fun), do: :ok
+```
+
+❌ **Nested if/else statements**
+```elixir
+# NEVER do this
+if condition do
+  if other_condition do
+    # nested logic
+  end
+end
+```
+
+❌ **Not using pattern matching**
+```elixir
+# NEVER do this
+def get_name(user) do
+  if user && user.name, do: user.name, else: "Unknown"
+end
+
+# ALWAYS do this
+def get_name(%User{name: name}) when is_binary(name), do: name
+def get_name(_), do: "Unknown"
+```
+
+❌ **Returning non-result tuples from functions that can fail**
+```elixir
+# NEVER do this
+def create_user(attrs), do: Repo.insert(User.changeset(%User{}, attrs))
+
+# ALWAYS do this
+@spec create_user(map()) :: {:ok, User.t()} | {:error, Ecto.Changeset.t()}
+def create_user(attrs) do
+  %User{}
+  |> User.changeset(attrs)
+  |> Repo.insert()
+end
+```
+
+❌ **Deep nesting**
+```elixir
+# NEVER do this
+case result do
+  {:ok, value} ->
+    case validate(value) do
+      {:ok, validated} ->
+        case process(validated) do
+          {:ok, result} -> result
+        end
+    end
+end
+
+# ALWAYS do this
+with {:ok, value} <- result,
+     {:ok, validated} <- validate(value),
+     {:ok, result} <- process(validated) do
+  result
+end
+```
+
+### Quick Reference
+
+| Scenario | Use This | Not This |
+|----------|----------|----------|
+| Code abstraction | Functions + pattern matching | Macros |
+| Multiple conditions | `case` or `cond` | `if...else if` |
+| Function variations | Multiple function clauses | Single function with nested if |
+| Sequential operations | `with` | Nested `case` |
+| Transformations | Pipe operator `\|>` | Nested function calls |
+| Error handling | `{:ok, _} \| {:error, _}` | Mixed returns |
+| External code | `@decorate normalize_result` | Manual wrapping |
+| Type safety | `@spec` + decorators | Just `@spec` |
+| Validation | Guard clauses | if statements inside function |
+| Polymorphism | Protocols | Macros |
+| Contracts | Behaviours | Macros |
+
+---
+
+## Summary
+
+**This is a Phoenix web application that prioritizes:**
+
+1. **Pattern matching** over conditionals
+2. **Flat, readable code** over nested structures
+3. **Result tuples** for all operations that can fail
+4. **Type safety** through specs and decorators
+5. **Functional patterns** like pipes and composition
+6. **Performance** - fast compilation and runtime
+7. **Consistency** - same patterns across the entire codebase
+
+**Key tools and patterns:**
+- `Req` for HTTP requests
+- Type decorators for runtime validation
+- `with` for sequential operations
+- Pattern matching in function heads
+- Token pattern for state transformation
+- Soft deletes with `deleted_at`
+- citext for case-insensitive fields
+- Result tuples with `@spec` + decorators
+
+**When in doubt:** Ask yourself "How can I make this flatter and use more pattern matching?" The answer is usually the right approach for this codebase.
+
+For detailed documentation:
+- Type system: `TYPE_DECORATORS.md`
+- Dialyzer setup: `DIALYZER_SETUP.md`
+- Normalize result: `NORMALIZE_RESULT_GUIDE.md`
+- Compiler integration: `COMPILER_INTEGRATION.md`
