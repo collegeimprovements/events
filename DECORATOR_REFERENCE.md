@@ -8,6 +8,13 @@
 | Cache expensive operations | `@decorate cacheable(cache: MyCache, ttl: 3600)` | cache, key, ttl, match |
 | Update cache after mutations | `@decorate cache_put(cache: MyCache, keys: [key])` | cache, keys, ttl |
 | Invalidate cache entries | `@decorate cache_evict(cache: MyCache, keys: [key])` | cache, keys, before_invocation |
+| **PROFILING** |
+| Profile function performance | `@decorate profile(strategy: :sample, rate: 0.01)` | strategy, rate, duration, threshold |
+| Profile only slow operations | `@decorate profile_if_slow(threshold: 1000)` | threshold, strategy, rate |
+| Production-safe profiling | `@decorate profile_production(sample_rate: 0.001)` | sample_rate, emit_metrics, check_load |
+| Generate flame graphs | `@decorate flame_graph(output: "profile.svg")` | output, format, enabled, duration |
+| Profile memory usage | `@decorate profile_memory(threshold: 1_000_000)` | threshold, emit_metrics |
+| Track function call counts | `@decorate profile_calls()` | emit_metrics |
 | **MONITORING & OBSERVABILITY** |
 | Add telemetry events | `@decorate telemetry_span([:app, :operation])` | event, include, metadata |
 | Add OpenTelemetry spans | `@decorate otel_span("operation.name")` | name, include, attributes |
@@ -113,6 +120,17 @@
 | `trace_modules/1` | Events.Decorator.Tracing | List called modules | - | `filter`, `unique`, `exclude_stdlib` | dev/test |
 | `trace_dependencies/1` | Events.Decorator.Tracing | Track dependencies | - | `type`, `format` | dev/test |
 
+### Profiling Decorators
+
+| Decorator | Module | Purpose | Required Options | Optional Options | Environment |
+|-----------|--------|---------|-----------------|------------------|-------------|
+| `profile/1` | Events.Decorator.Profiling | Profile with multiple strategies | - | `strategy`, `rate`, `duration`, `threshold`, `env`, `enabled`, `async`, `emit_metrics`, `check_load`, `metadata` | All |
+| `profile_if_slow/1` | Events.Decorator.Profiling | Profile slow operations | `threshold` | `strategy`, `rate`, `env` | dev/test |
+| `profile_production/0-1` | Events.Decorator.Profiling | Production-safe profiling | - | `sample_rate`, `emit_metrics`, `check_load` | prod |
+| `flame_graph/0-1` | Events.Decorator.Profiling | Generate flame graphs | - | `output`, `format`, `enabled`, `duration` | All |
+| `profile_memory/0-1` | Events.Decorator.Profiling | Memory profiling | - | `threshold`, `emit_metrics`, `env` | dev/test |
+| `profile_calls/0-1` | Events.Decorator.Profiling | Call count profiling | - | `emit_metrics`, `env` | dev/test |
+
 ## Common Usage Patterns
 
 ### 1. Production API Endpoint
@@ -186,6 +204,37 @@ end
 ])
 def call_external_api(params) do
   # API call implementation
+end
+```
+
+### 7. Production Performance Monitoring
+```elixir
+@decorate compose([
+  {:profile_production, [sample_rate: 0.001, emit_metrics: true]},
+  {:telemetry_span, [[:app, :critical, :operation]]},
+  {:profile_if_slow, [threshold: 1000, strategy: :sample]},
+  {:capture_errors, [reporter: Sentry]}
+])
+def critical_operation(params) do
+  # Continuously profiled in production
+  # Auto-profiles slow operations
+  # Emits performance metrics
+  process_critical_data(params)
+end
+```
+
+### 8. Development Performance Analysis
+```elixir
+@decorate compose([
+  {:flame_graph, [output: "analysis.svg", enabled: Mix.env() == :dev]},
+  {:profile_memory, [threshold: 10_000_000]},
+  {:profile_calls, []},
+  {:benchmark, [iterations: 100]}
+])
+def analyze_performance(data) do
+  # Complete performance analysis in dev
+  # Flame graph, memory, call counts, benchmark
+  complex_algorithm(data)
 end
 ```
 
