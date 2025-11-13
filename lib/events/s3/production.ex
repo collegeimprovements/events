@@ -1,9 +1,8 @@
-defmodule Events.Services.Aws.S3.Adapter do
+defmodule Events.S3.Production do
   @moduledoc """
-  S3 adapter implementation using ReqS3.
+  Production S3 adapter using ReqS3.
 
-  Provides production-ready S3 operations using the ReqS3 plugin
-  by Dashbit/Wojtek Mach.
+  Provides production-ready S3 operations using the ReqS3 plugin.
 
   ## Features
 
@@ -23,7 +22,7 @@ defmodule Events.Services.Aws.S3.Adapter do
 
   ## Usage
 
-      context = Context.new(
+      config = AWSConfig.new(
         access_key_id: "...",
         secret_access_key: "...",
         region: "us-east-1",
@@ -31,22 +30,22 @@ defmodule Events.Services.Aws.S3.Adapter do
       )
 
       # Upload file
-      S3.upload(context, "documents/file.pdf", content)
+      S3.upload(config, "documents/file.pdf", content)
 
       # Generate presigned URL for upload (5 minutes)
-      {:ok, url} = S3.presigned_url(context, :put, "uploads/photo.jpg", expires_in: 300)
+      {:ok, url} = S3.presigned_url(config, :put, "uploads/photo.jpg", expires_in: 300)
 
       # Generate presigned URL for download (1 hour)
-      {:ok, url} = S3.presigned_url(context, :get, "documents/file.pdf", expires_in: 3600)
+      {:ok, url} = S3.presigned_url(config, :get, "documents/file.pdf", expires_in: 3600)
 
       # List files
-      {:ok, %{objects: objects}} = S3.list_objects(context, prefix: "uploads/")
+      {:ok, %{objects: objects}} = S3.list_objects(config, prefix: "uploads/")
   """
 
-  @behaviour Events.Services.Aws.S3
+  @behaviour Events.S3
   @behaviour Events.Behaviours.Adapter
 
-  alias Events.Services.Aws.Context
+  alias Events.AWSConfig
 
   @default_expires_in 3600
   @default_region "us-east-1"
@@ -54,7 +53,7 @@ defmodule Events.Services.Aws.S3.Adapter do
   ## Adapter Callbacks
 
   @impl Events.Behaviours.Adapter
-  def adapter_name, do: :s3
+  def adapter_name, do: :production
 
   @impl Events.Behaviours.Adapter
   def adapter_config(opts) do
@@ -68,10 +67,10 @@ defmodule Events.Services.Aws.S3.Adapter do
 
   ## S3 Callbacks
 
-  @impl Events.Services.Aws.S3
-  def upload(%Context{} = context, key, content, opts \\ []) do
-    req = build_req(context)
-    url = "s3://#{context.bucket}/#{key}"
+  @impl Events.S3
+  def upload(%AWSConfig{} = config, key, content, opts \\ []) do
+    req = build_req(config)
+    url = "s3://#{config.bucket}/#{key}"
 
     headers = build_upload_headers(opts)
 
@@ -87,10 +86,10 @@ defmodule Events.Services.Aws.S3.Adapter do
     end
   end
 
-  @impl Events.Services.Aws.S3
-  def get_object(%Context{} = context, key) do
-    req = build_req(context)
-    url = "s3://#{context.bucket}/#{key}"
+  @impl Events.S3
+  def get_object(%AWSConfig{} = config, key) do
+    req = build_req(config)
+    url = "s3://#{config.bucket}/#{key}"
 
     case Req.get(req, url: url) do
       {:ok, %{status: 200, body: body}} ->
@@ -107,10 +106,10 @@ defmodule Events.Services.Aws.S3.Adapter do
     end
   end
 
-  @impl Events.Services.Aws.S3
-  def delete_object(%Context{} = context, key) do
-    req = build_req(context)
-    url = "s3://#{context.bucket}/#{key}"
+  @impl Events.S3
+  def delete_object(%AWSConfig{} = config, key) do
+    req = build_req(config)
+    url = "s3://#{config.bucket}/#{key}"
 
     case Req.delete(req, url: url) do
       {:ok, %{status: status}} when status in 200..299 ->
@@ -127,10 +126,10 @@ defmodule Events.Services.Aws.S3.Adapter do
     end
   end
 
-  @impl Events.Services.Aws.S3
-  def object_exists?(%Context{} = context, key) do
-    req = build_req(context)
-    url = "s3://#{context.bucket}/#{key}"
+  @impl Events.S3
+  def object_exists?(%AWSConfig{} = config, key) do
+    req = build_req(config)
+    url = "s3://#{config.bucket}/#{key}"
 
     case Req.head(req, url: url) do
       {:ok, %{status: 200}} ->
@@ -147,9 +146,9 @@ defmodule Events.Services.Aws.S3.Adapter do
     end
   end
 
-  @impl Events.Services.Aws.S3
-  def list_objects(%Context{} = context, opts \\ []) do
-    req = build_req(context)
+  @impl Events.S3
+  def list_objects(%AWSConfig{} = config, opts \\ []) do
+    req = build_req(config)
     prefix = Keyword.get(opts, :prefix, "")
     max_keys = Keyword.get(opts, :max_keys, 1000)
     continuation_token = Keyword.get(opts, :continuation_token)
@@ -157,7 +156,7 @@ defmodule Events.Services.Aws.S3.Adapter do
     sort_order = Keyword.get(opts, :sort_order, :desc)
 
     # Build URL with query parameters
-    url = build_list_url(context.bucket, prefix, max_keys, continuation_token)
+    url = build_list_url(config.bucket, prefix, max_keys, continuation_token)
 
     case Req.get(req, url: url) do
       {:ok, %{status: 200, body: body}} ->
@@ -178,23 +177,23 @@ defmodule Events.Services.Aws.S3.Adapter do
     end
   end
 
-  @impl Events.Services.Aws.S3
-  def presigned_url(%Context{} = context, method, key, opts \\ []) do
+  @impl Events.S3
+  def presigned_url(%AWSConfig{} = config, method, key, opts \\ []) do
     expires_in = Keyword.get(opts, :expires_in, @default_expires_in)
 
     # Convert expires_in from seconds to milliseconds for ReqS3
     expires_in_ms = expires_in * 1000
 
     presign_opts = [
-      bucket: context.bucket,
+      bucket: config.bucket,
       key: key,
-      access_key_id: context.access_key_id,
-      secret_access_key: context.secret_access_key,
-      region: context.region,
+      access_key_id: config.access_key_id,
+      secret_access_key: config.secret_access_key,
+      region: config.region,
       expires_in: expires_in_ms
     ]
 
-    presign_opts = maybe_add_endpoint_url(presign_opts, context)
+    presign_opts = maybe_add_endpoint_url(presign_opts, config)
 
     case method do
       :get ->
@@ -212,11 +211,11 @@ defmodule Events.Services.Aws.S3.Adapter do
       {:error, {:presign_error, error}}
   end
 
-  @impl Events.Services.Aws.S3
-  def copy_object(%Context{} = context, source_key, dest_key) do
-    req = build_req(context)
-    url = "s3://#{context.bucket}/#{dest_key}"
-    copy_source = "/#{context.bucket}/#{source_key}"
+  @impl Events.S3
+  def copy_object(%AWSConfig{} = config, source_key, dest_key) do
+    req = build_req(config)
+    url = "s3://#{config.bucket}/#{dest_key}"
+    copy_source = "/#{config.bucket}/#{source_key}"
 
     headers = %{"x-amz-copy-source" => copy_source}
 
@@ -232,10 +231,10 @@ defmodule Events.Services.Aws.S3.Adapter do
     end
   end
 
-  @impl Events.Services.Aws.S3
-  def head_object(%Context{} = context, key) do
-    req = build_req(context)
-    url = "s3://#{context.bucket}/#{key}"
+  @impl Events.S3
+  def head_object(%AWSConfig{} = config, key) do
+    req = build_req(config)
+    url = "s3://#{config.bucket}/#{key}"
 
     case Req.head(req, url: url) do
       {:ok, %{status: 200, headers: headers}} ->
@@ -255,11 +254,11 @@ defmodule Events.Services.Aws.S3.Adapter do
 
   ## Private Functions
 
-  defp build_req(%Context{} = context) do
+  defp build_req(%AWSConfig{} = config) do
     aws_sigv4 = [
-      access_key_id: context.access_key_id,
-      secret_access_key: context.secret_access_key,
-      region: context.region
+      access_key_id: config.access_key_id,
+      secret_access_key: config.secret_access_key,
+      region: config.region
     ]
 
     Req.new(aws_sigv4: aws_sigv4)
@@ -318,9 +317,9 @@ defmodule Events.Services.Aws.S3.Adapter do
     params ++ [{"continuation-token", token}]
   end
 
-  defp maybe_add_endpoint_url(opts, %Context{endpoint_url: nil}), do: opts
+  defp maybe_add_endpoint_url(opts, %AWSConfig{endpoint_url: nil}), do: opts
 
-  defp maybe_add_endpoint_url(opts, %Context{endpoint_url: endpoint_url}) do
+  defp maybe_add_endpoint_url(opts, %AWSConfig{endpoint_url: endpoint_url}) do
     Keyword.put(opts, :aws_endpoint_url_s3, endpoint_url)
   end
 

@@ -1,31 +1,30 @@
 defmodule Events.Errors do
   @moduledoc """
-  Unified error handling system for Events application.
+  DEPRECATED: Use Events.Error instead.
 
-  This module provides a clean, well-organized error handling layer with clear
-  separation of concerns:
+  This module is maintained for backwards compatibility.
+  All functionality has been moved to the consolidated Events.Error module.
 
-  ## Architecture
+  ## Migration Guide
 
-  - **Core** (`Events.Errors.Error`) - Standard error struct and type definitions
-  - **Registry** (`Events.Errors.Registry`) - Error codes and message catalog
-  - **Normalizer** (`Events.Errors.Normalizer`) - Public API for error normalization
-  - **Mappers** (`Events.Errors.Mappers.*`) - Convert external errors to Error structs
-  - **Enrichment** (`Events.Errors.Enrichment.*`) - Add context and metadata
-  - **Persistence** (`Events.Errors.Persistence.*`) - Store and query errors
+  Replace:
+  - `Events.Errors` → `Events.Error`
+  - `Events.Errors.normalize()` → `Events.Error.normalize()`
+  - `Events.Errors.enrich()` → `Events.Error.with_context()`
+  - `Events.Errors.store()` → `Events.Error.store()`
 
-  ## Quick Start
+  ## Quick Start with new API
 
       # Normalize any error
-      Events.Errors.normalize({:error, :not_found})
-      Events.Errors.normalize(%Ecto.Changeset{valid?: false})
+      Events.Error.normalize({:error, :not_found})
+      Events.Error.normalize(%Ecto.Changeset{valid?: false})
 
       # Enrich with context
       error
-      |> Events.Errors.enrich(user: [user_id: 123], request: [request_id: "req_123"])
+      |> Events.Error.with_context(user_id: 123, request_id: "req_123")
 
       # Store for analysis
-      Events.Errors.store(error)
+      Events.Error.store(error)
 
   ## Usage Examples
 

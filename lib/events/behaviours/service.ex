@@ -1,14 +1,14 @@
-defmodule Events.Contracts.Service do
+defmodule Events.Behaviours.Service do
   @moduledoc """
   Base behaviour for all service modules.
 
-  Services represent core business capabilities with clear boundaries and contracts.
-  Each service should define its own behaviour that extends this base contract.
+  Services represent core business capabilities with clear boundaries and well-defined behaviours.
+  Each service should define its own behaviour that extends this base behaviour.
 
   ## Design Principles
 
   - **Single Responsibility**: Each service does one thing well
-  - **Behaviour-Based**: Define contracts via behaviours, implement via adapters
+  - **Behaviour-Based**: Define behaviours, implement via adapters
   - **Configuration Explicit**: Pass configuration as structs, not global config
   - **Error Normalization**: Return standard error tuples, normalize externally
   - **Composable**: Services should be easily composable with decorators
@@ -16,7 +16,7 @@ defmodule Events.Contracts.Service do
   ## Example
 
       defmodule MyApp.Services.Notifications do
-        @behaviour Events.Contracts.Service
+        @behaviour Events.Behaviours.Service
 
         @impl true
         def child_spec(opts) do

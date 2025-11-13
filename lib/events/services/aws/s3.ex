@@ -35,7 +35,7 @@ defmodule Events.Services.Aws.S3 do
       {:ok, content} = S3.get_object(context, "path/to/file.txt")
   """
 
-  @behaviour Events.Contracts.Service
+  @behaviour Events.Behaviours.Service
 
   alias Events.Services.Aws.Context
   alias Events.Services.Aws.S3.{FileNameNormalizer, Pipeline, Uploader}

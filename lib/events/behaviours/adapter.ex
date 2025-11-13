@@ -1,4 +1,4 @@
-defmodule Events.Contracts.Adapter do
+defmodule Events.Behaviours.Adapter do
   @moduledoc """
   Base behaviour for service adapter implementations.
 
@@ -8,9 +8,9 @@ defmodule Events.Contracts.Adapter do
 
   ## Adapter Types
 
-  - **Real Adapters**: Production implementations (e.g., ExAwsAdapter, RedisAdapter)
-  - **Mock Adapters**: In-memory mocks for testing (e.g., MockAdapter)
-  - **Local Adapters**: Local alternatives for development (e.g., LocalFileAdapter)
+  - **Production**: Real implementations (e.g., Production, ExAws)
+  - **Mock**: In-memory mocks for testing
+  - **Local**: Local alternatives for development (e.g., LocalFile)
 
   ## Design Principles
 
@@ -21,12 +21,12 @@ defmodule Events.Contracts.Adapter do
 
   ## Example
 
-      defmodule MyApp.Services.Storage.S3Adapter do
+      defmodule MyApp.Services.Storage.Production do
         @behaviour MyApp.Services.Storage
-        @behaviour Events.Contracts.Adapter
+        @behaviour Events.Behaviours.Adapter
 
         @impl true
-        def adapter_name, do: :s3
+        def adapter_name, do: :production
 
         @impl true
         def adapter_config(opts) do
@@ -62,11 +62,11 @@ defmodule Events.Contracts.Adapter do
 
   ## Examples
 
-      iex> Adapter.resolve(:s3, MyApp.Services.Storage)
-      MyApp.Services.Storage.S3Adapter
+      iex> Adapter.resolve(:production, MyApp.Services.Storage)
+      MyApp.Services.Storage.Production
 
       iex> Adapter.resolve(:mock, MyApp.Services.Storage)
-      MyApp.Services.Storage.MockAdapter
+      MyApp.Services.Storage.Mock
   """
   @spec resolve(adapter_name :: atom(), base_module :: module()) :: module()
   def resolve(adapter_name, base_module) do
@@ -75,7 +75,7 @@ defmodule Events.Contracts.Adapter do
       |> Atom.to_string()
       |> Macro.camelize()
 
-    Module.concat([base_module, "#{adapter_module_name}Adapter"])
+    Module.concat([base_module, adapter_module_name])
   end
 
   @doc """

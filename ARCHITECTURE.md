@@ -15,20 +15,20 @@ This document describes the modular architecture for the Events application, foc
 
 ## Terminology
 
-- **Services**: Core business capabilities with behaviour contracts (AWS, Redis, Profiling)
-- **Adapters**: Behaviour implementations (Real, Mock, Test, Local)
-- **Composers**: Pipeline-based data transformation (Validation, Transactions)
-- **Normalizers**: Shape transformation utilities (Error standardization)
-- **Contracts**: Shared behaviour definitions
+- **Services**: Core business capabilities with behaviours (AWS, Redis, Profiling)
+- **Adapters**: Behaviour implementations (Production, Mock, Test, Local)
+- **Builders**: Pipeline-based data transformation (Validation, Transactions)
+- **Transformers**: Shape transformation utilities (Error standardization)
+- **Behaviours**: Shared behaviour definitions
 
 ## Directory Structure
 
 ```
 lib/events/
-├── contracts/                        # Shared behaviour definitions
+├── behaviours/                       # Shared behaviour definitions
 │   ├── service.ex                    # Base service behaviour ✅
 │   ├── adapter.ex                    # Base adapter behaviour ✅
-│   └── composer.ex                   # Base composer behaviour ✅
+│   └── builder.ex                    # Base builder behaviour ✅
 │
 ├── normalizers/                      # Shape transformers
 │   ├── error/
@@ -65,17 +65,17 @@ lib/events/
 │           ├── redis_adapter.ex      # Redis-backed cache ⏳
 │           └── local_adapter.ex      # In-memory cache ⏳
 │
-├── composers/                        # Data transformation pipelines
+├── builders/                         # Data transformation pipelines
 │   ├── validation/
-│   │   ├── composer.ex               # Main validation composer ⏳
+│   │   ├── builder.ex                # Main validation builder ⏳
 │   │   ├── rules.ex                  # Common validation rules ⏳
 │   │   ├── changeset_builder.ex      # Changeset pipeline ⏳
 │   │   └── validator.ex              # Custom validator behaviour ⏳
 │   │
 │   └── transactions/
-│       ├── composer.ex               # Multi builder ⏳
+│       ├── builder.ex                # Multi builder ⏳
 │       ├── step.ex                   # Multi step definition ⏳
-│       └── builder.ex                # Fluent Multi API ⏳
+│       └── api.ex                    # Fluent Multi API ⏳
 │
 └── (existing modules)
     ├── repo.ex
@@ -84,26 +84,26 @@ lib/events/
     └── ...
 
 test/events/
-├── contracts/
+├── behaviours/
 ├── normalizers/
 ├── services/
-└── composers/
+└── builders/
 ```
 
 Legend: ✅ Completed | ⏳ Pending
 
 ## Module Details
 
-### 1. Contracts (✅ Complete)
+### 1. Behaviours (✅ Complete)
 
-#### Events.Contracts.Service
+#### Events.Behaviours.Service
 Base behaviour for all service modules. Defines optional callbacks for supervised services.
 
-#### Events.Contracts.Adapter
+#### Events.Behaviours.Adapter
 Base behaviour for adapter implementations. Provides adapter resolution and validation.
 
-#### Events.Contracts.Composer
-Base behaviour for composer modules. Provides `defcompose` macro for fluent APIs.
+#### Events.Behaviours.Builder
+Base behaviour for builder modules. Provides `defcompose` macro for fluent APIs.
 
 ### 2. Normalizers (✅ Complete)
 
