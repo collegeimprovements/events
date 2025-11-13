@@ -20,7 +20,7 @@ defmodule Events.Error.Transform do
     @doc """
     Transforms an Ecto changeset into an Error.
     """
-    def transform(%Ecto.Changeset{valid?: false} = changeset) do
+    def transform(%{__struct__: Ecto.Changeset, valid?: false} = changeset) do
       errors = traverse_errors(changeset)
 
       Error.new(:validation, :validation_failed,
@@ -30,25 +30,25 @@ defmodule Events.Error.Transform do
       )
     end
 
-    def transform({:error, %Ecto.Changeset{} = changeset}) do
+    def transform({:error, %{__struct__: Ecto.Changeset} = changeset}) do
       transform(changeset)
     end
 
-    def transform(%Ecto.NoResultsError{} = error) do
+    def transform(%{__struct__: Ecto.NoResultsError} = error) do
       Error.new(:not_found, :no_results,
         message: "No results found",
         source: error
       )
     end
 
-    def transform(%Ecto.MultipleResultsError{} = error) do
+    def transform(%{__struct__: Ecto.MultipleResultsError} = error) do
       Error.new(:conflict, :multiple_results,
         message: "Multiple results found when expecting one",
         source: error
       )
     end
 
-    def transform(%Ecto.Query.CastError{} = error) do
+    def transform(%{__struct__: Ecto.Query.CastError} = error) do
       Error.new(:validation, :invalid_query,
         message: "Invalid query parameter",
         details: %{
@@ -68,7 +68,7 @@ defmodule Events.Error.Transform do
     end
 
     defp traverse_errors(changeset) do
-      Ecto.Changeset.traverse_errors(changeset, fn {msg, opts} ->
+      changeset.__struct__.traverse_errors(changeset, fn {msg, opts} ->
         Enum.reduce(opts, msg, fn {key, value}, acc ->
           String.replace(acc, "%{#{key}}", to_string(value))
         end)
@@ -108,9 +108,7 @@ defmodule Events.Error.Transform do
     end
 
     def transform({:error, :timeout}) do
-      Error.new(:timeout, :request_timeout,
-        message: "Request timed out"
-      )
+      Error.new(:timeout, :request_timeout, message: "Request timed out")
     end
 
     def transform(error) do
@@ -122,21 +120,45 @@ defmodule Events.Error.Transform do
 
     defp status_to_error(status) do
       case status do
-        400 -> {:validation, :bad_request, "Bad request"}
-        401 -> {:unauthorized, :unauthorized, "Authentication required"}
-        403 -> {:forbidden, :forbidden, "Access denied"}
-        404 -> {:not_found, :not_found, "Resource not found"}
-        409 -> {:conflict, :conflict, "Resource conflict"}
-        422 -> {:validation, :unprocessable_entity, "Validation failed"}
-        429 -> {:rate_limited, :too_many_requests, "Too many requests"}
-        500 -> {:internal, :internal_server_error, "Internal server error"}
-        502 -> {:external, :bad_gateway, "Bad gateway"}
-        503 -> {:external, :service_unavailable, "Service unavailable"}
-        504 -> {:timeout, :gateway_timeout, "Gateway timeout"}
+        400 ->
+          {:validation, :bad_request, "Bad request"}
+
+        401 ->
+          {:unauthorized, :unauthorized, "Authentication required"}
+
+        403 ->
+          {:forbidden, :forbidden, "Access denied"}
+
+        404 ->
+          {:not_found, :not_found, "Resource not found"}
+
+        409 ->
+          {:conflict, :conflict, "Resource conflict"}
+
+        422 ->
+          {:validation, :unprocessable_entity, "Validation failed"}
+
+        429 ->
+          {:rate_limited, :too_many_requests, "Too many requests"}
+
+        500 ->
+          {:internal, :internal_server_error, "Internal server error"}
+
+        502 ->
+          {:external, :bad_gateway, "Bad gateway"}
+
+        503 ->
+          {:external, :service_unavailable, "Service unavailable"}
+
+        504 ->
+          {:timeout, :gateway_timeout, "Gateway timeout"}
+
         _ when status >= 400 and status < 500 ->
           {:validation, :client_error, "Client error"}
+
         _ when status >= 500 ->
           {:internal, :server_error, "Server error"}
+
         _ ->
           {:internal, :unknown_status, "Unknown status code"}
       end
@@ -168,39 +190,27 @@ defmodule Events.Error.Transform do
     end
 
     def transform({:error, "AccessDenied"}) do
-      Error.new(:forbidden, :aws_access_denied,
-        message: "AWS access denied"
-      )
+      Error.new(:forbidden, :aws_access_denied, message: "AWS access denied")
     end
 
     def transform({:error, "NoSuchBucket"}) do
-      Error.new(:not_found, :bucket_not_found,
-        message: "S3 bucket not found"
-      )
+      Error.new(:not_found, :bucket_not_found, message: "S3 bucket not found")
     end
 
     def transform({:error, "NoSuchKey"}) do
-      Error.new(:not_found, :key_not_found,
-        message: "S3 object not found"
-      )
+      Error.new(:not_found, :key_not_found, message: "S3 object not found")
     end
 
     def transform({:error, "InvalidAccessKeyId"}) do
-      Error.new(:unauthorized, :invalid_access_key,
-        message: "Invalid AWS access key"
-      )
+      Error.new(:unauthorized, :invalid_access_key, message: "Invalid AWS access key")
     end
 
     def transform({:error, "SignatureDoesNotMatch"}) do
-      Error.new(:unauthorized, :invalid_signature,
-        message: "Invalid AWS signature"
-      )
+      Error.new(:unauthorized, :invalid_signature, message: "Invalid AWS signature")
     end
 
     def transform({:error, "RequestTimeout"}) do
-      Error.new(:timeout, :aws_timeout,
-        message: "AWS request timed out"
-      )
+      Error.new(:timeout, :aws_timeout, message: "AWS request timed out")
     end
 
     def transform(error) do
@@ -222,51 +232,35 @@ defmodule Events.Error.Transform do
     Transforms file system errors.
     """
     def transform(:enoent) do
-      Error.new(:not_found, :file_not_found,
-        message: "File or directory not found"
-      )
+      Error.new(:not_found, :file_not_found, message: "File or directory not found")
     end
 
     def transform(:eacces) do
-      Error.new(:forbidden, :permission_denied,
-        message: "Permission denied"
-      )
+      Error.new(:forbidden, :permission_denied, message: "Permission denied")
     end
 
     def transform(:eexist) do
-      Error.new(:conflict, :file_exists,
-        message: "File already exists"
-      )
+      Error.new(:conflict, :file_exists, message: "File already exists")
     end
 
     def transform(:eisdir) do
-      Error.new(:validation, :is_directory,
-        message: "Is a directory"
-      )
+      Error.new(:validation, :is_directory, message: "Is a directory")
     end
 
     def transform(:enotdir) do
-      Error.new(:validation, :not_directory,
-        message: "Not a directory"
-      )
+      Error.new(:validation, :not_directory, message: "Not a directory")
     end
 
     def transform(:enospc) do
-      Error.new(:internal, :no_space,
-        message: "No space left on device"
-      )
+      Error.new(:internal, :no_space, message: "No space left on device")
     end
 
     def transform(:emfile) do
-      Error.new(:internal, :too_many_files,
-        message: "Too many open files"
-      )
+      Error.new(:internal, :too_many_files, message: "Too many open files")
     end
 
     def transform(:enametoolong) do
-      Error.new(:validation, :name_too_long,
-        message: "File name too long"
-      )
+      Error.new(:validation, :name_too_long, message: "File name too long")
     end
 
     def transform(error) when is_atom(error) do

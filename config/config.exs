@@ -65,6 +65,19 @@ config :events, Events.Cache,
   # Enable stats for monitoring
   stats: true
 
+# Hammer rate limiter configuration
+config :hammer,
+  backend:
+    {Hammer.Backend.Redis,
+     [
+       # 2 hours
+       expiry_ms: 60_000 * 60 * 2,
+       redix_config: [
+         host: System.get_env("REDIS_HOST", "localhost"),
+         port: String.to_integer(System.get_env("REDIS_PORT", "6379"))
+       ]
+     ]}
+
 # Logger configuration
 config :logger, :default_formatter,
   format: "$time $metadata[$level] $message\n",

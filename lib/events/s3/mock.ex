@@ -116,9 +116,10 @@ defmodule Events.S3.Mock do
   def object_exists?(%AWSConfig{bucket: bucket}, key) do
     bucket_key = {bucket, key}
 
-    exists = Agent.get(__MODULE__, fn state ->
-      Map.has_key?(state, bucket_key)
-    end)
+    exists =
+      Agent.get(__MODULE__, fn state ->
+        Map.has_key?(state, bucket_key)
+      end)
 
     {:ok, exists}
   end
@@ -128,22 +129,23 @@ defmodule Events.S3.Mock do
     prefix = Keyword.get(opts, :prefix, "")
     max_keys = Keyword.get(opts, :max_keys, 1000)
 
-    objects = Agent.get(__MODULE__, fn state ->
-      state
-      |> Enum.filter(fn {{b, k}, _} ->
-        b == bucket && String.starts_with?(k, prefix)
+    objects =
+      Agent.get(__MODULE__, fn state ->
+        state
+        |> Enum.filter(fn {{b, k}, _} ->
+          b == bucket && String.starts_with?(k, prefix)
+        end)
+        |> Enum.take(max_keys)
+        |> Enum.map(fn {{_b, k}, %{metadata: meta}} ->
+          %{
+            key: k,
+            size: meta.size,
+            last_modified: meta.last_modified,
+            etag: meta.etag,
+            storage_class: "STANDARD"
+          }
+        end)
       end)
-      |> Enum.take(max_keys)
-      |> Enum.map(fn {{_b, k}, %{metadata: meta}} ->
-        %{
-          key: k,
-          size: meta.size,
-          last_modified: meta.last_modified,
-          etag: meta.etag,
-          storage_class: "STANDARD"
-        }
-      end)
-    end)
 
     {:ok, %{objects: objects, continuation_token: nil}}
   end
@@ -153,10 +155,11 @@ defmodule Events.S3.Mock do
     expires_in = Keyword.get(opts, :expires_in, 3600)
 
     # Generate a fake presigned URL for testing
-    url = "https://#{bucket}.s3.amazonaws.com/#{key}?" <>
-          "X-Amz-Algorithm=AWS4-HMAC-SHA256&" <>
-          "X-Amz-Expires=#{expires_in}&" <>
-          "X-Amz-Method=#{method}"
+    url =
+      "https://#{bucket}.s3.amazonaws.com/#{key}?" <>
+        "X-Amz-Algorithm=AWS4-HMAC-SHA256&" <>
+        "X-Amz-Expires=#{expires_in}&" <>
+        "X-Amz-Method=#{method}"
 
     {:ok, url}
   end
@@ -170,6 +173,7 @@ defmodule Events.S3.Mock do
       case Map.get(state, source_bucket_key) do
         nil ->
           {{:error, :not_found}, state}
+
         data ->
           new_state = Map.put(state, dest_bucket_key, data)
           {:ok, new_state}
@@ -185,12 +189,14 @@ defmodule Events.S3.Mock do
       case Map.get(state, bucket_key) do
         nil ->
           {:error, :not_found}
+
         %{metadata: meta} ->
-          {:ok, %{
-            "content-length" => to_string(meta.size),
-            "last-modified" => DateTime.to_iso8601(meta.last_modified),
-            "etag" => meta.etag
-          }}
+          {:ok,
+           %{
+             "content-length" => to_string(meta.size),
+             "last-modified" => DateTime.to_iso8601(meta.last_modified),
+             "etag" => meta.etag
+           }}
       end
     end)
   end

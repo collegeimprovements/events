@@ -89,31 +89,34 @@ defmodule Events.Decorators.Decorator do
   defmacro __using__(opts \\ []) do
     imports = Keyword.get(opts, :only, :all)
 
-    modules = case imports do
-      :all -> [
-        Events.Decorators.Cache,
-        Events.Decorators.Telemetry,
-        Events.Decorators.Performance,
-        Events.Decorators.Debug,
-        Events.Decorators.Validation,
-        Events.Decorators.Purity,
-        Events.Decorators.Testing
-      ]
+    modules =
+      case imports do
+        :all ->
+          [
+            Events.Decorators.Cache,
+            Events.Decorators.Telemetry,
+            Events.Decorators.Performance,
+            Events.Decorators.Debug,
+            Events.Decorators.Validation,
+            Events.Decorators.Purity,
+            Events.Decorators.Testing
+          ]
 
-      list when is_list(list) ->
-        Enum.map(list, fn
-          :cache -> Events.Decorators.Cache
-          :telemetry -> Events.Decorators.Telemetry
-          :performance -> Events.Decorators.Performance
-          :debug -> Events.Decorators.Debug
-          :validation -> Events.Decorators.Validation
-          :purity -> Events.Decorators.Purity
-          :testing -> Events.Decorators.Testing
-          module when is_atom(module) -> module
-        end)
+        list when is_list(list) ->
+          Enum.map(list, fn
+            :cache -> Events.Decorators.Cache
+            :telemetry -> Events.Decorators.Telemetry
+            :performance -> Events.Decorators.Performance
+            :debug -> Events.Decorators.Debug
+            :validation -> Events.Decorators.Validation
+            :purity -> Events.Decorators.Purity
+            :testing -> Events.Decorators.Testing
+            module when is_atom(module) -> module
+          end)
 
-      module when is_atom(module) -> [module]
-    end
+        module when is_atom(module) ->
+          [module]
+      end
 
     quote do
       use Decorator.Define

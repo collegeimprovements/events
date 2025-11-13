@@ -175,6 +175,7 @@ defmodule Events.Result do
   """
   @spec unwrap!(t()) :: term() | no_return()
   def unwrap!({:ok, value}), do: value
+
   def unwrap!(error) do
     raise ArgumentError, "Expected {:ok, value}, got: #{inspect(error)}"
   end
@@ -190,7 +191,7 @@ defmodule Events.Result do
       iex> Result.unwrap_or({:error, :not_found}, 0)
       0
   """
-  @spec unwrap_or(t(v, _e), v) :: v when v: term()
+  @spec unwrap_or(t(v, any()), v) :: v when v: term()
   def unwrap_or({:ok, value}, _default), do: value
   def unwrap_or({:error, _}, default), do: default
 
@@ -314,6 +315,7 @@ defmodule Events.Result do
   def combine_with({:ok, a}, {:ok, b}, fun) when is_function(fun, 2) do
     {:ok, fun.(a, b)}
   end
+
   def combine_with({:error, _} = error, _, _), do: error
   def combine_with(_, {:error, _} = error, _), do: error
 
@@ -345,7 +347,7 @@ defmodule Events.Result do
       iex> Result.to_option({:error, :not_found})
       nil
   """
-  @spec to_option(t(v, _e)) :: v | nil when v: term()
+  @spec to_option(t(v, any())) :: v | nil when v: term()
   def to_option({:ok, value}), do: value
   def to_option({:error, _}), do: nil
 
@@ -365,6 +367,7 @@ defmodule Events.Result do
     fun.(value)
     result
   end
+
   def tap({:error, _} = error, _fun), do: error
 
   @doc """
@@ -381,5 +384,6 @@ defmodule Events.Result do
     fun.(reason)
     error
   end
+
   def tap_error({:ok, _} = ok, _fun), do: ok
 end

@@ -135,14 +135,15 @@ defmodule Events.AWSConfig do
   """
   @spec from_env() :: t()
   def from_env do
-    opts = [
-      access_key_id: System.get_env("AWS_ACCESS_KEY_ID"),
-      secret_access_key: System.get_env("AWS_SECRET_ACCESS_KEY"),
-      region: System.get_env("AWS_DEFAULT_REGION") || System.get_env("AWS_REGION"),
-      bucket: System.get_env("AWS_S3_BUCKET"),
-      endpoint: System.get_env("AWS_ENDPOINT")
-    ]
-    |> Enum.reject(fn {_, v} -> is_nil(v) end)
+    opts =
+      [
+        access_key_id: System.get_env("AWS_ACCESS_KEY_ID"),
+        secret_access_key: System.get_env("AWS_SECRET_ACCESS_KEY"),
+        region: System.get_env("AWS_DEFAULT_REGION") || System.get_env("AWS_REGION"),
+        bucket: System.get_env("AWS_S3_BUCKET"),
+        endpoint: System.get_env("AWS_ENDPOINT")
+      ]
+      |> Enum.reject(fn {_, v} -> is_nil(v) end)
 
     new(opts)
   end

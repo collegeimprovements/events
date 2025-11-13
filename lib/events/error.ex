@@ -43,24 +43,34 @@ defmodule Events.Error do
   - `:network` - Network errors
   """
 
+  require Logger
+
   alias __MODULE__
 
   @type error_type ::
-    :validation | :not_found | :unauthorized | :forbidden |
-    :conflict | :rate_limited | :internal | :external |
-    :timeout | :network | :business
+          :validation
+          | :not_found
+          | :unauthorized
+          | :forbidden
+          | :conflict
+          | :rate_limited
+          | :internal
+          | :external
+          | :timeout
+          | :network
+          | :business
 
   @type t :: %__MODULE__{
-    type: error_type(),
-    code: atom(),
-    message: String.t(),
-    details: map(),
-    context: map(),
-    source: term(),
-    stacktrace: list() | nil,
-    id: String.t(),
-    occurred_at: DateTime.t()
-  }
+          type: error_type(),
+          code: atom(),
+          message: String.t(),
+          details: map(),
+          context: map(),
+          source: term(),
+          stacktrace: list() | nil,
+          id: String.t(),
+          occurred_at: DateTime.t()
+        }
 
   defstruct [
     :type,
@@ -142,22 +152,32 @@ defmodule Events.Error do
   def normalize(%Ecto.Changeset{} = changeset, opts) do
     errors = transform_changeset_errors(changeset)
 
-    new(:validation, :validation_failed,
-      Keyword.merge([
-        message: "Validation failed",
-        details: errors,
-        source: changeset
-      ], opts)
+    new(
+      :validation,
+      :validation_failed,
+      Keyword.merge(
+        [
+          message: "Validation failed",
+          details: errors,
+          source: changeset
+        ],
+        opts
+      )
     )
   end
 
   def normalize(%{__exception__: true} = exception, opts) do
-    new(:internal, :exception,
-      Keyword.merge([
-        message: Exception.message(exception),
-        source: exception,
-        stacktrace: opts[:stacktrace] || Exception.format_stacktrace()
-      ], opts)
+    new(
+      :internal,
+      :exception,
+      Keyword.merge(
+        [
+          message: Exception.message(exception),
+          source: exception,
+          stacktrace: opts[:stacktrace] || Exception.format_stacktrace()
+        ],
+        opts
+      )
     )
   end
 
@@ -166,17 +186,20 @@ defmodule Events.Error do
   end
 
   def normalize(error, opts) when is_binary(error) do
-    new(:internal, :error,
-      Keyword.merge([message: error, source: error], opts)
-    )
+    new(:internal, :error, Keyword.merge([message: error, source: error], opts))
   end
 
   def normalize(error, opts) do
-    new(:internal, :unknown,
-      Keyword.merge([
-        message: "An unknown error occurred",
-        source: error
-      ], opts)
+    new(
+      :internal,
+      :unknown,
+      Keyword.merge(
+        [
+          message: "An unknown error occurred",
+          source: error
+        ],
+        opts
+      )
     )
   end
 
@@ -193,7 +216,7 @@ defmodule Events.Error do
       end
   """
   @spec normalize_result({:ok, term()} | {:error, term()}, keyword()) ::
-    {:ok, term()} | {:error, t()}
+          {:ok, term()} | {:error, t()}
   def normalize_result({:ok, value}, _opts), do: {:ok, value}
   def normalize_result({:error, reason}, opts), do: {:error, normalize(reason, opts)}
 
@@ -274,8 +297,11 @@ defmodule Events.Error do
       #=> {422, %{error: %{type: "validation", ...}}}
   """
   @spec handle(t(), atom(), keyword()) :: term()
-  def handle(%Error{} = error, :http, _opts \\ []) do
+  def handle(error, context, opts \\ [])
+
+  def handle(%Error{} = error, :http, _opts) do
     status = error_to_http_status(error.type)
+
     body = %{
       error: %{
         type: error.type,
@@ -285,10 +311,11 @@ defmodule Events.Error do
         id: error.id
       }
     }
+
     {status, body}
   end
 
-  def handle(%Error{} = error, :graphql, _opts \\ []) do
+  def handle(%Error{} = error, :graphql, _opts) do
     %{
       message: error.message,
       extensions: %{
@@ -300,7 +327,7 @@ defmodule Events.Error do
     }
   end
 
-  def handle(%Error{} = error, :log, opts \\ []) do
+  def handle(%Error{} = error, :log, opts) do
     level = opts[:level] || :error
 
     Logger.log(level, "Error occurred",

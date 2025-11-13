@@ -70,7 +70,9 @@ defmodule Events.MixProject do
       {:deco, "~> 0.1.2"},
       {:nebulex, "~> 2.6"},
       {:nebulex_redis_adapter, "~> 2.4"},
-      {:req_s3, "~> 0.2.3"}
+      {:req_s3, "~> 0.2.3"},
+      {:hammer, "~> 6.2"},
+      {:hammer_backend_redis, "~> 6.2"}
     ]
   end
 
