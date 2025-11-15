@@ -13,11 +13,21 @@ defmodule EventsWeb.Components.Base do
       <.button variant="primary">Click me</.button>
       <.badge variant="success">New</.badge>
 
+      # Use composable sub-components
+      <.card>
+        <.card_header>
+          <.card_title>Title</.card_title>
+        </.card_header>
+        <.card_content>Content</.card_content>
+      </.card>
+
   All components are built with:
   - Accessibility in mind (ARIA attributes, keyboard navigation)
   - Tailwind CSS for styling
   - LiveView JS for interactions
   - Colocated JavaScript hooks for complex interactions
+  - Composable sub-components for maximum flexibility
+  - Shared utility functions for consistency
   """
 
   use Phoenix.Component
@@ -28,6 +38,8 @@ defmodule EventsWeb.Components.Base do
   # Import all component modules
   defdelegate accordion(assigns), to: EventsWeb.Components.Base.Accordion
   defdelegate alert(assigns), to: EventsWeb.Components.Base.Alert
+  defdelegate alert_title(assigns), to: EventsWeb.Components.Base.Alert
+  defdelegate alert_description(assigns), to: EventsWeb.Components.Base.Alert
   defdelegate alert_dialog(assigns), to: EventsWeb.Components.Base.AlertDialog
   defdelegate avatar(assigns), to: EventsWeb.Components.Base.Avatar
   defdelegate badge(assigns), to: EventsWeb.Components.Base.Badge
@@ -36,6 +48,11 @@ defmodule EventsWeb.Components.Base do
   defdelegate button_group(assigns), to: EventsWeb.Components.Base.ButtonGroup
   defdelegate calendar(assigns), to: EventsWeb.Components.Base.Calendar
   defdelegate card(assigns), to: EventsWeb.Components.Base.Card
+  defdelegate card_header(assigns), to: EventsWeb.Components.Base.Card
+  defdelegate card_title(assigns), to: EventsWeb.Components.Base.Card
+  defdelegate card_description(assigns), to: EventsWeb.Components.Base.Card
+  defdelegate card_content(assigns), to: EventsWeb.Components.Base.Card
+  defdelegate card_footer(assigns), to: EventsWeb.Components.Base.Card
   defdelegate carousel(assigns), to: EventsWeb.Components.Base.Carousel
   defdelegate checkbox(assigns), to: EventsWeb.Components.Base.Checkbox
   defdelegate collapsible(assigns), to: EventsWeb.Components.Base.Collapsible
@@ -44,6 +61,11 @@ defmodule EventsWeb.Components.Base do
   defdelegate context_menu(assigns), to: EventsWeb.Components.Base.ContextMenu
   defdelegate date_picker(assigns), to: EventsWeb.Components.Base.DatePicker
   defdelegate dialog(assigns), to: EventsWeb.Components.Base.Dialog
+  defdelegate dialog_header(assigns), to: EventsWeb.Components.Base.Dialog
+  defdelegate dialog_title(assigns), to: EventsWeb.Components.Base.Dialog
+  defdelegate dialog_description(assigns), to: EventsWeb.Components.Base.Dialog
+  defdelegate dialog_body(assigns), to: EventsWeb.Components.Base.Dialog
+  defdelegate dialog_footer(assigns), to: EventsWeb.Components.Base.Dialog
   defdelegate drawer(assigns), to: EventsWeb.Components.Base.Drawer
   defdelegate dropdown_menu(assigns), to: EventsWeb.Components.Base.DropdownMenu
   defdelegate empty(assigns), to: EventsWeb.Components.Base.Empty
@@ -81,24 +103,6 @@ defmodule EventsWeb.Components.Base do
   defdelegate tooltip(assigns), to: EventsWeb.Components.Base.Tooltip
   defdelegate typography(assigns), to: EventsWeb.Components.Base.Typography
 
-  @doc """
-  Utility function to merge CSS classes, handling nil values and deduplication.
-  """
-  def classes(class_list) when is_list(class_list) do
-    class_list
-    |> Enum.reject(&is_nil/1)
-    |> Enum.join(" ")
-    |> String.trim()
-  end
-
-  def classes(class) when is_binary(class), do: class
-  def classes(nil), do: ""
-
-  @doc """
-  Gets variant classes from a map based on a variant key.
-  """
-  def variant_class(variants, variant, default \\ "")
-  def variant_class(variants, variant, default) when is_map(variants) do
-    Map.get(variants, variant, default)
-  end
+  # Export utility functions
+  defdelegate classes(class_list), to: EventsWeb.Components.Base.Utils
 end

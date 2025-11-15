@@ -2,16 +2,34 @@ defmodule EventsWeb.Components.Base.Badge do
   @moduledoc """
   Badge component for displaying labels and status indicators.
 
+  Uses shared variant system for consistent styling across status indicators.
+
   ## Examples
 
       <.badge>Default</.badge>
       <.badge variant="success">Success</.badge>
       <.badge variant="warning">Warning</.badge>
       <.badge variant="error">Error</.badge>
-      <.badge variant="outline">Outline</.badge>
+      <.badge variant="outline" size="lg">Outline Large</.badge>
+
+  ## Variants
+
+  - `default` - Dark badge
+  - `success` - Green background
+  - `warning` - Yellow background
+  - `error` - Red background
+  - `info` - Blue background
+  - `outline` - Bordered badge
+  - `secondary` - Light gray background
+
+  ## Sizes
+
+  - `sm` - Extra small (text-[10px])
+  - `default` - Standard (text-xs)
+  - `lg` - Large (text-sm)
   """
   use Phoenix.Component
-  import EventsWeb.Components.Base, only: [classes: 1]
+  alias EventsWeb.Components.Base.Utils
 
   attr :variant, :string,
     default: "default",
@@ -27,11 +45,10 @@ defmodule EventsWeb.Components.Base.Badge do
     ~H"""
     <span
       class={
-        classes([
+        Utils.classes([
           "inline-flex items-center justify-center",
-          "rounded-full font-medium",
-          "transition-colors",
-          variant_classes(@variant),
+          "rounded-full font-medium transition-colors",
+          Utils.variant(@variant, Utils.badge_variants()),
           size_classes(@size),
           @class
         ])
@@ -42,27 +59,6 @@ defmodule EventsWeb.Components.Base.Badge do
     </span>
     """
   end
-
-  defp variant_classes("default"),
-    do: "bg-zinc-900 text-zinc-50 hover:bg-zinc-800"
-
-  defp variant_classes("success"),
-    do: "bg-green-100 text-green-800 hover:bg-green-200"
-
-  defp variant_classes("warning"),
-    do: "bg-yellow-100 text-yellow-800 hover:bg-yellow-200"
-
-  defp variant_classes("error"),
-    do: "bg-red-100 text-red-800 hover:bg-red-200"
-
-  defp variant_classes("info"),
-    do: "bg-blue-100 text-blue-800 hover:bg-blue-200"
-
-  defp variant_classes("outline"),
-    do: "border border-zinc-300 bg-white text-zinc-900 hover:bg-zinc-50"
-
-  defp variant_classes("secondary"),
-    do: "bg-zinc-100 text-zinc-900 hover:bg-zinc-200"
 
   defp size_classes("default"), do: "px-2.5 py-0.5 text-xs"
   defp size_classes("sm"), do: "px-2 py-0.5 text-[10px]"

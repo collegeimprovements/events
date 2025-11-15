@@ -2,18 +2,37 @@ defmodule EventsWeb.Components.Base.Button do
   @moduledoc """
   Button component for user interactions.
 
-  Supports multiple variants, sizes, and states.
+  Supports multiple variants, sizes, and states with shared utility patterns.
 
   ## Examples
 
       <.button>Click me</.button>
-      <.button variant="outline">Outline</.button>
+      <.button variant="primary" size="lg">Large Primary</.button>
       <.button variant="destructive" size="sm">Delete</.button>
       <.button variant="ghost" disabled>Disabled</.button>
       <.button variant="link" navigate={~p"/home"}>Home</.button>
+
+  ## Variants
+
+  - `default` - Standard dark button
+  - `primary` - Primary action (blue)
+  - `secondary` - Secondary action (light gray)
+  - `outline` - Bordered button
+  - `ghost` - Minimal styling
+  - `destructive` - Dangerous actions (red)
+  - `link` - Link-styled button
+
+  ## Sizes
+
+  - `sm` - Small (h-8, text-xs)
+  - `default` - Standard (h-10, text-sm)
+  - `lg` - Large (h-12, text-base)
+  - `icon` - Square icon button (10x10)
+  - `icon-sm` - Small icon button (8x8)
+  - `icon-lg` - Large icon button (12x12)
   """
   use Phoenix.Component
-  import EventsWeb.Components.Base, only: [classes: 1]
+  alias EventsWeb.Components.Base.Utils
 
   attr :variant, :string,
     default: "default",
@@ -33,15 +52,11 @@ defmodule EventsWeb.Components.Base.Button do
       type={@type}
       disabled={@disabled}
       class={
-        classes([
-          "inline-flex items-center justify-center gap-2",
-          "rounded-md font-medium",
-          "transition-colors duration-150",
-          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2",
-          "disabled:pointer-events-none disabled:opacity-50",
-          "whitespace-nowrap",
-          variant_classes(@variant),
-          size_classes(@size),
+        Utils.classes([
+          Utils.interactive_base(),
+          "whitespace-nowrap gap-2",
+          Utils.variant(@variant, Utils.button_variants()),
+          Utils.variant(@size, Utils.size_variants()),
           @class
         ])
       }
@@ -51,33 +66,4 @@ defmodule EventsWeb.Components.Base.Button do
     </button>
     """
   end
-
-  defp variant_classes("default"),
-    do: "bg-zinc-900 text-zinc-50 shadow hover:bg-zinc-800 focus-visible:ring-zinc-950"
-
-  defp variant_classes("primary"),
-    do: "bg-blue-600 text-white shadow hover:bg-blue-700 focus-visible:ring-blue-600"
-
-  defp variant_classes("secondary"),
-    do: "bg-zinc-100 text-zinc-900 shadow-sm hover:bg-zinc-200 focus-visible:ring-zinc-500"
-
-  defp variant_classes("outline"),
-    do:
-      "border border-zinc-300 bg-white text-zinc-900 shadow-sm hover:bg-zinc-50 focus-visible:ring-zinc-500"
-
-  defp variant_classes("ghost"),
-    do: "text-zinc-900 hover:bg-zinc-100 focus-visible:ring-zinc-500"
-
-  defp variant_classes("destructive"),
-    do: "bg-red-600 text-white shadow hover:bg-red-700 focus-visible:ring-red-600"
-
-  defp variant_classes("link"),
-    do: "text-zinc-900 underline-offset-4 hover:underline"
-
-  defp size_classes("default"), do: "h-10 px-4 py-2 text-sm"
-  defp size_classes("sm"), do: "h-8 px-3 py-1 text-xs rounded"
-  defp size_classes("lg"), do: "h-12 px-6 py-3 text-base"
-  defp size_classes("icon"), do: "h-10 w-10 p-0"
-  defp size_classes("icon-sm"), do: "h-8 w-8 p-0"
-  defp size_classes("icon-lg"), do: "h-12 w-12 p-0"
 end
