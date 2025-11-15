@@ -397,6 +397,96 @@ custom classes must fully style the input
   - You must import the vendor deps into app.js and app.css to use them
   - **Never write inline <script>custom js</script> tags within templates**
 
+#### JavaScript Libraries & Utilities
+
+**Standard JavaScript Libraries:**
+
+This project uses two primary JavaScript utility libraries that should be your go-to for common operations:
+
+1. **[@formkit/tempo](https://tempo.formkit.com/)** - For all date and time operations
+   - Date formatting and parsing
+   - Timezone conversions
+   - Date arithmetic (add/subtract days, months, etc.)
+   - Relative time (e.g., "2 hours ago")
+   - **Always prefer Tempo over native Date methods or moment.js alternatives**
+
+2. **[es-toolkit](https://es-toolkit.dev/)** - For utility functions and data manipulation
+   - Array operations (chunk, uniq, groupBy, etc.)
+   - Object manipulation (pick, omit, merge, etc.)
+   - String utilities (camelCase, snakeCase, etc.)
+   - Type checking and validation
+   - **Always prefer es-toolkit over lodash, underscore, or reinventing the wheel**
+
+**Function Composition with es-toolkit:**
+
+- **Always use `flow` or `pipe` from es-toolkit** for composing multiple function calls
+- This creates cleaner, more readable code with better function composition
+- Prefer `pipe` for left-to-right data flow (most intuitive)
+- Use `flow` when you need to create reusable composed functions
+
+**Examples:**
+
+```javascript
+import { pipe, flow } from 'es-toolkit';
+import { format, addDays } from '@formkit/tempo';
+
+// Prefer pipe for direct transformations (left-to-right)
+const result = pipe(
+  data,
+  filterInvalid,
+  sortByDate,
+  formatForDisplay
+);
+
+// Use flow to create reusable compositions
+const processUserData = flow(
+  validateUser,
+  enrichWithDefaults,
+  normalizeFields
+);
+
+const processedUser = processUserData(rawUser);
+
+// Example combining both libraries
+import { uniq, sortBy } from 'es-toolkit';
+
+const formatEventDates = pipe(
+  events,
+  (list) => uniq(list),
+  (list) => sortBy(list, e => e.date),
+  (list) => list.map(e => ({
+    ...e,
+    formattedDate: format(e.date, 'MMMM D, YYYY')
+  }))
+);
+```
+
+**Why These Libraries?**
+
+- **Performance**: Both libraries are highly optimized and tree-shakeable
+- **Type Safety**: Full TypeScript support with excellent type inference
+- **Modern**: Built for modern JavaScript/ES2022+
+- **Lightweight**: Small bundle sizes compared to alternatives
+- **Consistency**: Using standard libraries across the codebase makes code more maintainable
+
+**When to Use What:**
+
+- Need to format a date? → Use `@formkit/tempo`
+- Need to parse a date string? → Use `@formkit/tempo`
+- Need to filter/map/reduce arrays? → Use `es-toolkit`
+- Need to manipulate objects? → Use `es-toolkit`
+- Need to compose multiple functions? → Use `pipe`/`flow` from `es-toolkit`
+- Need to check types? → Use `es-toolkit` type guards
+
+**Installation:**
+
+These libraries are already installed in `assets/package.json`. To add new npm packages:
+
+```bash
+cd assets
+npm install <package-name>
+```
+
 ### UI/UX & design guidelines
 
 - **Produce world-class UI designs** with a focus on usability, aesthetics, and modern design principles

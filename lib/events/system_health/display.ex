@@ -35,6 +35,12 @@ defmodule Events.SystemHealth.Display do
     print_section_header("SERVICES", color?)
     print_services_table(health.services, color?)
 
+    # Infra connections table
+    if health.infra && health.infra != [] do
+      print_section_header("INFRA CONNECTIONS", color?)
+      print_infra_table(health.infra, color?)
+    end
+
     # Summary
     print_summary(health, color?)
 
@@ -42,6 +48,48 @@ defmodule Events.SystemHealth.Display do
     print_footer(health, color?)
 
     :ok
+  end
+
+  defp print_infra_table(connections, color?) do
+    header =
+      String.pad_trailing("INFRA", 16) <>
+        " │ " <>
+        String.pad_trailing("ENDPOINT", 32) <>
+        " │ " <>
+        String.pad_trailing("SOURCE", 20) <>
+        " │ DETAILS"
+
+    IO.puts(header)
+
+    divider =
+      String.duplicate("─", 16) <>
+        "─┼─" <>
+        String.duplicate("─", 32) <>
+        "─┼─" <>
+        String.duplicate("─", 20) <>
+        "─┼─" <>
+        String.duplicate("─", 20)
+
+    IO.puts(divider)
+
+    Enum.each(connections, fn conn ->
+      endpoint = conn.url || conn.raw_url || "(not configured)"
+      source = conn.source || "-"
+      details = conn.details || "-"
+
+      IO.puts(
+        String.pad_trailing(conn.name, 16) <>
+          " │ " <>
+          String.pad_trailing(endpoint, 32) <>
+          " │ " <>
+          String.pad_trailing(source, 20) <>
+          " │ " <>
+          details
+      )
+    end)
+
+    IO.puts(String.duplicate("═", @table_width))
+    IO.puts("")
   end
 
   # Header
