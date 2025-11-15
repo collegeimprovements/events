@@ -13,15 +13,17 @@ defmodule Events.SystemHealth.Migrations do
     try do
       all_migrations = get_all_migrations()
       applied_migrations = get_applied_migrations()
+      available_count = length(all_migrations)
+      applied_count = length(applied_migrations)
 
       # Use the count of applied migrations as the total if it's higher
       # (handles cases where migration files might be missing)
-      total = max(length(all_migrations), length(applied_migrations))
-      pending = max(0, length(all_migrations) - length(applied_migrations))
+      total = max(available_count, applied_count)
+      pending = max(0, available_count - applied_count)
 
       %{
-        total: length(all_migrations),
-        applied: length(applied_migrations),
+        total: total,
+        applied: applied_count,
         pending: pending,
         last_migration: List.last(applied_migrations),
         status: if(pending == 0, do: :up_to_date, else: :pending)
