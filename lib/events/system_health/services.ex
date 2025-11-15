@@ -5,6 +5,8 @@ defmodule Events.SystemHealth.Services do
   Checks are production-safe and Docker-compatible.
   """
 
+  alias Redix
+
   @services [
     %{name: "Repo", module: Events.Repo, type: :repo, critical: true},
     %{name: "Cache", module: Events.Cache, type: :cache, critical: false},
@@ -221,18 +223,30 @@ defmodule Events.SystemHealth.Services do
   end
 
   defp check_redis do
-    try do
-      # Use unique key to avoid conflicts in production
-      key = "health_check_#{System.unique_integer()}"
-
-      case Hammer.check_rate(key, 60_000, 1) do
-        {:allow, _} -> :ok
-        {:deny, _} -> :ok
-        {:error, reason} -> {:error, inspect(reason)}
+    with {:ok, redix_opts} <- redis_redix_config(),
+         {:ok, conn} <- Redix.start_link(redix_opts) do
+      try do
+        case Redix.command(conn, ["PING"]) do
+          {:ok, "PONG"} -> :ok
+          {:error, reason} -> {:error, inspect(reason)}
+          other -> {:error, inspect(other)}
+        end
+      after
+        Redix.stop(conn)
       end
-    rescue
-      e -> {:error, Exception.message(e)}
+    else
+      {:error, :not_configured} ->
+        {:error, "Redis backend not configured"}
+
+      {:error, {:unsupported_backend, backend}} ->
+        backend_name = backend |> Module.split() |> List.last()
+        {:error, "Unsupported Redis backend #{backend_name}"}
+
+      {:error, reason} ->
+        {:error, inspect(reason)}
     end
+  rescue
+    e -> {:error, Exception.message(e)}
   end
 
   defp check_endpoint(module) do
@@ -302,6 +316,19 @@ defmodule Events.SystemHealth.Services do
       end
     rescue
       _ -> "Hammer.Redis"
+    end
+  end
+
+  defp redis_redix_config do
+    case Application.get_env(:hammer, :backend) do
+      {Hammer.Backend.Redis, opts} ->
+        {:ok, Keyword.get(opts, :redix_config, [])}
+
+      {backend, _opts} ->
+        {:error, {:unsupported_backend, backend}}
+
+      _ ->
+        {:error, :not_configured}
     end
   end
 

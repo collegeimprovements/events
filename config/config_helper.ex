@@ -272,7 +272,21 @@ defmodule ConfigHelper do
   defp convert_to_atom(nil, var_name, false), do: log_missing_env(var_name)
 
   defp convert_to_atom(value, _var_name, _raise) when is_atom(value), do: value
-  defp convert_to_atom(value, _var_name, _raise) when is_binary(value), do: String.to_atom(value)
+
+  defp convert_to_atom(value, var_name, raise_on_error) when is_binary(value) do
+    trimmed = String.trim(value)
+
+    try do
+      String.to_existing_atom(trimmed)
+    rescue
+      ArgumentError ->
+        handle_invalid_atom(var_name, trimmed, raise_on_error)
+    end
+  end
+
+  defp convert_to_atom(value, var_name, raise_on_error) do
+    handle_invalid_atom(var_name, value, raise_on_error)
+  end
 
   # Convert to boolean
   defp convert_to_boolean(value) when is_boolean(value), do: value
@@ -298,6 +312,19 @@ defmodule ConfigHelper do
   end
 
   defp handle_invalid_integer(_var_name, _value, false), do: nil
+
+  defp handle_invalid_atom(var_name, value, true) do
+    raise ArgumentError,
+          "Environment variable #{var_name} references unknown atom: #{inspect(value)}"
+  end
+
+  defp handle_invalid_atom(var_name, value, false) do
+    log_warning(
+      "Environment variable #{var_name} references unknown atom #{inspect(value)}, returning nil"
+    )
+
+    nil
+  end
 
   defp raise_missing_env(var_name) do
     raise """
