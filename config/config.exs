@@ -38,20 +38,23 @@ config :esbuild,
   version: "0.25.4",
   events: [
     args:
-      ~w(js/app.js --bundle --target=es2022 --outdir=../priv/static/assets/js --external:/fonts/* --external:/images/* --alias:@=.),
-    cd: __DIR__ |> Path.expand("../assets"),
-    env: %{"NODE_PATH" => [__DIR__ |> Path.expand("../deps"), Mix.Project.build_path()]}
+      ~w(./js/app.js --bundle --target=es2022 --outdir=../priv/static/assets/js --external:/fonts/* --external:/images/* --alias:@=.),
+    cd: Path.expand("../assets", __DIR__),
+    env: %{
+      "NODE_PATH" => [Path.expand("../deps", __DIR__), Mix.Project.build_path()] |> Enum.join(":")
+    }
   ]
 
 # Configure tailwind
 config :tailwind,
   version: "4.1.7",
   events: [
-    args: ~w(
-      --input=assets/css/app.css
-      --output=priv/static/assets/css/app.css
-    ),
-    cd: __DIR__ |> Path.expand("..")
+    args:
+      ~w(--input) ++
+        [Path.expand("../assets/css/app.css", __DIR__)] ++
+        ~w(--output) ++
+        [Path.expand("../priv/static/assets/css/app.css", __DIR__)],
+    cd: Path.expand("..", __DIR__)
   ]
 
 # Cache configuration
