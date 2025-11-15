@@ -1,5 +1,8 @@
 import Config
 
+# Load config utilities
+Code.require_file("config_helper.ex", __DIR__)
+
 # General application configuration
 config :events,
   ecto_repos: [Events.Repo],
@@ -36,8 +39,8 @@ config :esbuild,
   events: [
     args:
       ~w(js/app.js --bundle --target=es2022 --outdir=../priv/static/assets/js --external:/fonts/* --external:/images/* --alias:@=.),
-    cd: Path.expand("../assets", __DIR__),
-    env: %{"NODE_PATH" => [Path.expand("../deps", __DIR__), Mix.Project.build_path()]}
+    cd: __DIR__ |> Path.expand("../assets"),
+    env: %{"NODE_PATH" => [__DIR__ |> Path.expand("../deps"), Mix.Project.build_path()]}
   ]
 
 # Configure tailwind
@@ -48,18 +51,21 @@ config :tailwind,
       --input=assets/css/app.css
       --output=priv/static/assets/css/app.css
     ),
-    cd: Path.expand("..", __DIR__)
+    cd: __DIR__ |> Path.expand("..")
   ]
 
 # Cache configuration
+# NOTE: The adapter is configured at runtime via the CACHE_ADAPTER environment variable
+# in config/runtime.exs. Default is "redis". Set CACHE_ADAPTER to "local", "redis", or "null".
+# See lib/events/cache.ex for more details.
 config :events, Events.Cache,
-  # GC interval: clean up every 12 hours
+  # GC interval: clean up every 12 hours (Local adapter only)
   gc_interval: :timer.hours(12),
-  # Max number of entries
+  # Max number of entries (Local adapter only)
   max_size: 1_000_000,
-  # Allocated memory in bytes (2 GB)
+  # Allocated memory in bytes (2 GB) (Local adapter only)
   allocated_memory: 2_000_000_000,
-  # GC cleanup timeouts
+  # GC cleanup timeouts (Local adapter only)
   gc_cleanup_min_timeout: :timer.seconds(10),
   gc_cleanup_max_timeout: :timer.minutes(10),
   # Enable stats for monitoring
@@ -70,11 +76,10 @@ config :hammer,
   backend:
     {Hammer.Backend.Redis,
      [
-       # 2 hours
-       expiry_ms: 60_000 * 60 * 2,
+       expiry_ms: :timer.hours(2),
        redix_config: [
-         host: System.get_env("REDIS_HOST", "localhost"),
-         port: String.to_integer(System.get_env("REDIS_PORT", "6379"))
+         host: ConfigHelper.get_env("REDIS_HOST", "localhost"),
+         port: ConfigHelper.get_env_integer("REDIS_PORT", 6379)
        ]
      ]}
 

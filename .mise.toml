@@ -2,26 +2,40 @@
 # https://github.com/jdx/mise
 
 [env]
-# Database Configuration
-# example: "ecto://emd:Emd@123@localhost:5434/nitro"
-# DATABASE_URL = "ecto://postgres:postgres@localhost:5432/events_dev"  # Override if needed
+# ==============================================================================
+# DATABASE CONFIGURATION
+# ==============================================================================
+# DATABASE_URL = "ecto://postgres:postgres@localhost:5432/events_dev"
 DB_POOL_SIZE = "10"
 DB_QUEUE_TARGET = "50"
 DB_QUEUE_INTERVAL = "1000"
 # DB_LOG_LEVEL = "debug"  # Options: debug, info, warning, error
-# ECTO_IPV6 = "false"     # Set to "true" or "1" to enable IPv6
-# DB_SSL = "false"        # Set to "true" or "1" to enable SSL in production
+# ECTO_IPV6 = "false"
+# DB_SSL = "false"        # Enable SSL in production
 
-# Phoenix Configuration
+# ==============================================================================
+# PHOENIX CONFIGURATION
+# ==============================================================================
 PORT = "4000"
-SECRET_KEY_BASE = "Q9kU1O/92BUVhBz1mJRDTx4QPQVWcs2Au+jEYeQ8++fsonlw5oP9OXIiWx2b6Ysu"    # Generate with: mix phx.gen.secret
+SECRET_KEY_BASE = "Q9kU1O/92BUVhBz1mJRDTx4QPQVWcs2Au+jEYeQ8++fsonlw5oP9OXIiWx2b6Ysu"
 # PHX_HOST = ""           # Required for production
-# PHX_SERVER = "true"     # Set to "true" to start server
+# PHX_SERVER = "true"
 
-# Test Configuration
+# ==============================================================================
+# CACHE CONFIGURATION
+# ==============================================================================
+# CACHE_ADAPTER = "redis" # Options: redis (default), local, null
+REDIS_HOST = "localhost"
+REDIS_PORT = "6379"
+
+# ==============================================================================
+# TEST CONFIGURATION
+# ==============================================================================
 # MIX_TEST_PARTITION = "" # For parallel test execution
 
-# Production Configuration (set in production environment)
+# ==============================================================================
+# PRODUCTION CONFIGURATION
+# ==============================================================================
 # DNS_CLUSTER_QUERY = ""
 # MAILGUN_API_KEY = ""
 # MAILGUN_DOMAIN = ""

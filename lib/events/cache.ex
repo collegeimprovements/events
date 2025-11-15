@@ -3,8 +3,8 @@ defmodule Events.Cache do
   Main cache module for the Events application using Nebulex.
 
   This cache is used by the caching decorators to store and retrieve
-  function results. It's configured with a local adapter suitable for
-  development and can be extended for production with distributed backends.
+  function results. The adapter can be easily swapped using the CACHE_ADAPTER
+  environment variable.
 
   ## Usage
 
@@ -19,9 +19,22 @@ defmodule Events.Cache do
         Repo.get(User, id)
       end
 
+  ## Adapter Configuration
+
+  Set the CACHE_ADAPTER environment variable to switch between adapters:
+
+      # Redis cache (default, requires REDIS_HOST and REDIS_PORT)
+      CACHE_ADAPTER=redis mix phx.server
+
+      # Local in-memory cache
+      CACHE_ADAPTER=local mix phx.server
+
+      # Disable caching (no-op adapter)
+      CACHE_ADAPTER=null mix phx.server
+
   ## Configuration
 
-  Configure the cache in `config/config.exs`:
+  Configure the cache in `config/config.exs` (for local adapter):
 
       config :events, Events.Cache,
         gc_interval: :timer.hours(12),
@@ -29,6 +42,14 @@ defmodule Events.Cache do
         allocated_memory: 2_000_000_000,
         gc_cleanup_min_timeout: :timer.seconds(10),
         gc_cleanup_max_timeout: :timer.minutes(10)
+
+  For Redis adapter, configure in `config/runtime.exs`:
+
+      config :events, Events.Cache,
+        conn_opts: [
+          host: System.get_env("REDIS_HOST", "localhost"),
+          port: String.to_integer(System.get_env("REDIS_PORT", "6379"))
+        ]
 
   ## Telemetry
 

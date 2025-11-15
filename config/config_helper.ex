@@ -361,4 +361,51 @@ defmodule ConfigHelper do
       IO.warn(message)
     end
   end
+
+  # ==============================================================================
+  # PUBLIC API - Cache Adapter Resolution
+  # ==============================================================================
+
+  @doc """
+  Resolves the Nebulex cache adapter based on the CACHE_ADAPTER environment variable.
+
+  Supported adapters:
+  - `"redis"` (default): Nebulex.Adapters.Redis
+  - `"local"`: Nebulex.Adapters.Local
+  - `"null"`, `"none"`, or `"nil"`: Nebulex.Adapters.Nil
+
+  ## Examples
+
+      ConfigHelper.get_cache_adapter()
+      # => Nebulex.Adapters.Redis (default)
+
+      # Set environment variable
+      System.put_env("CACHE_ADAPTER", "local")
+      ConfigHelper.get_cache_adapter()
+      # => Nebulex.Adapters.Local
+
+  """
+  @spec get_cache_adapter() :: module()
+  def get_cache_adapter do
+    System.get_env("CACHE_ADAPTER", "redis")
+    |> String.downcase()
+    |> String.trim()
+    |> case do
+      adapter when adapter in ["null", "none", "nil"] ->
+        Nebulex.Adapters.Nil
+
+      "local" ->
+        Nebulex.Adapters.Local
+
+      adapter when adapter in ["redis", ""] ->
+        Nebulex.Adapters.Redis
+
+      other ->
+        log_warning(
+          "Unknown CACHE_ADAPTER value: #{inspect(other)}. Using default: Nebulex.Adapters.Redis"
+        )
+
+        Nebulex.Adapters.Redis
+    end
+  end
 end
