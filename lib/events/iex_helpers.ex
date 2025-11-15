@@ -130,12 +130,10 @@ defmodule Events.IExHelpers do
     end
   end
 
-  defp print_proxy_line(label, nil, opts \\ []) do
-    if Keyword.get(opts, :allow_empty?, false) do
-      IO.puts("  #{label}: #{IO.ANSI.light_black()}(not set)#{IO.ANSI.reset()}")
-    else
-      IO.puts("  #{label}: #{IO.ANSI.light_black()}(not set)#{IO.ANSI.reset()}")
-    end
+  defp print_proxy_line(label, value, opts \\ [])
+
+  defp print_proxy_line(label, nil, _opts) do
+    IO.puts("  #{label}: #{IO.ANSI.light_black()}(not set)#{IO.ANSI.reset()}")
   end
 
   defp print_proxy_line(label, value, _opts) do

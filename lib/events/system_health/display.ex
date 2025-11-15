@@ -35,10 +35,9 @@ defmodule Events.SystemHealth.Display do
     print_section_header("SERVICES", color?)
     print_services_table(health.services, color?)
 
-    # Infra connections table
-    if health.infra && health.infra != [] do
+    if infra_connections?(health.infra) do
       print_section_header("INFRA CONNECTIONS", color?)
-      print_infra_table(health.infra, color?)
+      print_infra_list(health.infra, color?)
     end
 
     # Summary
@@ -50,42 +49,28 @@ defmodule Events.SystemHealth.Display do
     :ok
   end
 
-  defp print_infra_table(connections, color?) do
-    header =
-      String.pad_trailing("INFRA", 16) <>
-        " │ " <>
-        String.pad_trailing("ENDPOINT", 32) <>
-        " │ " <>
-        String.pad_trailing("SOURCE", 20) <>
-        " │ DETAILS"
+  defp infra_connections?(list) when is_list(list), do: Enum.any?(list)
+  defp infra_connections?(_), do: false
 
-    IO.puts(header)
-
-    divider =
-      String.duplicate("─", 16) <>
-        "─┼─" <>
-        String.duplicate("─", 32) <>
-        "─┼─" <>
-        String.duplicate("─", 20) <>
-        "─┼─" <>
-        String.duplicate("─", 20)
-
-    IO.puts(divider)
-
+  defp print_infra_list(connections, color?) do
     Enum.each(connections, fn conn ->
-      endpoint = conn.url || conn.raw_url || "(not configured)"
-      source = conn.source || "-"
-      details = conn.details || "-"
+      IO.puts(colorize("● #{conn.name}", :cyan, color?))
 
       IO.puts(
-        String.pad_trailing(conn.name, 16) <>
-          " │ " <>
-          String.pad_trailing(endpoint, 32) <>
-          " │ " <>
-          String.pad_trailing(source, 20) <>
-          " │ " <>
-          details
+        "    Endpoint : " <>
+          colorize(conn.url || conn.raw_url || "(not configured)", :light_black, color?)
       )
+
+      IO.puts(
+        "    Source   : " <>
+          colorize(conn.source || "-", :light_black, color?)
+      )
+
+      if details = conn.details do
+        IO.puts("    Details  : #{details}")
+      end
+
+      IO.puts("")
     end)
 
     IO.puts(String.duplicate("═", @table_width))

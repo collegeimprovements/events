@@ -81,20 +81,16 @@ defmodule Events.SystemHealth.Infra do
   end
 
   defp redis_connection do
-    case redis_base_url() do
-      {url, source} ->
-        %{
-          name: "Redis",
-          category: :redis,
-          url: mask_url(url),
-          raw_url: url,
-          source: source,
-          details: "General purpose Redis endpoint"
-        }
+    {url, source} = redis_base_url()
 
-      :no_redis ->
-        nil
-    end
+    %{
+      name: "Redis",
+      category: :redis,
+      url: mask_url(url),
+      raw_url: url,
+      source: source,
+      details: "General purpose Redis endpoint"
+    }
   end
 
   defp redis_base_url do
