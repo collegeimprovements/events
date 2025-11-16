@@ -16,7 +16,7 @@ defmodule EventsWeb.Components.Base.Breadcrumb do
       </.breadcrumb>
   """
   use Phoenix.Component
-  import EventsWeb.Components.Base, only: [classes: 1]
+  alias EventsWeb.Components.Base.Utils
 
   attr :separator, :string, default: nil
   attr :class, :string, default: nil
@@ -30,16 +30,16 @@ defmodule EventsWeb.Components.Base.Breadcrumb do
 
   def breadcrumb(assigns) do
     ~H"""
-    <nav aria-label="Breadcrumb" class={classes([@class])} {@rest}>
+    <nav aria-label="Breadcrumb" class={Utils.classes([@class])} {@rest}>
       <ol class="flex items-center space-x-2 text-sm text-zinc-600">
         <%= for {item, index} <- Enum.with_index(@item) do %>
           <li class="flex items-center gap-2">
             <%= if index > 0 do %>
               <span class="text-zinc-400" aria-hidden="true">
-                <%= @separator || render_chevron() %>
+                <%= @separator || chevron_icon() %>
               </span>
             <% end %>
-            <%= if item[:navigate] || item[:patch] || item[:href] do %>
+            <%= if has_link?(item) do %>
               <.link
                 navigate={item[:navigate]}
                 patch={item[:patch]}
@@ -60,7 +60,9 @@ defmodule EventsWeb.Components.Base.Breadcrumb do
     """
   end
 
-  defp render_chevron do
+  defp has_link?(item), do: item[:navigate] || item[:patch] || item[:href]
+
+  defp chevron_icon do
     Phoenix.HTML.raw("""
     <svg
       xmlns="http://www.w3.org/2000/svg"
