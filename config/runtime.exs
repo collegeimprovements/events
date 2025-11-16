@@ -16,11 +16,11 @@ env = config_env()
 
 # Database URL resolution
 database_url =
-  System.get_env("DATABASE_URL") ||
+  ConfigHelper.get_env("DATABASE_URL") ||
     case env do
       :test ->
-        partition = System.get_env("MIX_TEST_PARTITION") || ""
-        "ecto://postgres:postgres@localhost/events_test#{partition}"
+        ConfigHelper.get_env("MIX_TEST_PARTITION", "")
+        |> then(&"ecto://postgres:postgres@localhost/events_test#{&1}")
 
       :dev ->
         "ecto://postgres:postgres@localhost:5432/events_dev"
@@ -33,7 +33,9 @@ database_url =
     end
 
 # IPv6 support (optional)
-maybe_ipv6 = if ConfigHelper.get_env_boolean("ECTO_IPV6", false), do: [:inet6], else: []
+maybe_ipv6 =
+  ConfigHelper.get_env_boolean("ECTO_IPV6", false)
+  |> then(&if &1, do: [:inet6], else: [])
 
 # Base repo configuration shared across all environments
 base_repo_config = [
@@ -55,39 +57,49 @@ base_repo_config = [
 
 # Environment-specific repo configuration
 repo_config =
-  case env do
-    :dev ->
-      base_repo_config ++
-        [
-          pool_size: ConfigHelper.get_env_integer("DB_POOL_SIZE", 10),
-          log: ConfigHelper.get_env_atom("DB_LOG_LEVEL", "debug"),
-          stacktrace: true,
-          show_sensitive_data_on_connection_error: true
-        ]
+  base_repo_config
+  |> then(fn base ->
+    case env do
+      :dev ->
+        base ++
+          [
+            pool_size: ConfigHelper.get_env_integer("DB_POOL_SIZE", 10),
+            log: ConfigHelper.get_env_atom("DB_LOG_LEVEL", "debug"),
+            stacktrace: true,
+            show_sensitive_data_on_connection_error: true
+          ]
 
-    :test ->
-      base_repo_config ++
-        [
-          pool: Ecto.Adapters.SQL.Sandbox,
-          pool_size:
-            ConfigHelper.get_env_integer("DB_POOL_SIZE",
-              default: "#{System.schedulers_online() * 2}"
-            ),
-          log: false
-        ]
+      :test ->
+        base ++
+          [
+            pool: Ecto.Adapters.SQL.Sandbox,
+            pool_size:
+              System.schedulers_online()
+              |> then(&(&1 * 2))
+              |> Integer.to_string()
+              |> then(&ConfigHelper.get_env_integer("DB_POOL_SIZE", &1)),
+            log: false
+          ]
 
-    :prod ->
-      base_repo_config ++
-        [
-          pool_size: ConfigHelper.get_env_integer("DB_POOL_SIZE", 10),
-          # Uncomment for multi-core systems with high load
-          # pool_count: ConfigHelper.get_env_integer("DB_POOL_COUNT", 4),
-          log: ConfigHelper.get_env_atom("DB_LOG_LEVEL", "warning"),
-          ssl: ConfigHelper.get_env_boolean("DB_SSL")
-        ]
-  end
+      :prod ->
+        base ++
+          [
+            pool_size: ConfigHelper.get_env_integer("DB_POOL_SIZE", 10),
+            # Uncomment for multi-core systems with high load
+            # pool_count: ConfigHelper.get_env_integer("DB_POOL_COUNT", 4),
+            log: ConfigHelper.get_env_atom("DB_LOG_LEVEL", "warning"),
+            ssl: ConfigHelper.get_env_boolean("DB_SSL")
+          ]
+    end
+  end)
 
 config :events, Events.Repo, repo_config
+
+# ==============================================================================
+# CACHE CONFIGURATION
+# ==============================================================================
+
+config :events, Events.Cache, ConfigHelper.get_cache_config()
 
 # ==============================================================================
 # PHOENIX ENDPOINT CONFIGURATION
@@ -106,8 +118,10 @@ endpoint_config =
         code_reloader: true,
         debug_errors: true,
         secret_key_base:
-          System.get_env("SECRET_KEY_BASE") ||
-            "vJtFNtGUA5c3eC18tawePzHZZr4Zd2pg7Popo59Mqml3MVtbfua54SkynyH3mL+G",
+          ConfigHelper.get_env(
+            "SECRET_KEY_BASE",
+            "vJtFNtGUA5c3eC18tawePzHZZr4Zd2pg7Popo59Mqml3MVtbfua54SkynyH3mL+G"
+          ),
         watchers: [
           esbuild: {Esbuild, :install_and_run, [:events, ~w(--sourcemap=inline --watch)]},
           tailwind: {Tailwind, :install_and_run, [:events, ~w(--watch)]}
@@ -126,34 +140,33 @@ endpoint_config =
       [
         http: [ip: {127, 0, 0, 1}, port: 4002],
         secret_key_base:
-          System.get_env("SECRET_KEY_BASE") ||
-            "YJMCebrCtSIMECylkrpmTGhQC0LKEfuQV/HHEJdiuCnKh838eu4ZVWZvKPOxQEcp",
+          ConfigHelper.get_env(
+            "SECRET_KEY_BASE",
+            "YJMCebrCtSIMECylkrpmTGhQC0LKEfuQV/HHEJdiuCnKh838eu4ZVWZvKPOxQEcp"
+          ),
         server: false
       ]
 
     :prod ->
-      # Required production environment variables
       secret_key_base =
-        System.get_env("SECRET_KEY_BASE") ||
+        ConfigHelper.get_env("SECRET_KEY_BASE") ||
           raise """
           environment variable SECRET_KEY_BASE is missing.
           Configure it in mise/fnox: mise set SECRET_KEY_BASE=$(mix phx.gen.secret)
           """
 
-      host = System.get_env("PHX_HOST") || raise "PHX_HOST environment variable is missing"
-      port = ConfigHelper.get_env_integer("PORT", 4000)
-
-      # Enable server if PHX_SERVER is set
-      server = ConfigHelper.get_env_boolean("PHX_SERVER", false)
+      host =
+        ConfigHelper.get_env("PHX_HOST") ||
+          raise "PHX_HOST environment variable is missing"
 
       [
         url: [host: host, port: 443, scheme: "https"],
         http: [
           ip: {0, 0, 0, 0, 0, 0, 0, 0},
-          port: port
+          port: ConfigHelper.get_env_integer("PORT", 4000)
         ],
         secret_key_base: secret_key_base,
-        server: server
+        server: ConfigHelper.get_env_boolean("PHX_SERVER", false)
       ]
   end
 
@@ -201,7 +214,7 @@ case env do
 
   :prod ->
     # DNS cluster configuration
-    config :events, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
+    config :events, :dns_cluster_query, ConfigHelper.get_env("DNS_CLUSTER_QUERY")
 
     # Production mailer configuration
     # Configure based on your email service provider

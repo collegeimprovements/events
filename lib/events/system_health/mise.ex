@@ -17,81 +17,90 @@ defmodule Events.SystemHealth.Mise do
   """
   @spec get_info() :: map()
   def get_info do
-    mise_shell = System.get_env("MISE_SHELL")
+    System.get_env("MISE_SHELL")
+    |> build_mise_info()
+  end
 
-    if mise_shell do
-      %{
-        active: true,
-        shell: mise_shell,
-        tools: get_tools(),
-        env_vars: get_env_vars()
-      }
-    else
-      %{active: false}
-    end
+  defp build_mise_info(nil), do: %{active: false}
+
+  defp build_mise_info(mise_shell) do
+    %{
+      active: true,
+      shell: mise_shell,
+      tools: get_tools(),
+      env_vars: get_env_vars()
+    }
   end
 
   defp get_tools do
-    tools = []
+    [
+      {"MIX_HOME", "Elixir", "elixir"},
+      {"GOROOT", "Go", "go"},
+      {"PGDATA", "PostgreSQL", "postgres"}
+    ]
+    |> Enum.map(&extract_tool_info/1)
+    |> Enum.reject(&is_nil/1)
+  end
 
-    tools =
-      if path = System.get_env("MIX_HOME") do
-        tools ++ [{"Elixir", extract_version(path, "elixir")}]
-      else
-        tools
-      end
-
-    tools =
-      if path = System.get_env("GOROOT") do
-        tools ++ [{"Go", extract_version(path, "go")}]
-      else
-        tools
-      end
-
-    tools =
-      if path = System.get_env("PGDATA") do
-        tools ++ [{"PostgreSQL", extract_version(path, "postgres")}]
-      else
-        tools
-      end
-
-    tools
+  defp extract_tool_info({env_var, tool_name, tool_key}) do
+    System.get_env(env_var)
+    |> case do
+      nil -> nil
+      path -> {tool_name, extract_version(path, tool_key)}
+    end
   end
 
   defp get_env_vars do
     @mise_env_vars
-    |> Enum.map(fn {key, label} ->
-      case System.get_env(key) do
-        nil -> nil
-        value -> {label, key, mask_if_sensitive(label, value)}
-      end
-    end)
+    |> Enum.map(&extract_env_var/1)
     |> Enum.reject(&is_nil/1)
   end
 
+  defp extract_env_var({key, label}) do
+    System.get_env(key)
+    |> build_env_var(label, key)
+  end
+
+  defp build_env_var(nil, _label, _key), do: nil
+  defp build_env_var(value, label, key), do: {label, key, mask_if_sensitive(label, value)}
+
   defp extract_version(path, tool) when is_binary(path) do
-    case Regex.run(~r{/mise/installs/#{tool}/([^/]+)}, path) do
-      [_, version] -> version
-      _ -> "unknown"
-    end
+    ~r{/mise/installs/#{tool}/([^/]+)}
+    |> Regex.run(path)
+    |> parse_version_match()
   end
 
   defp extract_version(_, _), do: "unknown"
 
+  defp parse_version_match([_, version]), do: version
+  defp parse_version_match(_), do: "unknown"
+
   defp mask_if_sensitive(label, value) do
-    if String.contains?(String.downcase(label), ["secret", "key", "password"]) do
-      case String.length(value) do
-        len when len > 16 ->
-          String.slice(value, 0, 8) <> "••••••••" <> String.slice(value, -4, 4)
-
-        len when len > 8 ->
-          String.slice(value, 0, 4) <> "••••••••"
-
-        _ ->
-          "••••••••"
-      end
-    else
-      value
-    end
+    label
+    |> String.downcase()
+    |> is_sensitive?()
+    |> mask_value(value)
   end
+
+  defp is_sensitive?(label) do
+    String.contains?(label, ["secret", "key", "password"])
+  end
+
+  defp mask_value(false, value), do: value
+
+  defp mask_value(true, value) do
+    value
+    |> String.length()
+    |> build_mask(value)
+  end
+
+  defp build_mask(len, value) when len > 16 do
+    String.slice(value, 0, 8) <> "••••••••" <> String.slice(value, -4, 4)
+  end
+
+  defp build_mask(len, value) when len > 8 do
+    String.slice(value, 0, 4) <> "••••••••"
+  end
+
+  defp build_mask(_, _), do: "••••••••"
 end

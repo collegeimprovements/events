@@ -37,6 +37,7 @@ defmodule Events.SystemHealth do
     Migrations,
     Proxy,
     Mise,
+    Infra,
     Display
   }
 
@@ -62,6 +63,7 @@ defmodule Events.SystemHealth do
       migrations: Migrations.check_status(),
       proxy: Proxy.get_config(),
       mise: Mise.get_info(),
+      infra: Infra.connections(),
       timestamp: DateTime.utc_now(),
       duration_ms: nil
     }

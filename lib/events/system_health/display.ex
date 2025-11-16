@@ -35,6 +35,11 @@ defmodule Events.SystemHealth.Display do
     print_section_header("SERVICES", color?)
     print_services_table(health.services, color?)
 
+    if infra_connections?(health.infra) do
+      print_section_header("INFRA CONNECTIONS", color?)
+      print_infra_list(health.infra, color?)
+    end
+
     # Summary
     print_summary(health, color?)
 
@@ -42,6 +47,34 @@ defmodule Events.SystemHealth.Display do
     print_footer(health, color?)
 
     :ok
+  end
+
+  defp infra_connections?(list) when is_list(list), do: Enum.any?(list)
+  defp infra_connections?(_), do: false
+
+  defp print_infra_list(connections, color?) do
+    Enum.each(connections, fn conn ->
+      IO.puts(colorize("● #{conn.name}", :cyan, color?))
+
+      IO.puts(
+        "    Endpoint : " <>
+          colorize(conn.url || conn.raw_url || "(not configured)", :light_black, color?)
+      )
+
+      IO.puts(
+        "    Source   : " <>
+          colorize(conn.source || "-", :light_black, color?)
+      )
+
+      if details = conn.details do
+        IO.puts("    Details  : #{details}")
+      end
+
+      IO.puts("")
+    end)
+
+    IO.puts(String.duplicate("═", @table_width))
+    IO.puts("")
   end
 
   # Header

@@ -10,94 +10,93 @@ defmodule Events.SystemHealth.Migrations do
   """
   @spec check_status() :: map()
   def check_status do
-    try do
-      all_migrations = get_all_migrations()
-      applied_migrations = get_applied_migrations()
+    {get_all_migrations(), get_applied_migrations()}
+    |> build_migration_status()
+  rescue
+    _ -> error_status()
+  end
 
-      # Use the count of applied migrations as the total if it's higher
-      # (handles cases where migration files might be missing)
-      total = max(length(all_migrations), length(applied_migrations))
-      pending = max(0, length(all_migrations) - length(applied_migrations))
+  defp build_migration_status({all_migrations, applied_migrations}) do
+    available_count = length(all_migrations)
+    applied_count = length(applied_migrations)
+    total = max(available_count, applied_count)
+    pending = max(0, available_count - applied_count)
 
-      %{
-        total: length(all_migrations),
-        applied: length(applied_migrations),
-        pending: pending,
-        last_migration: List.last(applied_migrations),
-        status: if(pending == 0, do: :up_to_date, else: :pending)
-      }
-    rescue
-      _ ->
-        %{
-          total: 0,
-          applied: 0,
-          pending: 0,
-          last_migration: nil,
-          status: :error,
-          error: "Unable to check migration status"
-        }
-    end
+    %{
+      total: total,
+      applied: applied_count,
+      pending: pending,
+      last_migration: List.last(applied_migrations),
+      status: if(pending == 0, do: :up_to_date, else: :pending)
+    }
+  end
+
+  defp error_status do
+    %{
+      total: 0,
+      applied: 0,
+      pending: 0,
+      last_migration: nil,
+      status: :error,
+      error: "Unable to check migration status"
+    }
   end
 
   defp get_all_migrations do
-    try do
-      migrations_path = Application.app_dir(:events, "priv/repo/migrations")
+    Application.app_dir(:events, "priv/repo/migrations")
+    |> File.ls()
+    |> parse_migration_files()
+  rescue
+    _ -> []
+  end
 
-      case File.ls(migrations_path) do
-        {:ok, files} ->
-          files
-          |> Enum.filter(&String.ends_with?(&1, ".exs"))
-          |> Enum.map(fn file ->
-            case String.split(file, "_", parts: 2) do
-              [version | _] ->
-                case Integer.parse(version) do
-                  {int_version, ""} -> int_version
-                  _ -> nil
-                end
+  defp parse_migration_files({:ok, files}) do
+    files
+    |> Enum.filter(&String.ends_with?(&1, ".exs"))
+    |> Enum.map(&extract_migration_version/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.sort()
+  end
 
-              _ ->
-                nil
-            end
-          end)
-          |> Enum.reject(&is_nil/1)
-          |> Enum.sort()
+  defp parse_migration_files({:error, _}), do: []
 
-        {:error, _} ->
-          []
-      end
-    rescue
-      _ -> []
+  defp extract_migration_version(file) do
+    file
+    |> String.split("_", parts: 2)
+    |> parse_version_number()
+  end
+
+  defp parse_version_number([version | _]) do
+    case Integer.parse(version) do
+      {int_version, ""} -> int_version
+      _ -> nil
     end
   end
+
+  defp parse_version_number(_), do: nil
 
   defp get_applied_migrations do
-    try do
-      case Events.Repo.query(
-             "SELECT version FROM schema_migrations ORDER BY version",
-             [],
-             timeout: 5_000
-           ) do
-        {:ok, result} ->
-          Enum.map(result.rows, fn
-            [version] when is_binary(version) ->
-              case Integer.parse(version) do
-                {int_version, ""} -> int_version
-                _ -> nil
-              end
+    Events.Repo.query("SELECT version FROM schema_migrations ORDER BY version", [], timeout: 5_000)
+    |> parse_applied_migrations()
+  rescue
+    _ -> []
+  end
 
-            [version] when is_integer(version) ->
-              version
+  defp parse_applied_migrations({:ok, result}) do
+    result.rows
+    |> Enum.map(&extract_version_from_row/1)
+    |> Enum.reject(&is_nil/1)
+  end
 
-            _ ->
-              nil
-          end)
-          |> Enum.reject(&is_nil/1)
+  defp parse_applied_migrations(_), do: []
 
-        _ ->
-          []
-      end
-    rescue
-      _ -> []
+  defp extract_version_from_row([version]) when is_binary(version) do
+    case Integer.parse(version) do
+      {int_version, ""} -> int_version
+      _ -> nil
     end
   end
+
+  defp extract_version_from_row([version]) when is_integer(version), do: version
+  defp extract_version_from_row(_), do: nil
 end

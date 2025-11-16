@@ -1,5 +1,8 @@
 import Config
 
+# Load config utilities
+Code.require_file("config_helper.ex", __DIR__)
+
 # General application configuration
 config :events,
   ecto_repos: [Events.Repo],
@@ -35,46 +38,40 @@ config :esbuild,
   version: "0.25.4",
   events: [
     args:
-      ~w(js/app.js --bundle --target=es2022 --outdir=../priv/static/assets/js --external:/fonts/* --external:/images/* --alias:@=.),
+      ~w(./js/app.js --bundle --target=es2022 --outdir=../priv/static/assets/js --external:/fonts/* --external:/images/* --alias:@=.),
     cd: Path.expand("../assets", __DIR__),
-    env: %{"NODE_PATH" => [Path.expand("../deps", __DIR__), Mix.Project.build_path()]}
+    env: %{
+      "NODE_PATH" => [Path.expand("../deps", __DIR__), Mix.Project.build_path()] |> Enum.join(":")
+    }
   ]
 
 # Configure tailwind
 config :tailwind,
   version: "4.1.7",
   events: [
-    args: ~w(
-      --input=assets/css/app.css
-      --output=priv/static/assets/css/app.css
-    ),
+    args:
+      ~w(--input) ++
+        [Path.expand("../assets/css/app.css", __DIR__)] ++
+        ~w(--output) ++
+        [Path.expand("../priv/static/assets/css/app.css", __DIR__)],
     cd: Path.expand("..", __DIR__)
   ]
 
 # Cache configuration
-config :events, Events.Cache,
-  # GC interval: clean up every 12 hours
-  gc_interval: :timer.hours(12),
-  # Max number of entries
-  max_size: 1_000_000,
-  # Allocated memory in bytes (2 GB)
-  allocated_memory: 2_000_000_000,
-  # GC cleanup timeouts
-  gc_cleanup_min_timeout: :timer.seconds(10),
-  gc_cleanup_max_timeout: :timer.minutes(10),
-  # Enable stats for monitoring
-  stats: true
+# NOTE: The adapter is configured at runtime via the CACHE_ADAPTER environment variable
+# in config/runtime.exs. Default is "redis". Set CACHE_ADAPTER to "local", "redis", or "null".
+# See lib/events/cache.ex for more details.
+# Adapter-specific configuration is set in runtime.exs based on the selected adapter.
 
 # Hammer rate limiter configuration
 config :hammer,
   backend:
     {Hammer.Backend.Redis,
      [
-       # 2 hours
-       expiry_ms: 60_000 * 60 * 2,
+       expiry_ms: :timer.hours(2),
        redix_config: [
-         host: System.get_env("REDIS_HOST", "localhost"),
-         port: String.to_integer(System.get_env("REDIS_PORT", "6379"))
+         host: ConfigHelper.get_env("REDIS_HOST", "localhost"),
+         port: ConfigHelper.get_env_integer("REDIS_PORT", 6379)
        ]
      ]}
 

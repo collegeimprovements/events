@@ -272,7 +272,21 @@ defmodule ConfigHelper do
   defp convert_to_atom(nil, var_name, false), do: log_missing_env(var_name)
 
   defp convert_to_atom(value, _var_name, _raise) when is_atom(value), do: value
-  defp convert_to_atom(value, _var_name, _raise) when is_binary(value), do: String.to_atom(value)
+
+  defp convert_to_atom(value, var_name, raise_on_error) when is_binary(value) do
+    trimmed = String.trim(value)
+
+    try do
+      String.to_existing_atom(trimmed)
+    rescue
+      ArgumentError ->
+        handle_invalid_atom(var_name, trimmed, raise_on_error)
+    end
+  end
+
+  defp convert_to_atom(value, var_name, raise_on_error) do
+    handle_invalid_atom(var_name, value, raise_on_error)
+  end
 
   # Convert to boolean
   defp convert_to_boolean(value) when is_boolean(value), do: value
@@ -298,6 +312,19 @@ defmodule ConfigHelper do
   end
 
   defp handle_invalid_integer(_var_name, _value, false), do: nil
+
+  defp handle_invalid_atom(var_name, value, true) do
+    raise ArgumentError,
+          "Environment variable #{var_name} references unknown atom: #{inspect(value)}"
+  end
+
+  defp handle_invalid_atom(var_name, value, false) do
+    log_warning(
+      "Environment variable #{var_name} references unknown atom #{inspect(value)}, returning nil"
+    )
+
+    nil
+  end
 
   defp raise_missing_env(var_name) do
     raise """
@@ -333,5 +360,109 @@ defmodule ConfigHelper do
     else
       IO.warn(message)
     end
+  end
+
+  # ==============================================================================
+  # PUBLIC API - Cache Adapter Resolution
+  # ==============================================================================
+
+  @doc """
+  Resolves the Nebulex cache adapter based on the CACHE_ADAPTER environment variable.
+
+  Supported adapters:
+  - `"redis"` (default): Nebulex.Adapters.Redis
+  - `"local"`: Nebulex.Adapters.Local
+  - `"null"`, `"none"`, or `"nil"`: Nebulex.Adapters.Nil
+
+  ## Examples
+
+      ConfigHelper.get_cache_adapter()
+      # => Nebulex.Adapters.Redis (default)
+
+      # Set environment variable
+      System.put_env("CACHE_ADAPTER", "local")
+      ConfigHelper.get_cache_adapter()
+      # => Nebulex.Adapters.Local
+
+  """
+  @spec get_cache_adapter() :: module()
+  def get_cache_adapter do
+    System.get_env("CACHE_ADAPTER", "redis")
+    |> String.downcase()
+    |> String.trim()
+    |> parse_cache_adapter()
+  end
+
+  @doc """
+  Returns the complete cache configuration including adapter and adapter-specific options.
+
+  ## Examples
+
+      ConfigHelper.get_cache_config()
+      # => [adapter: NebulexRedisAdapter, conn_opts: [host: "localhost", port: 6379]]
+
+      System.put_env("CACHE_ADAPTER", "local")
+      ConfigHelper.get_cache_config()
+      # => [adapter: Nebulex.Adapters.Local, gc_interval: 43200000, ...]
+
+  """
+  @spec get_cache_config() :: keyword()
+  def get_cache_config do
+    get_cache_adapter()
+    |> build_cache_config()
+  end
+
+  # Private helpers for cache configuration
+
+  defp parse_cache_adapter(adapter) when adapter in ["null", "none", "nil"] do
+    Nebulex.Adapters.Nil
+  end
+
+  defp parse_cache_adapter("local"), do: Nebulex.Adapters.Local
+
+  defp parse_cache_adapter(adapter) when adapter in ["redis", ""] do
+    NebulexRedisAdapter
+  end
+
+  defp parse_cache_adapter(other) do
+    log_warning(
+      "Unknown CACHE_ADAPTER value: #{inspect(other)}. Using default: NebulexRedisAdapter"
+    )
+
+    NebulexRedisAdapter
+  end
+
+  defp build_cache_config(Nebulex.Adapters.Local) do
+    [
+      adapter: Nebulex.Adapters.Local,
+      gc_interval: :timer.hours(12),
+      max_size: 1_000_000,
+      allocated_memory: 2_000_000_000,
+      gc_cleanup_min_timeout: :timer.seconds(10),
+      gc_cleanup_max_timeout: :timer.minutes(10),
+      stats: true
+    ]
+  end
+
+  defp build_cache_config(NebulexRedisAdapter) do
+    [
+      adapter: NebulexRedisAdapter,
+      conn_opts: build_redis_conn_opts()
+    ]
+  end
+
+  defp build_cache_config(Nebulex.Adapters.Nil) do
+    [adapter: Nebulex.Adapters.Nil]
+  end
+
+  defp build_cache_config(adapter) do
+    [adapter: adapter]
+  end
+
+  defp build_redis_conn_opts do
+    [
+      host: get_env("REDIS_HOST", "localhost"),
+      port: get_env_integer("REDIS_PORT", 6379)
+    ]
   end
 end

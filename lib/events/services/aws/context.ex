@@ -134,7 +134,7 @@ defmodule Events.Services.Aws.Context do
   - `AWS_SECRET_ACCESS_KEY`
   - `AWS_REGION` (default: "us-east-1")
   - `AWS_S3_BUCKET` (optional)
-  - `AWS_ENDPOINT` (optional)
+  - `AWS_ENDPOINT` or `AWS_ENDPOINT_URL_S3` (optional)
 
   ## Examples
 
@@ -143,14 +143,32 @@ defmodule Events.Services.Aws.Context do
   """
   @spec from_env() :: t()
   def from_env do
+    endpoint_url = System.get_env("AWS_ENDPOINT_URL_S3") || System.get_env("AWS_ENDPOINT")
+
     new(
       access_key_id: System.fetch_env!("AWS_ACCESS_KEY_ID"),
       secret_access_key: System.fetch_env!("AWS_SECRET_ACCESS_KEY"),
       region: System.get_env("AWS_REGION", "us-east-1"),
-      bucket: System.get_env("AWS_S3_BUCKET"),
-      endpoint: System.get_env("AWS_ENDPOINT")
+      bucket: System.get_env("AWS_S3_BUCKET") || System.get_env("S3_BUCKET"),
+      endpoint_url: endpoint_url
     )
   end
+
+  @doc """
+  Creates an S3 context from environment variables (alias for from_env).
+
+  Pipe-friendly way to create an S3 context.
+
+  ## Examples
+
+      iex> Context.s3()
+      %Context{...}
+
+      iex> Context.s3() |> Context.with_bucket("my-bucket")
+      %Context{bucket: "my-bucket", ...}
+  """
+  @spec s3() :: t()
+  def s3, do: from_env()
 
   @doc """
   Sets the default bucket for this context.
