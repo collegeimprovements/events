@@ -17,7 +17,7 @@ defmodule EventsWeb.Components.Base.Select do
       </.select>
   """
   use Phoenix.Component
-  import EventsWeb.Components.Base, only: [classes: 1]
+  alias EventsWeb.Components.Base.Utils
   alias Phoenix.LiveView.JS
 
   attr :name, :string, required: true
@@ -33,9 +33,7 @@ defmodule EventsWeb.Components.Base.Select do
   end
 
   def select(assigns) do
-    assigns =
-      assigns
-      |> assign_new(:id, fn -> "select-#{:erlang.unique_integer([:positive])}" end)
+    assigns = assign_new(assigns, :id, fn -> "select-#{:erlang.unique_integer([:positive])}" end)
 
     ~H"""
     <div class="relative w-full" id={@id} phx-hook="Select">
@@ -47,22 +45,9 @@ defmodule EventsWeb.Components.Base.Select do
         aria-haspopup="listbox"
         disabled={@disabled}
         phx-click={toggle_dropdown(@id)}
-        class={
-          classes([
-            "flex h-10 w-full items-center justify-between rounded-md border bg-white px-3 py-2",
-            "text-sm text-zinc-900",
-            "transition-colors duration-150",
-            "focus:outline-none focus:ring-2 focus:ring-offset-2",
-            "disabled:cursor-not-allowed disabled:opacity-50",
-            if(@error,
-              do: "border-red-500 focus:ring-red-500",
-              else: "border-zinc-300 focus:ring-zinc-950"
-            ),
-            @class
-          ])
-        }
+        class={button_classes(@error, @class)}
       >
-        <span class={if(@value, do: "", else: "text-zinc-500")}>
+        <span class={placeholder_classes(@value)}>
           <%= selected_label(@option, @value) || @placeholder %>
         </span>
         <svg
@@ -88,12 +73,7 @@ defmodule EventsWeb.Components.Base.Select do
             role="option"
             aria-selected={to_string(@value == option.value)}
             phx-click={select_option(@id, @name, option.value)}
-            class={
-              classes([
-                "cursor-pointer px-3 py-2 text-sm hover:bg-zinc-100",
-                if(@value == option.value, do: "bg-zinc-50 font-medium", else: "")
-              ])
-            }
+            class={option_classes(@value == option.value)}
           >
             <%= render_slot(option) %>
           </div>
@@ -106,9 +86,32 @@ defmodule EventsWeb.Components.Base.Select do
     """
   end
 
+  defp button_classes(error, custom_class) do
+    [
+      "flex h-10 w-full items-center justify-between rounded-md border bg-white px-3 py-2",
+      "text-sm text-zinc-900 transition-colors duration-150",
+      "focus:outline-none focus:ring-2 focus:ring-offset-2",
+      "disabled:cursor-not-allowed disabled:opacity-50",
+      error && "border-red-500 focus:ring-red-500" || "border-zinc-300 focus:ring-zinc-950",
+      custom_class
+    ]
+    |> Utils.classes()
+  end
+
+  defp placeholder_classes(value), do: value && "" || "text-zinc-500"
+
+  defp option_classes(selected) do
+    [
+      "cursor-pointer px-3 py-2 text-sm hover:bg-zinc-100",
+      selected && "bg-zinc-50 font-medium"
+    ]
+    |> Utils.classes()
+  end
+
   defp selected_label(options, value) do
-    Enum.find_value(options, fn option ->
-      if option.value == value, do: Phoenix.HTML.Safe.to_iodata(option.inner_block) |> IO.iodata_to_binary()
+    options
+    |> Enum.find_value(fn option ->
+      option.value == value && Phoenix.HTML.Safe.to_iodata(option.inner_block) |> IO.iodata_to_binary()
     end)
   end
 

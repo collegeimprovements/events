@@ -9,7 +9,7 @@ defmodule EventsWeb.Components.Base.Slider do
       <.slider name="range" disabled />
   """
   use Phoenix.Component
-  import EventsWeb.Components.Base, only: [classes: 1]
+  alias EventsWeb.Components.Base.Utils
 
   attr :name, :string, required: true
   attr :value, :integer, default: 50
@@ -32,24 +32,7 @@ defmodule EventsWeb.Components.Base.Slider do
         max={@max}
         step={@step}
         disabled={@disabled}
-        class={
-          classes([
-            "h-2 w-full cursor-pointer appearance-none rounded-lg bg-zinc-200",
-            "focus:outline-none focus:ring-2 focus:ring-zinc-950 focus:ring-offset-2",
-            "disabled:cursor-not-allowed disabled:opacity-50",
-            "[&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:w-5",
-            "[&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full",
-            "[&::-webkit-slider-thumb]:bg-zinc-900 [&::-webkit-slider-thumb]:shadow",
-            "[&::-webkit-slider-thumb]:transition-all [&::-webkit-slider-thumb]:duration-150",
-            "[&::-webkit-slider-thumb]:hover:bg-zinc-800",
-            "[&::-moz-range-thumb]:h-5 [&::-moz-range-thumb]:w-5",
-            "[&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:rounded-full",
-            "[&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-zinc-900",
-            "[&::-moz-range-thumb]:shadow [&::-moz-range-thumb]:transition-all",
-            "[&::-moz-range-thumb]:duration-150 [&::-moz-range-thumb]:hover:bg-zinc-800",
-            @class
-          ])
-        }
+        class={slider_classes(@class)}
         {@rest}
       />
       <span :if={@show_value} class="mt-1 block text-center text-xs text-zinc-600">
@@ -57,5 +40,39 @@ defmodule EventsWeb.Components.Base.Slider do
       </span>
     </div>
     """
+  end
+
+  defp slider_classes(custom_class) do
+    [
+      "h-2 w-full cursor-pointer appearance-none rounded-lg bg-zinc-200",
+      "focus:outline-none focus:ring-2 focus:ring-zinc-950 focus:ring-offset-2",
+      "disabled:cursor-not-allowed disabled:opacity-50",
+      webkit_thumb_classes(),
+      moz_thumb_classes(),
+      custom_class
+    ]
+    |> Utils.classes()
+  end
+
+  defp webkit_thumb_classes do
+    [
+      "[&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:w-5",
+      "[&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full",
+      "[&::-webkit-slider-thumb]:bg-zinc-900 [&::-webkit-slider-thumb]:shadow",
+      "[&::-webkit-slider-thumb]:transition-all [&::-webkit-slider-thumb]:duration-150",
+      "[&::-webkit-slider-thumb]:hover:bg-zinc-800"
+    ]
+    |> Enum.join(" ")
+  end
+
+  defp moz_thumb_classes do
+    [
+      "[&::-moz-range-thumb]:h-5 [&::-moz-range-thumb]:w-5",
+      "[&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:rounded-full",
+      "[&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-zinc-900",
+      "[&::-moz-range-thumb]:shadow [&::-moz-range-thumb]:transition-all",
+      "[&::-moz-range-thumb]:duration-150 [&::-moz-range-thumb]:hover:bg-zinc-800"
+    ]
+    |> Enum.join(" ")
   end
 end
