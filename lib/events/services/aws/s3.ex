@@ -459,4 +459,14 @@ defmodule Events.Services.Aws.S3 do
         |> S3.generate_presigned_download_urls(context, expires_in: 3600)
   """
   defdelegate generate_presigned_download_urls(paths, context, opts \\ []), to: Pipeline
+
+  ## Configuration Defaults (Token Patterns)
+
+  # Default expiration times in seconds
+  @doc false
+  def default_upload_expiration, do: 3600
+  @doc false
+  def default_download_expiration, do: 3600
+  @doc false
+  def default_list_limit, do: 1000
 end
