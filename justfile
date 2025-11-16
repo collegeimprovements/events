@@ -1,9 +1,62 @@
 # Events Application Task Runner
 # https://github.com/casey/just
 
+# Docker image name
+IMAGE_NAME := "events:latest"
+
 # Default recipe to display help
 default:
     @just --list
+
+# ==============================================================================
+# HELPERS
+# ==============================================================================
+
+# Check if mix is available, otherwise use Docker
+[private]
+_mix *ARGS:
+    #!/usr/bin/env bash
+    if command -v mix &> /dev/null; then
+        mix {{ARGS}}
+    else
+        docker run --rm -i \
+            --env-file .env \
+            -v $(pwd):/app \
+            -w /app \
+            {{IMAGE_NAME}} \
+            mix {{ARGS}}
+    fi
+
+# Run elixir command (locally or in Docker)
+[private]
+_elixir *ARGS:
+    #!/usr/bin/env bash
+    if command -v elixir &> /dev/null; then
+        elixir {{ARGS}}
+    else
+        docker run --rm -i \
+            --env-file .env \
+            -v $(pwd):/app \
+            -w /app \
+            {{IMAGE_NAME}} \
+            elixir {{ARGS}}
+    fi
+
+# Run iex command (locally or in Docker)
+[private]
+_iex *ARGS:
+    #!/usr/bin/env bash
+    if command -v iex &> /dev/null; then
+        iex {{ARGS}}
+    else
+        docker run --rm -it \
+            --env-file .env \
+            -v $(pwd):/app \
+            -w /app \
+            -p 4000:4000 \
+            {{IMAGE_NAME}} \
+            iex {{ARGS}}
+    fi
 
 # ==============================================================================
 # DEVELOPMENT
@@ -11,28 +64,40 @@ default:
 
 # Start the Phoenix server
 server:
-    iex -S mix phx.server
+    @just _iex -S mix phx.server
 
 # Start the Phoenix server with specific port
 serve PORT="4000":
-    PORT={{PORT}} iex -S mix phx.server
+    #!/usr/bin/env bash
+    if command -v iex &> /dev/null; then
+        PORT={{PORT}} iex -S mix phx.server
+    else
+        docker run --rm -it \
+            --env-file .env \
+            -v $(pwd):/app \
+            -w /app \
+            -p {{PORT}}:{{PORT}} \
+            -e PORT={{PORT}} \
+            {{IMAGE_NAME}} \
+            iex -S mix phx.server
+    fi
 
 # Install dependencies
 deps:
-    mix deps.get
+    @just _mix deps.get
     cd assets && npm install
 
 # Run database migrations
 migrate:
-    mix ecto.migrate
+    @just _mix ecto.migrate
 
 # Rollback database migration
 rollback STEPS="1":
-    mix ecto.rollback --step {{STEPS}}
+    @just _mix ecto.rollback --step {{STEPS}}
 
 # Reset database (drop, create, migrate, seed)
 reset:
-    mix ecto.reset
+    @just _mix ecto.reset
 
 # ==============================================================================
 # TESTING
@@ -40,15 +105,15 @@ reset:
 
 # Run all tests
 test:
-    mix test
+    @just _mix test
 
 # Run tests with coverage
 test-coverage:
-    mix test --cover
+    @just _mix test --cover
 
 # Run tests and watch for changes
 test-watch:
-    mix test.watch
+    @just _mix test.watch
 
 # ==============================================================================
 # CODE QUALITY
@@ -56,19 +121,19 @@ test-watch:
 
 # Format code
 format:
-    mix format
+    @just _mix format
 
 # Check code formatting
 format-check:
-    mix format --check-formatted
+    @just _mix format --check-formatted
 
 # Run static analysis with Credo
 lint:
-    mix credo --strict
+    @just _mix credo --strict
 
 # Run Dialyzer for type checking
 dialyzer:
-    mix dialyzer
+    @just _mix dialyzer
 
 # ==============================================================================
 # SYSTEM HEALTH
@@ -76,7 +141,7 @@ dialyzer:
 
 # Display comprehensive system health status
 health:
-    @mix run -e "Events.SystemHealth.display()"
+    @just _mix run -e "Events.SystemHealth.display()"
 
 # Check system health via HTTP endpoint (requires server running)
 health-http PORT="4000":
@@ -88,11 +153,16 @@ health-check PORT="4000":
 
 # Monitor system health continuously (every 5 seconds)
 health-watch INTERVAL="5":
-    @watch -n {{INTERVAL}} 'mix run -e "Events.SystemHealth.display()"'
+    #!/usr/bin/env bash
+    if command -v mix &> /dev/null; then
+        watch -n {{INTERVAL}} 'mix run -e "Events.SystemHealth.display()"'
+    else
+        watch -n {{INTERVAL}} 'just _mix run -e "Events.SystemHealth.display()"'
+    fi
 
 # Quick health check - show only service status
 health-quick:
-    @mix run -e 'Events.SystemHealth.Services.check_all() |> Enum.each(fn s -> IO.puts("#{s.name}: #{s.status}") end)'
+    @just _mix run -e 'Events.SystemHealth.Services.check_all() |> Enum.each(fn s -> IO.puts("#{s.name}: #{s.status}") end)'
 
 # Check S3/MinIO connectivity using curl and awscli
 health-s3:
@@ -115,14 +185,30 @@ health-s3:
     # Check bucket access using Elixir (most reliable)
     echo ""
     echo "Checking bucket access..."
-    mix run -e "
-    context = Events.Services.Aws.Context.from_env()
-    case Events.Services.Aws.S3.list_objects(context, max_keys: 1) do
-      {:ok, _} -> IO.puts(\"✓ Bucket '#{context.bucket}': ACCESSIBLE\")
-      {:error, {:s3_error, status, _}} -> IO.puts(\"✗ Bucket access failed: HTTP #{status}\"); System.halt(1)
-      {:error, reason} -> IO.puts(\"✗ Bucket access failed: #{inspect(reason)}\"); System.halt(1)
-    end
-    " 2>&1 | grep -E "✓|✗"
+    if command -v mix &> /dev/null; then
+        mix run -e "
+        context = Events.Services.Aws.Context.from_env()
+        case Events.Services.Aws.S3.list_objects(context, max_keys: 1) do
+          {:ok, _} -> IO.puts(\"✓ Bucket '#{context.bucket}': ACCESSIBLE\")
+          {:error, {:s3_error, status, _}} -> IO.puts(\"✗ Bucket access failed: HTTP #{status}\"); System.halt(1)
+          {:error, reason} -> IO.puts(\"✗ Bucket access failed: #{inspect(reason)}\"); System.halt(1)
+        end
+        " 2>&1 | grep -E "✓|✗"
+    else
+        docker run --rm -i \
+            --env-file .env \
+            -v $(pwd):/app \
+            -w /app \
+            {{IMAGE_NAME}} \
+            mix run -e "
+            context = Events.Services.Aws.Context.from_env()
+            case Events.Services.Aws.S3.list_objects(context, max_keys: 1) do
+              {:ok, _} -> IO.puts(\"✓ Bucket '#{context.bucket}': ACCESSIBLE\")
+              {:error, {:s3_error, status, _}} -> IO.puts(\"✗ Bucket access failed: HTTP #{status}\"); System.halt(1)
+              {:error, reason} -> IO.puts(\"✗ Bucket access failed: #{inspect(reason)}\"); System.halt(1)
+            end
+            " 2>&1 | grep -E "✓|✗"
+    fi
 
     if [ $? -eq 0 ]; then
         echo ""
@@ -212,11 +298,22 @@ docker-run PORT="4000":
 
 # Build production release
 release:
-    MIX_ENV=prod mix release
+    #!/usr/bin/env bash
+    if command -v mix &> /dev/null; then
+        MIX_ENV=prod mix release
+    else
+        docker run --rm -i \
+            --env-file .env \
+            -v $(pwd):/app \
+            -w /app \
+            -e MIX_ENV=prod \
+            {{IMAGE_NAME}} \
+            mix release
+    fi
 
 # Deploy production assets
 assets-deploy:
-    mix assets.deploy
+    @just _mix assets.deploy
 
 # ==============================================================================
 # DATABASE
@@ -224,19 +321,19 @@ assets-deploy:
 
 # Create database
 db-create:
-    mix ecto.create
+    @just _mix ecto.create
 
 # Drop database
 db-drop:
-    mix ecto.drop
+    @just _mix ecto.drop
 
 # Generate a new migration
 db-gen-migration NAME:
-    mix ecto.gen.migration {{NAME}}
+    @just _mix ecto.gen.migration {{NAME}}
 
 # Check database connection
 db-check:
-    @mix run -e "case Events.Repo.query(\"SELECT 1\") do; {:ok, _} -> IO.puts(\"✓ Database connected\"); {:error, e} -> IO.puts(\"✗ Database error: #{inspect(e)}\"); end"
+    @just _mix run -e "case Events.Repo.query(\"SELECT 1\") do; {:ok, _} -> IO.puts(\"✓ Database connected\"); {:error, e} -> IO.puts(\"✗ Database error: #{inspect(e)}\"); end"
 
 # ==============================================================================
 # UTILITIES
@@ -244,20 +341,27 @@ db-check:
 
 # Open IEx console
 console:
-    iex -S mix
+    @just _iex -S mix
 
 # Clean build artifacts
 clean:
-    mix clean
+    @just _mix clean
     rm -rf _build deps
 
 # Show project information
 info:
-    @echo "Project: Events"
-    @echo "Elixir: $(elixir --version | grep Elixir)"
-    @echo "Erlang: $(elixir --version | grep Erlang)"
-    @echo "Mix env: $MIX_ENV"
+    #!/usr/bin/env bash
+    echo "Project: Events"
+    if command -v elixir &> /dev/null; then
+        echo "Elixir: $(elixir --version | grep Elixir)"
+        echo "Erlang: $(elixir --version | grep Erlang)"
+        echo "Mix env: ${MIX_ENV:-dev}"
+    else
+        echo "Elixir: (running via Docker)"
+        echo "Mix env: ${MIX_ENV:-dev}"
+        docker run --rm {{IMAGE_NAME}} elixir --version
+    fi
 
 # Generate Phoenix secret
 gen-secret:
-    @mix phx.gen.secret
+    @just _mix phx.gen.secret
