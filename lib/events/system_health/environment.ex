@@ -29,7 +29,8 @@ defmodule Events.SystemHealth.Environment do
   end
 
   defp safe_hostname do
-    case :inet.gethostname() do
+    :inet.gethostname()
+    |> case do
       {:ok, hostname} -> to_string(hostname)
       _ -> "unknown"
     end
@@ -42,38 +43,38 @@ defmodule Events.SystemHealth.Environment do
   end
 
   defp check_live_reload_status do
-    try do
-      case safe_mix_env() do
-        :dev ->
-          case Application.get_env(:events, EventsWeb.Endpoint, [])[:live_reload] do
-            nil -> :disabled
-            _ -> :enabled
-          end
+    safe_mix_env()
+    |> get_live_reload_config()
+  rescue
+    _ -> :unknown
+  end
 
-        _ ->
-          :not_applicable
-      end
-    rescue
-      _ -> :unknown
+  defp get_live_reload_config(:dev) do
+    Application.get_env(:events, EventsWeb.Endpoint, [])
+    |> Keyword.get(:live_reload)
+    |> case do
+      nil -> :disabled
+      _ -> :enabled
     end
   end
+
+  defp get_live_reload_config(_), do: :not_applicable
 
   defp get_active_watchers do
-    try do
-      case safe_mix_env() do
-        :dev ->
-          watchers = Application.get_env(:events, EventsWeb.Endpoint, [])[:watchers] || []
-
-          Enum.map(watchers, fn
-            {name, _} -> name
-            other -> other
-          end)
-
-        _ ->
-          []
-      end
-    rescue
-      _ -> []
-    end
+    safe_mix_env()
+    |> get_watchers_for_env()
+  rescue
+    _ -> []
   end
+
+  defp get_watchers_for_env(:dev) do
+    Application.get_env(:events, EventsWeb.Endpoint, [])
+    |> Keyword.get(:watchers, [])
+    |> Enum.map(&extract_watcher_name/1)
+  end
+
+  defp get_watchers_for_env(_), do: []
+
+  defp extract_watcher_name({name, _}), do: name
+  defp extract_watcher_name(other), do: other
 end

@@ -41,3 +41,4 @@ npm-debug.log
 # Environment-specific configuration (local overrides)
 .env.local
 .env.*.local
+node_modules

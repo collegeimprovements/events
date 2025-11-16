@@ -11,6 +11,7 @@ defmodule Events.SystemHealth.Services do
     %{name: "Repo", module: Events.Repo, type: :repo, critical: true},
     %{name: "Cache", module: Events.Cache, type: :cache, critical: false},
     %{name: "Redis", module: nil, type: :redis, critical: false},
+    %{name: "S3", module: nil, type: :s3, critical: false},
     %{name: "PubSub", module: Events.PubSub, type: :pubsub, critical: true},
     %{name: "Endpoint", module: EventsWeb.Endpoint, type: :endpoint, critical: true},
     %{name: "Telemetry", module: EventsWeb.Telemetry, type: :telemetry, critical: false}
@@ -21,337 +22,371 @@ defmodule Events.SystemHealth.Services do
   """
   @spec check_all() :: list(map())
   def check_all do
-    Enum.map(@services, &check_service/1)
+    @services
+    |> Enum.map(&check_service/1)
   end
 
   # Service checks
 
-  defp check_service(%{name: name, module: module, type: :repo, critical: critical}) do
-    adapter = safe_get_adapter(module, "Ecto.Postgres")
+  defp check_service(%{type: :repo} = service) do
+    service
+    |> perform_check(&check_repo/1, &safe_get_adapter(&1, "Ecto.Postgres"))
+    |> build_result(ok: "Connected & ready", error: "Database unavailable")
+  end
 
-    case check_repo(module) do
+  defp check_service(%{type: :cache} = service) do
+    service
+    |> perform_check(&check_cache/1, &safe_get_cache_adapter/1)
+    |> build_result(ok: "Operational", error: "Performance degraded")
+  end
+
+  defp check_service(%{type: :redis} = service) do
+    service
+    |> perform_check(fn _ -> check_redis() end, fn _ -> safe_get_redis_adapter() end)
+    |> build_result(ok: "Connected", error: "Rate limiting disabled")
+  end
+
+  defp check_service(%{type: :s3} = service) do
+    service
+    |> perform_check(fn _ -> check_s3() end, fn _ -> safe_get_s3_adapter() end)
+    |> build_result(ok: &s3_info/1, error: "File uploads unavailable")
+  end
+
+  defp check_service(%{type: :pubsub} = service) do
+    service
+    |> perform_check(&check_process/1, fn _ -> "Phoenix.PubSub" end)
+    |> build_result(ok: "Running", error: "Live updates unavailable")
+  end
+
+  defp check_service(%{type: :endpoint} = service) do
+    service
+    |> perform_check(&check_endpoint/1, &safe_get_endpoint_adapter/1)
+    |> build_result(ok: &endpoint_info/1, error: "HTTP requests failing")
+  end
+
+  defp check_service(%{type: :telemetry} = service) do
+    service
+    |> perform_check(&check_process/1, fn _ -> "Telemetry" end)
+    |> build_result(ok: "Monitoring active", error: "No metrics")
+  end
+
+  # Result builders
+
+  defp perform_check(%{module: module} = service, check_fn, adapter_fn) do
+    %{
+      service: service,
+      result: check_fn.(module),
+      adapter: adapter_fn.(module)
+    }
+  end
+
+  defp build_result(%{service: service, result: result, adapter: adapter}, opts) do
+    case result do
       :ok ->
-        %{
-          name: name,
-          status: :ok,
-          adapter: adapter,
-          critical: critical,
-          info: "Connected & ready",
-          impact: nil
-        }
+        build_ok_result(service, adapter, opts[:ok])
+
+      {:ok, data} ->
+        build_ok_result(service, adapter, opts[:ok], data)
 
       {:error, reason} ->
-        %{
-          name: name,
-          status: :error,
-          adapter: adapter,
-          critical: critical,
-          info: format_error(reason),
-          impact: "Database unavailable"
-        }
+        build_error_result(service, adapter, reason, opts[:error])
     end
   end
 
-  defp check_service(%{name: name, module: module, type: :cache, critical: critical}) do
-    adapter = safe_get_cache_adapter(module)
-
-    case check_cache(module) do
-      :ok ->
-        %{
-          name: name,
-          status: :ok,
-          adapter: adapter,
-          critical: critical,
-          info: "Operational",
-          impact: nil
-        }
-
-      {:error, reason} ->
-        %{
-          name: name,
-          status: :error,
-          adapter: adapter,
-          critical: critical,
-          info: format_error(reason),
-          impact: "Performance degraded"
-        }
-    end
+  defp build_ok_result(service, adapter, info_fn, data) when is_function(info_fn) do
+    build_ok_result(service, adapter, info_fn.(data))
   end
 
-  defp check_service(%{name: name, type: :redis, critical: critical}) do
-    adapter = safe_get_redis_adapter()
-
-    case check_redis() do
-      :ok ->
-        %{
-          name: name,
-          status: :ok,
-          adapter: adapter,
-          critical: critical,
-          info: "Connected",
-          impact: nil
-        }
-
-      {:error, reason} ->
-        %{
-          name: name,
-          status: :error,
-          adapter: adapter,
-          critical: critical,
-          info: format_error(reason),
-          impact: "Rate limiting disabled"
-        }
-    end
+  defp build_ok_result(service, adapter, info_fn) when is_function(info_fn) do
+    build_ok_result(service, adapter, info_fn.(nil))
   end
 
-  defp check_service(%{name: name, module: module, type: :pubsub, critical: critical}) do
-    case check_process(module) do
-      :ok ->
-        %{
-          name: name,
-          status: :ok,
-          adapter: "Phoenix.PubSub",
-          critical: critical,
-          info: "Running",
-          impact: nil
-        }
-
-      {:error, reason} ->
-        %{
-          name: name,
-          status: :error,
-          adapter: "Phoenix.PubSub",
-          critical: critical,
-          info: format_error(reason),
-          impact: "Live updates unavailable"
-        }
-    end
+  defp build_ok_result(service, adapter, info) do
+    %{
+      name: service.name,
+      status: :ok,
+      adapter: adapter,
+      critical: service.critical,
+      info: info,
+      impact: nil
+    }
   end
 
-  defp check_service(%{name: name, module: module, type: :endpoint, critical: critical}) do
-    adapter = safe_get_endpoint_adapter(module)
-
-    case check_endpoint(module) do
-      {:ok, port} ->
-        %{
-          name: name,
-          status: :ok,
-          adapter: adapter,
-          critical: critical,
-          info: "Port #{port}",
-          impact: nil
-        }
-
-      :ok ->
-        %{
-          name: name,
-          status: :ok,
-          adapter: adapter,
-          critical: critical,
-          info: "Running",
-          impact: nil
-        }
-
-      {:error, reason} ->
-        %{
-          name: name,
-          status: :error,
-          adapter: adapter,
-          critical: critical,
-          info: format_error(reason),
-          impact: "HTTP requests failing"
-        }
-    end
+  defp build_error_result(service, adapter, reason, impact) do
+    %{
+      name: service.name,
+      status: :error,
+      adapter: adapter,
+      critical: service.critical,
+      info: format_error(reason),
+      impact: impact
+    }
   end
 
-  defp check_service(%{name: name, module: module, type: :telemetry, critical: critical}) do
-    case check_process(module) do
-      :ok ->
-        %{
-          name: name,
-          status: :ok,
-          adapter: "Telemetry",
-          critical: critical,
-          info: "Monitoring active",
-          impact: nil
-        }
-
-      {:error, reason} ->
-        %{
-          name: name,
-          status: :error,
-          adapter: "Telemetry",
-          critical: critical,
-          info: format_error(reason),
-          impact: "No metrics"
-        }
-    end
-  end
+  defp s3_info(bucket), do: "Bucket: #{bucket}"
+  defp endpoint_info({:ok, port}), do: "Port #{port}"
+  defp endpoint_info(port) when is_integer(port), do: "Port #{port}"
+  defp endpoint_info(:ok), do: "Running"
+  defp endpoint_info(_), do: "Running"
 
   # Health check implementations
 
   defp check_repo(module) do
-    if process_alive?(module) do
-      try do
-        # Use a simple query with timeout
-        case module.query("SELECT 1", [], timeout: 5_000) do
-          {:ok, _} -> :ok
-          {:error, reason} -> {:error, reason}
-        end
-      rescue
-        e -> {:error, Exception.message(e)}
-      end
-    else
-      {:error, "Process not running"}
-    end
+    module
+    |> verify_process_alive()
+    |> perform_repo_query()
   end
 
   defp check_cache(module) do
-    if process_alive?(module) do
-      try do
-        test_key = {:__health_check__, System.unique_integer()}
-        module.put(test_key, true, ttl: :timer.seconds(1))
-        module.get(test_key)
-        module.delete(test_key)
-        :ok
-      rescue
-        e -> {:error, Exception.message(e)}
-      end
-    else
-      {:error, "Process not running"}
-    end
+    module
+    |> verify_process_alive()
+    |> perform_cache_test()
   end
 
-  defp check_redis do
-    with {:ok, redix_opts} <- redis_redix_config(),
-         {:ok, conn} <- Redix.start_link(redix_opts) do
-      try do
-        case Redix.command(conn, ["PING"]) do
-          {:ok, "PONG"} -> :ok
-          {:error, reason} -> {:error, inspect(reason)}
-          other -> {:error, inspect(other)}
-        end
-      after
-        Redix.stop(conn)
-      end
-    else
-      {:error, :not_configured} ->
-        {:error, "Redis backend not configured"}
+  defp verify_process_alive(module) do
+    if process_alive?(module), do: {:ok, module}, else: {:error, "Process not running"}
+  end
 
-      {:error, {:unsupported_backend, backend}} ->
-        backend_name = backend |> Module.split() |> List.last()
-        {:error, "Unsupported Redis backend #{backend_name}"}
-
-      {:error, reason} ->
-        {:error, inspect(reason)}
+  defp perform_repo_query({:ok, module}) do
+    module.query("SELECT 1", [], timeout: 5_000)
+    |> case do
+      {:ok, _} -> :ok
+      {:error, reason} -> {:error, reason}
     end
   rescue
     e -> {:error, Exception.message(e)}
   end
 
-  defp check_endpoint(module) do
-    if process_alive?(module) do
-      try do
-        config = module.config(:http)
+  defp perform_repo_query(error), do: error
 
-        if config && config[:port] do
-          {:ok, config[:port]}
-        else
-          :ok
-        end
-      rescue
-        _ -> :ok
-      end
+  defp perform_cache_test({:ok, module}) do
+    {:__health_check__, System.unique_integer()}
+    |> then(fn test_key ->
+      module.put(test_key, true, ttl: :timer.seconds(1))
+      module.get(test_key)
+      module.delete(test_key)
+      :ok
+    end)
+  rescue
+    e -> {:error, Exception.message(e)}
+  end
+
+  defp perform_cache_test(error), do: error
+
+  defp check_redis do
+    with {:ok, redix_opts} <- redis_redix_config(),
+         {:ok, conn} <- Redix.start_link(redix_opts) do
+      conn
+      |> perform_redis_ping()
+      |> tap(fn _ -> Redix.stop(conn) end)
     else
-      {:error, "Process not running"}
+      {:error, :not_configured} -> {:error, "Redis backend not configured"}
+      {:error, {:unsupported_backend, backend}} -> format_unsupported_backend(backend)
+      {:error, reason} -> {:error, inspect(reason)}
     end
+  rescue
+    e -> {:error, Exception.message(e)}
+  end
+
+  defp check_s3 do
+    s3_context()
+    |> perform_s3_list()
+  end
+
+  defp check_endpoint(module) do
+    module
+    |> verify_process_alive()
+    |> extract_endpoint_config()
   end
 
   defp check_process(module) do
-    if process_alive?(module) do
-      :ok
-    else
-      {:error, "Process not running"}
+    if process_alive?(module), do: :ok, else: {:error, "Process not running"}
+  end
+
+  defp perform_redis_ping(conn) do
+    Redix.command(conn, ["PING"])
+    |> case do
+      {:ok, "PONG"} -> :ok
+      {:error, reason} -> {:error, inspect(reason)}
+      other -> {:error, inspect(other)}
     end
   end
+
+  defp format_unsupported_backend(backend) do
+    backend
+    |> Module.split()
+    |> List.last()
+    |> then(&{:error, "Unsupported Redis backend #{&1}"})
+  end
+
+  defp perform_s3_list({:ok, context}) do
+    context
+    |> Events.Services.Aws.S3.list_objects(max_keys: 1)
+    |> case do
+      {:ok, _result} -> {:ok, context.bucket}
+      {:error, {:s3_error, status, _body}} -> {:error, "S3 error (HTTP #{status})"}
+      {:error, reason} -> {:error, inspect(reason)}
+    end
+  rescue
+    e -> {:error, Exception.message(e)}
+  end
+
+  defp perform_s3_list(error), do: error
+
+  defp extract_endpoint_config({:ok, module}) do
+    module.config(:http)
+    |> extract_port_from_config()
+  rescue
+    _ -> :ok
+  end
+
+  defp extract_endpoint_config(error), do: error
+
+  defp extract_port_from_config(config) when is_list(config) do
+    case Keyword.get(config, :port) do
+      port when is_integer(port) -> {:ok, port}
+      _ -> :ok
+    end
+  end
+
+  defp extract_port_from_config(_), do: :ok
 
   # Helper functions
 
   defp process_alive?(module) when is_atom(module) do
-    case Process.whereis(module) do
-      nil -> false
+    module
+    |> Process.whereis()
+    |> case do
       pid when is_pid(pid) -> Process.alive?(pid)
       _ -> false
     end
   end
 
   defp safe_get_adapter(module, default) do
-    try do
-      adapter = module.__adapter__()
-      adapter |> Module.split() |> List.last() |> then(&"Ecto.#{&1}")
-    rescue
-      _ -> default
-    end
+    module.__adapter__()
+    |> Module.split()
+    |> List.last()
+    |> then(&"Ecto.#{&1}")
+  rescue
+    _ -> default
   end
 
   defp safe_get_cache_adapter(module) do
+    # First try to get the runtime adapter from the running process
     try do
-      adapter = module.__adapter__()
-      adapter_type = adapter |> Module.split() |> List.last()
-      "Nebulex.#{adapter_type}"
+      module.__adapter__()
+      |> format_adapter_name()
     rescue
-      _ -> "Nebulex.Local"
+      _ ->
+        # Fallback to configured adapter from application environment
+        Application.get_env(:events, module, [])
+        |> Keyword.get(:adapter)
+        |> case do
+          nil -> "Nebulex (not configured)"
+          adapter -> format_adapter_name(adapter)
+        end
+    end
+  end
+
+  defp format_adapter_name(adapter) when is_atom(adapter) do
+    case adapter do
+      NebulexRedisAdapter ->
+        "Nebulex.Redis"
+
+      _ ->
+        adapter
+        |> Module.split()
+        |> List.last()
+        |> then(&"Nebulex.#{&1}")
     end
   end
 
   defp safe_get_redis_adapter do
-    try do
-      case Application.get_env(:hammer, :backend) do
-        {backend_module, _opts} ->
-          backend_type = backend_module |> Module.split() |> List.last()
-          "Hammer.#{backend_type}"
-
-        _ ->
-          "Hammer.Redis"
-      end
-    rescue
-      _ -> "Hammer.Redis"
-    end
+    Application.get_env(:hammer, :backend)
+    |> extract_backend_type()
+  rescue
+    _ -> "Hammer.Redis"
   end
+
+  defp extract_backend_type({backend_module, _opts}) do
+    backend_module
+    |> Module.split()
+    |> List.last()
+    |> then(&"Hammer.#{&1}")
+  end
+
+  defp extract_backend_type(_), do: "Hammer.Redis"
 
   defp redis_redix_config do
-    case Application.get_env(:hammer, :backend) do
-      {Hammer.Backend.Redis, opts} ->
-        {:ok, Keyword.get(opts, :redix_config, [])}
-
-      {backend, _opts} ->
-        {:error, {:unsupported_backend, backend}}
-
-      _ ->
-        {:error, :not_configured}
-    end
+    Application.get_env(:hammer, :backend)
+    |> parse_redis_backend()
   end
+
+  defp parse_redis_backend({Hammer.Backend.Redis, opts}) do
+    {:ok, Keyword.get(opts, :redix_config, [])}
+  end
+
+  defp parse_redis_backend({backend, _opts}), do: {:error, {:unsupported_backend, backend}}
+  defp parse_redis_backend(_), do: {:error, :not_configured}
 
   defp safe_get_endpoint_adapter(module) do
-    try do
-      adapter = module.config(:adapter)
-
-      if adapter do
-        adapter_parts = adapter |> Module.split()
-
-        case adapter_parts do
-          ["Bandit" | _] -> "Bandit"
-          ["Cowboy" | _] -> "Cowboy"
-          _ -> List.first(adapter_parts) || "Phoenix"
-        end
-      else
-        "Bandit"
-      end
-    rescue
-      _ -> "Bandit"
-    end
+    module.config(:adapter)
+    |> parse_endpoint_adapter()
+  rescue
+    _ -> "Bandit"
   end
 
-  defp format_error(reason) when is_binary(reason), do: String.slice(reason, 0, 50)
-  defp format_error(reason), do: reason |> inspect() |> String.slice(0, 50)
+  defp parse_endpoint_adapter(nil), do: "Bandit"
+
+  defp parse_endpoint_adapter(adapter) do
+    adapter
+    |> Module.split()
+    |> detect_adapter_type()
+  end
+
+  defp detect_adapter_type(["Bandit" | _]), do: "Bandit"
+  defp detect_adapter_type(["Cowboy" | _]), do: "Cowboy"
+  defp detect_adapter_type([first | _]) when is_binary(first), do: first
+  defp detect_adapter_type(_), do: "Phoenix"
+
+  defp safe_get_s3_adapter do
+    Events.Services.Aws.S3.adapter()
+    |> Module.split()
+    |> parse_s3_adapter()
+  rescue
+    _ -> "ReqS3"
+  end
+
+  defp parse_s3_adapter([_, _, _, "S3", "Adapter"]), do: "ReqS3"
+  defp parse_s3_adapter(parts), do: List.last(parts) || "ReqS3"
+
+  defp s3_context do
+    Events.Services.Aws.Context.from_env()
+    |> Events.Services.Aws.Context.validate()
+    |> validate_s3_bucket()
+  rescue
+    KeyError -> {:error, "AWS credentials not configured"}
+    e -> {:error, Exception.message(e)}
+  end
+
+  defp validate_s3_bucket({:ok, %{bucket: nil}}), do: {:error, "S3 bucket not configured"}
+  defp validate_s3_bucket({:ok, context}), do: {:ok, context}
+
+  defp validate_s3_bucket({:error, :missing_access_key_id}),
+    do: {:error, "AWS_ACCESS_KEY_ID not set"}
+
+  defp validate_s3_bucket({:error, :missing_secret_access_key}),
+    do: {:error, "AWS_SECRET_ACCESS_KEY not set"}
+
+  defp validate_s3_bucket({:error, reason}), do: {:error, "Invalid config: #{inspect(reason)}"}
+
+  defp format_error(reason) when is_binary(reason) do
+    String.slice(reason, 0, 50)
+  end
+
+  defp format_error(reason) do
+    reason
+    |> inspect()
+    |> String.slice(0, 50)
+  end
 end

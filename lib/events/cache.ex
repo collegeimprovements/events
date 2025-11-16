@@ -87,8 +87,10 @@ defmodule Events.Cache do
       def get_user(id), do: Repo.get(User, id)
   """
 
+  # NOTE: The adapter is configured at runtime in config/runtime.exs based on CACHE_ADAPTER env var.
+  # This compile-time adapter is only used as a fallback and should match the runtime default (redis).
   use Nebulex.Cache,
     otp_app: :events,
-    adapter: Nebulex.Adapters.Local,
+    adapter: NebulexRedisAdapter,
     default_key_generator: Events.Cache.KeyGenerator
 end

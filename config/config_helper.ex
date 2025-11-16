@@ -390,22 +390,79 @@ defmodule ConfigHelper do
     System.get_env("CACHE_ADAPTER", "redis")
     |> String.downcase()
     |> String.trim()
-    |> case do
-      adapter when adapter in ["null", "none", "nil"] ->
-        Nebulex.Adapters.Nil
+    |> parse_cache_adapter()
+  end
 
-      "local" ->
-        Nebulex.Adapters.Local
+  @doc """
+  Returns the complete cache configuration including adapter and adapter-specific options.
 
-      adapter when adapter in ["redis", ""] ->
-        Nebulex.Adapters.Redis
+  ## Examples
 
-      other ->
-        log_warning(
-          "Unknown CACHE_ADAPTER value: #{inspect(other)}. Using default: Nebulex.Adapters.Redis"
-        )
+      ConfigHelper.get_cache_config()
+      # => [adapter: NebulexRedisAdapter, conn_opts: [host: "localhost", port: 6379]]
 
-        Nebulex.Adapters.Redis
-    end
+      System.put_env("CACHE_ADAPTER", "local")
+      ConfigHelper.get_cache_config()
+      # => [adapter: Nebulex.Adapters.Local, gc_interval: 43200000, ...]
+
+  """
+  @spec get_cache_config() :: keyword()
+  def get_cache_config do
+    get_cache_adapter()
+    |> build_cache_config()
+  end
+
+  # Private helpers for cache configuration
+
+  defp parse_cache_adapter(adapter) when adapter in ["null", "none", "nil"] do
+    Nebulex.Adapters.Nil
+  end
+
+  defp parse_cache_adapter("local"), do: Nebulex.Adapters.Local
+
+  defp parse_cache_adapter(adapter) when adapter in ["redis", ""] do
+    NebulexRedisAdapter
+  end
+
+  defp parse_cache_adapter(other) do
+    log_warning(
+      "Unknown CACHE_ADAPTER value: #{inspect(other)}. Using default: NebulexRedisAdapter"
+    )
+
+    NebulexRedisAdapter
+  end
+
+  defp build_cache_config(Nebulex.Adapters.Local) do
+    [
+      adapter: Nebulex.Adapters.Local,
+      gc_interval: :timer.hours(12),
+      max_size: 1_000_000,
+      allocated_memory: 2_000_000_000,
+      gc_cleanup_min_timeout: :timer.seconds(10),
+      gc_cleanup_max_timeout: :timer.minutes(10),
+      stats: true
+    ]
+  end
+
+  defp build_cache_config(NebulexRedisAdapter) do
+    [
+      adapter: NebulexRedisAdapter,
+      conn_opts: build_redis_conn_opts()
+    ]
+  end
+
+  defp build_cache_config(Nebulex.Adapters.Nil) do
+    [adapter: Nebulex.Adapters.Nil]
+  end
+
+  defp build_cache_config(adapter) do
+    [adapter: adapter]
+  end
+
+  defp build_redis_conn_opts do
+    [
+      host: get_env("REDIS_HOST", "localhost"),
+      port: get_env_integer("REDIS_PORT", 6379)
+    ]
   end
 end

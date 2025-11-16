@@ -61,18 +61,7 @@ config :tailwind,
 # NOTE: The adapter is configured at runtime via the CACHE_ADAPTER environment variable
 # in config/runtime.exs. Default is "redis". Set CACHE_ADAPTER to "local", "redis", or "null".
 # See lib/events/cache.ex for more details.
-config :events, Events.Cache,
-  # GC interval: clean up every 12 hours (Local adapter only)
-  gc_interval: :timer.hours(12),
-  # Max number of entries (Local adapter only)
-  max_size: 1_000_000,
-  # Allocated memory in bytes (2 GB) (Local adapter only)
-  allocated_memory: 2_000_000_000,
-  # GC cleanup timeouts (Local adapter only)
-  gc_cleanup_min_timeout: :timer.seconds(10),
-  gc_cleanup_max_timeout: :timer.minutes(10),
-  # Enable stats for monitoring
-  stats: true
+# Adapter-specific configuration is set in runtime.exs based on the selected adapter.
 
 # Hammer rate limiter configuration
 config :hammer,

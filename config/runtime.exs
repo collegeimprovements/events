@@ -99,40 +99,7 @@ config :events, Events.Repo, repo_config
 # CACHE CONFIGURATION
 # ==============================================================================
 
-# Resolve cache adapter from environment variable
-cache_adapter = ConfigHelper.get_cache_adapter()
-
-# Base cache configuration
-base_cache_config = [adapter: cache_adapter]
-
-# Adapter-specific configuration
-cache_config =
-  base_cache_config
-  |> then(fn base ->
-    case cache_adapter do
-      Nebulex.Adapters.Local ->
-        # Local adapter configuration (already defined in config.exs, override if needed)
-        base
-
-      Nebulex.Adapters.Redis ->
-        # Redis adapter configuration
-        redis_opts = [
-          host: ConfigHelper.get_env("REDIS_HOST", "localhost"),
-          port: ConfigHelper.get_env_integer("REDIS_PORT", 6379)
-        ]
-
-        base ++ [conn_opts: redis_opts]
-
-      Nebulex.Adapters.Nil ->
-        # Nil adapter (no-op cache, no additional config needed)
-        base
-
-      _ ->
-        base
-    end
-  end)
-
-config :events, Events.Cache, cache_config
+config :events, Events.Cache, ConfigHelper.get_cache_config()
 
 # ==============================================================================
 # PHOENIX ENDPOINT CONFIGURATION
