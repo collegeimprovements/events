@@ -35,6 +35,24 @@ defmodule Events.Errors.Error do
       Error.to_map(error)        #=> %{type: :validation, ...}
   """
 
+  @error_types [
+    :validation,
+    :not_found,
+    :unauthorized,
+    :forbidden,
+    :conflict,
+    :internal,
+    :external,
+    :timeout,
+    :rate_limit,
+    :bad_request,
+    :unprocessable,
+    :service_unavailable,
+    :network,
+    :configuration,
+    :unknown
+  ]
+
   @type error_type ::
           :validation
           | :not_found
@@ -89,7 +107,7 @@ defmodule Events.Errors.Error do
       %Error{type: :not_found, code: :user_not_found, message: "User does not exist"}
   """
   @spec new(error_type(), atom() | String.t(), keyword()) :: t()
-  def new(type, code, opts \\ []) do
+  def new(type, code, opts \\ []) when type in @error_types do
     %__MODULE__{
       type: type,
       code: code,

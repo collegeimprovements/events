@@ -76,5 +76,5 @@ defmodule Events.Cache.KeyGenerator do
   @spec generate(module(), atom(), [term()]) :: term()
   def generate(_mod, _fun, []), do: 0
   def generate(_mod, _fun, [arg]), do: arg
-  def generate(_mod, _fun, args) when is_list(args), do: :erlang.phash2(args)
+  def generate(_mod, _fun, args), do: :erlang.phash2(args)
 end

@@ -111,15 +111,16 @@ defmodule Events.Services.Aws.S3.Pipeline do
           {:ok, [prepared_file()]} | {:error, [error_result()]}
   def prepare_batch(filenames, %Context{} = context, opts \\ []) when is_list(filenames) do
     results = Enum.map(filenames, &prepare(&1, context, opts))
-
     errors = Enum.filter(results, &match?({:error, _}, &1))
 
-    if Enum.empty?(errors) do
-      files = Enum.map(results, fn {:ok, file} -> file end)
-      {:ok, files}
-    else
-      error_list = Enum.map(errors, fn {:error, err} -> err end)
-      {:error, error_list}
+    case errors do
+      [] ->
+        files = Enum.map(results, fn {:ok, file} -> file end)
+        {:ok, files}
+
+      _errors ->
+        error_list = Enum.map(errors, fn {:error, err} -> err end)
+        {:error, error_list}
     end
   end
 
@@ -193,15 +194,16 @@ defmodule Events.Services.Aws.S3.Pipeline do
 
   def generate_presigned_upload_urls(prepared_files, opts) when is_list(prepared_files) do
     results = Enum.map(prepared_files, &generate_presigned_upload_url(&1, opts))
-
     errors = Enum.filter(results, &match?({:error, _}, &1))
 
-    if Enum.empty?(errors) do
-      urls = Enum.map(results, fn {:ok, result} -> result end)
-      {:ok, urls}
-    else
-      error_list = Enum.map(errors, fn {:error, err} -> err end)
-      {:error, error_list}
+    case errors do
+      [] ->
+        urls = Enum.map(results, fn {:ok, result} -> result end)
+        {:ok, urls}
+
+      _errors ->
+        error_list = Enum.map(errors, fn {:error, err} -> err end)
+        {:error, error_list}
     end
   end
 
@@ -269,15 +271,16 @@ defmodule Events.Services.Aws.S3.Pipeline do
   def generate_presigned_download_urls(paths, %Context{} = context, opts \\ [])
       when is_list(paths) do
     results = Enum.map(paths, &generate_presigned_download_url(&1, context, opts))
-
     errors = Enum.filter(results, &match?({:error, _}, &1))
 
-    if Enum.empty?(errors) do
-      urls = Enum.map(results, fn {:ok, result} -> result end)
-      {:ok, urls}
-    else
-      error_list = Enum.map(errors, fn {:error, err} -> err end)
-      {:error, error_list}
+    case errors do
+      [] ->
+        urls = Enum.map(results, fn {:ok, result} -> result end)
+        {:ok, urls}
+
+      _errors ->
+        error_list = Enum.map(errors, fn {:error, err} -> err end)
+        {:error, error_list}
     end
   end
 

@@ -49,6 +49,8 @@ defmodule Events.Errors.Normalizer do
   alias Events.Errors.Error
   alias Events.Errors.Mappers
 
+  @posix_errors [:enoent, :eacces, :eisdir, :enotdir, :eexist, :enospc]
+
   @type normalizable ::
           {:error, term()}
           | Ecto.Changeset.t()
@@ -100,8 +102,7 @@ defmodule Events.Errors.Normalizer do
   end
 
   # POSIX errors
-  def normalize(posix, opts)
-      when posix in [:enoent, :eacces, :eisdir, :enotdir, :eexist, :enospc] do
+  def normalize(posix, opts) when posix in @posix_errors do
     posix
     |> Mappers.Posix.normalize()
     |> maybe_add_metadata(opts)

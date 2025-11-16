@@ -105,49 +105,32 @@ defmodule Events.Errors.Mappers.Ecto do
     )
   end
 
+  @constraint_mappings %{
+    unique: {:conflict, :unique_constraint, "Value must be unique"},
+    foreign_key: {:unprocessable, :foreign_key_constraint, "Referenced record does not exist"},
+    check: {:validation, :check_constraint, "Check constraint violation"},
+    exclusion: {:conflict, :exclusion_constraint, "Exclusion constraint violation"}
+  }
+
   @doc """
   Normalizes database constraint errors.
   """
   @spec normalize_constraint(atom(), map()) :: Error.t()
-  def normalize_constraint(constraint_type, details \\ %{})
+  def normalize_constraint(constraint_type, details \\ %{}) do
+    case Map.get(@constraint_mappings, constraint_type) do
+      {type, code, message} ->
+        Error.new(type, code,
+          message: message,
+          details: details,
+          source: :database
+        )
 
-  def normalize_constraint(:unique, details) do
-    Error.new(:conflict, :unique_constraint,
-      message: "Value must be unique",
-      details: details,
-      source: :database
-    )
-  end
-
-  def normalize_constraint(:foreign_key, details) do
-    Error.new(:unprocessable, :foreign_key_constraint,
-      message: "Referenced record does not exist",
-      details: details,
-      source: :database
-    )
-  end
-
-  def normalize_constraint(:check, details) do
-    Error.new(:validation, :check_constraint,
-      message: "Check constraint violation",
-      details: details,
-      source: :database
-    )
-  end
-
-  def normalize_constraint(:exclusion, details) do
-    Error.new(:conflict, :exclusion_constraint,
-      message: "Exclusion constraint violation",
-      details: details,
-      source: :database
-    )
-  end
-
-  def normalize_constraint(type, details) do
-    Error.new(:unprocessable, :constraint_violation,
-      message: "Database constraint violation",
-      details: Map.put(details, :constraint_type, type),
-      source: :database
-    )
+      nil ->
+        Error.new(:unprocessable, :constraint_violation,
+          message: "Database constraint violation",
+          details: Map.put(details, :constraint_type, constraint_type),
+          source: :database
+        )
+    end
   end
 end

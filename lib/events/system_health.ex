@@ -41,6 +41,10 @@ defmodule Events.SystemHealth do
     Display
   }
 
+  @status_healthy :healthy
+  @status_degraded :degraded
+  @status_unhealthy :unhealthy
+
   @doc """
   Performs all health checks and returns comprehensive system status.
 
@@ -148,9 +152,9 @@ defmodule Events.SystemHealth do
       end)
 
     cond do
-      critical_failed -> :unhealthy
-      optional_failed -> :degraded
-      true -> :healthy
+      critical_failed -> @status_unhealthy
+      optional_failed -> @status_degraded
+      true -> @status_healthy
     end
   end
 end

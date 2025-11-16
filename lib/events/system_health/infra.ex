@@ -46,7 +46,10 @@ defmodule Events.SystemHealth.Infra do
   end
 
   defp postgres_source do
-    if System.get_env("DATABASE_URL"), do: "DATABASE_URL env", else: "runtime.exs default"
+    case System.get_env("DATABASE_URL") do
+      nil -> "runtime.exs default"
+      _ -> "DATABASE_URL env"
+    end
   end
 
   defp postgres_details do
@@ -76,10 +79,9 @@ defmodule Events.SystemHealth.Infra do
   defp parse_repo_config(config) when is_list(config), do: {:ok, config}
 
   defp parse_repo_config(_) do
-    if function_exported?(Events.Repo, :config, 0) do
-      {:ok, Events.Repo.config()}
-    else
-      :error
+    case function_exported?(Events.Repo, :config, 0) do
+      true -> {:ok, Events.Repo.config()}
+      false -> :error
     end
   end
 
@@ -241,9 +243,19 @@ defmodule Events.SystemHealth.Infra do
     config = Application.get_env(@aws_env_namespace, @aws_config_key, [])
     s3_config = extract_s3_config(config)
 
-    if s3_config.bucket || s3_config.endpoint || System.get_env("AWS_ACCESS_KEY_ID") do
-      build_s3_connection(s3_config)
+    case has_s3_config?(s3_config) do
+      true -> build_s3_connection(s3_config)
+      false -> nil
     end
+  end
+
+  defp has_s3_config?(%{bucket: bucket, endpoint: endpoint})
+       when not is_nil(bucket) or not is_nil(endpoint) do
+    true
+  end
+
+  defp has_s3_config?(_) do
+    not is_nil(System.get_env("AWS_ACCESS_KEY_ID"))
   end
 
   defp extract_s3_config(config) do
@@ -284,10 +296,9 @@ defmodule Events.SystemHealth.Infra do
   end
 
   defp determine_s3_source(_bucket) do
-    if System.get_env("S3_BUCKET") || System.get_env("AWS_S3_BUCKET") do
-      "AWS_* env vars"
-    else
-      "config :events, :aws"
+    case System.get_env("S3_BUCKET") || System.get_env("AWS_S3_BUCKET") do
+      nil -> "config :events, :aws"
+      _ -> "AWS_* env vars"
     end
   end
 

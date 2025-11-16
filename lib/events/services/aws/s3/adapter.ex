@@ -267,37 +267,35 @@ defmodule Events.Services.Aws.S3.Adapter do
   end
 
   defp build_upload_headers(opts) do
-    headers = %{}
-
-    headers =
-      if content_type = opts[:content_type] do
-        Map.put(headers, "content-type", content_type)
-      else
-        headers
-      end
-
-    headers =
-      if metadata = opts[:metadata] do
-        Enum.reduce(metadata, headers, fn {key, value}, acc ->
-          Map.put(acc, "x-amz-meta-#{key}", value)
-        end)
-      else
-        headers
-      end
-
-    headers =
-      if acl = opts[:acl] do
-        Map.put(headers, "x-amz-acl", acl)
-      else
-        headers
-      end
-
-    if storage_class = opts[:storage_class] do
-      Map.put(headers, "x-amz-storage-class", storage_class)
-    else
-      headers
-    end
+    %{}
+    |> maybe_add_content_type(opts[:content_type])
+    |> maybe_add_metadata(opts[:metadata])
+    |> maybe_add_acl(opts[:acl])
+    |> maybe_add_storage_class(opts[:storage_class])
   end
+
+  defp maybe_add_content_type(headers, nil), do: headers
+
+  defp maybe_add_content_type(headers, content_type),
+    do: Map.put(headers, "content-type", content_type)
+
+  defp maybe_add_metadata(headers, nil), do: headers
+
+  defp maybe_add_metadata(headers, metadata) do
+    Enum.reduce(metadata, headers, fn {key, value}, acc ->
+      Map.put(acc, "x-amz-meta-#{key}", value)
+    end)
+  end
+
+  defp maybe_add_acl(headers, nil), do: headers
+
+  defp maybe_add_acl(headers, acl),
+    do: Map.put(headers, "x-amz-acl", acl)
+
+  defp maybe_add_storage_class(headers, nil), do: headers
+
+  defp maybe_add_storage_class(headers, storage_class),
+    do: Map.put(headers, "x-amz-storage-class", storage_class)
 
   defp build_list_url(bucket, prefix, max_keys, continuation_token) do
     query_params =

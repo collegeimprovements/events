@@ -137,33 +137,22 @@ defmodule Events.Context do
       %{module: MyApp.User, function: :create, arity: 2, timestamp: ~U[...], node: :nonode@nohost}
   """
   def base_metadata(%__MODULE__{} = context, opts \\ []) do
-    base = %{
+    %{
       module: context.module,
       function: context.name,
       arity: context.arity
     }
-
-    base =
-      if opts[:timestamp] do
-        Map.put(base, :timestamp, DateTime.utc_now())
-      else
-        base
-      end
-
-    base =
-      if opts[:node] do
-        Map.put(base, :node, node())
-      else
-        base
-      end
-
-    base =
-      if extra = opts[:extra] do
-        Map.merge(base, extra)
-      else
-        base
-      end
-
-    base
+    |> maybe_add_timestamp(opts[:timestamp])
+    |> maybe_add_node(opts[:node])
+    |> maybe_merge_extra(opts[:extra])
   end
+
+  defp maybe_add_timestamp(map, true), do: Map.put(map, :timestamp, DateTime.utc_now())
+  defp maybe_add_timestamp(map, _), do: map
+
+  defp maybe_add_node(map, true), do: Map.put(map, :node, node())
+  defp maybe_add_node(map, _), do: map
+
+  defp maybe_merge_extra(map, extra) when is_map(extra), do: Map.merge(map, extra)
+  defp maybe_merge_extra(map, _), do: map
 end

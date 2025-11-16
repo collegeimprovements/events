@@ -288,13 +288,15 @@ defmodule Events.Services.Aws.S3 do
   Validates required S3 context fields.
   """
   @spec validate_context(context()) :: :ok | {:error, atom()}
+  def validate_context(%Context{bucket: nil} = context) do
+    with {:ok, _} <- Context.validate(context) do
+      {:error, :missing_bucket}
+    end
+  end
+
   def validate_context(%Context{} = context) do
     with {:ok, _} <- Context.validate(context) do
-      if context.bucket do
-        :ok
-      else
-        {:error, :missing_bucket}
-      end
+      :ok
     end
   end
 

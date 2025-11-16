@@ -275,24 +275,23 @@ defmodule Events.Repo.Query do
   """
   @spec new(module(), keyword()) :: t()
   def new(schema, opts \\ []) do
-    query = from(s in schema)
-
-    # Apply soft delete filter by default
-    query =
-      if Keyword.get(opts, :include_deleted, false) do
-        query
-      else
-        from(s in query, where: is_nil(field(s, ^@soft_delete_field)))
-      end
+    include_deleted = Keyword.get(opts, :include_deleted, false)
+    query = build_base_query(schema, include_deleted)
 
     builder = %__MODULE__{
       schema: schema,
       query: query,
-      include_deleted: Keyword.get(opts, :include_deleted, false)
+      include_deleted: include_deleted
     }
 
     # Apply keyword options
     apply_opts(builder, opts)
+  end
+
+  defp build_base_query(schema, true), do: from(s in schema)
+
+  defp build_base_query(schema, false) do
+    from(s in schema, where: is_nil(field(s, ^@soft_delete_field)))
   end
 
   @doc """
@@ -387,50 +386,47 @@ defmodule Events.Repo.Query do
 
   # When opts is a keyword list with :through option
   def join(%__MODULE__{} = builder, assoc_name, opts) when is_list(opts) do
-    if Keyword.has_key?(opts, :through) do
-      # Explicit through join with options
-      through_assoc = Keyword.get(opts, :through)
-      through_filters = Keyword.get(opts, :where)
-      join_type = Keyword.get(opts, :type, :inner)
+    case Keyword.has_key?(opts, :through) do
+      true ->
+        # Explicit through join with options
+        through_assoc = Keyword.get(opts, :through)
+        through_filters = Keyword.get(opts, :where)
+        join_type = Keyword.get(opts, :type, :inner)
 
-      # Get the final field name from the through association
-      final_field = get_through_final_field(builder.schema, through_assoc, assoc_name)
+        # Get the final field name from the through association
+        final_field = get_through_final_field(builder.schema, through_assoc, assoc_name)
 
-      # Join the intermediate table
-      builder = join_direct(builder, through_assoc, join_type)
+        # Join the intermediate table
+        builder = join_direct(builder, through_assoc, join_type)
 
-      # Apply filters on intermediate table if provided
-      builder =
-        if through_filters do
-          __MODULE__.where(builder, normalize_through_filter(through_assoc, through_filters))
-        else
-          builder
-        end
+        # Apply filters on intermediate table if provided
+        builder = maybe_apply_through_filters(builder, through_assoc, through_filters)
 
-      # Join the final table from the intermediate binding
-      query =
-        case join_type do
-          :inner ->
-            from [{^through_assoc, t}] in builder.query,
-              join: f in assoc(t, ^final_field),
-              as: ^assoc_name
+        # Join the final table from the intermediate binding
+        query =
+          case join_type do
+            :inner ->
+              from [{^through_assoc, t}] in builder.query,
+                join: f in assoc(t, ^final_field),
+                as: ^assoc_name
 
-          :left ->
-            from [{^through_assoc, t}] in builder.query,
-              left_join: f in assoc(t, ^final_field),
-              as: ^assoc_name
+            :left ->
+              from [{^through_assoc, t}] in builder.query,
+                left_join: f in assoc(t, ^final_field),
+                as: ^assoc_name
 
-          :right ->
-            from [{^through_assoc, t}] in builder.query,
-              right_join: f in assoc(t, ^final_field),
-              as: ^assoc_name
-        end
+            :right ->
+              from [{^through_assoc, t}] in builder.query,
+                right_join: f in assoc(t, ^final_field),
+                as: ^assoc_name
+          end
 
-      %{builder | query: query, joins: Map.put(builder.joins, assoc_name, assoc_name)}
-    else
-      # Keyword list but no :through, might have other options
-      join_type = Keyword.get(opts, :type, :inner)
-      __MODULE__.join(builder, assoc_name, join_type)
+        %{builder | query: query, joins: Map.put(builder.joins, assoc_name, assoc_name)}
+
+      false ->
+        # Keyword list but no :through, might have other options
+        join_type = Keyword.get(opts, :type, :inner)
+        __MODULE__.join(builder, assoc_name, join_type)
     end
   end
 
@@ -487,12 +483,7 @@ defmodule Events.Repo.Query do
     builder = join_direct(builder, through_assoc, join_type)
 
     # Apply filters on intermediate table if provided
-    builder =
-      if through_filters do
-        __MODULE__.where(builder, normalize_through_filter(through_assoc, through_filters))
-      else
-        builder
-      end
+    builder = maybe_apply_through_filters(builder, through_assoc, through_filters)
 
     # Join the final table from the intermediate binding
     query =
@@ -1003,14 +994,7 @@ defmodule Events.Repo.Query do
           {:ok, Ecto.Schema.t()} | {:error, Ecto.Changeset.t()}
   def insert(schema, attrs, opts \\ []) do
     attrs = add_audit_fields(attrs, :insert, opts)
-
-    changeset =
-      if function_exported?(schema, :changeset, 2) do
-        schema.__struct__() |> schema.changeset(attrs)
-      else
-        schema.__struct__() |> Ecto.Changeset.cast(attrs, Map.keys(attrs))
-      end
-
+    changeset = build_changeset(schema, schema.__struct__(), attrs)
     Repo.insert(changeset)
   end
 
@@ -1026,14 +1010,7 @@ defmodule Events.Repo.Query do
   def update(struct, attrs, opts \\ []) when is_struct(struct) do
     attrs = add_audit_fields(attrs, :update, opts)
     schema = struct.__struct__
-
-    changeset =
-      if function_exported?(schema, :changeset, 2) do
-        schema.changeset(struct, attrs)
-      else
-        Ecto.Changeset.cast(struct, attrs, Map.keys(attrs))
-      end
-
+    changeset = build_changeset(schema, struct, attrs)
     Repo.update(changeset)
   end
 
@@ -1069,20 +1046,28 @@ defmodule Events.Repo.Query do
   @spec delete(Ecto.Schema.t(), keyword()) ::
           {:ok, Ecto.Schema.t()} | {:error, Ecto.Changeset.t()}
   def delete(struct, opts \\ []) when is_struct(struct) do
-    if Keyword.get(opts, :hard, false) do
-      Repo.delete(struct)
-    else
-      now = DateTime.utc_now()
-      deleted_by = Keyword.get(opts, :deleted_by)
+    case Keyword.get(opts, :hard, false) do
+      true ->
+        Repo.delete(struct)
 
-      changes = %{deleted_at: now}
-      changes = if deleted_by, do: Map.put(changes, :deleted_by_urm_id, deleted_by), else: changes
+      false ->
+        now = DateTime.utc_now()
+        deleted_by = Keyword.get(opts, :deleted_by)
 
-      struct
-      |> Ecto.Changeset.cast(changes, [:deleted_at, :deleted_by_urm_id])
-      |> Repo.update()
+        changes =
+          %{deleted_at: now}
+          |> maybe_add_deleted_by(deleted_by)
+
+        struct
+        |> Ecto.Changeset.cast(changes, [:deleted_at, :deleted_by_urm_id])
+        |> Repo.update()
     end
   end
+
+  defp maybe_add_deleted_by(changes, nil), do: changes
+
+  defp maybe_add_deleted_by(changes, deleted_by),
+    do: Map.put(changes, :deleted_by_urm_id, deleted_by)
 
   @doc """
   Deletes all records matching the query.
@@ -1099,25 +1084,28 @@ defmodule Events.Repo.Query do
   """
   @spec delete_all(t(), keyword()) :: {:ok, integer()}
   def delete_all(%__MODULE__{query: query}, opts \\ []) do
-    if Keyword.get(opts, :hard, false) do
-      {count, _} = Repo.delete_all(query)
-      {:ok, count}
-    else
-      now = DateTime.utc_now()
-      deleted_by = Keyword.get(opts, :deleted_by)
+    case Keyword.get(opts, :hard, false) do
+      true ->
+        {count, _} = Repo.delete_all(query)
+        {:ok, count}
 
-      updates = [set: [deleted_at: now]]
+      false ->
+        now = DateTime.utc_now()
+        deleted_by = Keyword.get(opts, :deleted_by)
 
-      updates =
-        if deleted_by do
-          Keyword.update(updates, :set, [], &(&1 ++ [deleted_by_urm_id: deleted_by]))
-        else
-          updates
-        end
+        updates =
+          [set: [deleted_at: now]]
+          |> maybe_add_deleted_by_update(deleted_by)
 
-      {count, _} = Repo.update_all(query, updates)
-      {:ok, count}
+        {count, _} = Repo.update_all(query, updates)
+        {:ok, count}
     end
+  end
+
+  defp maybe_add_deleted_by_update(updates, nil), do: updates
+
+  defp maybe_add_deleted_by_update(updates, deleted_by) do
+    Keyword.update(updates, :set, [], &(&1 ++ [deleted_by_urm_id: deleted_by]))
   end
 
   ## Private Helpers
@@ -1146,13 +1134,24 @@ defmodule Events.Repo.Query do
 
   defp get_binding(_builder, nil), do: 0
 
-  defp get_binding(builder, join_name) do
-    if Map.has_key?(builder.joins, join_name) do
-      # Return the atom name for use with as()
-      join_name
-    else
-      raise "Join :#{join_name} not found. Did you forget to call Query.join/2?"
+  defp get_binding(%{joins: joins}, join_name) do
+    case Map.has_key?(joins, join_name) do
+      true -> join_name
+      false -> raise "Join :#{join_name} not found. Did you forget to call Query.join/2?"
     end
+  end
+
+  defp build_changeset(schema, struct, attrs) do
+    case function_exported?(schema, :changeset, 2) do
+      true -> schema.changeset(struct, attrs)
+      false -> Ecto.Changeset.cast(struct, attrs, Map.keys(attrs))
+    end
+  end
+
+  defp maybe_apply_through_filters(builder, _through_assoc, nil), do: builder
+
+  defp maybe_apply_through_filters(builder, through_assoc, filters) do
+    __MODULE__.where(builder, normalize_through_filter(through_assoc, filters))
   end
 
   # Determine if an association is a through association
