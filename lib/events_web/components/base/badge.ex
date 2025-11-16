@@ -31,6 +31,12 @@ defmodule EventsWeb.Components.Base.Badge do
   use Phoenix.Component
   alias EventsWeb.Components.Base.Utils
 
+  @size_map %{
+    "sm" => "px-2 py-0.5 text-[10px]",
+    "default" => "px-2.5 py-0.5 text-xs",
+    "lg" => "px-3 py-1 text-sm"
+  }
+
   attr :variant, :string,
     default: "default",
     values: ~w(default success warning error info outline secondary)
@@ -44,15 +50,7 @@ defmodule EventsWeb.Components.Base.Badge do
   def badge(assigns) do
     ~H"""
     <span
-      class={
-        Utils.classes([
-          "inline-flex items-center justify-center",
-          "rounded-full font-medium transition-colors",
-          Utils.variant(@variant, Utils.badge_variants()),
-          size_classes(@size),
-          @class
-        ])
-      }
+      class={badge_classes(@variant, @size, @class)}
       {@rest}
     >
       <%= render_slot(@inner_block) %>
@@ -60,7 +58,14 @@ defmodule EventsWeb.Components.Base.Badge do
     """
   end
 
-  defp size_classes("default"), do: "px-2.5 py-0.5 text-xs"
-  defp size_classes("sm"), do: "px-2 py-0.5 text-[10px]"
-  defp size_classes("lg"), do: "px-3 py-1 text-sm"
+  defp badge_classes(variant, size, custom_class) do
+    [
+      "inline-flex items-center justify-center",
+      "rounded-full font-medium transition-colors",
+      Utils.variant(variant, Utils.badge_variants()),
+      Map.get(@size_map, size, @size_map["default"]),
+      custom_class
+    ]
+    |> Utils.classes()
+  end
 end

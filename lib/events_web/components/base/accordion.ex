@@ -22,7 +22,7 @@ defmodule EventsWeb.Components.Base.Accordion do
       </.accordion>
   """
   use Phoenix.Component
-  import EventsWeb.Components.Base, only: [classes: 1]
+  alias EventsWeb.Components.Base.Utils
   alias Phoenix.LiveView.JS
 
   attr :type, :string, default: "single", values: ~w(single multiple)
@@ -38,35 +38,20 @@ defmodule EventsWeb.Components.Base.Accordion do
 
   def accordion(assigns) do
     ~H"""
-    <div
-      class={classes(["divide-y divide-zinc-200 rounded-md border border-zinc-200", @class])}
-      {@rest}
-    >
+    <div class={container_classes(@class)} {@rest}>
       <%= for item <- @item do %>
-        <div class="group" data-state={if item[:open], do: "open", else: "closed"}>
+        <div class="group" data-state={item_state(item[:open])}>
           <h3 class="flex">
             <button
               type="button"
-              phx-click={toggle_accordion(item.value, @type)}
-              class={
-                classes([
-                  "flex flex-1 items-center justify-between py-4 px-4",
-                  "font-medium transition-all",
-                  "hover:underline",
-                  "text-left"
-                ])
-              }
+              phx-click={toggle_accordion(item.value)}
+              class={trigger_classes()}
               aria-expanded={to_string(item[:open] || false)}
               aria-controls={"accordion-content-#{item.value}"}
             >
               <span><%= item.title %></span>
               <svg
-                class={
-                  classes([
-                    "h-4 w-4 shrink-0 transition-transform duration-200",
-                    if(item[:open], do: "rotate-180", else: "")
-                  ])
-                }
+                class={icon_classes(item[:open])}
                 xmlns="http://www.w3.org/2000/svg"
                 viewBox="0 0 20 20"
                 fill="currentColor"
@@ -83,12 +68,7 @@ defmodule EventsWeb.Components.Base.Accordion do
             id={"accordion-content-#{item.value}"}
             role="region"
             aria-labelledby={"accordion-trigger-#{item.value}"}
-            class={
-              classes([
-                "overflow-hidden transition-all",
-                if(item[:open], do: "block", else: "hidden")
-              ])
-            }
+            class={content_classes(item[:open])}
           >
             <div class="px-4 pb-4 pt-0">
               <%= render_slot(item) %>
@@ -100,10 +80,40 @@ defmodule EventsWeb.Components.Base.Accordion do
     """
   end
 
-  defp toggle_accordion(value, _type) do
+  defp container_classes(custom_class) do
+    ["divide-y divide-zinc-200 rounded-md border border-zinc-200", custom_class]
+    |> Utils.classes()
+  end
+
+  defp trigger_classes do
+    [
+      "flex flex-1 items-center justify-between py-4 px-4",
+      "font-medium transition-all hover:underline text-left"
+    ]
+    |> Utils.classes()
+  end
+
+  defp icon_classes(open) do
+    [
+      "h-4 w-4 shrink-0 transition-transform duration-200",
+      open && "rotate-180"
+    ]
+    |> Utils.classes()
+  end
+
+  defp content_classes(open) do
+    [
+      "overflow-hidden transition-all",
+      open && "block" || "hidden"
+    ]
+    |> Utils.classes()
+  end
+
+  defp item_state(true), do: "open"
+  defp item_state(_), do: "closed"
+
+  defp toggle_accordion(value) do
     JS.toggle(to: "#accordion-content-#{value}")
-    |> JS.toggle_class("rotate-180",
-      to: "#accordion-content-#{value} ~ h3 button svg"
-    )
+    |> JS.toggle_class("rotate-180", to: "#accordion-content-#{value} ~ h3 button svg")
   end
 end

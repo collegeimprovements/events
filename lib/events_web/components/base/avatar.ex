@@ -2,6 +2,8 @@ defmodule EventsWeb.Components.Base.Avatar do
   @moduledoc """
   Avatar component for displaying user profile images with fallback support.
 
+  Uses shared utilities for consistent sizing and initials extraction.
+
   ## Examples
 
       <.avatar src="/images/user.jpg" alt="John Doe" />
@@ -11,7 +13,14 @@ defmodule EventsWeb.Components.Base.Avatar do
       </.avatar>
   """
   use Phoenix.Component
-  import EventsWeb.Components.Base, only: [classes: 1]
+  alias EventsWeb.Components.Base.Utils
+
+  @size_map %{
+    "sm" => %{container: "h-8 w-8", text: "text-xs"},
+    "default" => %{container: "h-10 w-10", text: "text-sm"},
+    "lg" => %{container: "h-12 w-12", text: "text-base"},
+    "xl" => %{container: "h-16 w-16", text: "text-xl"}
+  }
 
   attr :src, :string, default: nil
   attr :alt, :string, default: ""
@@ -22,58 +31,54 @@ defmodule EventsWeb.Components.Base.Avatar do
 
   slot :inner_block
 
-  def avatar(assigns) do
+  def avatar(%{inner_block: [_ | _]} = assigns) do
     ~H"""
-    <div
-      class={
-        classes([
-          "relative inline-flex shrink-0 overflow-hidden rounded-full",
-          "bg-zinc-100 text-zinc-900",
-          size_classes(@size),
-          @class
-        ])
-      }
-      {@rest}
-    >
-      <%= if @inner_block != [] do %>
-        <%= render_slot(@inner_block) %>
-      <% else %>
-        <%= if @src do %>
-          <img src={@src} alt={@alt} class="aspect-square h-full w-full object-cover" />
-        <% else %>
-          <span class={
-            classes([
-              "flex h-full w-full items-center justify-center",
-              "bg-zinc-200 font-medium text-zinc-700",
-              fallback_text_size(@size)
-            ])
-          }>
-            <%= @fallback || extract_initials(@alt) %>
-          </span>
-        <% end %>
-      <% end %>
+    <div class={container_classes(@size, @class)} {@rest}>
+      <%= render_slot(@inner_block) %>
     </div>
     """
   end
 
-  defp size_classes("default"), do: "h-10 w-10"
-  defp size_classes("sm"), do: "h-8 w-8"
-  defp size_classes("lg"), do: "h-12 w-12"
-  defp size_classes("xl"), do: "h-16 w-16"
-
-  defp fallback_text_size("sm"), do: "text-xs"
-  defp fallback_text_size("default"), do: "text-sm"
-  defp fallback_text_size("lg"), do: "text-base"
-  defp fallback_text_size("xl"), do: "text-xl"
-
-  defp extract_initials(name) when is_binary(name) do
-    name
-    |> String.split()
-    |> Enum.take(2)
-    |> Enum.map(&String.first/1)
-    |> Enum.join()
-    |> String.upcase()
+  def avatar(%{src: src} = assigns) when is_binary(src) do
+    ~H"""
+    <div class={container_classes(@size, @class)} {@rest}>
+      <img src={@src} alt={@alt} class="aspect-square h-full w-full object-cover" />
+    </div>
+    """
   end
 
-  defp extract_initials(_), do: "?"
+  def avatar(assigns) do
+    assigns = assign(assigns, :initials, assigns.fallback || Utils.extract_initials(assigns.alt))
+
+    ~H"""
+    <div class={container_classes(@size, @class)} {@rest}>
+      <span class={fallback_classes(@size)}>
+        <%= @initials %>
+      </span>
+    </div>
+    """
+  end
+
+  defp container_classes(size, custom_class) do
+    @size_map
+    |> Map.get(size, @size_map["default"])
+    |> Map.get(:container)
+    |> then(&Utils.classes([
+      "relative inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full",
+      "bg-zinc-100 text-zinc-900",
+      &1,
+      custom_class
+    ]))
+  end
+
+  defp fallback_classes(size) do
+    @size_map
+    |> Map.get(size, @size_map["default"])
+    |> Map.get(:text)
+    |> then(&Utils.classes([
+      "flex h-full w-full items-center justify-center",
+      "bg-zinc-200 font-medium text-zinc-700",
+      &1
+    ]))
+  end
 end

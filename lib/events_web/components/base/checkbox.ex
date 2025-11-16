@@ -10,7 +10,13 @@ defmodule EventsWeb.Components.Base.Checkbox do
       <.checkbox name="newsletter" disabled />
   """
   use Phoenix.Component
-  import EventsWeb.Components.Base, only: [classes: 1]
+  alias EventsWeb.Components.Base.Utils
+
+  @size_map %{
+    "sm" => "h-3 w-3",
+    "default" => "h-4 w-4",
+    "lg" => "h-5 w-5"
+  }
 
   attr :name, :string, required: true
   attr :checked, :boolean, default: false
@@ -29,18 +35,7 @@ defmodule EventsWeb.Components.Base.Checkbox do
         name={@name}
         checked={@checked}
         disabled={@disabled}
-        class={
-          classes([
-            "peer shrink-0 rounded border border-zinc-300",
-            "bg-white text-zinc-900",
-            "transition-colors duration-150",
-            "focus:outline-none focus:ring-2 focus:ring-zinc-950 focus:ring-offset-2",
-            "disabled:cursor-not-allowed disabled:opacity-50",
-            "checked:bg-zinc-900 checked:border-zinc-900",
-            size_classes(@size),
-            @class
-          ])
-        }
+        class={checkbox_classes(@size, @class)}
         {@rest}
       />
       <label
@@ -54,7 +49,17 @@ defmodule EventsWeb.Components.Base.Checkbox do
     """
   end
 
-  defp size_classes("default"), do: "h-4 w-4"
-  defp size_classes("sm"), do: "h-3 w-3"
-  defp size_classes("lg"), do: "h-5 w-5"
+  defp checkbox_classes(size, custom_class) do
+    [
+      "peer shrink-0 rounded border border-zinc-300",
+      "bg-white text-zinc-900",
+      "transition-colors duration-150",
+      "focus:outline-none focus:ring-2 focus:ring-zinc-950 focus:ring-offset-2",
+      "disabled:cursor-not-allowed disabled:opacity-50",
+      "checked:bg-zinc-900 checked:border-zinc-900",
+      Map.get(@size_map, size, @size_map["default"]),
+      custom_class
+    ]
+    |> Utils.classes()
+  end
 end

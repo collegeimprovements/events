@@ -10,7 +10,14 @@ defmodule EventsWeb.Components.Base.Progress do
       <.progress value={33} class="h-2" />
   """
   use Phoenix.Component
-  import EventsWeb.Components.Base, only: [classes: 1]
+  alias EventsWeb.Components.Base.Utils
+
+  @variant_map %{
+    "default" => "bg-zinc-900",
+    "success" => "bg-green-600",
+    "warning" => "bg-yellow-600",
+    "error" => "bg-red-600"
+  }
 
   attr :value, :integer, required: true
   attr :max, :integer, default: 100
@@ -20,7 +27,9 @@ defmodule EventsWeb.Components.Base.Progress do
   attr :rest, :global
 
   def progress(assigns) do
-    assigns = assign(assigns, :percentage, calculate_percentage(assigns.value, assigns.max))
+    assigns =
+      assigns
+      |> assign(:percentage, calculate_percentage(assigns.value, assigns.max))
 
     ~H"""
     <div
@@ -29,17 +38,12 @@ defmodule EventsWeb.Components.Base.Progress do
       aria-valuemin="0"
       aria-valuemax={@max}
       aria-label="Progress"
-      class={classes(["relative", @class])}
+      class={Utils.classes(["relative", @class])}
       {@rest}
     >
       <div class="h-2 w-full overflow-hidden rounded-full bg-zinc-200">
         <div
-          class={
-            classes([
-              "h-full transition-all duration-300 ease-in-out",
-              variant_classes(@variant)
-            ])
-          }
+          class={bar_classes(@variant)}
           style={"width: #{@percentage}%"}
         />
       </div>
@@ -51,13 +55,19 @@ defmodule EventsWeb.Components.Base.Progress do
   end
 
   defp calculate_percentage(value, max) when max > 0 do
-    min(round(value / max * 100), 100)
+    value
+    |> then(&(&1 / max * 100))
+    |> round()
+    |> min(100)
   end
 
   defp calculate_percentage(_, _), do: 0
 
-  defp variant_classes("default"), do: "bg-zinc-900"
-  defp variant_classes("success"), do: "bg-green-600"
-  defp variant_classes("warning"), do: "bg-yellow-600"
-  defp variant_classes("error"), do: "bg-red-600"
+  defp bar_classes(variant) do
+    [
+      "h-full transition-all duration-300 ease-in-out",
+      Map.get(@variant_map, variant, @variant_map["default"])
+    ]
+    |> Utils.classes()
+  end
 end

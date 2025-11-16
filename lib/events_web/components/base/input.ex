@@ -2,6 +2,8 @@ defmodule EventsWeb.Components.Base.Input do
   @moduledoc """
   Input component for form text entry.
 
+  Uses shared input utilities for consistency across form components.
+
   ## Examples
 
       <.input type="text" name="email" placeholder="Enter email" />
@@ -10,7 +12,13 @@ defmodule EventsWeb.Components.Base.Input do
       <.input type="number" name="age" min="0" max="120" />
   """
   use Phoenix.Component
-  import EventsWeb.Components.Base, only: [classes: 1]
+  alias EventsWeb.Components.Base.Utils
+
+  @size_map %{
+    "sm" => "h-8 text-xs",
+    "default" => "h-10",
+    "lg" => "h-12 text-base"
+  }
 
   attr :type, :string, default: "text"
   attr :name, :string, required: true
@@ -27,6 +35,8 @@ defmodule EventsWeb.Components.Base.Input do
          multiple pattern readonly required rows spellcheck step)
 
   def input(assigns) do
+    assigns = assign(assigns, :error_id, error_id(assigns))
+
     ~H"""
     <div class="w-full">
       <input
@@ -35,33 +45,31 @@ defmodule EventsWeb.Components.Base.Input do
         value={@value}
         placeholder={@placeholder}
         disabled={@disabled}
-        aria-invalid={if @error, do: "true", else: "false"}
-        aria-describedby={if @error, do: "#{@name}-error", else: nil}
-        class={
-          classes([
-            "flex w-full rounded-md border bg-white px-3 py-2",
-            "text-sm text-zinc-900 placeholder:text-zinc-500",
-            "transition-colors duration-150",
-            "focus:outline-none focus:ring-2 focus:ring-offset-2",
-            "disabled:cursor-not-allowed disabled:opacity-50",
-            if(@error,
-              do: "border-red-500 focus:ring-red-500",
-              else: "border-zinc-300 focus:ring-zinc-950"
-            ),
-            size_classes(@size),
-            @class
-          ])
-        }
+        aria-invalid={to_string(not is_nil(@error))}
+        aria-describedby={@error_id}
+        class={input_classes(@size, @error, @class)}
         {@rest}
       />
-      <p :if={@error} id={"#{@name}-error"} class="mt-1 text-xs text-red-600">
+      <p :if={@error} id={@error_id} class="mt-1 text-xs text-red-600">
         <%= @error %>
       </p>
     </div>
     """
   end
 
-  defp size_classes("default"), do: "h-10"
-  defp size_classes("sm"), do: "h-8 text-xs"
-  defp size_classes("lg"), do: "h-12 text-base"
+  defp input_classes(size, error, custom_class) do
+    [
+      Utils.input_base(),
+      error_state_classes(error),
+      Map.get(@size_map, size, @size_map["default"]),
+      custom_class
+    ]
+    |> Utils.classes()
+  end
+
+  defp error_state_classes(nil), do: "border-zinc-300 focus:ring-zinc-950"
+  defp error_state_classes(_), do: "border-red-500 focus:ring-red-500"
+
+  defp error_id(%{error: nil}), do: nil
+  defp error_id(%{name: name}), do: "#{name}-error"
 end

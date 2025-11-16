@@ -22,7 +22,7 @@ defmodule EventsWeb.Components.Base.Tabs do
       </.tabs>
   """
   use Phoenix.Component
-  import EventsWeb.Components.Base, only: [classes: 1]
+  alias EventsWeb.Components.Base.Utils
   alias Phoenix.LiveView.JS
 
   attr :default_value, :string, required: true
@@ -41,7 +41,7 @@ defmodule EventsWeb.Components.Base.Tabs do
 
   def tabs(assigns) do
     ~H"""
-    <div class={classes([@class])} {@rest}>
+    <div class={Utils.classes([@class])} {@rest}>
       <%= for list <- @list do %>
         <div class="inline-flex h-10 items-center justify-center rounded-md bg-zinc-100 p-1 text-zinc-500">
           <%= for trigger <- list[:trigger] || [] do %>
@@ -51,18 +51,7 @@ defmodule EventsWeb.Components.Base.Tabs do
               phx-click={switch_tab(trigger.value)}
               aria-selected={to_string(@default_value == trigger.value)}
               aria-controls={"tab-content-#{trigger.value}"}
-              class={
-                classes([
-                  "inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5",
-                  "text-sm font-medium ring-offset-white transition-all",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950 focus-visible:ring-offset-2",
-                  "disabled:pointer-events-none disabled:opacity-50",
-                  if(@default_value == trigger.value,
-                    do: "bg-white text-zinc-900 shadow-sm",
-                    else: "hover:bg-white/50 hover:text-zinc-900"
-                  )
-                ])
-              }
+              class={trigger_classes(@default_value == trigger.value)}
             >
               <%= render_slot(trigger) %>
             </button>
@@ -74,13 +63,7 @@ defmodule EventsWeb.Components.Base.Tabs do
           id={"tab-content-#{content.value}"}
           role="tabpanel"
           tabindex="0"
-          class={
-            classes([
-              "mt-2 ring-offset-white focus-visible:outline-none focus-visible:ring-2",
-              "focus-visible:ring-zinc-950 focus-visible:ring-offset-2",
-              if(@default_value == content.value, do: "block", else: "hidden")
-            ])
-          }
+          class={content_classes(@default_value == content.value)}
         >
           <%= render_slot(content) %>
         </div>
@@ -89,12 +72,30 @@ defmodule EventsWeb.Components.Base.Tabs do
     """
   end
 
+  defp trigger_classes(active) do
+    [
+      "inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5",
+      "text-sm font-medium ring-offset-white transition-all",
+      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950 focus-visible:ring-offset-2",
+      "disabled:pointer-events-none disabled:opacity-50",
+      active && "bg-white text-zinc-900 shadow-sm" || "hover:bg-white/50 hover:text-zinc-900"
+    ]
+    |> Utils.classes()
+  end
+
+  defp content_classes(active) do
+    [
+      "mt-2 ring-offset-white focus-visible:outline-none focus-visible:ring-2",
+      "focus-visible:ring-zinc-950 focus-visible:ring-offset-2",
+      active && "block" || "hidden"
+    ]
+    |> Utils.classes()
+  end
+
   defp switch_tab(value) do
     JS.hide(to: "[role='tabpanel']")
     |> JS.show(to: "#tab-content-#{value}")
     |> JS.remove_class("bg-white text-zinc-900 shadow-sm", to: "[role='tab']")
-    |> JS.add_class("bg-white text-zinc-900 shadow-sm",
-      to: "[aria-controls='tab-content-#{value}']"
-    )
+    |> JS.add_class("bg-white text-zinc-900 shadow-sm", to: "[aria-controls='tab-content-#{value}']")
   end
 end

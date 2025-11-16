@@ -15,8 +15,16 @@ defmodule EventsWeb.Components.Base.Toast do
       </.toast>
   """
   use Phoenix.Component
-  import EventsWeb.Components.Base, only: [classes: 1]
+  alias EventsWeb.Components.Base.Utils
   alias Phoenix.LiveView.JS
+
+  @variant_map %{
+    "default" => "border-zinc-200 bg-white text-zinc-900",
+    "success" => "border-green-200 bg-green-50 text-green-900",
+    "error" => "border-red-200 bg-red-50 text-red-900",
+    "warning" => "border-yellow-200 bg-yellow-50 text-yellow-900",
+    "info" => "border-blue-200 bg-blue-50 text-blue-900"
+  }
 
   attr :id, :string, default: nil
   attr :variant, :string, default: "default", values: ~w(default success error warning info)
@@ -36,16 +44,7 @@ defmodule EventsWeb.Components.Base.Toast do
     <div
       id={@id}
       role="alert"
-      class={
-        classes([
-          "pointer-events-auto relative flex w-full max-w-md items-center",
-          "justify-between space-x-4 overflow-hidden rounded-md border p-4",
-          "shadow-lg transition-all",
-          "animate-in slide-in-from-top-full",
-          variant_classes(@variant),
-          @class
-        ])
-      }
+      class={toast_classes(@variant, @class)}
       phx-hook="Toast"
       data-duration={@duration}
       {@rest}
@@ -85,9 +84,14 @@ defmodule EventsWeb.Components.Base.Toast do
     """
   end
 
-  defp variant_classes("default"), do: "border-zinc-200 bg-white text-zinc-900"
-  defp variant_classes("success"), do: "border-green-200 bg-green-50 text-green-900"
-  defp variant_classes("error"), do: "border-red-200 bg-red-50 text-red-900"
-  defp variant_classes("warning"), do: "border-yellow-200 bg-yellow-50 text-yellow-900"
-  defp variant_classes("info"), do: "border-blue-200 bg-blue-50 text-blue-900"
+  defp toast_classes(variant, custom_class) do
+    [
+      "pointer-events-auto relative flex w-full max-w-md items-center",
+      "justify-between space-x-4 overflow-hidden rounded-md border p-4",
+      "shadow-lg transition-all animate-in slide-in-from-top-full",
+      Map.get(@variant_map, variant, @variant_map["default"]),
+      custom_class
+    ]
+    |> Utils.classes()
+  end
 end

@@ -17,7 +17,12 @@ defmodule EventsWeb.Components.Base.RadioGroup do
       </.radio_group>
   """
   use Phoenix.Component
-  import EventsWeb.Components.Base, only: [classes: 1]
+  alias EventsWeb.Components.Base.Utils
+
+  @orientation_map %{
+    "horizontal" => "flex-row",
+    "vertical" => "flex-col"
+  }
 
   attr :name, :string, required: true
   attr :orientation, :string, default: "vertical", values: ~w(vertical horizontal)
@@ -34,17 +39,7 @@ defmodule EventsWeb.Components.Base.RadioGroup do
 
   def radio_group(assigns) do
     ~H"""
-    <div
-      role="radiogroup"
-      class={
-        classes([
-          "flex gap-4",
-          if(@orientation == "horizontal", do: "flex-row", else: "flex-col"),
-          @class
-        ])
-      }
-      {@rest}
-    >
+    <div role="radiogroup" class={group_classes(@orientation, @class)} {@rest}>
       <%= for radio <- @radio do %>
         <div class="flex items-center gap-2">
           <input
@@ -54,16 +49,7 @@ defmodule EventsWeb.Components.Base.RadioGroup do
             value={radio.value}
             checked={radio[:checked] || false}
             disabled={@disabled || radio[:disabled] || false}
-            class={
-              classes([
-                "peer h-4 w-4 shrink-0 rounded-full border border-zinc-300",
-                "bg-white text-zinc-900",
-                "transition-colors duration-150",
-                "focus:outline-none focus:ring-2 focus:ring-zinc-950 focus:ring-offset-2",
-                "disabled:cursor-not-allowed disabled:opacity-50",
-                "checked:bg-zinc-900 checked:border-zinc-900"
-              ])
-            }
+            class={radio_classes()}
           />
           <label
             for={"#{@name}-#{radio.value}"}
@@ -75,5 +61,25 @@ defmodule EventsWeb.Components.Base.RadioGroup do
       <% end %>
     </div>
     """
+  end
+
+  defp group_classes(orientation, custom_class) do
+    [
+      "flex gap-4",
+      Map.get(@orientation_map, orientation, @orientation_map["vertical"]),
+      custom_class
+    ]
+    |> Utils.classes()
+  end
+
+  defp radio_classes do
+    [
+      "peer h-4 w-4 shrink-0 rounded-full border border-zinc-300",
+      "bg-white text-zinc-900 transition-colors duration-150",
+      "focus:outline-none focus:ring-2 focus:ring-zinc-950 focus:ring-offset-2",
+      "disabled:cursor-not-allowed disabled:opacity-50",
+      "checked:bg-zinc-900 checked:border-zinc-900"
+    ]
+    |> Utils.classes()
   end
 end

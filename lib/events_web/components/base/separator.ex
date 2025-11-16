@@ -9,7 +9,12 @@ defmodule EventsWeb.Components.Base.Separator do
       <.separator class="my-4" />
   """
   use Phoenix.Component
-  import EventsWeb.Components.Base, only: [classes: 1]
+  alias EventsWeb.Components.Base.Utils
+
+  @orientation_map %{
+    "horizontal" => "h-px w-full",
+    "vertical" => "h-full w-px"
+  }
 
   attr :orientation, :string, default: "horizontal", values: ~w(horizontal vertical)
   attr :class, :string, default: nil
@@ -20,15 +25,18 @@ defmodule EventsWeb.Components.Base.Separator do
     <div
       role="separator"
       aria-orientation={@orientation}
-      class={
-        classes([
-          "bg-zinc-200 shrink-0",
-          if(@orientation == "horizontal", do: "h-px w-full", else: "h-full w-px"),
-          @class
-        ])
-      }
+      class={separator_classes(@orientation, @class)}
       {@rest}
     />
     """
+  end
+
+  defp separator_classes(orientation, custom_class) do
+    [
+      "bg-zinc-200 shrink-0",
+      Map.get(@orientation_map, orientation, @orientation_map["horizontal"]),
+      custom_class
+    ]
+    |> Utils.classes()
   end
 end
