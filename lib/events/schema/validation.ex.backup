@@ -1,0 +1,569 @@
+defmodule Events.Schema.Validation do
+  @moduledoc """
+  Validation application logic for enhanced schema fields.
+
+  This module takes field validation metadata and applies the appropriate
+  Ecto.Changeset validations.
+  """
+
+  import Ecto.Changeset
+
+  alias Events.Schema.Slugify
+  alias Events.Schema.Validation.Advanced
+
+  @doc """
+  Apply validation for a single field based on its type and options.
+  """
+  def apply_field_validation(changeset, field_name, field_type, opts) do
+    # Check conditional validation first - if condition is false, skip all validations
+    should_validate = should_validate_field?(changeset, opts)
+
+    if should_validate do
+      changeset
+      |> apply_string_validations(field_name, field_type, opts)
+      |> apply_number_validations(field_name, field_type, opts)
+      |> apply_boolean_validations(field_name, field_type, opts)
+      |> apply_array_validations(field_name, field_type, opts)
+      |> apply_map_validations(field_name, field_type, opts)
+      |> apply_datetime_validations(field_name, field_type, opts)
+      |> apply_normalization(field_name, field_type, opts)
+      |> apply_custom_validation(field_name, opts)
+      |> Advanced.apply_constraints(field_name, opts)
+    else
+      # Still apply normalization even when skipping validation
+      apply_normalization(changeset, field_name, field_type, opts)
+    end
+  end
+
+  # Check if field should be validated based on conditional options
+  defp should_validate_field?(changeset, opts) do
+    cond do
+      validate_if = opts[:validate_if] ->
+        call_condition(validate_if, changeset)
+
+      validate_unless = opts[:validate_unless] ->
+        !call_condition(validate_unless, changeset)
+
+      true ->
+        true
+    end
+  end
+
+  # String validations
+  defp apply_string_validations(changeset, field_name, field_type, opts)
+       when field_type in [:string, :citext] do
+    changeset
+    |> apply_length_validation(field_name, opts)
+    |> apply_format_validation(field_name, opts)
+    |> apply_inclusion_validation(field_name, opts)
+    |> apply_exclusion_validation(field_name, opts)
+  end
+
+  defp apply_string_validations(changeset, _field_name, _field_type, _opts), do: changeset
+
+  # Number validations
+  defp apply_number_validations(changeset, field_name, field_type, opts)
+       when field_type in [:integer, :float, :decimal] do
+    number_opts = build_number_opts(opts)
+
+    if number_opts != [] do
+      validate_number(changeset, field_name, number_opts)
+    else
+      changeset
+    end
+    |> apply_inclusion_validation(field_name, opts)
+  end
+
+  defp apply_number_validations(changeset, _field_name, _field_type, _opts), do: changeset
+
+  # Boolean validations
+  defp apply_boolean_validations(changeset, field_name, :boolean, opts) do
+    if opts[:acceptance] do
+      validate_acceptance(changeset, field_name)
+    else
+      changeset
+    end
+  end
+
+  defp apply_boolean_validations(changeset, _field_name, _field_type, _opts), do: changeset
+
+  # Array validations
+  defp apply_array_validations(changeset, field_name, {:array, _inner_type}, opts) do
+    changeset
+    |> apply_length_validation(field_name, opts)
+    |> apply_subset_validation(field_name, opts)
+    |> Advanced.validate_array_items(field_name, opts)
+  end
+
+  defp apply_array_validations(changeset, _field_name, _field_type, _opts), do: changeset
+
+  # Date/time validations
+  defp apply_datetime_validations(changeset, field_name, field_type, opts) do
+    Advanced.validate_datetime(changeset, field_name, field_type, opts)
+  end
+
+  # Map validations
+  defp apply_map_validations(changeset, field_name, field_type, opts)
+       when field_type in [:map, {:map, :any}] do
+    changeset
+    |> validate_map_keys(field_name, opts)
+    |> validate_map_size(field_name, opts)
+  end
+
+  defp apply_map_validations(changeset, _field_name, _field_type, _opts), do: changeset
+
+  defp validate_map_keys(changeset, field_name, opts) do
+    case get_change(changeset, field_name) do
+      nil ->
+        changeset
+
+      map when is_map(map) ->
+        errors = []
+
+        # Check required keys
+        errors =
+          if required_keys = opts[:required_keys] do
+            missing = Enum.filter(required_keys, fn key -> not Map.has_key?(map, key) end)
+
+            if missing != [] do
+              msg = "missing required keys: #{inspect(missing)}"
+              [{field_name, msg} | errors]
+            else
+              errors
+            end
+          else
+            errors
+          end
+
+        # Check forbidden keys
+        errors =
+          if forbidden_keys = opts[:forbidden_keys] do
+            present = Enum.filter(forbidden_keys, fn key -> Map.has_key?(map, key) end)
+
+            if present != [] do
+              msg = "contains forbidden keys: #{inspect(present)}"
+              [{field_name, msg} | errors]
+            else
+              errors
+            end
+          else
+            errors
+          end
+
+        if errors != [] do
+          Enum.reduce(errors, changeset, fn {field, msg}, acc ->
+            add_error(acc, field, msg)
+          end)
+        else
+          changeset
+        end
+
+      _ ->
+        changeset
+    end
+  end
+
+  defp validate_map_size(changeset, field_name, opts) do
+    case get_change(changeset, field_name) do
+      nil ->
+        changeset
+
+      map when is_map(map) ->
+        size = map_size(map)
+        min = opts[:min_keys]
+        max = opts[:max_keys]
+
+        cond do
+          min && size < min ->
+            add_error(changeset, field_name, "must have at least #{min} keys")
+
+          max && size > max ->
+            add_error(changeset, field_name, "must have at most #{max} keys")
+
+          true ->
+            changeset
+        end
+
+      _ ->
+        changeset
+    end
+  end
+
+  # Normalization (applied during cast, not validation)
+  defp apply_normalization(changeset, field_name, field_type, opts)
+       when field_type in [:string, :citext] do
+    case get_change(changeset, field_name) do
+      nil ->
+        changeset
+
+      value when is_binary(value) ->
+        normalized_value =
+          value
+          |> maybe_trim(opts)
+          |> maybe_normalize(opts)
+
+        put_change(changeset, field_name, normalized_value)
+
+      _ ->
+        changeset
+    end
+  end
+
+  defp apply_normalization(changeset, _field_name, _field_type, _opts), do: changeset
+
+  # Custom validation
+  defp apply_custom_validation(changeset, field_name, opts) do
+    case opts[:validate] do
+      nil ->
+        changeset
+
+      # Cross-field validations list
+      validations when is_list(validations) ->
+        Advanced.apply_cross_field_validations(changeset, validations)
+
+      validator when is_function(validator, 1) ->
+        validate_change(changeset, field_name, fn _, value ->
+          case validator.(value) do
+            :ok -> []
+            {:error, message} -> [{field_name, message}]
+            errors when is_list(errors) -> errors
+          end
+        end)
+
+      {module, function} ->
+        validate_change(changeset, field_name, fn _, value ->
+          case apply(module, function, [value]) do
+            :ok -> []
+            {:error, message} -> [{field_name, message}]
+            errors when is_list(errors) -> errors
+          end
+        end)
+    end
+  end
+
+  # Call conditional function - supports both MFA tuples and functions at runtime
+  defp call_condition({module, function}, changeset) when is_atom(module) and is_atom(function) do
+    apply(module, function, [changeset])
+  end
+
+  defp call_condition({module, function, args}, changeset)
+       when is_atom(module) and is_atom(function) do
+    apply(module, function, [changeset | args])
+  end
+
+  defp call_condition(fun, changeset) when is_function(fun, 1) do
+    fun.(changeset)
+  end
+
+  defp call_condition(_, _), do: true
+
+  # Helper functions
+
+  defp apply_length_validation(changeset, field_name, opts) do
+    # Handle min_length, max_length, and length separately when they have custom messages
+    # This ensures each validation gets its own error message
+    changeset
+    |> apply_min_length(field_name, opts)
+    |> apply_max_length(field_name, opts)
+    |> apply_exact_length(field_name, opts)
+  end
+
+  defp apply_min_length(changeset, field_name, opts) do
+    case opts[:min_length] do
+      nil ->
+        changeset
+
+      {min_val, inline_opts} when is_list(inline_opts) ->
+        validate_length(changeset, field_name, min: min_val, message: inline_opts[:message])
+
+      min_val ->
+        msg = get_message_from_opts(opts, :length)
+
+        if msg do
+          validate_length(changeset, field_name, min: min_val, message: msg)
+        else
+          validate_length(changeset, field_name, min: min_val)
+        end
+    end
+  end
+
+  defp apply_max_length(changeset, field_name, opts) do
+    case opts[:max_length] do
+      nil ->
+        changeset
+
+      {max_val, inline_opts} when is_list(inline_opts) ->
+        validate_length(changeset, field_name, max: max_val, message: inline_opts[:message])
+
+      max_val ->
+        msg = get_message_from_opts(opts, :length)
+
+        if msg do
+          validate_length(changeset, field_name, max: max_val, message: msg)
+        else
+          validate_length(changeset, field_name, max: max_val)
+        end
+    end
+  end
+
+  defp apply_exact_length(changeset, field_name, opts) do
+    case opts[:length] do
+      nil ->
+        changeset
+
+      {len_val, inline_opts} when is_list(inline_opts) ->
+        validate_length(changeset, field_name, is: len_val, message: inline_opts[:message])
+
+      len_val ->
+        msg = get_message_from_opts(opts, :length)
+
+        if msg do
+          validate_length(changeset, field_name, is: len_val, message: msg)
+        else
+          validate_length(changeset, field_name, is: len_val)
+        end
+    end
+  end
+
+  defp apply_format_validation(changeset, field_name, opts) do
+    case opts[:format] do
+      nil ->
+        changeset
+
+      format when is_atom(format) ->
+        # Named format validators
+        regex = get_named_format(format)
+        msg = get_message_from_opts(opts, :format) || format_message(format)
+        validate_format(changeset, field_name, regex, message: msg)
+
+      {format, inline_opts} when is_atom(format) and is_list(inline_opts) ->
+        # Handle {:email, message: "..."} syntax for named formats
+        regex = get_named_format(format)
+        msg = inline_opts[:message] || format_message(format)
+        validate_format(changeset, field_name, regex, message: msg)
+
+      %Regex{} = regex ->
+        format_opts = add_message([], opts, :format)
+        validate_format(changeset, field_name, regex, format_opts)
+
+      {%Regex{} = regex, inline_opts} ->
+        # Handle {regex, message: "..."} syntax
+        validate_format(changeset, field_name, regex, inline_opts)
+    end
+  end
+
+  defp apply_inclusion_validation(changeset, field_name, opts) do
+    case opts[:in] do
+      nil ->
+        changeset
+
+      values when is_list(values) ->
+        inclusion_opts = add_message([], opts, :inclusion)
+        validate_inclusion(changeset, field_name, values, inclusion_opts)
+    end
+  end
+
+  defp apply_exclusion_validation(changeset, field_name, opts) do
+    case opts[:not_in] do
+      nil ->
+        changeset
+
+      values when is_list(values) ->
+        exclusion_opts = add_message([], opts, :exclusion)
+        validate_exclusion(changeset, field_name, values, exclusion_opts)
+    end
+  end
+
+  defp apply_subset_validation(changeset, field_name, opts) do
+    # For arrays, :in means subset validation
+    case opts[:in] do
+      nil ->
+        changeset
+
+      values when is_list(values) ->
+        subset_opts = add_message([], opts, :subset)
+        validate_subset(changeset, field_name, values, subset_opts)
+    end
+  end
+
+  defp build_number_opts(opts) do
+    []
+    # Simple aliases
+    |> put_if_present(:greater_than_or_equal_to, extract_value(opts[:min]))
+    |> put_if_present(:less_than_or_equal_to, extract_value(opts[:max]))
+    # Full Ecto options
+    |> put_if_present(:greater_than, extract_value(opts[:greater_than]))
+    |> put_if_present(:greater_than_or_equal_to, extract_value(opts[:greater_than_or_equal_to]))
+    |> put_if_present(:less_than, extract_value(opts[:less_than]))
+    |> put_if_present(:less_than_or_equal_to, extract_value(opts[:less_than_or_equal_to]))
+    |> put_if_present(:equal_to, extract_value(opts[:equal_to]))
+    # Shortcuts
+    |> maybe_add_positive(opts)
+    |> maybe_add_non_negative(opts)
+    |> maybe_add_negative(opts)
+    |> maybe_add_non_positive(opts)
+    |> add_message(opts, :number)
+    |> add_message_from_tuple(opts[:min], :greater_than_or_equal_to)
+    |> add_message_from_tuple(opts[:max], :less_than_or_equal_to)
+  end
+
+  defp maybe_add_positive(number_opts, opts) do
+    if opts[:positive] do
+      Keyword.put(number_opts, :greater_than, 0)
+    else
+      number_opts
+    end
+  end
+
+  defp maybe_add_non_negative(number_opts, opts) do
+    if opts[:non_negative] do
+      Keyword.put(number_opts, :greater_than_or_equal_to, 0)
+    else
+      number_opts
+    end
+  end
+
+  defp maybe_add_negative(number_opts, opts) do
+    if opts[:negative] do
+      Keyword.put(number_opts, :less_than, 0)
+    else
+      number_opts
+    end
+  end
+
+  defp maybe_add_non_positive(number_opts, opts) do
+    if opts[:non_positive] do
+      Keyword.put(number_opts, :less_than_or_equal_to, 0)
+    else
+      number_opts
+    end
+  end
+
+  defp maybe_trim(value, opts) do
+    if Keyword.get(opts, :trim, true) do
+      String.trim(value)
+    else
+      value
+    end
+  end
+
+  defp maybe_normalize(value, opts) do
+    case opts[:normalize] do
+      nil ->
+        value
+
+      normalizers when is_list(normalizers) ->
+        # Multiple normalizations - apply in order
+        Enum.reduce(normalizers, value, fn normalizer, acc ->
+          apply_single_normalization(acc, normalizer)
+        end)
+
+      normalizer ->
+        apply_single_normalization(value, normalizer)
+    end
+  end
+
+  defp apply_single_normalization(value, :downcase), do: String.downcase(value)
+  defp apply_single_normalization(value, :upcase), do: String.upcase(value)
+  defp apply_single_normalization(value, :capitalize), do: String.capitalize(value)
+
+  defp apply_single_normalization(value, :titlecase) do
+    value
+    |> String.split()
+    |> Enum.map(&String.capitalize/1)
+    |> Enum.join(" ")
+  end
+
+  defp apply_single_normalization(value, :trim), do: String.trim(value)
+
+  defp apply_single_normalization(value, :squish) do
+    value
+    |> String.trim()
+    |> String.replace(~r/\s+/, " ")
+  end
+
+  defp apply_single_normalization(value, :slugify), do: Slugify.slugify(value)
+
+  defp apply_single_normalization(value, {:slugify, opts_or_module}) when is_list(opts_or_module) do
+    Slugify.slugify(value, opts_or_module)
+  end
+
+  defp apply_single_normalization(value, {:slugify, module}) when is_atom(module) do
+    if Code.ensure_loaded?(module) && function_exported?(module, :slugify, 1) do
+      module.slugify(value)
+    else
+      # Fallback to default slugify
+      Slugify.slugify(value)
+    end
+  end
+
+  defp apply_single_normalization(value, {:custom, fun}) when is_function(fun, 1) do
+    fun.(value)
+  end
+
+  defp apply_single_normalization(value, _), do: value
+
+  # Named format validators
+  defp get_named_format(:email), do: ~r/@/
+  defp get_named_format(:url), do: ~r/^https?:\/\//
+
+  defp get_named_format(:uuid),
+    do: ~r/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+  defp get_named_format(:slug), do: ~r/^[a-z0-9-]+$/
+  defp get_named_format(:hex_color), do: ~r/^#[0-9a-f]{6}$/i
+  defp get_named_format(:ip), do: ~r/^(\d{1,3}\.){3}\d{1,3}$/
+  defp get_named_format(_), do: ~r/./
+
+  defp format_message(:email), do: "must be a valid email"
+  defp format_message(:url), do: "must be a valid URL"
+  defp format_message(:uuid), do: "must be a valid UUID"
+  defp format_message(:slug), do: "must be a valid slug"
+  defp format_message(:hex_color), do: "must be a valid hex color"
+  defp format_message(:ip), do: "must be a valid IP address"
+  defp format_message(_), do: "has invalid format"
+
+  defp put_if_present(list, _key, nil), do: list
+  defp put_if_present(list, key, value), do: Keyword.put(list, key, value)
+
+  # Extract value from tuple format: {value, opts} or just value
+  defp extract_value({value, _opts}), do: value
+  defp extract_value(value), do: value
+
+  # Get message from tuple format: {value, message: "..."}
+  defp add_message_from_tuple(validation_opts, {_value, inline_opts}, _key)
+       when is_list(inline_opts) do
+    if msg = inline_opts[:message] do
+      Keyword.put(validation_opts, :message, msg)
+    else
+      validation_opts
+    end
+  end
+
+  defp add_message_from_tuple(validation_opts, _field_value, _key), do: validation_opts
+
+  # Get message from opts, checking both :message and :messages map
+  defp get_message_from_opts(field_opts, validation_type) do
+    cond do
+      # Check messages map first (more specific)
+      messages = field_opts[:messages] ->
+        messages[validation_type]
+
+      # Fall back to general message
+      message = field_opts[:message] ->
+        message
+
+      true ->
+        nil
+    end
+  end
+
+  # Add message to validation options
+  defp add_message(validation_opts, field_opts, validation_type) do
+    if msg = get_message_from_opts(field_opts, validation_type) do
+      Keyword.put(validation_opts, :message, msg)
+    else
+      validation_opts
+    end
+  end
+end

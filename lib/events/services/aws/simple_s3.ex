@@ -142,7 +142,9 @@ defmodule Events.Services.Aws.SimpleS3 do
   @spec list_all(conn(), bucket(), keyword()) :: {:ok, [map()]} | {:error, term()}
 
   def list_all(bucket, opts \\ [])
-  def list_all(bucket, opts) when is_binary(bucket) and is_list(opts), do: list_all(nil, bucket, opts)
+
+  def list_all(bucket, opts) when is_binary(bucket) and is_list(opts),
+    do: list_all(nil, bucket, opts)
 
   def list_all(conn, bucket, opts) when is_binary(bucket) and is_list(opts) do
     do_list_all(conn, bucket, opts, [])
@@ -197,10 +199,13 @@ defmodule Events.Services.Aws.SimpleS3 do
   @spec upload(conn(), bucket(), key(), content(), keyword()) :: :ok | {:error, term()}
 
   def upload(bucket, path, content, opts \\ [])
-  def upload(bucket, path, content, opts) when is_binary(bucket) and is_binary(path) and is_list(opts),
-    do: upload(nil, bucket, path, content, opts)
 
-  def upload(conn, bucket, path, content, opts) when is_binary(bucket) and is_binary(path) and is_list(opts) do
+  def upload(bucket, path, content, opts)
+      when is_binary(bucket) and is_binary(path) and is_list(opts),
+      do: upload(nil, bucket, path, content, opts)
+
+  def upload(conn, bucket, path, content, opts)
+      when is_binary(bucket) and is_binary(path) and is_list(opts) do
     context = Aws.to_context(conn, bucket: bucket)
 
     upload_opts = [
@@ -228,7 +233,8 @@ defmodule Events.Services.Aws.SimpleS3 do
   @spec download(bucket(), key()) :: {:ok, binary()} | {:error, term()}
   @spec download(conn(), bucket(), key()) :: {:ok, binary()} | {:error, term()}
 
-  def download(bucket, path) when is_binary(bucket) and is_binary(path), do: download(nil, bucket, path)
+  def download(bucket, path) when is_binary(bucket) and is_binary(path),
+    do: download(nil, bucket, path)
 
   def download(conn, bucket, path) when is_binary(bucket) and is_binary(path) do
     context = Aws.to_context(conn, bucket: bucket)
@@ -273,7 +279,8 @@ defmodule Events.Services.Aws.SimpleS3 do
   @spec exists?(bucket(), key()) :: boolean()
   @spec exists?(conn(), bucket(), key()) :: boolean()
 
-  def exists?(bucket, path) when is_binary(bucket) and is_binary(path), do: exists?(nil, bucket, path)
+  def exists?(bucket, path) when is_binary(bucket) and is_binary(path),
+    do: exists?(nil, bucket, path)
 
   def exists?(conn, bucket, path) when is_binary(bucket) and is_binary(path) do
     context = Aws.to_context(conn, bucket: bucket)
@@ -315,10 +322,13 @@ defmodule Events.Services.Aws.SimpleS3 do
   @spec url_for_upload(conn(), bucket(), key(), keyword()) :: {:ok, String.t()} | {:error, term()}
 
   def url_for_upload(bucket, path, opts \\ [])
-  def url_for_upload(bucket, path, opts) when is_binary(bucket) and is_binary(path) and is_list(opts),
-    do: url_for_upload(nil, bucket, path, opts)
 
-  def url_for_upload(conn, bucket, path, opts) when is_binary(bucket) and is_binary(path) and is_list(opts) do
+  def url_for_upload(bucket, path, opts)
+      when is_binary(bucket) and is_binary(path) and is_list(opts),
+      do: url_for_upload(nil, bucket, path, opts)
+
+  def url_for_upload(conn, bucket, path, opts)
+      when is_binary(bucket) and is_binary(path) and is_list(opts) do
     context = Aws.to_context(conn, bucket: bucket)
     expires_in = Keyword.get(opts, :expires, 3600)
 
@@ -348,10 +358,13 @@ defmodule Events.Services.Aws.SimpleS3 do
   @spec url_for_download(conn(), bucket(), key(), keyword()) :: {:ok, String.t()} | {:error, term()}
 
   def url_for_download(bucket, path, opts \\ [])
-  def url_for_download(bucket, path, opts) when is_binary(bucket) and is_binary(path) and is_list(opts),
-    do: url_for_download(nil, bucket, path, opts)
 
-  def url_for_download(conn, bucket, path, opts) when is_binary(bucket) and is_binary(path) and is_list(opts) do
+  def url_for_download(bucket, path, opts)
+      when is_binary(bucket) and is_binary(path) and is_list(opts),
+      do: url_for_download(nil, bucket, path, opts)
+
+  def url_for_download(conn, bucket, path, opts)
+      when is_binary(bucket) and is_binary(path) and is_list(opts) do
     context = Aws.to_context(conn, bucket: bucket)
     expires_in = Keyword.get(opts, :expires, 3600)
 
@@ -480,7 +493,9 @@ defmodule Events.Services.Aws.SimpleS3 do
   @spec folder_size(conn(), bucket(), keyword()) :: {:ok, map()} | {:error, term()}
 
   def folder_size(bucket, opts \\ [])
-  def folder_size(bucket, opts) when is_binary(bucket) and is_list(opts), do: folder_size(nil, bucket, opts)
+
+  def folder_size(bucket, opts) when is_binary(bucket) and is_list(opts),
+    do: folder_size(nil, bucket, opts)
 
   def folder_size(conn, bucket, opts) when is_binary(bucket) and is_list(opts) do
     case list_all(conn, bucket, opts) do

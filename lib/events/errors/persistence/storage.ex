@@ -56,7 +56,7 @@ defmodule Events.Errors.Persistence.Storage do
 
   @type t :: %__MODULE__{}
 
-  events_schema "errors" do
+  schema "errors" do
     field :error_type, Ecto.Enum,
       values: [
         :validation,
