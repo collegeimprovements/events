@@ -44,16 +44,17 @@ defmodule Events.Schema.ValidationPipeline do
   end
 
   defp do_validate_field(changeset, field_name, field_type, opts) do
-    # Check conditional validation first - if condition is false, skip validations
+    # Always normalize first, before any validations
+    changeset = apply_normalization(changeset, field_name, field_type, opts)
+
+    # Check conditional validation - if condition is false, skip validations
     if Conditional.should_validate?(changeset, opts) do
       changeset
       |> apply_type_validations(field_name, field_type, opts)
-      |> apply_normalization(field_name, field_type, opts)
       |> apply_custom_validation(field_name, opts)
       |> Constraints.validate(field_name, opts)
     else
-      # Still apply normalization even when skipping validation
-      apply_normalization(changeset, field_name, field_type, opts)
+      changeset
     end
   end
 

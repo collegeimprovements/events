@@ -64,7 +64,14 @@ defmodule Events.Schema.Slugify do
 
     if uniquify do
       suffix_length = if is_integer(uniquify), do: uniquify, else: 6
-      "#{slug}#{separator}#{generate_suffix(suffix_length)}"
+      suffix = generate_suffix(suffix_length)
+
+      # If slug is empty, just return the suffix without separator
+      if slug == "" do
+        suffix
+      else
+        "#{slug}#{separator}#{suffix}"
+      end
     else
       slug
     end

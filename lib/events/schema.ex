@@ -40,8 +40,26 @@ defmodule Events.Schema do
         cast: true,               # default: true
         format: :email,
         max_length: 255,
-        trim: true,
-        normalize: :downcase
+        mappers: [:trim, :downcase]  # Applied left to right
+
+  ## Mappers (Recommended for Transformations)
+
+  Use `mappers:` to transform field values. Mappers are applied left to right:
+
+      field :email, :string, mappers: [:trim, :downcase]
+      field :name, :string, mappers: [:trim, :titlecase]
+      field :username, :string, mappers: [:trim, :downcase, :slugify]
+
+  Available mappers: `:trim`, `:downcase`, `:upcase`, `:capitalize`,
+  `:titlecase`, `:squish`, `:slugify`, `:digits_only`, `:alphanumeric_only`
+
+  ## Auto-Trim
+
+  **All string fields are automatically trimmed by default!**
+
+  To disable auto-trim (e.g., for passwords):
+
+      field :password, :string, trim: false
 
       field :slug, :string,
         normalize: {:slugify, uniquify: true}  # Medium.com style slugs
@@ -196,10 +214,33 @@ defmodule Events.Schema do
   Enhanced field macro with validation support.
 
   This is imported to override Ecto.Schema.field/3.
+
+  ## Examples
+
+      # Explicit preset
+      field :email, :string, preset: email()
+      field :username, :string, preset: username(min_length: 3)
+
+      # Direct options
+      field :age, :integer, required: true, min: 18, max: 120
+
+      # Mixed (preset options can be overridden)
+      field :email, :string, preset: email(), max_length: 100
   """
   defmacro field(name, type \\ :string, opts \\ []) do
     # We need to directly expand the field macro here
     quote bind_quoted: [name: name, type: type, opts: opts] do
+      # Handle preset: option
+      opts =
+        if preset_opts = Keyword.get(opts, :preset) do
+          # Merge preset options with provided options, user options take precedence
+          opts
+          |> Keyword.delete(:preset)
+          |> Keyword.merge(preset_opts, fn _key, user_val, _preset_val -> user_val end)
+        else
+          opts
+        end
+
       # Split validation options from Ecto options (with warnings)
       {validation_opts, ecto_opts} =
         Events.Schema.Field.__split_options__(opts, type, name)

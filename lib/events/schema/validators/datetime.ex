@@ -137,6 +137,8 @@ defmodule Events.Schema.Validators.DateTime do
     end
   end
 
+  # Support for NaiveDateTime comparison (converts to DateTime for comparison only)
+  # NOTE: We discourage using NaiveDateTime - prefer DateTime or Date
   defp compare_datetime(%NaiveDateTime{} = ndt1, %NaiveDateTime{} = ndt2) do
     compare_datetime(naive_to_datetime(ndt1), naive_to_datetime(ndt2))
   end
@@ -155,6 +157,7 @@ defmodule Events.Schema.Validators.DateTime do
     compare_datetime(d, date_from_dt)
   end
 
+  # Support for NaiveDateTime (converts to DateTime for comparison only)
   defp compare_datetime(%Date{} = d, %NaiveDateTime{} = ndt) do
     compare_datetime(d, naive_to_datetime(ndt))
   end
@@ -164,6 +167,7 @@ defmodule Events.Schema.Validators.DateTime do
     compare_datetime(date_from_dt, d)
   end
 
+  # Support for NaiveDateTime (converts to DateTime for comparison only)
   defp compare_datetime(%NaiveDateTime{} = ndt, %Date{} = d) do
     compare_datetime(naive_to_datetime(ndt), d)
   end
