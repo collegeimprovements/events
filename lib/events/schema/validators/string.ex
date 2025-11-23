@@ -159,7 +159,7 @@ defmodule Events.Schema.Validators.String do
 
   # Named format patterns
 
-  defp named_format_regex(:email), do: ~r/@/
+  defp named_format_regex(:email), do: ~r/^[^\s@]+@[^\s@]+\.[^\s@]+$/
   defp named_format_regex(:url), do: ~r/^https?:\/\//
 
   defp named_format_regex(:uuid),

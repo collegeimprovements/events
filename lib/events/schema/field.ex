@@ -11,95 +11,17 @@ defmodule Events.Schema.Field do
   """
 
   @doc """
-  Define a field with enhanced validation support.
+  Backwards-compatible `field/3` macro that now delegates to `Events.Schema.field/3`.
 
-  All standard Ecto field options are supported, plus additional validation options.
-
-  ## Common Options
-
-    * `:cast` - Include in changeset cast (default: true)
-    * `:required` - Mark as required field (default: false)
-    * `:null` - Allow nil values (default: true if not required, false if required)
-    * `:message` - Default error message for all validations
-    * `:messages` - Map of validation-specific error messages
-
-  ## String Validation Options
-
-    * `:min_length` - Minimum length
-    * `:max_length` - Maximum length
-    * `:length` - Exact length or range
-    * `:format` - Regex pattern or named format (:email, :url, etc.)
-    * `:trim` - Auto-trim whitespace (default: true)
-    * `:normalize` - Normalization function (:downcase, :upcase, :slugify, etc.)
-    * `:in` - List of allowed values
-    * `:not_in` - List of disallowed values
-
-  ## Number Validation Options
-
-    * `:min` - Minimum value (alias for :greater_than_or_equal_to)
-    * `:max` - Maximum value (alias for :less_than_or_equal_to)
-    * `:greater_than` - Must be greater than
-    * `:greater_than_or_equal_to` - Must be greater than or equal to
-    * `:less_than` - Must be less than
-    * `:less_than_or_equal_to` - Must be less than or equal to
-    * `:equal_to` - Must be equal to
-    * `:positive` - Must be > 0
-    * `:non_negative` - Must be >= 0
-    * `:negative` - Must be < 0
-    * `:non_positive` - Must be <= 0
-    * `:in` - List of allowed values
-
-  ## Examples
-
-      # Simple field with default cast: true
-      field :name, :string
-
-      # Required field with validation
-      field :email, :string,
-        required: true,
-        format: :email,
-        max_length: 255
-
-      # Number with shortcuts
-      field :age, :integer,
-        positive: true,
-        max: 150
-
-      # Enum field
-      field :status, :string,
-        in: ["active", "inactive"],
-        default: "active"
-
-      # Slugified field
-      field :slug, :string,
-        normalize: {:slugify, uniquify: true}
+  Prefer `use Events.Schema` and its imported macro directly. This definition
+  remains so older modules that `import Events.Schema.Field` continue to work,
+  but the implementation lives in `Events.Schema` to avoid divergence.
   """
+  @deprecated "Import Events.Schema.field/3 via `use Events.Schema` instead"
   defmacro field(name, type \\ :string, opts \\ []) do
-    quote bind_quoted: [name: name, type: type, opts: opts] do
-      # Split validation options from Ecto options
-      {validation_opts, ecto_opts} =
-        Events.Schema.Field.__split_options__(opts, type)
-
-      # Set defaults for cast and required
-      validation_opts =
-        validation_opts
-        |> Keyword.put_new(:cast, true)
-        |> Keyword.put_new(:required, false)
-
-      # Handle null default based on required
-      validation_opts =
-        if Keyword.has_key?(validation_opts, :null) do
-          validation_opts
-        else
-          null_default = !Keyword.get(validation_opts, :required, false)
-          Keyword.put(validation_opts, :null, null_default)
-        end
-
-      # Store validation metadata
-      Module.put_attribute(__MODULE__, :field_validations, {name, type, validation_opts})
-
-      # Call Ecto's underlying field function
-      Ecto.Schema.__field__(__MODULE__, name, type, ecto_opts)
+    quote do
+      require Events.Schema
+      Events.Schema.field(unquote(name), unquote(type), unquote(opts))
     end
   end
 

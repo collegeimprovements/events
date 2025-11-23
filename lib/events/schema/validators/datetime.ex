@@ -5,6 +5,8 @@ defmodule Events.Schema.Validators.DateTime do
   Provides past/future and before/after validations with support for relative times.
   """
 
+  @utc_timezone "Etc/UTC"
+
   @doc """
   Apply all datetime validations to a changeset.
   """
@@ -136,11 +138,15 @@ defmodule Events.Schema.Validators.DateTime do
   end
 
   defp compare_datetime(%NaiveDateTime{} = ndt1, %NaiveDateTime{} = ndt2) do
-    case NaiveDateTime.compare(ndt1, ndt2) do
-      :lt -> :lt
-      :eq -> :eq
-      :gt -> :gt
-    end
+    compare_datetime(naive_to_datetime(ndt1), naive_to_datetime(ndt2))
+  end
+
+  defp compare_datetime(%NaiveDateTime{} = ndt, %DateTime{} = dt) do
+    compare_datetime(naive_to_datetime(ndt), dt)
+  end
+
+  defp compare_datetime(%DateTime{} = dt, %NaiveDateTime{} = ndt) do
+    compare_datetime(dt, naive_to_datetime(ndt))
   end
 
   # Convert between types for comparison
@@ -149,10 +155,22 @@ defmodule Events.Schema.Validators.DateTime do
     compare_datetime(d, date_from_dt)
   end
 
+  defp compare_datetime(%Date{} = d, %NaiveDateTime{} = ndt) do
+    compare_datetime(d, naive_to_datetime(ndt))
+  end
+
   defp compare_datetime(%DateTime{} = dt, %Date{} = d) do
     date_from_dt = DateTime.to_date(dt)
     compare_datetime(date_from_dt, d)
   end
 
+  defp compare_datetime(%NaiveDateTime{} = ndt, %Date{} = d) do
+    compare_datetime(naive_to_datetime(ndt), d)
+  end
+
   defp compare_datetime(_, _), do: :eq
+
+  defp naive_to_datetime(%NaiveDateTime{} = ndt) do
+    DateTime.from_naive!(ndt, @utc_timezone)
+  end
 end

@@ -1,17 +1,31 @@
-# Events.Schema System Guide
+# Events System Guide
 
 ## Overview
 
-The Events.Schema system is an enhanced Ecto schema system that provides powerful field-level validations directly in the schema definition. This guide provides comprehensive examples and patterns for creating schemas with built-in validations.
+The Events system provides enhanced Ecto functionality with two powerful subsystems:
+
+1. **Events.Schema** - Enhanced schema system with field-level validations
+2. **Events.Repo.Migration** - Modular migration DSL with PostgreSQL 18 UUIDv7 support
+
+This guide provides comprehensive examples and patterns for both systems.
 
 ## Table of Contents
+
+### Schema System
 - [Basic Schema Structure](#basic-schema-structure)
 - [Field Types](#field-types)
 - [Validation Options](#validation-options)
 - [Normalization Options](#normalization-options)
 - [Validation Presets](#validation-presets)
-- [Complete Examples](#complete-examples)
-- [Advanced Patterns](#advanced-patterns)
+- [Schema Examples](#schema-examples)
+
+### Migration System
+- [Migration Architecture](#migration-architecture)
+- [Table Creation](#table-creation)
+- [Field Sets](#field-sets)
+- [Index Creation](#index-creation)
+- [Migration Examples](#migration-examples)
+- [Migration Best Practices](#migration-best-practices)
 
 ## Basic Schema Structure
 
@@ -812,36 +826,466 @@ defmodule MyApp.Company do
 end
 ```
 
-## Migration Examples with Constraints
+---
 
-When creating migrations, include the database constraints:
+# Migration System
+
+## Migration Architecture
+
+The migration system is organized into focused modules using pattern matching and pipelines:
+
+```
+lib/events/repo/
+├── migration.ex              # Main module with use macro
+├── migration/
+│   ├── table_builder.ex      # Table creation with UUIDv7
+│   ├── field_sets.ex         # Common field combinations
+│   ├── field_macros.ex       # Specialized field types
+│   ├── indexes.ex            # Index creation helpers
+│   └── helpers.ex            # Utility functions
+```
+
+## Table Creation
+
+### Basic Table with UUIDv7
 
 ```elixir
 defmodule MyApp.Repo.Migrations.CreateUsers do
-  use Ecto.Migration
+  use Events.Repo.Migration
 
   def change do
-    create table(:users) do
-      add :email, :string, null: false
-      add :username, :string, null: false
-      add :age, :integer
-      add :status, :string, null: false, default: "active"
+    # Enable extensions
+    enable_citext()
 
-      timestamps()
+    # Table with automatic UUIDv7 primary key
+    create_table :users do
+      # Fields go here
     end
-
-    # Unique constraints
-    create unique_index(:users, [:email])
-    create unique_index(:users, [:username])
-
-    # Check constraints for validations
-    create constraint(:users, :age_must_be_positive, check: "age >= 0")
-    create constraint(:users, :age_must_be_reasonable, check: "age <= 150")
-    create constraint(:users, :status_must_be_valid,
-      check: "status IN ('active', 'pending', 'suspended')")
   end
 end
 ```
+
+## Field Sets
+
+### Name Fields
+
+```elixir
+create_table :users do
+  # Adds first_name, last_name, display_name, full_name
+  name_fields(type: :citext, required: true)
+end
+```
+
+### Title Fields with Translations
+
+```elixir
+create_table :articles do
+  # Adds title, subtitle, short_title with translations
+  title_fields(
+    with_translations: true,
+    languages: [:es, :fr, :de]
+  )
+end
+```
+
+### Status Field
+
+```elixir
+create_table :orders do
+  # Status with custom values
+  status_field(
+    values: ["pending", "processing", "shipped", "delivered"],
+    default: "pending"
+  )
+end
+```
+
+### Audit Fields
+
+```elixir
+create_table :products do
+  # Track who created/updated records
+  audit_fields(with_user: true, with_role: true)
+end
+```
+
+### Soft Delete Fields
+
+```elixir
+create_table :users do
+  # Soft delete with tracking
+  deleted_fields(with_user: true, with_reason: true)
+end
+```
+
+## Specialized Field Macros
+
+### Contact Fields
+
+```elixir
+create_table :contacts do
+  email_field(type: :citext, unique: true)
+  phone_field(name: :mobile)
+  url_field(name: :website)
+end
+```
+
+### Address Fields
+
+```elixir
+create_table :companies do
+  # Billing address fields
+  address_fields(prefix: :billing)
+  # Shipping address fields
+  address_fields(prefix: :shipping)
+end
+```
+
+### Financial Fields
+
+```elixir
+create_table :invoices do
+  money_field(:subtotal)
+  money_field(:tax)
+  money_field(:total, required: true)
+  percentage_field(:discount)
+end
+```
+
+### Location Fields
+
+```elixir
+create_table :stores do
+  geo_fields(with_altitude: true, with_accuracy: true)
+end
+```
+
+## Index Creation
+
+### Smart Index Creation
+
+```elixir
+def change do
+  create_table :products do
+    # ... fields ...
+  end
+
+  # Name field indexes with fulltext
+  name_indexes(:products, fulltext: true)
+
+  # Status indexes with partial condition
+  status_indexes(:products, partial: "deleted_at IS NULL")
+
+  # Timestamp indexes with order
+  timestamp_indexes(:products, order: :desc)
+
+  # Soft delete indexes
+  deleted_indexes(:products, active_index: true)
+
+  # JSONB metadata index
+  metadata_index(:products, field: :attributes)
+end
+```
+
+## Migration Examples
+
+### Complete User Table
+
+```elixir
+defmodule MyApp.Repo.Migrations.CreateUsers do
+  use Events.Repo.Migration
+
+  def change do
+    enable_citext()
+
+    create_table :users do
+      # Identity
+      name_fields(type: :citext, required: true)
+      email_field(type: :citext, unique: true)
+      phone_field()
+
+      # Authentication
+      add :password_hash, :string, null: false
+      add :confirmed_at, :utc_datetime
+      add :locked_at, :utc_datetime
+
+      # Profile
+      url_field(name: :website)
+      add :bio, :text
+      file_fields(:avatar, with_metadata: true)
+
+      # Settings
+      settings_field(name: :preferences)
+      tags_field(name: :interests)
+
+      # Status
+      status_field()
+      deleted_fields(with_reason: true)
+
+      # Timestamps
+      timestamps()
+    end
+
+    # Create indexes
+    name_indexes(:users, fulltext: true)
+    status_indexes(:users, partial: "deleted_at IS NULL")
+    deleted_indexes(:users, active_index: true)
+  end
+end
+```
+
+### E-commerce Product Table
+
+```elixir
+defmodule MyApp.Repo.Migrations.CreateProducts do
+  use Events.Repo.Migration
+
+  def change do
+    create_table :products do
+      # Identity
+      add :sku, :string, null: false
+      title_fields(with_translations: true, languages: [:es, :fr])
+      slug_field()
+
+      # Categorization
+      type_fields(primary: :category, secondary: :subcategory)
+      tags_field()
+
+      # Pricing
+      money_field(:cost)
+      money_field(:price, required: true)
+      percentage_field(:discount)
+
+      # Inventory
+      counter_field(:stock_quantity)
+      counter_field(:reserved_quantity)
+
+      # Media
+      file_fields(:main_image, with_metadata: true)
+      add :gallery_urls, {:array, :string}, default: []
+
+      # Metadata
+      metadata_field(name: :specifications)
+
+      # Publishing
+      status_field(values: ["draft", "published", "discontinued"])
+      add :published_at, :utc_datetime
+
+      # Audit
+      audit_fields(with_user: true)
+      timestamps()
+    end
+
+    # Indexes
+    create unique_index(:products, [:sku])
+    slug_field(:products)
+    type_indexes(:products)
+    status_indexes(:products, partial: "status = 'published'")
+    metadata_index(:products, field: :specifications)
+  end
+end
+```
+
+### Multi-tenant Organization Table
+
+```elixir
+defmodule MyApp.Repo.Migrations.CreateOrganizations do
+  use Events.Repo.Migration
+
+  def change do
+    enable_citext()
+
+    create_table :organizations do
+      # Identity
+      add :name, :citext, null: false
+      slug_field()
+
+      # Contact
+      email_field(name: :primary_email, unique: true)
+      phone_field(name: :primary_phone)
+      url_field(name: :website)
+
+      # Addresses
+      address_fields(prefix: :billing)
+      address_fields(prefix: :shipping)
+
+      # Subscription
+      add :plan, :string, null: false, default: "free"
+      add :trial_ends_at, :utc_datetime
+      counter_field(:api_calls_count)
+
+      # Settings
+      settings_field(name: :feature_flags)
+      metadata_field(name: :internal_notes)
+
+      # Status
+      status_field(values: ["pending", "active", "suspended", "cancelled"])
+
+      # Audit
+      audit_fields(with_user: true)
+      deleted_fields(with_user: true, with_reason: true)
+      timestamps()
+    end
+
+    # Indexes
+    create unique_index(:organizations, [:slug])
+    name_indexes(:organizations, fulltext: true)
+    status_indexes(:organizations, partial: "status = 'active'")
+    metadata_index(:organizations, field: :internal_notes)
+  end
+end
+```
+
+### Event Management Table
+
+```elixir
+defmodule MyApp.Repo.Migrations.CreateEvents do
+  use Events.Repo.Migration
+
+  def change do
+    create_table :events do
+      # Event info
+      title_fields(required: true)
+      slug_field()
+      add :description, :text
+
+      # Scheduling
+      add :start_time, :utc_datetime, null: false
+      add :end_time, :utc_datetime, null: false
+      add :timezone, :string, null: false
+
+      # Location
+      add :venue_name, :string
+      address_fields(prefix: :venue)
+      geo_fields(prefix: :venue, with_accuracy: true)
+
+      # Capacity
+      counter_field(:max_attendees)
+      counter_field(:registered_count)
+
+      # Organizer
+      add :organizer_id, references(:users, type: :binary_id)
+
+      # Categorization
+      type_fields(primary: :event_type)
+      tags_field(name: :topics)
+
+      # Pricing
+      money_field(:price)
+      money_field(:early_bird_price)
+
+      # Status
+      status_field(values: ["draft", "published", "sold_out", "completed"])
+
+      # Audit
+      audit_fields(with_user: true)
+      timestamps()
+    end
+
+    # Time-based indexes
+    create index(:events, [:start_time])
+    create index(:events, [:end_time])
+
+    # Location indexes
+    create index(:events, [:venue_latitude, :venue_longitude])
+
+    # Status and search
+    status_indexes(:events, partial: "status = 'published'")
+    title_indexes(:events, fulltext: true)
+  end
+end
+```
+
+## Migration Best Practices
+
+### 1. Use Field Sets for Consistency
+
+```elixir
+# Good - consistent across tables
+name_fields(type: :citext)
+audit_fields(with_user: true)
+
+# Avoid - manual and error-prone
+add :first_name, :citext
+add :last_name, :citext
+add :created_by_user_id, references(:users)
+```
+
+### 2. Create Appropriate Indexes
+
+```elixir
+# Partial indexes for active records
+status_indexes(:users, partial: "deleted_at IS NULL")
+
+# Composite indexes for common queries
+create index(:orders, [:customer_id, :status])
+
+# GIN indexes for JSONB/arrays
+metadata_index(:products)
+tags_field(:articles)  # Creates GIN index automatically
+```
+
+### 3. Use Soft Deletes
+
+```elixir
+# Add soft delete capability
+deleted_fields(with_user: true, with_reason: true)
+
+# Create active record index
+deleted_indexes(:users, active_index: true)
+```
+
+### 4. Leverage Type Safety
+
+```elixir
+# Money fields with precision
+money_field(:price, precision: 10, scale: 2)
+
+# Counters with non-negative constraint
+counter_field(:quantity)
+
+# Percentages with range validation
+percentage_field(:discount)
+```
+
+### 5. Pattern: Multi-tenant Tables
+
+```elixir
+create_table :tenant_data do
+  add :tenant_id, references(:tenants, type: :binary_id), null: false
+  # ... other fields ...
+end
+
+create index(:tenant_data, [:tenant_id])
+# Add tenant_id to other indexes for performance
+create index(:tenant_data, [:tenant_id, :status])
+```
+
+### 6. Pattern: Hierarchical Data
+
+```elixir
+create_table :categories do
+  title_fields()
+  slug_field()
+  add :parent_id, references(:categories, type: :binary_id)
+  add :path, :string  # Materialized path
+  add :depth, :integer, default: 0
+  timestamps()
+end
+
+create index(:categories, [:parent_id])
+create index(:categories, [:path])
+```
+
+## Important Migration Notes
+
+1. **Always use `Events.Repo.Migration`** for enhanced functionality
+2. **UUIDv7 requires PostgreSQL 18+** - Falls back to uuid_generate_v4() if needed
+3. **Enable citext** for case-insensitive text fields
+4. **Field sets** ensure consistency across tables
+5. **Smart indexes** have automatic naming conventions
+6. **Pattern matching** throughout for clean option handling
+7. **Pipelines** for functional composition
 
 ## Testing Schemas
 

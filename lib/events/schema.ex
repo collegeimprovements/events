@@ -168,17 +168,20 @@ defmodule Events.Schema do
 
         # Add timestamps unless disabled
         if Events.Schema.__should_add_field__(@schema_opts, :timestamps) do
-          case Keyword.get(@schema_opts, :timestamps) do
-            false ->
+          timestamps_opt = Keyword.get(@schema_opts, :timestamps, true)
+
+          cond do
+            timestamps_opt == false ->
               :ok
 
-            [inserted_at: false] ->
-              Ecto.Schema.field(:updated_at, :utc_datetime_usec)
+            is_list(timestamps_opt) ->
+              merged =
+                [type: :utc_datetime_usec]
+                |> Keyword.merge(timestamps_opt)
 
-            [updated_at: false] ->
-              Ecto.Schema.field(:inserted_at, :utc_datetime_usec)
+              timestamps(merged)
 
-            _ ->
+            true ->
               timestamps(type: :utc_datetime_usec)
           end
         end
