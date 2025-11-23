@@ -17,7 +17,11 @@ defmodule Events.Schema.NumberEnhancementsTest do
 
       # Tuple syntax with messages
       field :age, :integer, required: false, gt: {0, message: "must be positive"}
-      field :score, :integer, required: false, gte: {0, message: "cannot be negative"}, lte: {100, message: "cannot exceed 100"}
+
+      field :score, :integer,
+        required: false,
+        gte: {0, message: "cannot be negative"},
+        lte: {100, message: "cannot exceed 100"}
     end
 
     def changeset(product, attrs) do

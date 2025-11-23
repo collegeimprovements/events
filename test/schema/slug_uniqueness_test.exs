@@ -21,10 +21,11 @@ defmodule Events.Schema.SlugUniquenessTest do
 
   describe "slug with uniqueness" do
     test "generates slug with random suffix" do
-      changeset = Post.changeset(%Post{}, %{
-        title: "My Post",
-        slug: "  Hello World  "
-      })
+      changeset =
+        Post.changeset(%Post{}, %{
+          title: "My Post",
+          slug: "  Hello World  "
+        })
 
       assert changeset.valid?
       slug = changeset.changes.slug
@@ -42,15 +43,17 @@ defmodule Events.Schema.SlugUniquenessTest do
     end
 
     test "different calls generate different suffixes" do
-      changeset1 = Post.changeset(%Post{}, %{
-        title: "My Post",
-        slug: "Hello World"
-      })
+      changeset1 =
+        Post.changeset(%Post{}, %{
+          title: "My Post",
+          slug: "Hello World"
+        })
 
-      changeset2 = Post.changeset(%Post{}, %{
-        title: "My Post",
-        slug: "Hello World"
-      })
+      changeset2 =
+        Post.changeset(%Post{}, %{
+          title: "My Post",
+          slug: "Hello World"
+        })
 
       slug1 = changeset1.changes.slug
       slug2 = changeset2.changes.slug
@@ -64,10 +67,11 @@ defmodule Events.Schema.SlugUniquenessTest do
     end
 
     test "slug with special characters only generates suffix" do
-      changeset = Post.changeset(%Post{}, %{
-        title: "My Post",
-        slug: "!@#$%"
-      })
+      changeset =
+        Post.changeset(%Post{}, %{
+          title: "My Post",
+          slug: "!@#$%"
+        })
 
       assert changeset.valid?
 
@@ -105,10 +109,11 @@ defmodule Events.Schema.SlugUniquenessTest do
     test "slug preset includes uniquify" do
       # The slug() preset uses normalize: {:slugify, uniquify: true}
       # which should also add random suffix
-      changeset = Article.changeset(%Article{}, %{
-        title: "My Article",
-        slug: "Hello World"
-      })
+      changeset =
+        Article.changeset(%Article{}, %{
+          title: "My Article",
+          slug: "Hello World"
+        })
 
       assert changeset.valid?
       slug = changeset.changes.slug
@@ -141,9 +146,10 @@ defmodule Events.Schema.SlugUniquenessTest do
     end
 
     test "supports custom suffix length" do
-      changeset = CustomPost.changeset(%CustomPost{}, %{
-        slug: "Hello World"
-      })
+      changeset =
+        CustomPost.changeset(%CustomPost{}, %{
+          slug: "Hello World"
+        })
 
       assert changeset.valid?
       slug = changeset.changes.slug

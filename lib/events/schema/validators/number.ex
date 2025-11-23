@@ -49,9 +49,15 @@ defmodule Events.Schema.Validators.Number do
   defp add_full_ecto_options(number_opts, opts) do
     number_opts
     |> put_if_present(:greater_than, extract_comparison_value(opts[:greater_than] || opts[:gt]))
-    |> put_if_present(:greater_than_or_equal_to, extract_comparison_value(opts[:greater_than_or_equal_to] || opts[:gte]))
+    |> put_if_present(
+      :greater_than_or_equal_to,
+      extract_comparison_value(opts[:greater_than_or_equal_to] || opts[:gte])
+    )
     |> put_if_present(:less_than, extract_comparison_value(opts[:less_than] || opts[:lt]))
-    |> put_if_present(:less_than_or_equal_to, extract_comparison_value(opts[:less_than_or_equal_to] || opts[:lte]))
+    |> put_if_present(
+      :less_than_or_equal_to,
+      extract_comparison_value(opts[:less_than_or_equal_to] || opts[:lte])
+    )
     |> put_if_present(:equal_to, extract_comparison_value(opts[:equal_to] || opts[:eq]))
   end
 

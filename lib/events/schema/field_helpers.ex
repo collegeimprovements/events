@@ -105,11 +105,12 @@ defmodule Events.Schema.FieldHelpers do
     quote do
       import Events.Schema.Presets.Strings
 
-      preset = case unquote(max_length) do
-        n when n <= 500 -> short_text(unquote(opts))
-        n when n <= 2000 -> medium_text(unquote(opts))
-        _ -> long_text(unquote(opts))
-      end
+      preset =
+        case unquote(max_length) do
+          n when n <= 500 -> short_text(unquote(opts))
+          n when n <= 2000 -> medium_text(unquote(opts))
+          _ -> long_text(unquote(opts))
+        end
 
       field unquote(name), :string, preset: preset
     end

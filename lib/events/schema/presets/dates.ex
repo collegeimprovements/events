@@ -61,8 +61,10 @@ defmodule Events.Schema.Presets.Dates do
   def birth_date(custom_opts \\ []) do
     [
       past: true,
-      after: {:today, days: -(365 * 120)},  # Born within last 120 years
-      before: {:today, days: -(365 * 13)},  # At least 13 years old
+      # Born within last 120 years
+      after: {:today, days: -(365 * 120)},
+      # At least 13 years old
+      before: {:today, days: -(365 * 13)},
       required: false
     ]
     |> merge_opts(custom_opts)
@@ -79,7 +81,8 @@ defmodule Events.Schema.Presets.Dates do
   def adult_birth_date(custom_opts \\ []) do
     [
       past: true,
-      before: {:today, days: -(365 * 18)},  # At least 18 years old
+      # At least 18 years old
+      before: {:today, days: -(365 * 18)},
       required: false
     ]
     |> merge_opts(custom_opts)

@@ -29,11 +29,12 @@ defmodule Events.Schema.FieldMappersTest do
 
   describe "mappers option" do
     test "applies mappers left to right" do
-      changeset = TestUser.changeset(%TestUser{}, %{
-        email: "  TEST@EXAMPLE.COM  ",
-        username: "john_doe",
-        password: "secret"
-      })
+      changeset =
+        TestUser.changeset(%TestUser{}, %{
+          email: "  TEST@EXAMPLE.COM  ",
+          username: "john_doe",
+          password: "secret"
+        })
 
       assert changeset.valid?
       # Email: trim() then downcase()
@@ -41,12 +42,13 @@ defmodule Events.Schema.FieldMappersTest do
     end
 
     test "name with titlecase mapper" do
-      changeset = TestUser.changeset(%TestUser{}, %{
-        email: "test@example.com",
-        name: "  john doe  ",
-        username: "john_doe",
-        password: "secret"
-      })
+      changeset =
+        TestUser.changeset(%TestUser{}, %{
+          email: "test@example.com",
+          name: "  john doe  ",
+          username: "john_doe",
+          password: "secret"
+        })
 
       assert changeset.valid?
       # Name: trim() then titlecase()
@@ -54,12 +56,13 @@ defmodule Events.Schema.FieldMappersTest do
     end
 
     test "code with custom function mapper" do
-      changeset = TestUser.changeset(%TestUser{}, %{
-        email: "test@example.com",
-        code: "  abc123  ",
-        username: "john_doe",
-        password: "secret"
-      })
+      changeset =
+        TestUser.changeset(%TestUser{}, %{
+          email: "test@example.com",
+          code: "  abc123  ",
+          username: "john_doe",
+          password: "secret"
+        })
 
       assert changeset.valid?
       # Code: trim() then upcase
@@ -69,11 +72,12 @@ defmodule Events.Schema.FieldMappersTest do
 
   describe "auto-trim by default" do
     test "trims strings by default" do
-      changeset = TestUser.changeset(%TestUser{}, %{
-        email: "test@example.com",
-        username: "  john_doe  ",
-        password: "secret"
-      })
+      changeset =
+        TestUser.changeset(%TestUser{}, %{
+          email: "test@example.com",
+          username: "  john_doe  ",
+          password: "secret"
+        })
 
       assert changeset.valid?
       # Username has auto-trim (no mappers specified, no trim: false)
@@ -83,11 +87,12 @@ defmodule Events.Schema.FieldMappersTest do
 
   describe "trim: false option" do
     test "disables auto-trim" do
-      changeset = TestUser.changeset(%TestUser{}, %{
-        email: "test@example.com",
-        username: "john_doe",
-        password: "  secret  "
-      })
+      changeset =
+        TestUser.changeset(%TestUser{}, %{
+          email: "test@example.com",
+          username: "john_doe",
+          password: "  secret  "
+        })
 
       assert changeset.valid?
       # Password has trim: false, so whitespace is preserved
@@ -97,11 +102,12 @@ defmodule Events.Schema.FieldMappersTest do
 
   describe "mappers with validation" do
     test "validation runs after mappers are applied" do
-      changeset = TestUser.changeset(%TestUser{}, %{
-        email: "INVALID-EMAIL",
-        username: "john_doe",
-        password: "secret"
-      })
+      changeset =
+        TestUser.changeset(%TestUser{}, %{
+          email: "INVALID-EMAIL",
+          username: "john_doe",
+          password: "secret"
+        })
 
       refute changeset.valid?
       # Email is downcased before validation
