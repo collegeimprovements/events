@@ -286,7 +286,10 @@ defmodule Events.QueryTest do
     end
 
     test "creates paginated result with cursor" do
-      data = [%{id: 1, created_at: ~N[2024-01-01 00:00:00]}, %{id: 2, created_at: ~N[2024-01-02 00:00:00]}]
+      data = [
+        %{id: 1, created_at: ~N[2024-01-01 00:00:00]},
+        %{id: 2, created_at: ~N[2024-01-02 00:00:00]}
+      ]
 
       result =
         Result.paginated(data,

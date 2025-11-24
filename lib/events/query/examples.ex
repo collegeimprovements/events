@@ -24,10 +24,10 @@ defmodule Events.Query.Examples do
   @doc "Simple query with filters"
   def basic_query do
     query User do
-      filter :status, :eq, "active"
-      filter :age, :gte, 18
-      order :name, :asc
-      limit 10
+      filter(:status, :eq, "active")
+      filter(:age, :gte, 18)
+      order(:name, :asc)
+      limit(10)
     end
     |> Query.execute()
   end
@@ -48,29 +48,29 @@ defmodule Events.Query.Examples do
   def filter_operators do
     query Product do
       # Equality
-      filter :status, :eq, "active"
-      filter :category, :neq, "archived"
+      filter(:status, :eq, "active")
+      filter(:category, :neq, "archived")
 
       # Comparisons
-      filter :price, :gte, 10.00
-      filter :stock, :gt, 0
+      filter(:price, :gte, 10.00)
+      filter(:stock, :gt, 0)
 
       # List membership
-      filter :category, :in, ["electronics", "gadgets"]
-      filter :status, :not_in, ["deleted", "archived"]
+      filter(:category, :in, ["electronics", "gadgets"])
+      filter(:status, :not_in, ["deleted", "archived"])
 
       # Pattern matching
-      filter :name, :ilike, "%widget%"
+      filter(:name, :ilike, "%widget%")
 
       # Null checks
-      filter :deleted_at, :is_nil, nil
+      filter(:deleted_at, :is_nil, nil)
 
       # Range
-      filter :price, :between, {10.00, 100.00}
+      filter(:price, :between, {10.00, 100.00})
 
       # JSONB
-      filter :metadata, :jsonb_contains, %{featured: true}
-      filter :tags, :jsonb_has_key, "priority"
+      filter(:metadata, :jsonb_contains, %{featured: true})
+      filter(:tags, :jsonb_has_key, "priority")
     end
     |> Query.execute()
   end
@@ -79,11 +79,11 @@ defmodule Events.Query.Examples do
   def filter_with_options do
     query User do
       # Case insensitive comparison
-      filter :email, :eq, "john@example.com", case_insensitive: true
+      filter(:email, :eq, "john@example.com", case_insensitive: true)
 
       # Filter on joined table
-      join :posts, :inner, as: :user_posts
-      filter :published, :eq, true, binding: :user_posts
+      join(:posts, :inner, as: :user_posts)
+      filter(:published, :eq, true, binding: :user_posts)
     end
     |> Query.execute()
   end
@@ -95,9 +95,9 @@ defmodule Events.Query.Examples do
     offset = (page - 1) * per_page
 
     query Post do
-      filter :published, :eq, true
-      order :published_at, :desc
-      paginate :offset, limit: per_page, offset: offset
+      filter(:published, :eq, true)
+      order(:published_at, :desc)
+      paginate(:offset, limit: per_page, offset: offset)
     end
     |> Query.execute(include_total_count: true)
   end
@@ -111,10 +111,10 @@ defmodule Events.Query.Examples do
       end)
 
     query Post do
-      filter :published, :eq, true
-      order :published_at, :desc
-      order :id, :desc
-      paginate :cursor, opts
+      filter(:published, :eq, true)
+      order(:published_at, :desc)
+      order(:id, :desc)
+      paginate(:cursor, opts)
     end
     |> Query.execute()
   end
@@ -133,8 +133,8 @@ defmodule Events.Query.Examples do
   @doc "Association preloads"
   def simple_preloads do
     query User do
-      filter :status, :eq, "active"
-      preload [:posts, :comments, :profile]
+      filter(:status, :eq, "active")
+      preload([:posts, :comments, :profile])
     end
     |> Query.execute()
   end
@@ -142,26 +142,26 @@ defmodule Events.Query.Examples do
   @doc "Nested preloads with filters"
   def nested_preloads do
     query User do
-      filter :status, :eq, "active"
+      filter(:status, :eq, "active")
 
       # Preload published posts with their comments
       preload :posts do
-        filter :published, :eq, true
-        order :published_at, :desc
-        limit 5
+        filter(:published, :eq, true)
+        order(:published_at, :desc)
+        limit(5)
 
         # Nested preload
         preload :comments do
-          filter :approved, :eq, true
-          order :created_at, :desc
-          limit 3
+          filter(:approved, :eq, true)
+          order(:created_at, :desc)
+          limit(3)
         end
       end
 
       # Preload recent comments
       preload :comments do
-        filter :created_at, :gte, ~N[2024-01-01 00:00:00]
-        order :created_at, :desc
+        filter(:created_at, :gte, ~N[2024-01-01 00:00:00])
+        order(:created_at, :desc)
       end
     end
     |> Query.execute()
@@ -170,18 +170,18 @@ defmodule Events.Query.Examples do
   @doc "Joins with custom conditions"
   def custom_joins do
     query User do
-      filter :status, :eq, "active"
+      filter(:status, :eq, "active")
 
       # Association join
-      join :posts, :left, as: :user_posts
+      join(:posts, :left, as: :user_posts)
 
       # Filter on joined table
-      filter :published, :eq, true, binding: :user_posts
+      filter(:published, :eq, true, binding: :user_posts)
 
-      select %{
+      select(%{
         user_name: :name,
         user_email: :email
-      }
+      })
     end
     |> Query.execute()
   end
@@ -191,13 +191,13 @@ defmodule Events.Query.Examples do
   @doc "Group by and having"
   def aggregations do
     query Order do
-      filter :created_at, :gte, ~D[2024-01-01]
+      filter(:created_at, :gte, ~D[2024-01-01])
 
-      group_by [:status]
+      group_by([:status])
 
-      having count: {:gte, 10}
+      having(count: {:gte, 10})
 
-      select [:id, :status, :created_at]
+      select([:id, :status, :created_at])
     end
     |> Query.execute()
   end
@@ -205,16 +205,16 @@ defmodule Events.Query.Examples do
   @doc "Complex aggregation with joins"
   def complex_aggregation do
     query User do
-      join :orders, :left
+      join(:orders, :left)
 
-      group_by [:id, :name]
+      group_by([:id, :name])
 
-      having count: {:gte, 5}
+      having(count: {:gte, 5})
 
-      select [:id, :name, :email]
+      select([:id, :name, :email])
 
-      order :name, :desc
-      limit 10
+      order(:name, :desc)
+      limit(10)
     end
     |> Query.execute()
   end
@@ -226,19 +226,19 @@ defmodule Events.Query.Examples do
     # Define CTE for active users
     active_users_cte =
       query User do
-        filter :status, :eq, "active"
-        filter :last_login, :gte, ~N[2024-01-01 00:00:00]
-        select [:id, :name, :email]
+        filter(:status, :eq, "active")
+        filter(:last_login, :gte, ~N[2024-01-01 00:00:00])
+        select([:id, :name, :email])
       end
 
     # Use CTE in main query
     query Order do
-      with_cte :active_users, active_users_cte
+      with_cte(:active_users, active_users_cte)
 
       # Filter orders (CTE usage would require additional join support)
-      filter :status, :eq, "completed"
+      filter(:status, :eq, "completed")
 
-      order :created_at, :desc
+      order(:created_at, :desc)
     end
     |> Query.execute()
   end
@@ -247,17 +247,17 @@ defmodule Events.Query.Examples do
   def multiple_ctes do
     recent_users =
       query User do
-        filter :created_at, :gte, ~N[2024-01-01 00:00:00]
+        filter(:created_at, :gte, ~N[2024-01-01 00:00:00])
       end
 
     active_orders =
       query Order do
-        filter :status, :in, ["pending", "processing"]
+        filter(:status, :in, ["pending", "processing"])
       end
 
     query Report do
-      with_cte :recent_users, recent_users
-      with_cte :active_orders, active_orders
+      with_cte(:recent_users, recent_users)
+      with_cte(:active_orders, active_orders)
 
       # Use both CTEs in analysis
     end
@@ -269,20 +269,21 @@ defmodule Events.Query.Examples do
   @doc "Running totals with window functions"
   def running_totals do
     query Sale do
-      filter :created_at, :gte, ~D[2024-01-01]
+      filter(:created_at, :gte, ~D[2024-01-01])
 
-      window :running_total,
+      window(:running_total,
         partition_by: :product_id,
         order_by: [asc: :sale_date]
+      )
 
-      select %{
+      select(%{
         sale_id: :id,
         product_id: :product_id,
         amount: :amount,
         running_total: {:window, :sum, :amount, :running_total}
-      }
+      })
 
-      order :sale_date, :asc
+      order(:sale_date, :asc)
     end
     |> Query.execute()
   end
@@ -290,18 +291,19 @@ defmodule Events.Query.Examples do
   @doc "Ranking with window functions"
   def product_ranking do
     query Product do
-      filter :active, :eq, true
+      filter(:active, :eq, true)
 
-      window :category_rank,
+      window(:category_rank,
         partition_by: :category_id,
         order_by: [desc: :sales_count]
+      )
 
-      select %{
+      select(%{
         product_name: :name,
         category_id: :category_id,
         sales_count: :sales_count,
         rank: {:window, :rank, :sales_count, :category_rank}
-      }
+      })
     end
     |> Query.execute()
   end
@@ -343,11 +345,12 @@ defmodule Events.Query.Examples do
     Ecto.Multi.new()
     |> QM.query(:user, user_query)
     |> QM.query(:posts, posts_query)
-    |> QM.run(:summary, fn _repo, %{user: user, posts: posts} ->
-      {:ok, %{
-        user_name: List.first(user.data).name,
-        post_count: length(posts.data)
-      }}
+    |> Ecto.Multi.run(:summary, fn _repo, %{user: user, posts: posts} ->
+      {:ok,
+       %{
+         user_name: List.first(user.data).name,
+         post_count: length(posts.data)
+       }}
     end)
     |> Events.Repo.transaction()
   end
@@ -430,16 +433,16 @@ defmodule Events.Query.Examples do
   @doc "Raw SQL with named placeholders"
   def raw_sql_query do
     query User do
-      raw_where "age BETWEEN :min_age AND :max_age", %{
+      raw_where("age BETWEEN :min_age AND :max_age", %{
         min_age: 18,
         max_age: 65
-      }
+      })
 
-      raw_where "created_at >= :start_date", %{
+      raw_where("created_at >= :start_date", %{
         start_date: ~N[2024-01-01 00:00:00]
-      }
+      })
 
-      order :created_at, :desc
+      order(:created_at, :desc)
     end
     |> Query.execute()
   end
@@ -466,9 +469,9 @@ defmodule Events.Query.Examples do
   def custom_processing do
     result =
       query User do
-        filter :status, :eq, "active"
-        order :created_at, :desc
-        limit 100
+        filter(:status, :eq, "active")
+        order(:created_at, :desc)
+        limit(100)
       end
       |> Query.execute()
 

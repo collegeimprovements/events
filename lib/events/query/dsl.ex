@@ -88,7 +88,12 @@ defmodule Events.Query.DSL do
   defmacro filter(field, op, value) do
     quote do
       var!(query_token, Events.Query.DSL) =
-        Events.Query.filter(var!(query_token, Events.Query.DSL), unquote(field), unquote(op), unquote(value))
+        Events.Query.filter(
+          var!(query_token, Events.Query.DSL),
+          unquote(field),
+          unquote(op),
+          unquote(value)
+        )
     end
   end
 
@@ -242,7 +247,11 @@ defmodule Events.Query.DSL do
   defmacro with_cte(name, cte_token_or_query) do
     quote do
       var!(query_token, Events.Query.DSL) =
-        Events.Query.with_cte(var!(query_token, Events.Query.DSL), unquote(name), unquote(cte_token_or_query))
+        Events.Query.with_cte(
+          var!(query_token, Events.Query.DSL),
+          unquote(name),
+          unquote(cte_token_or_query)
+        )
     end
   end
 
