@@ -111,10 +111,22 @@ defmodule Events.Query.DSL do
   end
 
   @doc "Add ordering"
-  defmacro order(field, direction) do
+  defmacro order(field, direction \\ :asc) do
     quote do
       var!(query_token, Events.Query.DSL) =
         Events.Query.order(var!(query_token, Events.Query.DSL), unquote(field), unquote(direction))
+    end
+  end
+
+  defmacro order(field, direction, opts) do
+    quote do
+      var!(query_token, Events.Query.DSL) =
+        Events.Query.order(
+          var!(query_token, Events.Query.DSL),
+          unquote(field),
+          unquote(direction),
+          unquote(opts)
+        )
     end
   end
 

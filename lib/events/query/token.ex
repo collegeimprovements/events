@@ -85,8 +85,8 @@ defmodule Events.Query.Token do
     validate_pagination_opts(type, opts)
   end
 
-  defp validate_operation({:order, {field, dir}})
-       when is_atom(field) and dir in [:asc, :desc] do
+  defp validate_operation({:order, {field, dir, opts}})
+       when is_atom(field) and dir in [:asc, :desc] and is_list(opts) do
     :ok
   end
 

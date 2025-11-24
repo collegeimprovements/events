@@ -70,22 +70,84 @@ defmodule Events.Query do
   @spec new(module() | Ecto.Query.t()) :: Token.t()
   defdelegate new(schema_or_query), to: Token
 
-  @doc "Add a filter condition"
+  @doc """
+  Add a filter condition.
+
+  ## Parameters
+
+  - `token` - The query token
+  - `field` - Field name to filter on
+  - `op` - Filter operator (`:eq`, `:neq`, `:gt`, `:gte`, `:lt`, `:lte`, `:in`, `:not_in`, `:like`, `:ilike`, `:is_nil`, `:not_nil`, `:between`, `:contains`, `:jsonb_contains`, `:jsonb_has_key`)
+  - `value` - Value to filter against
+  - `opts` - Options (optional)
+    - `:binding` - Named binding for joined tables (default: `:root`)
+    - `:case_insensitive` - Case insensitive comparison for strings (default: `false`)
+
+  ## Examples
+
+      # Simple filter
+      Query.filter(token, :status, :eq, "active")
+
+      # With options
+      Query.filter(token, :email, :eq, "john@example.com", case_insensitive: true)
+
+      # On joined table
+      Query.filter(token, :published, :eq, true, binding: :posts)
+  """
   @spec filter(Token.t(), atom(), atom(), term(), keyword()) :: Token.t()
   def filter(token, field, op, value, opts \\ []) do
     Token.add_operation(token, {:filter, {field, op, value, opts}})
   end
 
-  @doc "Add pagination"
+  @doc """
+  Add pagination.
+
+  ## Parameters
+
+  - `token` - The query token
+  - `type` - Pagination type (`:offset` or `:cursor`)
+  - `opts` - Pagination options
+    - For offset: `:limit`, `:offset`
+    - For cursor: `:limit`, `:cursor_fields`, `:after`, `:before`
+
+  ## Examples
+
+      # Offset pagination
+      Query.paginate(token, :offset, limit: 20, offset: 40)
+
+      # Cursor pagination
+      Query.paginate(token, :cursor, cursor_fields: [:id], limit: 20, after: cursor)
+  """
   @spec paginate(Token.t(), :offset | :cursor, keyword()) :: Token.t()
   def paginate(token, type, opts \\ []) do
     Token.add_operation(token, {:paginate, {type, opts}})
   end
 
-  @doc "Add ordering"
-  @spec order(Token.t(), atom(), :asc | :desc) :: Token.t()
-  def order(token, field, direction \\ :asc) do
-    Token.add_operation(token, {:order, {field, direction}})
+  @doc """
+  Add ordering.
+
+  ## Parameters
+
+  - `token` - The query token
+  - `field` - Field name to order by
+  - `direction` - Sort direction (`:asc` or `:desc`, default: `:asc`)
+  - `opts` - Options (optional)
+    - `:binding` - Named binding for joined tables (default: `:root`)
+
+  ## Examples
+
+      # Simple ascending order
+      Query.order(token, :name)
+
+      # Descending order
+      Query.order(token, :created_at, :desc)
+
+      # On joined table
+      Query.order(token, :title, :asc, binding: :posts)
+  """
+  @spec order(Token.t(), atom(), :asc | :desc, keyword()) :: Token.t()
+  def order(token, field, direction \\ :asc, opts \\ []) do
+    Token.add_operation(token, {:order, {field, direction, opts}})
   end
 
   @doc "Add a join"

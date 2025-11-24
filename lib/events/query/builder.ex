@@ -224,8 +224,15 @@ defmodule Events.Query.Builder do
 
   ## Order
 
-  defp apply_order(query, {field, direction}) do
-    from(q in query, order_by: [{^direction, ^field}])
+  defp apply_order(query, {field, direction, opts}) do
+    binding = opts[:binding] || :root
+
+    if binding == :root do
+      from([{^binding, q}] in query, order_by: [{^direction, field(q, ^field)}])
+    else
+      # For joined tables, use the binding
+      from([{^binding, q}] in query, order_by: [{^direction, field(q, ^field)}])
+    end
   end
 
   ## Join
