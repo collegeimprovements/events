@@ -152,6 +152,26 @@ defmodule Events.Query.DynamicBuilder do
 
   Takes various input formats and normalizes them to consistent 4-tuples.
 
+  ## Supported Filter Formats
+
+      # All these are equivalent:
+      {:filter, :status, :eq, "active", []}
+      {:status, :eq, "active", []}
+      {:status, :eq, "active"}
+      [filter: {:status, :eq, "active", []}]
+      [filter: {:status, :eq, "active"}]
+
+  ## Supported Order Formats
+
+      # All these are equivalent:
+      {:order, :created_at, :desc, []}
+      {:created_at, :desc, []}
+      {:created_at, :desc}
+      [order: {:created_at, :desc, []}]
+      [order: {:created_at, :desc}]
+      [order_by: {:created_at, :desc}]
+      :created_at  # defaults to :asc
+
   ## Examples
 
       # 3-tuple filter → 4-tuple
@@ -161,37 +181,81 @@ defmodule Events.Query.DynamicBuilder do
       # 2-tuple order → 4-tuple
       normalize_spec([{:created_at, :desc}], :order)
       # => [{:order, :created_at, :desc, []}]
+
+      # Keyword list filter → 4-tuple
+      normalize_spec([[filter: {:status, :eq, "active"}]], :filter)
+      # => [{:filter, :status, :eq, "active", []}]
   """
   @spec normalize_spec(list(), :filter | :order | :preload | :join) :: list()
   def normalize_spec(specs, type) when is_list(specs) do
-    Enum.map(specs, fn spec -> normalize_one(spec, type) end)
+    Enum.flat_map(specs, fn spec -> normalize_one_or_many(spec, type) end)
   end
+
+  # Handle keyword lists with multiple entries
+  defp normalize_one_or_many(spec, type) when is_list(spec) do
+    if spec == [] do
+      []
+    else
+      case hd(spec) do
+        {key, _value} when is_atom(key) ->
+          # This is a keyword list
+          Enum.flat_map(spec, fn {key, value} ->
+            normalize_keyword_entry(key, value, type)
+          end)
+        _ ->
+          # This is a list of tuples - normalize each
+          Enum.map(spec, fn item -> normalize_one(item, type) end)
+      end
+    end
+  end
+
+  defp normalize_one_or_many(spec, type), do: [normalize_one(spec, type)]
+
+  # Normalize keyword list entries
+  defp normalize_keyword_entry(:filter, value, :filter), do: [normalize_one(value, :filter)]
+  defp normalize_keyword_entry(:order, value, :order), do: [normalize_one(value, :order)]
+  defp normalize_keyword_entry(:order_by, value, :order), do: [normalize_one(value, :order)]
+  defp normalize_keyword_entry(:preload, value, :preload), do: [normalize_one(value, :preload)]
+  defp normalize_keyword_entry(:join, value, :join), do: [normalize_one(value, :join)]
+  defp normalize_keyword_entry(_, _, _), do: []
 
   # Normalize individual specs to 4-tuple format
-  defp normalize_one({field, op, value}, :filter) do
-    {:filter, field, op, value, []}
-  end
 
-  defp normalize_one({field, op, value, opts}, :filter) do
-    {:filter, field, op, value, opts}
-  end
+  ## FILTER NORMALIZATION ##
 
+  # 5-tuple with :filter tag (already normalized)
   defp normalize_one({:filter, field, op, value, opts}, :filter) do
     {:filter, field, op, value, opts}
   end
 
-  defp normalize_one({field, direction}, :order) do
-    {:order, field, direction, []}
+  # 4-tuple without tag
+  defp normalize_one({field, op, value, opts}, :filter) when is_atom(field) and is_atom(op) do
+    {:filter, field, op, value, opts}
   end
 
-  defp normalize_one({field, direction, opts}, :order) do
-    {:order, field, direction, opts}
+  # 3-tuple without tag
+  defp normalize_one({field, op, value}, :filter) when is_atom(field) and is_atom(op) do
+    {:filter, field, op, value, []}
   end
 
+  ## ORDER NORMALIZATION ##
+
+  # 4-tuple with :order tag (already normalized)
   defp normalize_one({:order, field, direction, opts}, :order) do
     {:order, field, direction, opts}
   end
 
+  # 3-tuple without tag
+  defp normalize_one({field, direction, opts}, :order) when is_atom(field) and is_atom(direction) do
+    {:order, field, direction, opts}
+  end
+
+  # 2-tuple without tag
+  defp normalize_one({field, direction}, :order) when is_atom(field) and is_atom(direction) do
+    {:order, field, direction, []}
+  end
+
+  # Single atom (defaults to :asc)
   defp normalize_one(field, :order) when is_atom(field) do
     {:order, field, :asc, []}
   end
@@ -228,8 +292,10 @@ defmodule Events.Query.DynamicBuilder do
   defp apply_filters(token, nil, _params), do: token
 
   defp apply_filters(token, filters, params) when is_list(filters) do
-    Enum.reduce(filters, token, fn filter_spec, acc ->
-      {:filter, field, op, value, opts} = normalize_one(filter_spec, :filter)
+    # Normalize all filters first to handle flexible formats
+    normalized = normalize_spec(filters, :filter)
+
+    Enum.reduce(normalized, token, fn {:filter, field, op, value, opts}, acc ->
       resolved_value = resolve_param(value, params)
       Query.filter(acc, field, op, resolved_value, opts)
     end)
@@ -238,8 +304,10 @@ defmodule Events.Query.DynamicBuilder do
   defp apply_orders(token, nil, _params), do: token
 
   defp apply_orders(token, orders, _params) when is_list(orders) do
-    Enum.reduce(orders, token, fn order_spec, acc ->
-      {:order, field, direction, opts} = normalize_one(order_spec, :order)
+    # Normalize all orders first to handle flexible formats
+    normalized = normalize_spec(orders, :order)
+
+    Enum.reduce(normalized, token, fn {:order, field, direction, opts}, acc ->
       Query.order(acc, field, direction, opts)
     end)
   end
@@ -247,8 +315,10 @@ defmodule Events.Query.DynamicBuilder do
   defp apply_joins(token, nil, _params), do: token
 
   defp apply_joins(token, joins, _params) when is_list(joins) do
-    Enum.reduce(joins, token, fn join_spec, acc ->
-      {:join, assoc, type, opts} = normalize_one(join_spec, :join)
+    # Normalize all joins first to handle flexible formats
+    normalized = normalize_spec(joins, :join)
+
+    Enum.reduce(normalized, token, fn {:join, assoc, type, opts}, acc ->
       Query.join(acc, assoc, type, opts)
     end)
   end
@@ -256,9 +326,10 @@ defmodule Events.Query.DynamicBuilder do
   defp apply_preloads(token, nil, _params), do: token
 
   defp apply_preloads(token, preloads, params) when is_list(preloads) do
-    Enum.reduce(preloads, token, fn preload_spec, acc ->
-      {:preload, assoc, nested_spec, _opts} = normalize_one(preload_spec, :preload)
+    # Normalize all preloads first to handle flexible formats
+    normalized = normalize_spec(preloads, :preload)
 
+    Enum.reduce(normalized, token, fn {:preload, assoc, nested_spec, _opts}, acc ->
       case nested_spec do
         nil ->
           Query.preload(acc, assoc)
