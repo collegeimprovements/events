@@ -85,6 +85,9 @@ defmodule Events.Query.DynamicBuilder do
   @doc """
   Build a query token from a specification map with parameter binding.
 
+  **Default Pagination:** If no pagination is specified, cursor-based pagination
+  with a limit of 20 is applied automatically.
+
   ## Parameters
 
   - `schema` - Schema module or existing query
@@ -93,7 +96,7 @@ defmodule Events.Query.DynamicBuilder do
 
   ## Examples
 
-      # Simple query
+      # Simple query (gets default cursor pagination with limit: 20)
       spec = %{
         filters: [
           {:filter, :status, :eq, "active", []},
@@ -101,8 +104,15 @@ defmodule Events.Query.DynamicBuilder do
         ],
         orders: [
           {:order, :created_at, :desc, []}
-        ],
-        pagination: {:paginate, :offset, %{limit: 20}, []}
+        ]
+      }
+
+      DynamicBuilder.build(User, spec)
+
+      # Override with offset pagination
+      spec = %{
+        filters: [{:status, :eq, "active"}],
+        pagination: {:paginate, :offset, %{limit: 50, offset: 0}, []}
       }
 
       DynamicBuilder.build(User, spec)
@@ -117,12 +127,11 @@ defmodule Events.Query.DynamicBuilder do
 
       DynamicBuilder.build(User, spec, %{status: "active", min_age: 18})
 
-      # With nested preloads
+      # With nested preloads (each level gets default cursor pagination)
       spec = %{
         preloads: [
           {:preload, :posts, %{
-            filters: [{:filter, :published, :eq, true, []}],
-            pagination: {:paginate, :offset, %{limit: 10}, []}
+            filters: [{:filter, :published, :eq, true, []}]
           }, []}
         ]
       }
@@ -132,6 +141,9 @@ defmodule Events.Query.DynamicBuilder do
   @spec build(module() | Ecto.Query.t(), query_spec(), map()) :: Token.t()
   def build(schema, spec, params \\ %{}) do
     token = Query.new(schema)
+
+    # Apply default cursor pagination if none specified
+    pagination = spec[:pagination] || default_pagination()
 
     token
     |> apply_filters(spec[:filters], params)
@@ -144,7 +156,7 @@ defmodule Events.Query.DynamicBuilder do
     |> apply_distinct(spec[:distinct])
     |> apply_limit(spec[:limit])
     |> apply_offset(spec[:offset])
-    |> apply_pagination(spec[:pagination], params)
+    |> apply_pagination(pagination, params)
   end
 
   @doc """
@@ -373,6 +385,9 @@ defmodule Events.Query.DynamicBuilder do
 
   # Build from existing token (for nested preloads)
   defp build_from_token(token, spec, params) do
+    # Apply default cursor pagination for nested specs if none specified
+    pagination = spec[:pagination] || default_pagination()
+
     token
     |> apply_filters(spec[:filters], params)
     |> apply_orders(spec[:orders], params)
@@ -381,7 +396,7 @@ defmodule Events.Query.DynamicBuilder do
     |> apply_select(spec[:select])
     |> apply_limit(spec[:limit])
     |> apply_offset(spec[:offset])
-    |> apply_pagination(spec[:pagination], params)
+    |> apply_pagination(pagination, params)
   end
 
   # Resolve parameter references
@@ -396,23 +411,36 @@ defmodule Events.Query.DynamicBuilder do
 
   Handles common search patterns with minimal configuration.
 
+  **Default Pagination:** Uses cursor-based pagination with limit of 20.
+  To use offset pagination, pass `page` parameter or set `pagination_type: :offset` in config.
+
   ## Examples
 
-      # Basic search
+      # Basic search with cursor pagination (default)
       params = %{
         search: "john",
         status: "active",
         sort_by: "created_at",
         sort_dir: "desc",
-        page: 1,
-        per_page: 20
+        limit: 20,
+        after_cursor: "encoded_cursor"
       }
 
       config = %{
         search_fields: [:name, :email],
         filterable_fields: [:status, :role, :verified],
         sortable_fields: [:name, :created_at, :updated_at],
-        default_sort: {:created_at, :desc}
+        default_sort: {:created_at, :desc},
+        cursor_fields: [:created_at, :id]
+      }
+
+      DynamicBuilder.search(User, params, config)
+
+      # Force offset pagination with page parameter
+      params = %{
+        search: "john",
+        page: 1,
+        per_page: 20
       }
 
       DynamicBuilder.search(User, params, config)
@@ -481,10 +509,43 @@ defmodule Events.Query.DynamicBuilder do
   defp default_order(_), do: [{:order, :id, :asc, []}]
 
   defp build_search_pagination(params, config) do
-    per_page = params[:per_page] || config[:default_per_page] || 20
-    page = params[:page] || 1
-    offset = (page - 1) * per_page
+    # Check if user explicitly requested offset pagination via page param
+    if params[:page] || config[:pagination_type] == :offset do
+      per_page = params[:per_page] || config[:default_per_page] || 20
+      page = params[:page] || 1
+      offset = (page - 1) * per_page
+      {:paginate, :offset, %{limit: per_page, offset: offset}, []}
+    else
+      # Default to cursor pagination
+      limit = params[:limit] || params[:per_page] || config[:default_per_page] || 20
+      cursor_fields = config[:cursor_fields] || [:id]
 
-    {:paginate, :offset, %{limit: per_page, offset: offset}, []}
+      cursor_config = %{limit: limit, cursor_fields: cursor_fields}
+
+      cursor_config =
+        if params[:after_cursor] do
+          Map.put(cursor_config, :after, params[:after_cursor])
+        else
+          cursor_config
+        end
+
+      cursor_config =
+        if params[:before_cursor] do
+          Map.put(cursor_config, :before, params[:before_cursor])
+        else
+          cursor_config
+        end
+
+      {:paginate, :cursor, cursor_config, []}
+    end
+  end
+
+  @doc """
+  Returns the default pagination specification.
+
+  By default, uses cursor-based pagination with a limit of 20 and :id as the cursor field.
+  """
+  def default_pagination do
+    {:paginate, :cursor, %{limit: 20, cursor_fields: [:id]}, []}
   end
 end
