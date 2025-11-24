@@ -143,7 +143,8 @@ defmodule Events.Query.DynamicBuilder do
     token = Query.new(schema)
 
     # Apply default cursor pagination if none specified
-    pagination = spec[:pagination] || default_pagination()
+    # Infer cursor_fields from orders for correct pagination
+    pagination = spec[:pagination] || default_pagination(spec[:orders] || [])
 
     token
     |> apply_filters(spec[:filters], params)
@@ -386,7 +387,8 @@ defmodule Events.Query.DynamicBuilder do
   # Build from existing token (for nested preloads)
   defp build_from_token(token, spec, params) do
     # Apply default cursor pagination for nested specs if none specified
-    pagination = spec[:pagination] || default_pagination()
+    # Infer cursor_fields from orders for correct pagination
+    pagination = spec[:pagination] || default_pagination(spec[:orders] || [])
 
     token
     |> apply_filters(spec[:filters], params)
@@ -544,8 +546,53 @@ defmodule Events.Query.DynamicBuilder do
   Returns the default pagination specification.
 
   By default, uses cursor-based pagination with a limit of 20 and :id as the cursor field.
+
+  ## Examples
+
+      default_pagination()
+      # => {:paginate, :cursor, %{limit: 20, cursor_fields: [:id]}, []}
+
+      default_pagination([{:created_at, :desc}, {:id, :asc}])
+      # => {:paginate, :cursor, %{limit: 20, cursor_fields: [:created_at, :id]}, []}
   """
-  def default_pagination do
-    {:paginate, :cursor, %{limit: 20, cursor_fields: [:id]}, []}
+  def default_pagination(orders \\ []) do
+    cursor_fields = infer_cursor_fields(orders)
+    {:paginate, :cursor, %{limit: 20, cursor_fields: cursor_fields}, []}
   end
+
+  @doc """
+  Infers cursor fields from order specifications.
+
+  Extracts field names from order tuples and ensures :id is included.
+
+  ## Examples
+
+      infer_cursor_fields([{:created_at, :desc}, {:id, :asc}])
+      # => [:created_at, :id]
+
+      infer_cursor_fields([{:priority, :desc}])
+      # => [:priority, :id]
+
+      infer_cursor_fields([])
+      # => [:id]
+  """
+  def infer_cursor_fields(orders) when is_list(orders) do
+    fields =
+      Enum.flat_map(orders, fn
+        {:order, field, _dir, _opts} -> [field]
+        {field, _dir, _opts} -> [field]
+        {field, _dir} -> [field]
+        field when is_atom(field) -> [field]
+        _ -> []
+      end)
+
+    # Always include :id if not already present
+    if :id in fields do
+      fields
+    else
+      fields ++ [:id]
+    end
+  end
+
+  def infer_cursor_fields(_), do: [:id]
 end
