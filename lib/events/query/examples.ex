@@ -2,6 +2,13 @@ defmodule Events.Query.Examples do
   @moduledoc """
   Comprehensive examples demonstrating the query system.
 
+  **IMPORTANT**: This module contains documentation examples using placeholder
+  schemas (User, Post, Comment, etc.) that don't exist in this application.
+  These functions are for **reference only** and will not execute.
+
+  To use the query system with your own schemas, replace the placeholder
+  schema names with your actual Ecto schemas.
+
   ## Table of Contents
 
   1. Basic Queries
@@ -15,6 +22,9 @@ defmodule Events.Query.Examples do
   9. Batch Operations
   10. Advanced Patterns
   """
+
+  # Suppress warnings for undefined schemas (these are documentation examples)
+  @compile {:no_warn_undefined, [User, Post, Comment, Product, Order, Sale, Report]}
 
   import Events.Query.DSL
   alias Events.Query
