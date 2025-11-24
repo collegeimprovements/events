@@ -42,8 +42,8 @@ defmodule Events.QueryTest do
       assert %Token{} = Query.filter(token, :age, :gt, 18)
       assert %Token{} = Query.filter(token, :name, :like, "%john%")
 
-      # Invalid operators should raise
-      assert_raise ArgumentError, fn ->
+      # Invalid operators should raise ValidationError
+      assert_raise Events.Query.ValidationError, fn ->
         Query.filter(token, :status, :invalid_op, "value")
       end
     end
@@ -82,12 +82,15 @@ defmodule Events.QueryTest do
       assert opts[:limit] == 10
     end
 
-    test "cursor pagination requires cursor_fields" do
-      assert_raise ArgumentError, fn ->
+    test "cursor pagination allows nil cursor_fields (will be inferred)" do
+      token =
         User
         |> Query.new()
         |> Query.paginate(:cursor, limit: 10)
-      end
+
+      assert [{:paginate, {:cursor, opts}}] = token.operations
+      assert opts[:cursor_fields] == nil
+      assert opts[:limit] == 10
     end
   end
 
@@ -301,6 +304,60 @@ defmodule Events.QueryTest do
       assert result.pagination.type == :cursor
       assert result.pagination.start_cursor != nil
       assert result.pagination.end_cursor != nil
+    end
+  end
+
+  describe "automatic safety limits" do
+    test "queries without pagination have no automatic limit at token level" do
+      # The automatic limit is applied at execution time, not token building time
+      token =
+        User
+        |> Query.new()
+        |> Query.where(:status, :eq, "active")
+
+      # Token should not have limit operation yet
+      assert [{:filter, _}] = token.operations
+      refute Enum.any?(token.operations, fn {op, _} -> op == :limit end)
+    end
+
+    test "respects explicit pagination" do
+      token =
+        User
+        |> Query.new()
+        |> Query.where(:status, :eq, "active")
+        |> Query.paginate(:cursor, limit: 50)
+
+      # Should have filter and paginate operations
+      assert [{:filter, _}, {:paginate, _}] = token.operations
+    end
+
+    test "respects explicit limit" do
+      token =
+        User
+        |> Query.new()
+        |> Query.where(:status, :eq, "active")
+        |> Query.limit(100)
+
+      # Should have filter and limit, no automatic limit needed
+      assert [{:filter, _}, {:limit, 100}] = token.operations
+    end
+
+    test "limit validation enforces max_limit" do
+      token = Query.new(User)
+
+      # Should raise LimitExceededError when limit exceeds max
+      assert_raise Events.Query.LimitExceededError, fn ->
+        Query.limit(token, 10_000)
+      end
+    end
+
+    test "pagination validation enforces max_limit" do
+      token = Query.new(User)
+
+      # Should raise LimitExceededError when pagination limit exceeds max
+      assert_raise Events.Query.LimitExceededError, fn ->
+        Query.paginate(token, :offset, limit: 10_000)
+      end
     end
   end
 end

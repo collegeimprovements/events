@@ -71,7 +71,9 @@ defmodule Events.Query do
   defdelegate new(schema_or_query), to: Token
 
   @doc """
-  Add a filter condition.
+  Add a where condition (Ecto-style naming).
+
+  Alias: `filter/5` - Semantic alternative name for the same operation.
 
   ## Parameters
 
@@ -85,70 +87,95 @@ defmodule Events.Query do
 
   ## Examples
 
-      # Simple filter
-      Query.filter(token, :status, :eq, "active")
+      # Simple where clause
+      Query.where(token, :status, :eq, "active")
 
       # With options
-      Query.filter(token, :email, :eq, "john@example.com", case_insensitive: true)
+      Query.where(token, :email, :eq, "john@example.com", case_insensitive: true)
 
       # On joined table
-      Query.filter(token, :published, :eq, true, binding: :posts)
+      Query.where(token, :published, :eq, true, binding: :posts)
 
       # Multiple separate calls (chaining)
       token
-      |> Query.filter(:status, :eq, "active")
-      |> Query.filter(:age, :gte, 18)
-      |> Query.filter(:verified, :eq, true)
+      |> Query.where(:status, :eq, "active")
+      |> Query.where(:age, :gte, 18)
+      |> Query.where(:verified, :eq, true)
   """
-  @spec filter(Token.t(), atom(), atom(), term(), keyword()) :: Token.t()
-  def filter(token, field, op, value, opts \\ []) do
+  @spec where(Token.t(), atom(), atom(), term(), keyword()) :: Token.t()
+  def where(token, field, op, value, opts \\ []) do
     Token.add_operation(token, {:filter, {field, op, value, opts}})
   end
 
   @doc """
-  Add multiple filter conditions at once.
+  Alias for `where/5`. Semantic alternative name.
+
+  See `where/5` for documentation.
+  """
+  @spec filter(Token.t(), atom(), atom(), term(), keyword()) :: Token.t()
+  def filter(token, field, op, value, opts \\ []) do
+    where(token, field, op, value, opts)
+  end
+
+  @doc """
+  Add multiple where conditions at once (Ecto-style naming).
+
+  Alias: `filters/2` - Semantic alternative name for the same operation.
 
   ## Parameters
 
   - `token` - The query token
-  - `filter_list` - List of filter specifications. Each can be:
+  - `where_list` - List of where specifications. Each can be:
     - `{field, op, value}` - Simple 3-tuple
     - `{field, op, value, opts}` - 4-tuple with options
 
   ## Examples
 
       # List of 3-tuples
-      Query.filters(token, [
+      Query.wheres(token, [
         {:status, :eq, "active"},
         {:age, :gte, 18},
         {:verified, :eq, true}
       ])
 
       # List of 4-tuples with options
-      Query.filters(token, [
+      Query.wheres(token, [
         {:status, :eq, "active", []},
         {:email, :eq, "john@example.com", [case_insensitive: true]},
         {:published, :eq, true, [binding: :posts]}
       ])
 
       # Mixed (3-tuples and 4-tuples)
-      Query.filters(token, [
+      Query.wheres(token, [
         {:status, :eq, "active"},
         {:email, :ilike, "%@gmail.com", [case_insensitive: true]}
       ])
+  """
+  @spec wheres(Token.t(), [
+          {atom(), atom(), term()}
+          | {atom(), atom(), term(), keyword()}
+        ]) :: Token.t()
+  def wheres(token, where_list) when is_list(where_list) do
+    Enum.reduce(where_list, token, fn
+      {field, op, value}, acc ->
+        where(acc, field, op, value)
+
+      {field, op, value, opts}, acc ->
+        where(acc, field, op, value, opts)
+    end)
+  end
+
+  @doc """
+  Alias for `wheres/2`. Semantic alternative name.
+
+  See `wheres/2` for documentation.
   """
   @spec filters(Token.t(), [
           {atom(), atom(), term()}
           | {atom(), atom(), term(), keyword()}
         ]) :: Token.t()
   def filters(token, filter_list) when is_list(filter_list) do
-    Enum.reduce(filter_list, token, fn
-      {field, op, value}, acc ->
-        filter(acc, field, op, value)
-
-      {field, op, value, opts}, acc ->
-        filter(acc, field, op, value, opts)
-    end)
+    wheres(token, filter_list)
   end
 
   @doc """
@@ -176,7 +203,9 @@ defmodule Events.Query do
   end
 
   @doc """
-  Add ordering.
+  Add ordering (Ecto-style naming).
+
+  Alias: `order/4` - Semantic alternative name for the same operation.
 
   ## Parameters
 
@@ -189,27 +218,39 @@ defmodule Events.Query do
   ## Examples
 
       # Simple ascending order
-      Query.order(token, :name)
+      Query.order_by(token, :name)
 
       # Descending order
-      Query.order(token, :created_at, :desc)
+      Query.order_by(token, :created_at, :desc)
 
       # On joined table
-      Query.order(token, :title, :asc, binding: :posts)
+      Query.order_by(token, :title, :asc, binding: :posts)
 
       # Multiple separate calls (chaining)
       token
-      |> Query.order(:priority, :desc)
-      |> Query.order(:created_at, :desc)
-      |> Query.order(:id, :asc)
+      |> Query.order_by(:priority, :desc)
+      |> Query.order_by(:created_at, :desc)
+      |> Query.order_by(:id, :asc)
   """
-  @spec order(Token.t(), atom(), :asc | :desc, keyword()) :: Token.t()
-  def order(token, field, direction \\ :asc, opts \\ []) do
+  @spec order_by(Token.t(), atom(), :asc | :desc, keyword()) :: Token.t()
+  def order_by(token, field, direction \\ :asc, opts \\ []) do
     Token.add_operation(token, {:order, {field, direction, opts}})
   end
 
   @doc """
-  Add multiple order clauses at once.
+  Alias for `order_by/4`. Semantic alternative name.
+
+  See `order_by/4` for documentation.
+  """
+  @spec order(Token.t(), atom(), :asc | :desc, keyword()) :: Token.t()
+  def order(token, field, direction \\ :asc, opts \\ []) do
+    order_by(token, field, direction, opts)
+  end
+
+  @doc """
+  Add multiple order clauses at once (Ecto-style naming).
+
+  Alias: `orders/2` - Semantic alternative name for the same operation.
 
   ## Parameters
 
@@ -222,28 +263,51 @@ defmodule Events.Query do
   ## Examples
 
       # List of atoms (all ascending)
-      Query.orders(token, [:name, :created_at, :id])
+      Query.order_bys(token, [:name, :created_at, :id])
 
       # List of 2-tuples with directions
-      Query.orders(token, [
+      Query.order_bys(token, [
         {:priority, :desc},
         {:created_at, :desc},
         {:id, :asc}
       ])
 
       # List of 3-tuples with options
-      Query.orders(token, [
+      Query.order_bys(token, [
         {:priority, :desc, []},
         {:title, :asc, [binding: :posts]},
         {:id, :asc, []}
       ])
 
       # Mixed formats
-      Query.orders(token, [
+      Query.order_bys(token, [
         :name,
         {:created_at, :desc},
         {:title, :asc, [binding: :posts]}
       ])
+  """
+  @spec order_bys(Token.t(), [
+          atom()
+          | {atom(), :asc | :desc}
+          | {atom(), :asc | :desc, keyword()}
+        ]) :: Token.t()
+  def order_bys(token, order_list) when is_list(order_list) do
+    Enum.reduce(order_list, token, fn
+      field, acc when is_atom(field) ->
+        order_by(acc, field, :asc)
+
+      {field, direction}, acc ->
+        order_by(acc, field, direction)
+
+      {field, direction, opts}, acc ->
+        order_by(acc, field, direction, opts)
+    end)
+  end
+
+  @doc """
+  Alias for `order_bys/2`. Semantic alternative name.
+
+  See `order_bys/2` for documentation.
   """
   @spec orders(Token.t(), [
           atom()
@@ -251,16 +315,7 @@ defmodule Events.Query do
           | {atom(), :asc | :desc, keyword()}
         ]) :: Token.t()
   def orders(token, order_list) when is_list(order_list) do
-    Enum.reduce(order_list, token, fn
-      field, acc when is_atom(field) ->
-        order(acc, field, :asc)
-
-      {field, direction}, acc ->
-        order(acc, field, direction)
-
-      {field, direction, opts}, acc ->
-        order(acc, field, direction, opts)
-    end)
+    order_bys(token, order_list)
   end
 
   @doc "Add a join"
@@ -269,7 +324,53 @@ defmodule Events.Query do
     Token.add_operation(token, {:join, {association_or_schema, type, opts}})
   end
 
-  @doc "Add a preload"
+  @doc """
+  Add multiple joins at once.
+
+  ## Parameters
+
+  - `token` - The query token
+  - `join_list` - List of join specifications. Each can be:
+    - `association` - Atom, defaults to `:inner` join
+    - `{association, type}` - 2-tuple with join type
+    - `{association, type, opts}` - 3-tuple with options
+
+  ## Examples
+
+      # List of atoms (all inner joins)
+      Query.joins(token, [:posts, :comments])
+
+      # List of 2-tuples with join types
+      Query.joins(token, [
+        {:posts, :left},
+        {:comments, :inner}
+      ])
+
+      # List of 3-tuples with options
+      Query.joins(token, [
+        {:posts, :left, []},
+        {:comments, :inner, [on: [author_id: :id]]}
+      ])
+  """
+  @spec joins(Token.t(), [
+          atom()
+          | {atom(), atom()}
+          | {atom(), atom(), keyword()}
+        ]) :: Token.t()
+  def joins(token, join_list) when is_list(join_list) do
+    Enum.reduce(join_list, token, fn
+      assoc, acc when is_atom(assoc) ->
+        join(acc, assoc, :inner, [])
+
+      {assoc, type}, acc ->
+        join(acc, assoc, type, [])
+
+      {assoc, type, opts}, acc ->
+        join(acc, assoc, type, opts)
+    end)
+  end
+
+  @doc "Add a preload (single association or list)"
   @spec preload(Token.t(), atom() | keyword()) :: Token.t()
   def preload(token, associations) when is_atom(associations) do
     Token.add_operation(token, {:preload, associations})
@@ -277,6 +378,16 @@ defmodule Events.Query do
 
   def preload(token, associations) when is_list(associations) do
     Token.add_operation(token, {:preload, associations})
+  end
+
+  @doc """
+  Alias for `preload/2` when passing a list.
+
+  See `preload/2` for documentation.
+  """
+  @spec preloads(Token.t(), list()) :: Token.t()
+  def preloads(token, associations) when is_list(associations) do
+    preload(token, associations)
   end
 
   @doc "Add nested preload with filters"
@@ -379,7 +490,23 @@ defmodule Events.Query do
   defdelegate build(token), to: Builder
 
   @doc """
-  Execute the query and return results.
+  Execute the query and return result or error tuple.
+
+  Returns `{:ok, result}` on success or `{:error, error}` on failure.
+  This is the safe variant that never raises exceptions.
+
+  For the raising variant, use `execute!/2`.
+
+  ## Automatic Safety Limits
+
+  **Important**: Queries without pagination or explicit limits are automatically
+  limited to prevent unbounded result sets. The default safe limit is 20 records.
+
+  To customize this behavior:
+  - Add pagination: `Query.paginate(token, :cursor, limit: 50)`
+  - Add explicit limit: `Query.limit(token, 100)`
+  - Use streaming: `Query.stream(token)` for large datasets
+  - Disable safety: Pass `unsafe: true` option (not recommended)
 
   ## Options
 
@@ -389,20 +516,56 @@ defmodule Events.Query do
   - `:cache` - Enable caching (default: false)
   - `:cache_ttl` - Cache TTL in seconds (default: 60)
   - `:include_total_count` - Include total count in pagination (default: false)
+  - `:unsafe` - Disable automatic safety limits (default: false, not recommended)
+  - `:default_limit` - Override default safe limit (default: 20)
 
   ## Examples
 
-      # Basic execution
-      result = token |> Events.Query.execute()
+      # With pattern matching
+      case token |> Events.Query.execute() do
+        {:ok, result} ->
+          IO.puts("Got \#{length(result.data)} records")
+        {:error, error} ->
+          Logger.error("Query failed: \#{Exception.message(error)}")
+      end
 
       # With options
-      result = token |> Events.Query.execute(
+      {:ok, result} = token |> Events.Query.execute(
         timeout: 30_000,
         include_total_count: true
       )
   """
-  @spec execute(Token.t(), keyword()) :: Result.t()
+  @spec execute(Token.t(), keyword()) :: {:ok, Result.t()} | {:error, Exception.t()}
   defdelegate execute(token, opts \\ []), to: Executor
+
+  @doc """
+  Execute the query and return structured result.
+
+  Raises exceptions on failure. For a safe variant that returns tuples,
+  use `execute/2`.
+
+  ## Automatic Safety Limits
+
+  Like `execute/2`, this function automatically applies safety limits to queries
+  without pagination or explicit limits. See `execute/2` for details.
+
+  ## Options
+
+  Same as `execute/2`.
+
+  ## Examples
+
+      # Basic execution
+      result = token |> Events.Query.execute!()
+
+      # With options
+      result = token |> Events.Query.execute!(
+        timeout: 30_000,
+        include_total_count: true
+      )
+  """
+  @spec execute!(Token.t(), keyword()) :: Result.t()
+  defdelegate execute!(token, opts \\ []), to: Executor
 
   @doc "Execute and return stream"
   @spec stream(Token.t(), keyword()) :: Enumerable.t()

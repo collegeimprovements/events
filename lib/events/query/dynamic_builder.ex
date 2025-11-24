@@ -60,6 +60,9 @@ defmodule Events.Query.DynamicBuilder do
 
   alias Events.Query
   alias Events.Query.Token
+  alias Events.Query.PaginationValidator
+
+  require Logger
 
   @type filter_spec :: {:filter, atom(), atom(), term() | {:param, atom()}, keyword()}
   @type order_spec :: {:order, atom(), :asc | :desc, keyword()}
@@ -375,13 +378,41 @@ defmodule Events.Query.DynamicBuilder do
 
   defp apply_pagination(token, nil, _params), do: token
 
+  defp apply_pagination(token, {:paginate, :cursor, config, _opts}, params) do
+    resolved_config =
+      config
+      |> Enum.map(fn {k, v} -> {k, resolve_param(v, params)} end)
+      |> Enum.into(%{})
+
+    # Extract order_by from token operations for validation
+    order_by_ops = extract_order_operations(token)
+
+    # Validate cursor_fields if explicitly provided
+    if Map.has_key?(resolved_config, :cursor_fields) do
+      {:ok, _validated_fields} = validate_cursor_fields(order_by_ops, resolved_config.cursor_fields)
+    end
+
+    Query.paginate(token, :cursor, Enum.to_list(resolved_config))
+  end
+
   defp apply_pagination(token, {:paginate, type, config, _opts}, params) do
+    # Offset pagination - no validation needed
     resolved_config =
       config
       |> Enum.map(fn {k, v} -> {k, resolve_param(v, params)} end)
       |> Enum.into(%{})
 
     Query.paginate(token, type, Enum.to_list(resolved_config))
+  end
+
+  # Extract order operations from token for validation
+  defp extract_order_operations(token) do
+    token.operations
+    |> Enum.filter(fn
+      {:order, _} -> true
+      _ -> false
+    end)
+    |> Enum.map(fn {:order, spec} -> spec end)
   end
 
   # Build from existing token (for nested preloads)
@@ -545,54 +576,96 @@ defmodule Events.Query.DynamicBuilder do
   @doc """
   Returns the default pagination specification.
 
-  By default, uses cursor-based pagination with a limit of 20 and :id as the cursor field.
+  By default, uses cursor-based pagination with a limit of 20.
+  Cursor fields are inferred from order_by and include directions.
 
   ## Examples
 
       default_pagination()
-      # => {:paginate, :cursor, %{limit: 20, cursor_fields: [:id]}, []}
+      # => {:paginate, :cursor, %{limit: 20, cursor_fields: [{:id, :asc}]}, []}
 
       default_pagination([{:created_at, :desc}, {:id, :asc}])
-      # => {:paginate, :cursor, %{limit: 20, cursor_fields: [:created_at, :id]}, []}
+      # => {:paginate, :cursor, %{limit: 20, cursor_fields: [{:created_at, :desc}, {:id, :asc}]}, []}
+
+      default_pagination([{:priority, :desc}])
+      # => {:paginate, :cursor, %{limit: 20, cursor_fields: [{:priority, :desc}, {:id, :asc}]}, []}
   """
   def default_pagination(orders \\ []) do
-    cursor_fields = infer_cursor_fields(orders)
+    cursor_fields = PaginationValidator.infer(orders)
     {:paginate, :cursor, %{limit: 20, cursor_fields: cursor_fields}, []}
   end
 
   @doc """
   Infers cursor fields from order specifications.
 
-  Extracts field names from order tuples and ensures :id is included.
+  **DEPRECATED:** Use `Events.Query.PaginationValidator.infer/1` instead.
+  This function is kept for backward compatibility but now delegates to the validator.
+
+  Extracts field names AND directions from order tuples and ensures {:id, :asc} is included.
 
   ## Examples
 
       infer_cursor_fields([{:created_at, :desc}, {:id, :asc}])
-      # => [:created_at, :id]
+      # => [{:created_at, :desc}, {:id, :asc}]
 
       infer_cursor_fields([{:priority, :desc}])
-      # => [:priority, :id]
+      # => [{:priority, :desc}, {:id, :asc}]
 
       infer_cursor_fields([])
-      # => [:id]
+      # => [{:id, :asc}]
   """
-  def infer_cursor_fields(orders) when is_list(orders) do
-    fields =
-      Enum.flat_map(orders, fn
-        {:order, field, _dir, _opts} -> [field]
-        {field, _dir, _opts} -> [field]
-        {field, _dir} -> [field]
-        field when is_atom(field) -> [field]
-        _ -> []
-      end)
-
-    # Always include :id if not already present
-    if :id in fields do
-      fields
-    else
-      fields ++ [:id]
-    end
+  def infer_cursor_fields(orders) do
+    PaginationValidator.infer(orders)
   end
 
-  def infer_cursor_fields(_), do: [:id]
+  @doc """
+  Validates cursor_fields against order_by specification.
+
+  If cursor_fields are provided, validates they match order_by exactly.
+  If cursor_fields mismatch, logs error and raises exception.
+  If cursor_fields are nil, infers them from order_by.
+
+  ## Examples
+
+      validate_cursor_fields([{:title, :asc}], nil)
+      # => {:ok, [{:title, :asc}, {:id, :asc}]}
+
+      validate_cursor_fields([{:title, :asc}], [{:title, :asc}, {:id, :asc}])
+      # => {:ok, [{:title, :asc}, {:id, :asc}]}
+
+      validate_cursor_fields([{:title, :asc}], [{:title, :desc}])
+      # => Raises error with detailed message
+  """
+  def validate_cursor_fields(order_by, cursor_fields) do
+    case PaginationValidator.validate_or_infer(order_by, cursor_fields) do
+      {:ok, validated_fields} ->
+        {:ok, validated_fields}
+
+      {:error, reason} ->
+        raise ArgumentError, """
+        Invalid cursor pagination configuration:
+
+        #{reason}
+
+        order_by:      #{inspect(order_by)}
+        cursor_fields: #{inspect(cursor_fields)}
+
+        To fix this issue:
+        1. Remove cursor_fields to use automatic inference, OR
+        2. Ensure cursor_fields exactly match order_by fields and directions
+
+        Examples:
+          # Auto-inference (recommended)
+          %{orders: [{:created_at, :desc}, {:id, :asc}]}
+
+          # Explicit (must match exactly)
+          %{
+            orders: [{:created_at, :desc}, {:id, :asc}],
+            pagination: {:paginate, :cursor, %{
+              cursor_fields: [{:created_at, :desc}, {:id, :asc}]
+            }, []}
+          }
+        """
+    end
+  end
 end

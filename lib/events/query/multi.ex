@@ -64,7 +64,7 @@ defmodule Events.Query.Multi do
           fun when is_function(fun, 1) -> fun.(changes)
         end
 
-      result = Executor.execute(token, repo: repo, telemetry: false)
+      result = Executor.execute!(token, repo: repo, telemetry: false)
       {:ok, result}
     end)
   end
@@ -111,7 +111,7 @@ defmodule Events.Query.Multi do
           fun when is_function(fun, 1) -> fun.(changes)
         end
 
-      result = Executor.execute(token, repo: repo, telemetry: false)
+      result = Executor.execute!(token, repo: repo, telemetry: false)
       {:ok, result.data}
     end)
   end
@@ -135,7 +135,7 @@ defmodule Events.Query.Multi do
           fun when is_function(fun, 1) -> fun.(changes)
         end
 
-      result = Executor.execute(token, repo: repo, telemetry: false)
+      result = Executor.execute!(token, repo: repo, telemetry: false)
 
       case result.data do
         [] -> {:error, :not_found}
@@ -164,7 +164,7 @@ defmodule Events.Query.Multi do
           fun when is_function(fun, 1) -> fun.(changes)
         end
 
-      result = Executor.execute(token, repo: repo, telemetry: false)
+      result = Executor.execute!(token, repo: repo, telemetry: false)
 
       case result.data do
         [] -> {:error, :not_found}

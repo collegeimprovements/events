@@ -4,14 +4,29 @@ defmodule Events.Query.Token do
 
   Tokens are immutable and compose through a list of operations.
   Each operation is validated and optimized before execution.
+
+  ## Configuration
+
+  - `:default_limit` - Default limit for pagination (default: 20)
+  - `:max_limit` - Maximum allowed limit (default: 1000)
+
+  Configure in config.exs:
+
+      config :events, Events.Query.Token,
+        default_limit: 50,
+        max_limit: 5000
   """
 
   alias __MODULE__
+  alias Events.Query.{ValidationError, LimitExceededError, PaginationError}
+
+  @default_limit 20
+  @default_max_limit 1000
 
   @type operation ::
           {:filter, {atom(), atom(), term(), keyword()}}
           | {:paginate, {:offset | :cursor, keyword()}}
-          | {:order, {atom(), :asc | :desc}}
+          | {:order, {atom(), :asc | :desc, keyword()}}
           | {:join, {atom() | module(), atom(), keyword()}}
           | {:preload, term()}
           | {:select, list() | map()}
@@ -50,8 +65,20 @@ defmodule Events.Query.Token do
       :ok ->
         %{token | operations: token.operations ++ [operation]}
 
-      {:error, reason} ->
-        raise ArgumentError, "Invalid operation: #{reason}"
+      {:error, %LimitExceededError{} = error} ->
+        raise error
+
+      {:error, %PaginationError{} = error} ->
+        raise error
+
+      {:error, reason} when is_binary(reason) ->
+        # Legacy string errors - convert to ValidationError
+        {op_type, _} = operation
+        raise ValidationError,
+          operation: op_type,
+          reason: reason,
+          value: operation,
+          suggestion: nil
     end
   end
 
@@ -72,6 +99,20 @@ defmodule Events.Query.Token do
   @spec put_metadata(t(), atom(), term()) :: t()
   def put_metadata(%Token{metadata: meta} = token, key, value) do
     %{token | metadata: Map.put(meta, key, value)}
+  end
+
+  @doc "Get configured default limit"
+  @spec default_limit() :: pos_integer()
+  def default_limit do
+    Application.get_env(:events, __MODULE__, [])
+    |> Keyword.get(:default_limit, @default_limit)
+  end
+
+  @doc "Get configured max limit"
+  @spec max_limit() :: pos_integer()
+  def max_limit do
+    Application.get_env(:events, __MODULE__, [])
+    |> Keyword.get(:max_limit, @default_max_limit)
   end
 
   # Operation validation using pattern matching
@@ -99,7 +140,21 @@ defmodule Events.Query.Token do
   defp validate_operation({:select, fields}) when is_list(fields) or is_map(fields), do: :ok
   defp validate_operation({:group_by, fields}) when is_atom(fields) or is_list(fields), do: :ok
   defp validate_operation({:having, conditions}) when is_list(conditions), do: :ok
-  defp validate_operation({:limit, n}) when is_integer(n) and n > 0, do: :ok
+
+  defp validate_operation({:limit, n}) when is_integer(n) and n > 0 do
+    max = max_limit()
+    if n <= max do
+      :ok
+    else
+      {:error,
+       %LimitExceededError{
+         requested: n,
+         max_allowed: max,
+         suggestion: "Use streaming for large datasets or increase config."
+       }}
+    end
+  end
+
   defp validate_operation({:offset, n}) when is_integer(n) and n >= 0, do: :ok
   defp validate_operation({:distinct, value}) when is_boolean(value) or is_list(value), do: :ok
   defp validate_operation({:lock, mode}) when is_atom(mode) or is_binary(mode), do: :ok
@@ -137,16 +192,71 @@ defmodule Events.Query.Token do
 
   # Validate pagination options
   defp validate_pagination_opts(:offset, opts) do
+    limit = opts[:limit] || default_limit()
+    max = max_limit()
+
     cond do
-      Keyword.has_key?(opts, :limit) and is_integer(opts[:limit]) and opts[:limit] > 0 -> :ok
-      true -> {:error, "Offset pagination requires :limit option"}
+      not is_integer(limit) or limit <= 0 ->
+        {:error,
+         %PaginationError{
+           type: :offset,
+           reason: ":limit must be a positive integer, got: #{inspect(limit)}",
+           order_by: nil,
+           cursor_fields: nil,
+           suggestion: "Provide a valid limit: paginate(:offset, limit: 20)"
+         }}
+
+      limit > max ->
+        {:error,
+         %LimitExceededError{
+           requested: limit,
+           max_allowed: max,
+           suggestion: "Use streaming for large datasets or increase config."
+         }}
+
+      true ->
+        :ok
     end
   end
 
   defp validate_pagination_opts(:cursor, opts) do
+    # cursor_fields can be nil - will be inferred from order_by
+    cursor_fields = opts[:cursor_fields]
+    limit = opts[:limit] || default_limit()
+    max = max_limit()
+
     cond do
-      Keyword.has_key?(opts, :cursor_fields) and is_list(opts[:cursor_fields]) -> :ok
-      true -> {:error, "Cursor pagination requires :cursor_fields option"}
+      cursor_fields != nil and not is_list(cursor_fields) ->
+        {:error,
+         %PaginationError{
+           type: :cursor,
+           reason: ":cursor_fields must be a list or nil (will be inferred), got: #{inspect(cursor_fields)}",
+           order_by: nil,
+           cursor_fields: cursor_fields,
+           suggestion:
+             "Either remove cursor_fields (will be inferred from order_by) or provide a list: cursor_fields: [:id, :created_at]"
+         }}
+
+      not is_integer(limit) or limit <= 0 ->
+        {:error,
+         %PaginationError{
+           type: :cursor,
+           reason: ":limit must be a positive integer, got: #{inspect(limit)}",
+           order_by: nil,
+           cursor_fields: cursor_fields,
+           suggestion: "Provide a valid limit: paginate(:cursor, limit: 20)"
+         }}
+
+      limit > max ->
+        {:error,
+         %LimitExceededError{
+           requested: limit,
+           max_allowed: max,
+           suggestion: "Use streaming for large datasets or increase config."
+         }}
+
+      true ->
+        :ok
     end
   end
 end

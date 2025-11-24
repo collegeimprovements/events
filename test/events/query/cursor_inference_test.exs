@@ -10,7 +10,7 @@ defmodule Events.Query.CursorInferenceTest do
         {:order, :id, :asc, []}
       ]
 
-      assert DynamicBuilder.infer_cursor_fields(orders) == [:created_at, :id]
+      assert DynamicBuilder.infer_cursor_fields(orders) == [{:created_at, :desc}, {:id, :asc}]
     end
 
     test "infers from order 3-tuples" do
@@ -19,7 +19,7 @@ defmodule Events.Query.CursorInferenceTest do
         {:id, :asc, []}
       ]
 
-      assert DynamicBuilder.infer_cursor_fields(orders) == [:created_at, :id]
+      assert DynamicBuilder.infer_cursor_fields(orders) == [{:created_at, :desc}, {:id, :asc}]
     end
 
     test "infers from order 2-tuples" do
@@ -28,13 +28,13 @@ defmodule Events.Query.CursorInferenceTest do
         {:name, :asc}
       ]
 
-      assert DynamicBuilder.infer_cursor_fields(orders) == [:created_at, :name, :id]
+      assert DynamicBuilder.infer_cursor_fields(orders) == [{:created_at, :desc}, {:name, :asc}, {:id, :asc}]
     end
 
     test "infers from atom orders" do
       orders = [:name, :email]
 
-      assert DynamicBuilder.infer_cursor_fields(orders) == [:name, :email, :id]
+      assert DynamicBuilder.infer_cursor_fields(orders) == [{:name, :asc}, {:email, :asc}, {:id, :asc}]
     end
 
     test "adds :id if not present" do
@@ -42,8 +42,8 @@ defmodule Events.Query.CursorInferenceTest do
 
       result = DynamicBuilder.infer_cursor_fields(orders)
 
-      assert :id in result
-      assert result == [:created_at, :priority, :id]
+      assert {:id, :asc} in result
+      assert result == [{:created_at, :desc}, {:priority, :desc}, {:id, :asc}]
     end
 
     test "doesn't duplicate :id if already present" do
@@ -51,12 +51,12 @@ defmodule Events.Query.CursorInferenceTest do
 
       result = DynamicBuilder.infer_cursor_fields(orders)
 
-      assert result == [:created_at, :id]
-      assert Enum.count(result, &(&1 == :id)) == 1
+      assert result == [{:created_at, :desc}, {:id, :asc}]
+      assert Enum.count(result, fn {field, _} -> field == :id end) == 1
     end
 
     test "handles empty orders" do
-      assert DynamicBuilder.infer_cursor_fields([]) == [:id]
+      assert DynamicBuilder.infer_cursor_fields([]) == [{:id, :asc}]
     end
 
     test "handles mixed order formats" do
@@ -69,7 +69,7 @@ defmodule Events.Query.CursorInferenceTest do
 
       result = DynamicBuilder.infer_cursor_fields(orders)
 
-      assert result == [:priority, :created_at, :name, :email, :id]
+      assert result == [{:priority, :desc}, {:created_at, :desc}, {:name, :asc}, {:email, :asc}, {:id, :asc}]
     end
   end
 
@@ -79,7 +79,7 @@ defmodule Events.Query.CursorInferenceTest do
 
       assert {:paginate, :cursor, config, []} = pagination
       assert config.limit == 20
-      assert config.cursor_fields == [:id]
+      assert config.cursor_fields == [{:id, :asc}]
     end
 
     test "with orders infers cursor_fields" do
@@ -88,7 +88,7 @@ defmodule Events.Query.CursorInferenceTest do
 
       assert {:paginate, :cursor, config, []} = pagination
       assert config.limit == 20
-      assert config.cursor_fields == [:created_at, :id]
+      assert config.cursor_fields == [{:created_at, :desc}, {:id, :asc}]
     end
 
     test "with orders without :id adds it" do
@@ -96,7 +96,7 @@ defmodule Events.Query.CursorInferenceTest do
       pagination = DynamicBuilder.default_pagination(orders)
 
       assert {:paginate, :cursor, config, []} = pagination
-      assert config.cursor_fields == [:created_at, :priority, :id]
+      assert config.cursor_fields == [{:created_at, :desc}, {:priority, :desc}, {:id, :asc}]
     end
   end
 
@@ -117,7 +117,7 @@ defmodule Events.Query.CursorInferenceTest do
       end)
 
       assert {:paginate, {:cursor, opts}} = pagination_op
-      assert opts[:cursor_fields] == [:created_at, :id]
+      assert opts[:cursor_fields] == [{:created_at, :desc}, {:id, :asc}]
     end
 
     test "respects explicit pagination over inference" do
@@ -126,7 +126,7 @@ defmodule Events.Query.CursorInferenceTest do
         orders: [{:created_at, :desc}, {:id, :asc}],
         pagination: {:paginate, :cursor, %{
           limit: 50,
-          cursor_fields: [:priority, :id]  # Explicit (even if wrong!)
+          cursor_fields: [{:created_at, :desc}, {:id, :asc}]  # Explicit (must match orders!)
         }, []}
       }
 
@@ -138,7 +138,7 @@ defmodule Events.Query.CursorInferenceTest do
       end)
 
       assert {:paginate, {:cursor, opts}} = pagination_op
-      assert opts[:cursor_fields] == [:priority, :id]  # Uses explicit
+      assert opts[:cursor_fields] == [{:created_at, :desc}, {:id, :asc}]  # Uses explicit
       assert opts[:limit] == 50
     end
 
@@ -156,7 +156,7 @@ defmodule Events.Query.CursorInferenceTest do
       end)
 
       assert {:paginate, {:cursor, opts}} = pagination_op
-      assert opts[:cursor_fields] == [:id]
+      assert opts[:cursor_fields] == [{:id, :asc}]
     end
 
     test "works with complex nested orders" do
@@ -178,7 +178,66 @@ defmodule Events.Query.CursorInferenceTest do
       end)
 
       assert {:paginate, {:cursor, opts}} = pagination_op
-      assert opts[:cursor_fields] == [:priority, :created_at, :name, :email, :id]
+      assert opts[:cursor_fields] == [{:priority, :desc}, {:created_at, :desc}, {:name, :asc}, {:email, :asc}, {:id, :asc}]
+    end
+  end
+
+  describe "validation failures" do
+    test "raises ArgumentError when cursor_fields don't match order_by" do
+      spec = %{
+        filters: [{:status, :eq, "active"}],
+        orders: [{:created_at, :desc}, {:id, :asc}],
+        pagination: {:paginate, :cursor, %{
+          limit: 20,
+          cursor_fields: [{:priority, :desc}, {:id, :asc}]  # WRONG! Doesn't match orders
+        }, []}
+      }
+
+      assert_raise ArgumentError, ~r/Invalid cursor pagination configuration/, fn ->
+        DynamicBuilder.build(User, spec)
+      end
+    end
+
+    test "raises ArgumentError when cursor_fields have wrong direction" do
+      spec = %{
+        orders: [{:title, :asc}, {:id, :asc}],
+        pagination: {:paginate, :cursor, %{
+          limit: 20,
+          cursor_fields: [{:title, :desc}, {:id, :asc}]  # Wrong direction for :title!
+        }, []}
+      }
+
+      assert_raise ArgumentError, ~r/direction for :title must be :asc/, fn ->
+        DynamicBuilder.build(User, spec)
+      end
+    end
+
+    test "raises ArgumentError when cursor_fields have wrong order" do
+      spec = %{
+        orders: [{:title, :asc}, {:age, :desc}],
+        pagination: {:paginate, :cursor, %{
+          limit: 20,
+          cursor_fields: [{:age, :desc}, {:title, :asc}]  # Wrong order!
+        }, []}
+      }
+
+      assert_raise ArgumentError, ~r/field order must match/, fn ->
+        DynamicBuilder.build(User, spec)
+      end
+    end
+
+    test "raises ArgumentError when cursor_fields missing required fields" do
+      spec = %{
+        orders: [{:priority, :desc}, {:created_at, :desc}, {:id, :asc}],
+        pagination: {:paginate, :cursor, %{
+          limit: 20,
+          cursor_fields: [{:priority, :desc}, {:id, :asc}]  # Missing :created_at!
+        }, []}
+      }
+
+      assert_raise ArgumentError, ~r/Invalid cursor pagination configuration/, fn ->
+        DynamicBuilder.build(User, spec)
+      end
     end
   end
 

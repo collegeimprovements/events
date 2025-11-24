@@ -16,9 +16,43 @@ defmodule Events.Query.Executor do
   @default_timeout 15_000
   @default_repo Events.Repo
 
-  @doc "Execute a query token and return structured result"
-  @spec execute(Token.t(), keyword()) :: Result.t()
+  @doc """
+  Execute a query token and return result or error tuple.
+
+  Returns `{:ok, result}` on success or `{:error, error}` on failure.
+  This is the safe variant that never raises exceptions.
+
+  For the raising variant, use `execute!/2`.
+
+  ## Examples
+
+      case Query.execute(token) do
+        {:ok, res} ->
+          IO.puts("Got \#{length(res.data)} records")
+        {:error, error} ->
+          Logger.error("Query failed: \#{Exception.message(error)}")
+      end
+  """
+  @spec execute(Token.t(), keyword()) :: {:ok, Result.t()} | {:error, Exception.t()}
   def execute(%Token{} = token, opts \\ []) do
+    {:ok, execute!(token, opts)}
+  rescue
+    e -> {:error, e}
+  end
+
+  @doc """
+  Execute a query token and return structured result.
+
+  Raises exceptions on failure. For a safe variant that returns tuples,
+  use `execute/2`.
+
+  ## Examples
+
+      result = Query.execute!(token)
+      IO.puts("Got \#{length(result.data)} records")
+  """
+  @spec execute!(Token.t(), keyword()) :: Result.t()
+  def execute!(%Token{} = token, opts \\ []) do
     start_time = System.monotonic_time(:microsecond)
     repo = opts[:repo] || @default_repo
     timeout = opts[:timeout] || @default_timeout
@@ -28,6 +62,9 @@ defmodule Events.Query.Executor do
     emit_telemetry_start(token, opts)
 
     try do
+      # Ensure safe limits for queries without pagination
+      token = ensure_safe_limits(token, opts)
+
       # Build query
       query = Builder.build(token)
 
@@ -98,8 +135,47 @@ defmodule Events.Query.Executor do
 
   ## Helpers
 
+  @doc false
+  @spec ensure_safe_limits(Token.t(), keyword()) :: Token.t()
+  defp ensure_safe_limits(%Token{} = token, opts) do
+    # Allow opt-out via unsafe: true option (for streaming, aggregations, etc.)
+    if opts[:unsafe] do
+      token
+    else
+      has_pagination = has_pagination?(token)
+      has_limit = has_explicit_limit?(token)
+
+      cond do
+        # Already has pagination or explicit limit - safe
+        has_pagination or has_limit ->
+          token
+
+        # No limiting at all - apply safe default
+        true ->
+          safe_limit = opts[:default_limit] || Token.default_limit()
+
+          require Logger
+          Logger.warning("""
+          Query executed without pagination or limit. Automatically limiting to #{safe_limit} records.
+
+          To fix this warning:
+          1. Add pagination: Query.paginate(token, :cursor, limit: 20)
+          2. Add explicit limit: Query.limit(token, 100)
+          3. Use streaming: Query.stream(token) for large datasets
+          4. Pass unsafe: true if you really need all records
+          """)
+
+          Token.add_operation(token, {:limit, safe_limit})
+      end
+    end
+  end
+
   defp has_pagination?(%Token{operations: ops}) do
     Enum.any?(ops, fn {op, _} -> op == :paginate end)
+  end
+
+  defp has_explicit_limit?(%Token{operations: ops}) do
+    Enum.any?(ops, fn {op, _} -> op == :limit end)
   end
 
   defp get_pagination_type(%Token{operations: ops}) do

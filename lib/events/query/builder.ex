@@ -142,16 +142,16 @@ defmodule Events.Query.Builder do
   ## Pagination
 
   defp apply_pagination(query, {:offset, opts}) do
-    limit = opts[:limit]
+    limit = opts[:limit] || Events.Query.Token.default_limit()
     offset = opts[:offset] || 0
 
     query
-    |> then(fn q -> if limit, do: from(x in q, limit: ^limit), else: q end)
+    |> from(limit: ^limit)
     |> then(fn q -> if offset > 0, do: from(x in q, offset: ^offset), else: q end)
   end
 
   defp apply_pagination(query, {:cursor, opts}) do
-    limit = opts[:limit]
+    limit = opts[:limit] || Events.Query.Token.default_limit()
     cursor_fields = opts[:cursor_fields] || []
     after_cursor = opts[:after]
     before_cursor = opts[:before]
@@ -159,7 +159,7 @@ defmodule Events.Query.Builder do
     query
     |> apply_cursor_ordering(cursor_fields)
     |> apply_cursor_filter(after_cursor, before_cursor, cursor_fields)
-    |> then(fn q -> if limit, do: from(x in q, limit: ^limit), else: q end)
+    |> from(limit: ^limit)
   end
 
   defp apply_cursor_ordering(query, []), do: query
