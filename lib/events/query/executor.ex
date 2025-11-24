@@ -179,52 +179,61 @@ defmodule Events.Query.Executor do
     Enum.any?(ops, fn {op, _} -> op == :limit end)
   end
 
-  defp get_pagination_type(%Token{operations: ops}) do
+  # Unified pagination info extraction
+  # Single helper reduces code duplication across 6+ functions
+
+  defp get_pagination_info(%Token{operations: ops}) do
     case Enum.find(ops, fn {op, _} -> op == :paginate end) do
-      {:paginate, {type, _opts}} -> type
-      _ -> nil
+      {:paginate, {type, opts}} -> {type, opts}
+      _ -> {nil, []}
     end
   end
 
-  defp get_limit(%Token{operations: ops}) do
-    # Check paginate operation first
-    case Enum.find(ops, fn {op, _} -> op == :paginate end) do
-      {:paginate, {_type, opts}} ->
-        opts[:limit]
+  defp get_pagination_type(token) do
+    {type, _opts} = get_pagination_info(token)
+    type
+  end
 
-      _ ->
-        # Check limit operation
+  defp get_limit(%Token{operations: ops} = token) do
+    {_type, opts} = get_pagination_info(token)
+
+    case opts[:limit] do
+      nil ->
+        # Fallback to explicit limit operation
         case Enum.find(ops, fn {op, _} -> op == :limit end) do
           {:limit, value} -> value
           _ -> nil
         end
+
+      limit ->
+        limit
     end
   end
 
-  defp get_offset(%Token{operations: ops}) do
-    case Enum.find(ops, fn {op, _} -> op == :paginate end) do
-      {:paginate, {:offset, opts}} -> opts[:offset] || 0
+  defp get_offset(token) do
+    case get_pagination_info(token) do
+      {:offset, opts} -> opts[:offset] || 0
       _ -> 0
     end
   end
 
-  defp get_cursor_fields(%Token{operations: ops}) do
-    case Enum.find(ops, fn {op, _} -> op == :paginate end) do
-      {:paginate, {:cursor, opts}} -> opts[:cursor_fields]
+  defp get_cursor_fields(token) do
+    case get_pagination_info(token) do
+      {:cursor, opts} -> opts[:cursor_fields]
       _ -> nil
     end
   end
 
-  defp get_after_cursor(%Token{operations: ops}) do
-    case Enum.find(ops, fn {op, _} -> op == :paginate end) do
-      {:paginate, {:cursor, opts}} -> opts[:after]
+  defp get_after_cursor(token) do
+    case get_pagination_info(token) do
+      {:cursor, opts} -> opts[:after]
       _ -> nil
     end
   end
 
-  defp get_before_cursor(%Token{operations: ops}) do
-    case Enum.find(ops, fn {op, _} -> op == :paginate end) do
-      {:paginate, {:cursor, opts}} -> opts[:before]
+  defp get_before_cursor(token) do
+    case get_pagination_info(token) do
+      {:cursor, opts} -> opts[:before]
       _ -> nil
     end
   end

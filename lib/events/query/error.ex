@@ -238,9 +238,11 @@ defmodule Events.Query.CursorError do
   end
 
   defp truncate_cursor(nil), do: nil
+
   defp truncate_cursor(cursor) when byte_size(cursor) > 50 do
     String.slice(cursor, 0, 50) <> "..."
   end
+
   defp truncate_cursor(cursor), do: cursor
 end
 

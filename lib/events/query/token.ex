@@ -44,6 +44,8 @@ defmodule Events.Query.Token do
           | {:raw_where, {String.t(), map()}}
           | {:exists, Token.t() | Ecto.Query.t()}
           | {:not_exists, Token.t() | Ecto.Query.t()}
+          | {:search_rank, {list(), String.t()}}
+          | {:search_rank_limited, {list(), String.t()}}
 
   @type t :: %__MODULE__{
           source: module() | Ecto.Query.t() | :nested,
@@ -223,7 +225,10 @@ defmodule Events.Query.Token do
   defp validate_operation({:offset, n}) when is_integer(n) and n >= 0, do: :ok
   defp validate_operation({:distinct, value}) when is_boolean(value) or is_list(value), do: :ok
   defp validate_operation({:lock, mode}) when is_atom(mode) or is_binary(mode), do: :ok
-  defp validate_operation({:cte, {name, _query, opts}}) when is_atom(name) and is_list(opts), do: :ok
+
+  defp validate_operation({:cte, {name, _query, opts}}) when is_atom(name) and is_list(opts),
+    do: :ok
+
   # Backwards compatibility - CTE without opts
   defp validate_operation({:cte, {name, _query}}) when is_atom(name), do: :ok
   defp validate_operation({:window, {name, def}}) when is_atom(name) and is_list(def), do: :ok
@@ -243,6 +248,14 @@ defmodule Events.Query.Token do
 
   defp validate_operation({:not_exists, subquery})
        when is_struct(subquery, Token) or is_struct(subquery, Ecto.Query),
+       do: :ok
+
+  defp validate_operation({:search_rank, {fields, term}})
+       when is_list(fields) and is_binary(term),
+       do: :ok
+
+  defp validate_operation({:search_rank_limited, {fields, term}})
+       when is_list(fields) and is_binary(term),
        do: :ok
 
   defp validate_operation(op), do: {:error, "Unknown operation: #{inspect(op)}"}
@@ -278,7 +291,8 @@ defmodule Events.Query.Token do
   end
 
   defp validate_filter_spec(spec) do
-    {:error, "Invalid filter spec in group: #{inspect(spec)}. Expected {field, op, value} or {field, op, value, opts}"}
+    {:error,
+     "Invalid filter spec in group: #{inspect(spec)}. Expected {field, op, value} or {field, op, value, opts}"}
   end
 
   # Validate filter operations
@@ -300,7 +314,11 @@ defmodule Events.Query.Token do
     :between,
     :contains,
     :jsonb_contains,
-    :jsonb_has_key
+    :jsonb_has_key,
+    # Text search operators
+    :similarity,
+    :word_similarity,
+    :strict_word_similarity
   ]
 
   defp validate_filter_operation(op) when op in @valid_filter_ops, do: :ok

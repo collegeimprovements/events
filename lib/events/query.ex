@@ -14,6 +14,35 @@ defmodule Events.Query do
   - Telemetry integration
   - Comprehensive result metadata
 
+  ## Naming Conventions
+
+  This module provides semantic aliases for some functions. **Preferred names are:**
+
+  | Preferred      | Alias (works but not preferred) |
+  |----------------|--------------------------------|
+  | `filter/5`     | `where/5`                      |
+  | `filter_by/2`  | `wheres/2`, `filters/2`        |
+  | `order/4`      | `order_by/4`                   |
+  | `orders/2`     | `order_bys/2`                  |
+
+  The aliases exist for developers familiar with Ecto's naming, but we recommend
+  using the preferred names for consistency.
+
+  ## Binding Convention
+
+  When working with joins, use `as:` to **name** a binding, and `binding:` to **reference** it:
+
+  ```elixir
+  User
+  |> Query.new()
+  |> Query.join(:posts, :left, as: :posts)           # as: names the binding
+  |> Query.filter(:published, :eq, true, binding: :posts)  # binding: references it
+  |> Query.order(:created_at, :desc, binding: :posts)
+  |> Query.search("elixir", [{:title, :ilike, binding: :posts}])
+  ```
+
+  This matches Ecto's conventions where `as:` creates named bindings.
+
   ## Basic Usage
 
   ```elixir
@@ -57,6 +86,35 @@ defmodule Events.Query do
     }
   }
   ```
+
+  ## Error Handling
+
+  Functions follow the Elixir convention:
+
+  - `execute/2` returns `{:ok, result}` or `{:error, exception}`
+  - `execute!/2` returns result or raises exception
+  - `build/1` returns `{:ok, query}` or `{:error, exception}`
+  - `build!/1` returns query or raises exception
+
+  Common errors:
+
+  - `Events.Query.ValidationError` - Invalid operation or value
+  - `Events.Query.LimitExceededError` - Limit exceeds max_limit config
+  - `Events.Query.PaginationError` - Invalid pagination configuration
+  - `Events.Query.CursorError` - Invalid or expired cursor
+
+  ## Performance Tips
+
+  1. **Use cursor pagination** for large datasets (offset becomes slow at high offsets)
+  2. **Index fields** used in filters, especially with `:similarity` mode
+  3. **Use `:binding`** option for filters on joined tables (avoids subqueries)
+  4. **Limit preloads** - each preload is a separate query
+
+  ## Limitations
+
+  - Window functions require compile-time macros (use `fragment/1` for dynamic)
+  - Subquery operators only work in filters, not in select
+  - `:explain_analyze` in debug executes the query (use carefully)
   """
 
   alias Events.Query.{Token, Builder, Executor, Result}
@@ -69,6 +127,64 @@ defmodule Events.Query do
   @doc "Create a new query token from a schema"
   @spec new(module() | Ecto.Query.t()) :: Token.t()
   defdelegate new(schema_or_query), to: Token
+
+  @doc """
+  Debug a query token - prints debug info and returns input unchanged.
+
+  Works like `IO.inspect/2` - can be placed anywhere in a pipeline.
+  Returns the input unchanged for seamless composition.
+
+  ## Formats
+
+  - `:raw_sql` - Raw SQL with interpolated params (default)
+  - `:sql_params` - SQL + params separately
+  - `:ecto` - Ecto.Query struct
+  - `:dsl` - DSL macro syntax
+  - `:pipeline` - Pipeline syntax
+  - `:token` - Token struct
+  - `:explain` - PostgreSQL EXPLAIN
+  - `:explain_analyze` - PostgreSQL EXPLAIN ANALYZE (executes query!)
+  - `:all` - All formats combined
+
+  ## Options
+
+  - `:label` - Custom label (default: "Query Debug")
+  - `:pretty` - Pretty print (default: true)
+  - `:repo` - Repo module for SQL generation
+  - `:color` - ANSI color (default: :cyan)
+  - `:stacktrace` - Show caller location (default: false)
+  - `:return` - Return value: `:input` (default), `:output`, `:both`
+
+  ## Examples
+
+      # Default - prints raw SQL
+      Product
+      |> Query.new()
+      |> Query.filter(:status, :eq, "active")
+      |> Query.debug()
+      |> Query.execute()
+
+      # Specific format
+      token |> Query.debug(:pipeline)
+      token |> Query.debug(:dsl)
+      token |> Query.debug([:raw_sql, :ecto])
+
+      # With options
+      token |> Query.debug(:raw_sql, label: "Product Search", color: :green)
+
+      # Debug at multiple points
+      Product
+      |> Query.new()
+      |> Query.debug(:token, label: "Initial")
+      |> Query.filter(:price, :gt, 100)
+      |> Query.debug(:raw_sql, label: "After filter")
+      |> Query.join(:category, :left)
+      |> Query.debug(:raw_sql, label: "After join")
+      |> Query.execute()
+  """
+  @spec debug(Token.t() | Ecto.Query.t(), atom() | [atom()], keyword()) ::
+          Token.t() | Ecto.Query.t()
+  defdelegate debug(input, format \\ :raw_sql, opts \\ []), to: Events.Query.Debug
 
   @doc """
   Add a where condition (Ecto-style naming).
@@ -306,6 +422,175 @@ defmodule Events.Query do
     Token.add_operation(token, {:not_exists, subquery})
   end
 
+  ## Convenience Functions
+  ##
+  ## These are common patterns wrapped as single functions for ease of use.
+
+  @doc """
+  Filter to exclude soft-deleted records.
+
+  A convenience wrapper for the common pattern of filtering by `deleted_at IS NULL`.
+
+  ## Parameters
+
+  - `token` - The query token
+  - `field` - The soft-delete timestamp field (default: `:deleted_at`)
+
+  ## Examples
+
+      # Exclude deleted records
+      User
+      |> Query.new()
+      |> Query.exclude_deleted()
+      |> Query.execute()
+
+      # With custom field name
+      Post
+      |> Query.new()
+      |> Query.exclude_deleted(:removed_at)
+
+  ## SQL Equivalent
+
+      WHERE deleted_at IS NULL
+  """
+  @spec exclude_deleted(Token.t(), atom()) :: Token.t()
+  def exclude_deleted(token, field \\ :deleted_at) do
+    filter(token, field, :is_nil, true)
+  end
+
+  @doc """
+  Filter to include only soft-deleted records.
+
+  Opposite of `exclude_deleted/2` - returns only records that have been soft-deleted.
+
+  ## Examples
+
+      # Get only deleted records (for trash view)
+      User
+      |> Query.new()
+      |> Query.only_deleted()
+
+  ## SQL Equivalent
+
+      WHERE deleted_at IS NOT NULL
+  """
+  @spec only_deleted(Token.t(), atom()) :: Token.t()
+  def only_deleted(token, field \\ :deleted_at) do
+    filter(token, field, :not_nil, true)
+  end
+
+  @doc """
+  Filter by subquery (IN or NOT IN).
+
+  A convenience wrapper for filtering where a field's value is in (or not in)
+  the results of a subquery.
+
+  ## Parameters
+
+  - `token` - The query token
+  - `field` - Field to filter on
+  - `op` - `:in` or `:not_in`
+  - `subquery` - Token or Ecto.Query that returns a single column
+
+  ## Examples
+
+      # Find users who have made a purchase
+      purchaser_ids = Order
+        |> Query.new()
+        |> Query.select([:user_id])
+
+      User
+      |> Query.new()
+      |> Query.filter_subquery(:id, :in, purchaser_ids)
+
+      # Find products not in any order
+      ordered_product_ids = OrderItem
+        |> Query.new()
+        |> Query.select([:product_id])
+
+      Product
+      |> Query.new()
+      |> Query.filter_subquery(:id, :not_in, ordered_product_ids)
+
+  ## SQL Equivalent
+
+      WHERE id IN (SELECT user_id FROM orders)
+      WHERE id NOT IN (SELECT product_id FROM order_items)
+  """
+  @spec filter_subquery(Token.t(), atom(), :in | :not_in, Token.t() | Ecto.Query.t()) :: Token.t()
+  def filter_subquery(token, field, :in, subquery) do
+    filter(token, field, :in_subquery, subquery)
+  end
+
+  def filter_subquery(token, field, :not_in, subquery) do
+    filter(token, field, :not_in_subquery, subquery)
+  end
+
+  @doc """
+  Filter for records created within a time range.
+
+  A convenience wrapper for filtering by creation timestamp.
+
+  ## Parameters
+
+  - `token` - The query token
+  - `start_time` - Start of the range (inclusive)
+  - `end_time` - End of the range (inclusive)
+  - `field` - The timestamp field (default: `:inserted_at`)
+
+  ## Examples
+
+      # Records created today
+      today = Date.utc_today()
+      start_of_day = DateTime.new!(today, ~T[00:00:00], "Etc/UTC")
+      end_of_day = DateTime.new!(today, ~T[23:59:59], "Etc/UTC")
+
+      User
+      |> Query.new()
+      |> Query.created_between(start_of_day, end_of_day)
+
+      # With custom field
+      Post
+      |> Query.new()
+      |> Query.created_between(start, finish, :published_at)
+
+  ## SQL Equivalent
+
+      WHERE inserted_at BETWEEN ? AND ?
+  """
+  @spec created_between(
+          Token.t(),
+          DateTime.t() | NaiveDateTime.t(),
+          DateTime.t() | NaiveDateTime.t(),
+          atom()
+        ) :: Token.t()
+  def created_between(token, start_time, end_time, field \\ :inserted_at) do
+    filter(token, field, :between, {start_time, end_time})
+  end
+
+  @doc """
+  Filter for records updated after a given time.
+
+  Useful for sync operations or finding recently modified records.
+
+  ## Examples
+
+      # Find records updated in the last hour
+      one_hour_ago = DateTime.add(DateTime.utc_now(), -3600, :second)
+
+      User
+      |> Query.new()
+      |> Query.updated_since(one_hour_ago)
+
+  ## SQL Equivalent
+
+      WHERE updated_at > ?
+  """
+  @spec updated_since(Token.t(), DateTime.t() | NaiveDateTime.t(), atom()) :: Token.t()
+  def updated_since(token, since, field \\ :updated_at) do
+    filter(token, field, :gt, since)
+  end
+
   # Normalize filter spec to 4-tuple format
   defp normalize_filter_spec({field, op, value}), do: {field, op, value, []}
   defp normalize_filter_spec({field, op, value, opts}), do: {field, op, value, opts}
@@ -512,7 +797,42 @@ defmodule Events.Query do
     order_bys(token, order_list)
   end
 
-  @doc "Add a join"
+  @doc """
+  Add a join to the query.
+
+  ## Parameters
+
+  - `token` - The query token
+  - `association_or_schema` - Association name (atom) or schema module
+  - `type` - Join type: `:inner`, `:left`, `:right`, `:full`, `:cross` (default: `:inner`)
+  - `opts` - Options:
+    - `:as` - Name the binding for use in filters/orders (default: association name)
+    - `:on` - Custom join conditions as keyword list
+
+  ## Binding Convention
+
+  Use `as:` in joins to **name** the binding, then use `binding:` in
+  `filter/5`, `order/4`, `search/3` to **reference** that binding:
+
+      # Create a named binding with as:
+      token
+      |> Query.join(:posts, :left, as: :user_posts)
+      # Reference it with binding:
+      |> Query.filter(:published, :eq, true, binding: :user_posts)
+      |> Query.order(:created_at, :desc, binding: :user_posts)
+
+  ## Examples
+
+      # Association join (uses association as binding name)
+      Query.join(token, :posts, :left)
+      # Filter on it: Query.filter(token, :published, :eq, true, binding: :posts)
+
+      # Named binding for clarity
+      Query.join(token, :posts, :left, as: :user_posts)
+
+      # Schema join with custom conditions
+      Query.join(token, Post, :left, as: :posts, on: [author_id: :id])
+  """
   @spec join(Token.t(), atom() | module(), atom(), keyword()) :: Token.t()
   def join(token, association_or_schema, type \\ :inner, opts \\ []) do
     Token.add_operation(token, {:join, {association_or_schema, type, opts}})
@@ -592,9 +912,47 @@ defmodule Events.Query do
     Token.add_operation(token, {:preload, {association, nested_token}})
   end
 
-  @doc "Add a select clause"
+  @doc """
+  Select fields from the base table and joined tables with aliasing.
+
+  Supports selecting from multiple tables/bindings with custom aliases
+  to avoid name conflicts.
+
+  ## Select Formats
+
+  - `[:field1, :field2]` - Simple field list from base table
+  - `%{alias: :field}` - Map with aliases from base table
+  - `%{alias: {:binding, :field}}` - Field from joined table
+
+  ## Examples
+
+      # Simple select from base table
+      Query.select(token, [:id, :name, :price])
+
+      # Select with aliases (same table)
+      Query.select(token, %{
+        product_id: :id,
+        product_name: :name
+      })
+
+      # Select from base and joined tables
+      Product
+      |> Query.new()
+      |> Query.join(:category, :left, as: :cat)
+      |> Query.join(:brand, :left, as: :brand)
+      |> Query.select(%{
+        product_id: :id,
+        product_name: :name,
+        price: :price,
+        category_id: {:cat, :id},
+        category_name: {:cat, :name},
+        brand_id: {:brand, :id},
+        brand_name: {:brand, :name}
+      })
+      |> Query.execute()
+  """
   @spec select(Token.t(), list() | map()) :: Token.t()
-  def select(token, fields) do
+  def select(%Token{} = token, fields) when is_list(fields) or is_map(fields) do
     Token.add_operation(token, {:select, fields})
   end
 
@@ -986,6 +1344,42 @@ defmodule Events.Query do
   @spec stream(Token.t(), keyword()) :: Enumerable.t()
   defdelegate stream(token, opts \\ []), to: Executor
 
+  ## Cursor Utilities
+
+  @doc """
+  Encode a cursor from a record for cursor-based pagination.
+
+  Useful for testing and manually creating cursors.
+
+  ## Examples
+
+      # Simple cursor
+      cursor = Query.encode_cursor(%{id: 123}, [:id])
+
+      # Multi-field cursor
+      cursor = Query.encode_cursor(
+        %{created_at: ~U[2024-01-01 00:00:00Z], id: 123},
+        [{:created_at, :desc}, {:id, :asc}]
+      )
+  """
+  @spec encode_cursor(map() | nil, [atom() | {atom(), :asc | :desc}]) :: String.t() | nil
+  defdelegate encode_cursor(record, fields), to: Result
+
+  @doc """
+  Decode a cursor string back to its original data.
+
+  Useful for testing and debugging cursor contents.
+
+  ## Examples
+
+      {:ok, data} = Query.decode_cursor(cursor_string)
+      # => %{id: 123}
+
+      {:error, reason} = Query.decode_cursor("invalid")
+  """
+  @spec decode_cursor(String.t() | any()) :: {:ok, map()} | {:error, String.t()}
+  defdelegate decode_cursor(encoded), to: Builder
+
   @doc """
   Execute query in a transaction.
 
@@ -1021,4 +1415,651 @@ defmodule Events.Query do
   def batch(tokens, opts \\ []) when is_list(tokens) do
     Executor.batch(tokens, opts)
   end
+
+  ## Convenience Query Functions
+  ##
+  ## These functions provide common query patterns with a cleaner API.
+  ## They build on top of the core execute/2 function.
+
+  @doc """
+  Get the first result from the query, or nil if no results.
+
+  Automatically adds `limit: 1` if not already limited.
+
+  ## Examples
+
+      # Get first active user
+      User
+      |> Query.new()
+      |> Query.filter(:status, :eq, "active")
+      |> Query.order(:created_at, :asc)
+      |> Query.first()
+      # => %User{...} or nil
+
+      # With options
+      Query.first(token, repo: MyApp.Repo)
+  """
+  @spec first(Token.t(), keyword()) :: term() | nil
+  def first(%Token{} = token, opts \\ []) do
+    token
+    |> limit(1)
+    |> execute!(Keyword.put(opts, :unsafe, true))
+    |> Map.get(:data)
+    |> List.first()
+  end
+
+  @doc """
+  Get the first result, raising if no results found.
+
+  ## Examples
+
+      User
+      |> Query.new()
+      |> Query.filter(:id, :eq, 123)
+      |> Query.first!()
+      # => %User{...} or raises Ecto.NoResultsError
+  """
+  @spec first!(Token.t(), keyword()) :: term()
+  def first!(%Token{} = token, opts \\ []) do
+    case first(token, opts) do
+      nil -> raise Ecto.NoResultsError, queryable: build(token)
+      result -> result
+    end
+  end
+
+  @doc """
+  Get exactly one result, raising if zero or more than one.
+
+  ## Examples
+
+      User
+      |> Query.new()
+      |> Query.filter(:email, :eq, "john@example.com")
+      |> Query.one()
+      # => %User{...} or nil
+
+      # Raises if more than one result
+      User
+      |> Query.new()
+      |> Query.filter(:status, :eq, "active")
+      |> Query.one()
+      # => raises Ecto.MultipleResultsError if multiple matches
+  """
+  @spec one(Token.t(), keyword()) :: term() | nil
+  def one(%Token{} = token, opts \\ []) do
+    result =
+      token
+      |> limit(2)
+      |> execute!(Keyword.put(opts, :unsafe, true))
+      |> Map.get(:data)
+
+    case result do
+      [] -> nil
+      [single] -> single
+      [_ | _] -> raise Ecto.MultipleResultsError, queryable: build(token)
+    end
+  end
+
+  @doc """
+  Get exactly one result, raising if zero or more than one.
+
+  ## Examples
+
+      User
+      |> Query.new()
+      |> Query.filter(:email, :eq, "john@example.com")
+      |> Query.one!()
+      # => %User{...} or raises
+  """
+  @spec one!(Token.t(), keyword()) :: term()
+  def one!(%Token{} = token, opts \\ []) do
+    case one(token, opts) do
+      nil -> raise Ecto.NoResultsError, queryable: build(token)
+      result -> result
+    end
+  end
+
+  @doc """
+  Get the count of records matching the query.
+
+  ## Examples
+
+      User
+      |> Query.new()
+      |> Query.filter(:status, :eq, "active")
+      |> Query.count()
+      # => 42
+  """
+  @spec count(Token.t(), keyword()) :: non_neg_integer()
+  def count(%Token{} = token, opts \\ []) do
+    repo = opts[:repo] || Events.Repo
+    timeout = opts[:timeout] || 15_000
+
+    query =
+      token
+      |> remove_operations(:select)
+      |> remove_operations(:order)
+      |> remove_operations(:preload)
+      |> remove_operations(:limit)
+      |> remove_operations(:offset)
+      |> remove_operations(:paginate)
+      |> build()
+
+    repo.aggregate(query, :count, timeout: timeout)
+  end
+
+  @doc """
+  Check if any records match the query.
+
+  More efficient than `count(token) > 0` as it uses EXISTS.
+
+  ## Examples
+
+      User
+      |> Query.new()
+      |> Query.filter(:email, :eq, "john@example.com")
+      |> Query.exists?()
+      # => true or false
+  """
+  @spec exists?(Token.t(), keyword()) :: boolean()
+  def exists?(%Token{} = token, opts \\ []) do
+    repo = opts[:repo] || Events.Repo
+    timeout = opts[:timeout] || 15_000
+
+    query = build(token)
+    repo.exists?(query, timeout: timeout)
+  end
+
+  @doc """
+  Perform an aggregate operation on the query.
+
+  ## Supported Aggregates
+
+  - `:count` - Count of records (or field)
+  - `:sum` - Sum of field values
+  - `:avg` - Average of field values
+  - `:min` - Minimum field value
+  - `:max` - Maximum field value
+
+  ## Examples
+
+      # Sum of amounts
+      Order
+      |> Query.new()
+      |> Query.filter(:status, :eq, "completed")
+      |> Query.aggregate(:sum, :amount)
+      # => Decimal.new("12345.67")
+
+      # Average age
+      User
+      |> Query.new()
+      |> Query.filter(:status, :eq, "active")
+      |> Query.aggregate(:avg, :age)
+      # => 32.5
+
+      # Count with field (non-null values)
+      User
+      |> Query.new()
+      |> Query.aggregate(:count, :email)
+      # => 100
+  """
+  @spec aggregate(Token.t(), :count | :sum | :avg | :min | :max, atom(), keyword()) :: term()
+  def aggregate(%Token{} = token, aggregate_type, field, opts \\ [])
+      when aggregate_type in [:count, :sum, :avg, :min, :max] do
+    repo = opts[:repo] || Events.Repo
+    timeout = opts[:timeout] || 15_000
+
+    query =
+      token
+      |> remove_operations(:select)
+      |> remove_operations(:order)
+      |> remove_operations(:preload)
+      |> remove_operations(:limit)
+      |> remove_operations(:offset)
+      |> remove_operations(:paginate)
+      |> build()
+
+    repo.aggregate(query, aggregate_type, field, timeout: timeout)
+  end
+
+  @doc """
+  Get all records as a plain list (without Result wrapper).
+
+  Useful when you just want the data without pagination metadata.
+
+  ## Examples
+
+      User
+      |> Query.new()
+      |> Query.filter(:status, :eq, "active")
+      |> Query.all()
+      # => [%User{}, %User{}, ...]
+  """
+  @spec all(Token.t(), keyword()) :: [term()]
+  def all(%Token{} = token, opts \\ []) do
+    token
+    |> execute!(opts)
+    |> Map.get(:data)
+  end
+
+  @doc """
+  Remove operations of a specific type from the token.
+
+  Useful for transforming queries (e.g., building count queries).
+
+  ## Examples
+
+      token
+      |> Query.remove_operations(:order)
+      |> Query.remove_operations(:select)
+  """
+  @spec remove_operations(Token.t(), atom()) :: Token.t()
+  defdelegate remove_operations(token, type), to: Token
+
+  ## Pipeline Helpers
+  ##
+  ## Functions that help with pipeline composition.
+
+  @doc """
+  Conditionally apply a function to the token.
+
+  Useful for building queries conditionally in a pipeline.
+
+  ## Examples
+
+      User
+      |> Query.new()
+      |> Query.then_if(params[:status], fn token, status ->
+        Query.filter(token, :status, :eq, status)
+      end)
+      |> Query.then_if(params[:min_age], fn token, age ->
+        Query.filter(token, :age, :gte, age)
+      end)
+      |> Query.execute()
+  """
+  @spec then_if(Token.t(), term(), (Token.t(), term() -> Token.t())) :: Token.t()
+  def then_if(%Token{} = token, nil, _fun), do: token
+  def then_if(%Token{} = token, false, _fun), do: token
+  def then_if(%Token{} = token, value, fun), do: fun.(token, value)
+
+  @doc """
+  Conditionally apply a function to the token (boolean version).
+
+  ## Examples
+
+      User
+      |> Query.new()
+      |> Query.if_true(show_active?, fn token ->
+        Query.filter(token, :status, :eq, "active")
+      end)
+      |> Query.execute()
+  """
+  @spec if_true(Token.t(), boolean(), (Token.t() -> Token.t())) :: Token.t()
+  def if_true(%Token{} = token, true, fun), do: fun.(token)
+  def if_true(%Token{} = token, false, _fun), do: token
+
+  @doc """
+  Apply multiple filter conditions from a map.
+
+  Supports both simple equality and explicit operator tuples.
+
+  ## Filter Formats
+
+  - `{field, value}` - Equality filter (`:eq`)
+  - `{field, {op, value}}` - Explicit operator
+  - `{field, {op, value, opts}}` - Operator with options
+
+  ## Supported Operators
+
+  `:eq`, `:neq`, `:gt`, `:gte`, `:lt`, `:lte`, `:in`, `:not_in`,
+  `:like`, `:ilike`, `:is_nil`, `:not_nil`, `:between`,
+  `:contains`, `:jsonb_contains`, `:jsonb_has_key`
+
+  ## Examples
+
+      # Simple equality filters
+      params = %{status: "active", role: "admin"}
+      Query.filter_by(token, params)
+
+      # With explicit operators
+      filters = %{
+        status: "active",                          # :eq by default
+        price: {:between, {10, 100}},              # price BETWEEN 10 AND 100
+        category_id: {:in, [1, 2, 3]},             # category_id IN (1, 2, 3)
+        rating: {:gte, 4},                         # rating >= 4
+        name: {:ilike, "%phone%"},                 # name ILIKE '%phone%'
+        deleted_at: {:is_nil, true}                # deleted_at IS NULL
+      }
+      Query.filter_by(token, filters)
+
+      # With binding for joined tables
+      filters = %{
+        status: "active",
+        category_name: {:eq, "Electronics", binding: :category}
+      }
+      Query.filter_by(token, filters)
+  """
+  @spec filter_by(Token.t(), map() | keyword()) :: Token.t()
+  def filter_by(%Token{} = token, filters) when is_map(filters) or is_list(filters) do
+    Enum.reduce(filters, token, fn
+      # Skip nil values
+      {_key, nil}, acc ->
+        acc
+
+      # Skip empty lists for :in operators
+      {_key, {:in, []}}, acc ->
+        acc
+
+      {_key, {:not_in, []}}, acc ->
+        acc
+
+      # Operator with options: {field, {op, value, opts}}
+      {key, {op, value, opts}}, acc when is_atom(op) and is_list(opts) ->
+        filter(acc, key, op, value, opts)
+
+      # Operator tuple: {field, {op, value}}
+      {key, {op, value}}, acc when is_atom(op) ->
+        filter(acc, key, op, value)
+
+      # Simple value: {field, value} defaults to :eq
+      {key, value}, acc ->
+        filter(acc, key, :eq, value)
+    end)
+  end
+
+  @doc """
+  Search across multiple fields using OR logic with optional ranking.
+
+  Supports multiple search modes from simple LIKE patterns to PostgreSQL
+  fuzzy matching with pg_trgm similarity. Each field can have its own mode
+  and rank for result ordering.
+
+  ## Field Specifications
+
+  Fields can be specified in three formats:
+
+  - `field` - Just the field name, uses global `:mode` option (default: `:ilike`)
+  - `{field, mode}` - Field with specific mode
+  - `{field, mode, opts}` - Field with mode and per-field options
+
+  ## Search Modes
+
+  - `:ilike` - Case-insensitive LIKE (default)
+  - `:like` - Case-sensitive LIKE
+  - `:exact` - Exact equality match
+  - `:starts_with` - Prefix match (ILIKE with `term%`)
+  - `:ends_with` - Suffix match (ILIKE with `%term`)
+  - `:similarity` - PostgreSQL trigram similarity (requires pg_trgm)
+  - `:word_similarity` - Match whole words within text (requires pg_trgm)
+  - `:strict_word_similarity` - Strictest word boundary matching (requires pg_trgm)
+
+  ## Global Options
+
+  - `:mode` - Default mode for fields without explicit mode (default: `:ilike`)
+  - `:threshold` - Default similarity threshold (default: 0.3)
+  - `:rank` - Enable result ranking by field priority (default: false)
+
+  ## Per-Field Options
+
+  - `:rank` - Priority rank for this field (lower = higher priority, e.g., 1 = top)
+  - `:take` - Limit how many results from this field/rank (requires `:rank` enabled)
+  - `:threshold` - Similarity threshold for this field (overrides global)
+  - `:case_sensitive` - For pattern modes, use case-sensitive matching
+  - `:binding` - Named binding for joined tables (default: `:root`)
+
+  ## Examples
+
+      # Simple: same mode for all fields (default :ilike with contains)
+      Query.search(token, "iphone", [:name, :description, :sku])
+
+      # Per-field modes: different search strategy per field
+      Query.search(token, "iphone", [
+        {:sku, :exact},                              # Exact match on SKU
+        {:name, :similarity},                        # Fuzzy match on name
+        {:description, :ilike}                       # ILIKE on description
+      ])
+
+      # WITH RANKING: Results ordered by which field matched
+      Query.search(token, "iphone", [
+        {:sku, :exact, rank: 1},                     # Highest priority - exact SKU
+        {:name, :similarity, rank: 2},               # Second - fuzzy name match
+        {:brand, :starts_with, rank: 3},             # Third - brand prefix
+        {:description, :ilike, rank: 4}              # Lowest - description contains
+      ], rank: true)
+
+      # E-commerce search with ranking
+      Query.search(token, params[:q], [
+        {:sku, :exact, rank: 1},                     # SKU-123 exact = top result
+        {:name, :similarity, rank: 2, threshold: 0.3},
+        {:brand, :starts_with, rank: 3},
+        {:description, :word_similarity, rank: 4}
+      ], rank: true)
+
+      # WITH TAKE LIMITS: Control how many results from each field/rank
+      Query.search(token, "iphone", [
+        {:email, :exact, rank: 1, take: 5},          # Top 5 exact email matches
+        {:name, :similarity, rank: 2, take: 10},     # Then 10 fuzzy name matches
+        {:description, :ilike, rank: 3, take: 5}     # Then 5 description matches
+      ], rank: true)
+      # Total results: up to 20 (5 from email + 10 from name + 5 from description)
+      # Results ordered by rank, then by relevance within each rank
+
+      # Autocomplete with ranking (exact prefix > fuzzy)
+      Query.search(token, input, [
+        {:name, :starts_with, rank: 1, take: 5},     # Top 5 prefix matches
+        {:name, :similarity, rank: 2, take: 10}      # Then 10 fuzzy matches
+      ], rank: true)
+
+      # Returns unchanged token if search term is nil or empty
+      Query.search(token, nil, [:name])  # => token unchanged
+
+  ## How Ranking Works
+
+  When `:rank` is enabled:
+  1. Results are ordered by which field matched (lower rank = higher priority)
+  2. For similarity modes, secondary ordering uses the similarity score (DESC)
+  3. If no rank specified, fields are assigned auto-incrementing ranks
+
+  The generated SQL uses CASE WHEN for ranking:
+  ```sql
+  ORDER BY
+    CASE
+      WHEN sku = 'term' THEN 1
+      WHEN name % 'term' THEN 2
+      WHEN brand ILIKE 'term%' THEN 3
+      ELSE 999
+    END ASC,
+    similarity(name, 'term') DESC  -- secondary sort for similarity fields
+  ```
+
+  ## How Take Limits Work
+
+  When `:take` is specified per field, results are ordered by rank and
+  limited to the sum of all take values. This provides a practical approximation
+  that works within Ecto's query builder constraints.
+
+  **Current behavior:**
+  - Results are ordered by rank (rank 1 first, then rank 2, etc.)
+  - Total limit is the sum of all take values (e.g., take: 5 + take: 10 + take: 5 = 20)
+  - Within each rank, results are ordered by similarity score (for fuzzy modes)
+
+  **Example:**
+  ```elixir
+  Query.search(token, "iphone", [
+    {:email, :exact, rank: 1, take: 5},      # Rank 1 matches first
+    {:name, :similarity, rank: 2, take: 10}, # Then rank 2 matches
+    {:description, :ilike, rank: 3, take: 5} # Then rank 3 matches
+  ], rank: true)
+  # Returns up to 20 results, ordered by rank
+  ```
+
+  **Note:** For exact per-rank limits (enforced per-category counts), use
+  a raw SQL query with window functions:
+
+  ```sql
+  SELECT * FROM (
+    SELECT *,
+      CASE
+        WHEN email = 'term' THEN 1
+        WHEN similarity(name, 'term') > 0.3 THEN 2
+        WHEN description ILIKE '%term%' THEN 3
+        ELSE 999
+      END AS match_rank,
+      ROW_NUMBER() OVER (
+        PARTITION BY (CASE ... END)
+        ORDER BY similarity(name, 'term') DESC
+      ) AS row_num
+    FROM products
+    WHERE ...
+  ) subq
+  WHERE
+    (match_rank = 1 AND row_num <= 5) OR
+    (match_rank = 2 AND row_num <= 10) OR
+    (match_rank = 3 AND row_num <= 5)
+  ORDER BY match_rank, row_num
+  ```
+
+  ## PostgreSQL pg_trgm Setup
+
+  For similarity modes, you need the pg_trgm extension:
+
+      CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
+  For better performance, create a GIN or GiST index:
+
+      CREATE INDEX products_name_trgm_idx ON products USING gin (name gin_trgm_ops);
+  """
+  @spec search(Token.t(), String.t() | nil, [atom() | tuple()], keyword()) :: Token.t()
+  def search(token, term, fields, opts \\ [])
+  def search(%Token{} = token, nil, _fields, _opts), do: token
+  def search(%Token{} = token, "", _fields, _opts), do: token
+
+  def search(%Token{} = token, term, fields, opts) when is_binary(term) and is_list(fields) do
+    default_mode = Keyword.get(opts, :mode, :ilike)
+    default_threshold = Keyword.get(opts, :threshold, 0.3)
+    enable_ranking = Keyword.get(opts, :rank, false)
+
+    # Parse field specs and assign auto-ranks if not specified
+    # Returns: [{field, mode, opts, rank, take}, ...]
+    parsed_fields = parse_search_fields(fields, default_mode, default_threshold)
+
+    # Build search filters
+    search_filters =
+      Enum.map(parsed_fields, fn {field, mode, field_opts, _rank, _take} ->
+        build_search_filter_tuple(field, mode, term, field_opts)
+      end)
+
+    # Apply the OR filter
+    token = where_any(token, search_filters)
+
+    # Apply ranking if enabled
+    if enable_ranking do
+      apply_search_ranking(token, parsed_fields, term)
+    else
+      token
+    end
+  end
+
+  # Parse field specifications into normalized format with ranks and take limits
+  # Returns: {field, mode, opts, rank, take}
+  defp parse_search_fields(fields, default_mode, default_threshold) do
+    fields
+    |> Enum.with_index(1)
+    |> Enum.map(fn {field_spec, index} ->
+      parse_single_field(field_spec, default_mode, default_threshold, index)
+    end)
+  end
+
+  defp parse_single_field(field, default_mode, default_threshold, auto_rank) when is_atom(field) do
+    {field, default_mode, [threshold: default_threshold], auto_rank, nil}
+  end
+
+  defp parse_single_field({field, mode}, _default_mode, default_threshold, auto_rank) do
+    {field, mode, [threshold: default_threshold], auto_rank, nil}
+  end
+
+  defp parse_single_field({field, mode, opts}, _default_mode, default_threshold, auto_rank) do
+    rank = Keyword.get(opts, :rank, auto_rank)
+    threshold = Keyword.get(opts, :threshold, default_threshold)
+    take = Keyword.get(opts, :take)
+    {field, mode, Keyword.merge(opts, threshold: threshold), rank, take}
+  end
+
+  # Build filter tuple for a field (with binding support for joined tables)
+  defp build_search_filter_tuple(field, mode, term, field_opts) do
+    binding = Keyword.get(field_opts, :binding)
+    base_opts = if binding, do: [binding: binding], else: []
+
+    case mode do
+      :ilike ->
+        pattern = build_search_pattern(term, :contains)
+        build_filter_with_opts(field, :ilike, pattern, base_opts)
+
+      :like ->
+        pattern = build_search_pattern(term, :contains)
+        build_filter_with_opts(field, :like, pattern, base_opts)
+
+      :starts_with ->
+        pattern = build_search_pattern(term, :starts_with)
+        case_sensitive = Keyword.get(field_opts, :case_sensitive, false)
+        op = if case_sensitive, do: :like, else: :ilike
+        build_filter_with_opts(field, op, pattern, base_opts)
+
+      :ends_with ->
+        pattern = build_search_pattern(term, :ends_with)
+        case_sensitive = Keyword.get(field_opts, :case_sensitive, false)
+        op = if case_sensitive, do: :like, else: :ilike
+        build_filter_with_opts(field, op, pattern, base_opts)
+
+      :contains ->
+        pattern = build_search_pattern(term, :contains)
+        case_sensitive = Keyword.get(field_opts, :case_sensitive, false)
+        op = if case_sensitive, do: :like, else: :ilike
+        build_filter_with_opts(field, op, pattern, base_opts)
+
+      :exact ->
+        build_filter_with_opts(field, :eq, term, base_opts)
+
+      similarity_mode
+      when similarity_mode in [:similarity, :word_similarity, :strict_word_similarity] ->
+        threshold = Keyword.get(field_opts, :threshold, 0.3)
+        opts = Keyword.merge(base_opts, threshold: threshold)
+        {field, similarity_mode, term, opts}
+
+      unknown ->
+        raise ArgumentError, """
+        Unknown search mode: #{inspect(unknown)} for field #{inspect(field)}
+
+        Supported modes:
+          :ilike, :like, :exact, :starts_with, :ends_with, :contains,
+          :similarity, :word_similarity, :strict_word_similarity
+        """
+    end
+  end
+
+  # Build filter tuple with optional opts
+  defp build_filter_with_opts(field, op, value, []), do: {field, op, value}
+  defp build_filter_with_opts(field, op, value, opts), do: {field, op, value, opts}
+
+  # Apply search ranking via ORDER BY
+  # If any field has a :take limit, use the limited ranking operation
+  defp apply_search_ranking(token, parsed_fields, term) do
+    # Sort by rank to build CASE WHEN in priority order
+    sorted_fields = Enum.sort_by(parsed_fields, fn {_, _, _, rank, _take} -> rank end)
+
+    # Check if any field has a take limit
+    has_take_limits = Enum.any?(sorted_fields, fn {_, _, _, _rank, take} -> take != nil end)
+
+    if has_take_limits do
+      # Use limited ranking with ROW_NUMBER OVER PARTITION BY
+      Token.add_operation(token, {:search_rank_limited, {sorted_fields, term}})
+    else
+      # Simple ranking with ORDER BY
+      Token.add_operation(token, {:search_rank, {sorted_fields, term}})
+    end
+  end
+
+  defp build_search_pattern(term, :contains), do: "%#{term}%"
+  defp build_search_pattern(term, :starts_with), do: "#{term}%"
+  defp build_search_pattern(term, :ends_with), do: "%#{term}"
 end

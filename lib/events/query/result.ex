@@ -167,10 +167,36 @@ defmodule Events.Query.Result do
     })
   end
 
-  # Encode cursor from record
-  defp encode_cursor(nil, _fields), do: nil
+  @doc """
+  Encode a cursor from a record and cursor fields.
 
-  defp encode_cursor(record, fields) when is_map(record) do
+  This is the public API for encoding cursors, useful for testing
+  and manual cursor generation.
+
+  ## Parameters
+
+  - `record` - A map or struct containing the cursor field values
+  - `fields` - List of field names or `{field, direction}` tuples
+
+  ## Examples
+
+      # Simple cursor
+      cursor = encode_cursor(%{id: 123}, [:id])
+
+      # Multi-field cursor
+      cursor = encode_cursor(
+        %{created_at: ~U[2024-01-01 00:00:00Z], id: 123},
+        [{:created_at, :desc}, {:id, :asc}]
+      )
+
+      # Use in tests
+      token = Query.new(User)
+        |> Query.paginate(:cursor, after: cursor, limit: 10)
+  """
+  @spec encode_cursor(map() | nil, [atom() | {atom(), :asc | :desc}]) :: String.t() | nil
+  def encode_cursor(nil, _fields), do: nil
+
+  def encode_cursor(record, fields) when is_map(record) do
     cursor_data =
       fields
       |> Enum.map(fn

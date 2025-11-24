@@ -3,11 +3,28 @@ defmodule Events.Query.Builder do
   Builds Ecto queries from tokens using pattern matching.
 
   Converts the token's operation list into an executable Ecto query.
+
+  ## Architecture
+
+  The builder uses a unified filter system where all filter operators are defined
+  once in `build_filter_dynamic/4` and can be used both for direct query building
+  and dynamic expression building (for OR/AND groups).
+
+  ## Filter Operators
+
+  All operators defined in `@filter_operators` are supported in both contexts:
+  - Direct `filter/4` calls
+  - `where_any/2` (OR groups)
+  - `where_all/2` (AND groups)
   """
 
   import Ecto.Query
   alias Events.Query.Token
   alias Events.Query.CursorError
+
+  # Unified filter operator definitions
+  # Each operator maps to a function that builds a dynamic expression
+  @filter_operators ~w(eq neq gt gte lt lte in not_in like ilike is_nil not_nil between contains jsonb_contains jsonb_has_key similarity word_similarity strict_word_similarity)a
 
   @doc """
   Build an Ecto query from a token (safe variant).
@@ -86,134 +103,219 @@ defmodule Events.Query.Builder do
   defp apply_operation({:raw_where, spec}, query), do: apply_raw_where(query, spec)
   defp apply_operation({:exists, spec}, query), do: apply_exists(query, spec, true)
   defp apply_operation({:not_exists, spec}, query), do: apply_exists(query, spec, false)
+  defp apply_operation({:search_rank, spec}, query), do: apply_search_rank(query, spec)
 
-  ## Filter Operations
+  defp apply_operation({:search_rank_limited, spec}, query),
+    do: apply_search_rank_limited(query, spec)
 
-  defp apply_filter(query, {field, op, value, opts}) do
+  ## Filter Operations - Unified Dynamic Builder
+  ##
+  ## All filter operators are defined once in `filter_dynamic/4` and used
+  ## both for direct query building and OR/AND groups. This ensures
+  ## consistency and eliminates duplication.
+
+  # Special handling for subquery operators (can't be built with pure dynamic)
+  # These MUST come before the generic handler due to pattern matching precedence
+  defp apply_filter(query, {field, :in_subquery, subquery, opts}) do
     binding = opts[:binding] || :root
-    apply_filter_operation(query, binding, field, op, value, opts)
+    sq = resolve_subquery(subquery)
+    from([{^binding, q}] in query, where: field(q, ^field) in subquery(sq))
   end
 
-  # Equality
-  defp apply_filter_operation(query, binding, field, :eq, value, opts) do
+  defp apply_filter(query, {field, :not_in_subquery, subquery, opts}) do
+    binding = opts[:binding] || :root
+    sq = resolve_subquery(subquery)
+    from([{^binding, q}] in query, where: field(q, ^field) not in subquery(sq))
+  end
+
+  # Generic filter handler - delegates to filter_dynamic/4
+  defp apply_filter(query, {field, op, value, opts}) do
+    dynamic_expr = filter_dynamic(field, op, value, opts)
+    from(q in query, where: ^dynamic_expr)
+  end
+
+  defp resolve_subquery(%Token{} = token), do: build(token)
+  defp resolve_subquery(%Ecto.Query{} = query), do: query
+
+  @doc """
+  Build a dynamic filter expression for the given operator.
+
+  This is the single source of truth for all filter operators.
+  Used by both direct filters and filter groups (OR/AND).
+
+  ## Supported Operators
+
+  | Operator | Description | Example |
+  |----------|-------------|---------|
+  | `:eq` | Equal | `filter(:status, :eq, "active")` |
+  | `:neq` | Not equal | `filter(:status, :neq, "deleted")` |
+  | `:gt` | Greater than | `filter(:age, :gt, 18)` |
+  | `:gte` | Greater than or equal | `filter(:age, :gte, 18)` |
+  | `:lt` | Less than | `filter(:age, :lt, 65)` |
+  | `:lte` | Less than or equal | `filter(:age, :lte, 65)` |
+  | `:in` | In list | `filter(:status, :in, ["active", "pending"])` |
+  | `:not_in` | Not in list | `filter(:status, :not_in, ["deleted"])` |
+  | `:like` | SQL LIKE | `filter(:name, :like, "%john%")` |
+  | `:ilike` | Case-insensitive LIKE | `filter(:name, :ilike, "%john%")` |
+  | `:is_nil` | Is NULL | `filter(:deleted_at, :is_nil, true)` |
+  | `:not_nil` | Is NOT NULL | `filter(:email, :not_nil, true)` |
+  | `:between` | Between range | `filter(:age, :between, {18, 65})` |
+  | `:contains` | Array contains | `filter(:tags, :contains, ["elixir"])` |
+  | `:jsonb_contains` | JSONB @> | `filter(:meta, :jsonb_contains, %{vip: true})` |
+  | `:jsonb_has_key` | JSONB ? | `filter(:meta, :jsonb_has_key, "role")` |
+
+  ## Options
+
+  - `:binding` - Named binding for joined tables (default: `:root`)
+  - `:case_insensitive` - Case insensitive comparison for `:eq` (default: `false`)
+  """
+  @spec filter_dynamic(atom(), atom(), term(), keyword()) :: Ecto.Query.DynamicExpr.t()
+  def filter_dynamic(field, op, value, opts \\ [])
+
+  # Equality - with case insensitive support
+  def filter_dynamic(field, :eq, value, opts) do
+    binding = opts[:binding] || :root
     case_insensitive = opts[:case_insensitive] || false
 
     if is_binary(value) && case_insensitive do
-      from([{^binding, q}] in query,
-        where: fragment("lower(?)", field(q, ^field)) == fragment("lower(?)", ^value)
+      dynamic(
+        [{^binding, q}],
+        fragment("lower(?)", field(q, ^field)) == fragment("lower(?)", ^value)
       )
     else
-      from([{^binding, q}] in query, where: field(q, ^field) == ^value)
+      dynamic([{^binding, q}], field(q, ^field) == ^value)
     end
   end
 
   # Not equal
-  defp apply_filter_operation(query, binding, field, :neq, value, _opts) do
-    from([{^binding, q}] in query, where: field(q, ^field) != ^value)
+  def filter_dynamic(field, :neq, value, opts) do
+    binding = opts[:binding] || :root
+    dynamic([{^binding, q}], field(q, ^field) != ^value)
   end
 
-  # Greater than
-  defp apply_filter_operation(query, binding, field, :gt, value, _opts) do
-    from([{^binding, q}] in query, where: field(q, ^field) > ^value)
+  # Comparison operators
+  def filter_dynamic(field, :gt, value, opts) do
+    binding = opts[:binding] || :root
+    dynamic([{^binding, q}], field(q, ^field) > ^value)
   end
 
-  # Greater than or equal
-  defp apply_filter_operation(query, binding, field, :gte, value, _opts) do
-    from([{^binding, q}] in query, where: field(q, ^field) >= ^value)
+  def filter_dynamic(field, :gte, value, opts) do
+    binding = opts[:binding] || :root
+    dynamic([{^binding, q}], field(q, ^field) >= ^value)
   end
 
-  # Less than
-  defp apply_filter_operation(query, binding, field, :lt, value, _opts) do
-    from([{^binding, q}] in query, where: field(q, ^field) < ^value)
+  def filter_dynamic(field, :lt, value, opts) do
+    binding = opts[:binding] || :root
+    dynamic([{^binding, q}], field(q, ^field) < ^value)
   end
 
-  # Less than or equal
-  defp apply_filter_operation(query, binding, field, :lte, value, _opts) do
-    from([{^binding, q}] in query, where: field(q, ^field) <= ^value)
+  def filter_dynamic(field, :lte, value, opts) do
+    binding = opts[:binding] || :root
+    dynamic([{^binding, q}], field(q, ^field) <= ^value)
   end
 
-  # In list
-  defp apply_filter_operation(query, binding, field, :in, values, _opts) when is_list(values) do
-    from([{^binding, q}] in query, where: field(q, ^field) in ^values)
+  # List membership
+  def filter_dynamic(field, :in, values, opts) when is_list(values) do
+    binding = opts[:binding] || :root
+    dynamic([{^binding, q}], field(q, ^field) in ^values)
   end
 
-  # Not in list
-  defp apply_filter_operation(query, binding, field, :not_in, values, _opts)
-       when is_list(values) do
-    from([{^binding, q}] in query, where: field(q, ^field) not in ^values)
+  def filter_dynamic(field, :not_in, values, opts) when is_list(values) do
+    binding = opts[:binding] || :root
+    dynamic([{^binding, q}], field(q, ^field) not in ^values)
   end
 
-  # In subquery
-  defp apply_filter_operation(query, binding, field, :in_subquery, %Token{} = subquery_token, _opts) do
-    sq = build(subquery_token)
-    from([{^binding, q}] in query, where: field(q, ^field) in subquery(sq))
+  # Pattern matching
+  def filter_dynamic(field, :like, pattern, opts) do
+    binding = opts[:binding] || :root
+    dynamic([{^binding, q}], like(field(q, ^field), ^pattern))
   end
 
-  defp apply_filter_operation(query, binding, field, :in_subquery, %Ecto.Query{} = sq, _opts) do
-    from([{^binding, q}] in query, where: field(q, ^field) in subquery(sq))
+  def filter_dynamic(field, :ilike, pattern, opts) do
+    binding = opts[:binding] || :root
+    dynamic([{^binding, q}], ilike(field(q, ^field), ^pattern))
   end
 
-  # Not in subquery
-  defp apply_filter_operation(
-         query,
-         binding,
-         field,
-         :not_in_subquery,
-         %Token{} = subquery_token,
-         _opts
-       ) do
-    sq = build(subquery_token)
-    from([{^binding, q}] in query, where: field(q, ^field) not in subquery(sq))
-  end
+  # PostgreSQL pg_trgm similarity operators (requires pg_trgm extension)
+  # similarity(a, b) returns a number between 0 and 1 indicating how similar they are
+  # Default threshold is 0.3, configurable via :threshold option
+  def filter_dynamic(field, :similarity, term, opts) do
+    binding = opts[:binding] || :root
+    threshold = opts[:threshold] || 0.3
 
-  defp apply_filter_operation(query, binding, field, :not_in_subquery, %Ecto.Query{} = sq, _opts) do
-    from([{^binding, q}] in query, where: field(q, ^field) not in subquery(sq))
-  end
-
-  # Like pattern
-  defp apply_filter_operation(query, binding, field, :like, pattern, _opts) do
-    from([{^binding, q}] in query, where: like(field(q, ^field), ^pattern))
-  end
-
-  # Case-insensitive like
-  defp apply_filter_operation(query, binding, field, :ilike, pattern, _opts) do
-    from([{^binding, q}] in query, where: ilike(field(q, ^field), ^pattern))
-  end
-
-  # Is null
-  defp apply_filter_operation(query, binding, field, :is_nil, _value, _opts) do
-    from([{^binding, q}] in query, where: is_nil(field(q, ^field)))
-  end
-
-  # Is not null
-  defp apply_filter_operation(query, binding, field, :not_nil, _value, _opts) do
-    from([{^binding, q}] in query, where: not is_nil(field(q, ^field)))
-  end
-
-  # Between range
-  defp apply_filter_operation(query, binding, field, :between, {min, max}, _opts) do
-    from([{^binding, q}] in query,
-      where: field(q, ^field) >= ^min and field(q, ^field) <= ^max
+    dynamic(
+      [{^binding, q}],
+      fragment("similarity(?, ?) > ?", field(q, ^field), ^term, ^threshold)
     )
   end
 
-  # Array contains
-  defp apply_filter_operation(query, binding, field, :contains, value, _opts) do
-    from([{^binding, q}] in query, where: fragment("? @> ?", field(q, ^field), ^value))
+  # word_similarity - better for matching whole words within text
+  def filter_dynamic(field, :word_similarity, term, opts) do
+    binding = opts[:binding] || :root
+    threshold = opts[:threshold] || 0.3
+
+    dynamic(
+      [{^binding, q}],
+      fragment("word_similarity(?, ?) > ?", ^term, field(q, ^field), ^threshold)
+    )
   end
 
-  # JSONB contains
-  defp apply_filter_operation(query, binding, field, :jsonb_contains, value, _opts) do
+  # strict_word_similarity - strictest matching for whole word boundaries
+  def filter_dynamic(field, :strict_word_similarity, term, opts) do
+    binding = opts[:binding] || :root
+    threshold = opts[:threshold] || 0.3
+
+    dynamic(
+      [{^binding, q}],
+      fragment("strict_word_similarity(?, ?) > ?", ^term, field(q, ^field), ^threshold)
+    )
+  end
+
+  # Null checks
+  def filter_dynamic(field, :is_nil, _value, opts) do
+    binding = opts[:binding] || :root
+    dynamic([{^binding, q}], is_nil(field(q, ^field)))
+  end
+
+  def filter_dynamic(field, :not_nil, _value, opts) do
+    binding = opts[:binding] || :root
+    dynamic([{^binding, q}], not is_nil(field(q, ^field)))
+  end
+
+  # Range
+  def filter_dynamic(field, :between, {min, max}, opts) do
+    binding = opts[:binding] || :root
+    dynamic([{^binding, q}], field(q, ^field) >= ^min and field(q, ^field) <= ^max)
+  end
+
+  # Array/JSONB operators
+  def filter_dynamic(field, :contains, value, opts) do
+    binding = opts[:binding] || :root
+    dynamic([{^binding, q}], fragment("? @> ?", field(q, ^field), ^value))
+  end
+
+  def filter_dynamic(field, :jsonb_contains, value, opts) do
+    binding = opts[:binding] || :root
     json_value = Jason.encode!(value)
-
-    from([{^binding, q}] in query,
-      where: fragment("? @> ?::jsonb", field(q, ^field), ^json_value)
-    )
+    dynamic([{^binding, q}], fragment("? @> ?::jsonb", field(q, ^field), ^json_value))
   end
 
-  # JSONB has key
-  defp apply_filter_operation(query, binding, field, :jsonb_has_key, key, _opts) do
-    from([{^binding, q}] in query, where: fragment("? \\? ?", field(q, ^field), ^key))
+  def filter_dynamic(field, :jsonb_has_key, key, opts) do
+    binding = opts[:binding] || :root
+    dynamic([{^binding, q}], fragment("? \\? ?", field(q, ^field), ^key))
+  end
+
+  # Fallback for unsupported operators
+  def filter_dynamic(_field, op, _value, _opts) do
+    supported = Enum.map_join(@filter_operators, ", ", &":#{&1}")
+
+    raise ArgumentError, """
+    Unknown filter operator: #{inspect(op)}
+
+    Supported operators: #{supported}
+
+    For subqueries, use :in_subquery or :not_in_subquery
+    """
   end
 
   ## Filter Groups (OR/AND)
@@ -221,7 +323,7 @@ defmodule Events.Query.Builder do
   defp apply_filter_group(query, {:or, filters}) do
     conditions =
       filters
-      |> Enum.map(&build_filter_dynamic/1)
+      |> Enum.map(&spec_to_dynamic/1)
       |> combine_with_or()
 
     from(q in query, where: ^conditions)
@@ -230,7 +332,7 @@ defmodule Events.Query.Builder do
   defp apply_filter_group(query, {:and, filters}) do
     conditions =
       filters
-      |> Enum.map(&build_filter_dynamic/1)
+      |> Enum.map(&spec_to_dynamic/1)
       |> combine_with_and()
 
     case conditions do
@@ -239,92 +341,9 @@ defmodule Events.Query.Builder do
     end
   end
 
-  # Build a dynamic expression for a single filter spec
-  defp build_filter_dynamic({field, op, value, opts}) do
-    binding = opts[:binding] || :root
-    build_filter_dynamic_for_op(binding, field, op, value, opts)
-  end
-
-  defp build_filter_dynamic({field, op, value}) do
-    build_filter_dynamic({field, op, value, []})
-  end
-
-  # Dynamic expression builders for each operator
-  defp build_filter_dynamic_for_op(binding, field, :eq, value, opts) do
-    case_insensitive = opts[:case_insensitive] || false
-
-    if is_binary(value) && case_insensitive do
-      dynamic([{^binding, q}], fragment("lower(?)", field(q, ^field)) == fragment("lower(?)", ^value))
-    else
-      dynamic([{^binding, q}], field(q, ^field) == ^value)
-    end
-  end
-
-  defp build_filter_dynamic_for_op(binding, field, :neq, value, _opts) do
-    dynamic([{^binding, q}], field(q, ^field) != ^value)
-  end
-
-  defp build_filter_dynamic_for_op(binding, field, :gt, value, _opts) do
-    dynamic([{^binding, q}], field(q, ^field) > ^value)
-  end
-
-  defp build_filter_dynamic_for_op(binding, field, :gte, value, _opts) do
-    dynamic([{^binding, q}], field(q, ^field) >= ^value)
-  end
-
-  defp build_filter_dynamic_for_op(binding, field, :lt, value, _opts) do
-    dynamic([{^binding, q}], field(q, ^field) < ^value)
-  end
-
-  defp build_filter_dynamic_for_op(binding, field, :lte, value, _opts) do
-    dynamic([{^binding, q}], field(q, ^field) <= ^value)
-  end
-
-  defp build_filter_dynamic_for_op(binding, field, :in, values, _opts) when is_list(values) do
-    dynamic([{^binding, q}], field(q, ^field) in ^values)
-  end
-
-  defp build_filter_dynamic_for_op(binding, field, :not_in, values, _opts) when is_list(values) do
-    dynamic([{^binding, q}], field(q, ^field) not in ^values)
-  end
-
-  defp build_filter_dynamic_for_op(binding, field, :like, pattern, _opts) do
-    dynamic([{^binding, q}], like(field(q, ^field), ^pattern))
-  end
-
-  defp build_filter_dynamic_for_op(binding, field, :ilike, pattern, _opts) do
-    dynamic([{^binding, q}], ilike(field(q, ^field), ^pattern))
-  end
-
-  defp build_filter_dynamic_for_op(binding, field, :is_nil, _value, _opts) do
-    dynamic([{^binding, q}], is_nil(field(q, ^field)))
-  end
-
-  defp build_filter_dynamic_for_op(binding, field, :not_nil, _value, _opts) do
-    dynamic([{^binding, q}], not is_nil(field(q, ^field)))
-  end
-
-  defp build_filter_dynamic_for_op(binding, field, :between, {min, max}, _opts) do
-    dynamic([{^binding, q}], field(q, ^field) >= ^min and field(q, ^field) <= ^max)
-  end
-
-  defp build_filter_dynamic_for_op(binding, field, :contains, value, _opts) do
-    dynamic([{^binding, q}], fragment("? @> ?", field(q, ^field), ^value))
-  end
-
-  defp build_filter_dynamic_for_op(binding, field, :jsonb_contains, value, _opts) do
-    json_value = Jason.encode!(value)
-    dynamic([{^binding, q}], fragment("? @> ?::jsonb", field(q, ^field), ^json_value))
-  end
-
-  defp build_filter_dynamic_for_op(binding, field, :jsonb_has_key, key, _opts) do
-    dynamic([{^binding, q}], fragment("? \\? ?", field(q, ^field), ^key))
-  end
-
-  # Fallback for unsupported operators in dynamic context
-  defp build_filter_dynamic_for_op(_binding, _field, op, _value, _opts) do
-    raise ArgumentError, "Operator #{inspect(op)} not supported in filter groups. Use a separate filter clause."
-  end
+  # Convert filter spec to dynamic expression using unified filter_dynamic/4
+  defp spec_to_dynamic({field, op, value, opts}), do: filter_dynamic(field, op, value, opts)
+  defp spec_to_dynamic({field, op, value}), do: filter_dynamic(field, op, value, [])
 
   ## EXISTS/NOT EXISTS Subqueries
 
@@ -391,7 +410,8 @@ defmodule Events.Query.Builder do
         raise CursorError,
           cursor: after_cursor,
           reason: reason,
-          suggestion: "The 'after' cursor is invalid or corrupted. Request the first page without a cursor."
+          suggestion:
+            "The 'after' cursor is invalid or corrupted. Request the first page without a cursor."
     end
   end
 
@@ -404,7 +424,8 @@ defmodule Events.Query.Builder do
         raise CursorError,
           cursor: before_cursor,
           reason: reason,
-          suggestion: "The 'before' cursor is invalid or corrupted. Request the last page without a cursor."
+          suggestion:
+            "The 'before' cursor is invalid or corrupted. Request the last page without a cursor."
     end
   end
 
@@ -506,14 +527,44 @@ defmodule Events.Query.Builder do
     from(q in query, where: field(q, ^field) < ^value)
   end
 
-  defp decode_cursor(encoded) when is_binary(encoded) do
+  @doc """
+  Decode a cursor string back to its original data.
+
+  This is the public API for decoding cursors, useful for testing,
+  debugging, and cursor validation.
+
+  ## Parameters
+
+  - `encoded` - The base64-encoded cursor string
+
+  ## Returns
+
+  - `{:ok, cursor_data}` - Map of field values from the cursor
+  - `{:error, reason}` - Error with description
+
+  ## Examples
+
+      # Decode a cursor
+      {:ok, data} = decode_cursor(cursor_string)
+      # => %{id: 123, created_at: ~U[2024-01-01 00:00:00Z]}
+
+      # Handle invalid cursors
+      {:error, reason} = decode_cursor("invalid")
+
+      # Use in tests to verify cursor contents
+      result = Query.execute!(token)
+      {:ok, cursor_data} = decode_cursor(result.end_cursor)
+      assert cursor_data.id == expected_last_id
+  """
+  @spec decode_cursor(String.t() | any()) :: {:ok, map()} | {:error, String.t()}
+  def decode_cursor(encoded) when is_binary(encoded) do
     with {:ok, decoded} <- decode_base64(encoded),
          {:ok, cursor_data} <- decode_term(decoded) do
       {:ok, cursor_data}
     end
   end
 
-  defp decode_cursor(_), do: {:error, "Cursor must be a string"}
+  def decode_cursor(_), do: {:error, "Cursor must be a string"}
 
   defp decode_base64(encoded) do
     case Base.url_decode64(encoded, padding: false) do
@@ -548,6 +599,226 @@ defmodule Events.Query.Builder do
       # For joined tables, use the binding
       from([{^binding, q}] in query, order_by: [{^direction, field(q, ^field)}])
     end
+  end
+
+  ## Search Ranking
+  ##
+  ## Orders results by which search field matched, with lower rank = higher priority.
+  ## For similarity modes, also uses similarity score as secondary sort.
+
+  defp apply_search_rank(query, {parsed_fields, term}) do
+    # Build CASE WHEN expression for primary ranking
+    rank_expr = build_rank_case_expression(parsed_fields, term)
+
+    # Build secondary similarity score expression (for tiebreaking within same rank)
+    similarity_expr = build_similarity_score_expression(parsed_fields, term)
+
+    # Apply ordering: rank ASC, then similarity DESC (if applicable)
+    case similarity_expr do
+      nil ->
+        from(q in query, order_by: [asc: ^rank_expr])
+
+      sim_expr ->
+        from(q in query, order_by: [asc: ^rank_expr, desc: ^sim_expr])
+    end
+  end
+
+  # Build CASE WHEN expression that returns the rank for whichever field matched
+  # Handles both 4-tuple {field, mode, opts, rank} and 5-tuple {field, mode, opts, rank, take} formats
+  defp build_rank_case_expression(parsed_fields, term) do
+    # Build list of {condition_dynamic, rank} tuples
+    conditions =
+      parsed_fields
+      |> Enum.map(fn
+        {field, mode, opts, rank, _take} ->
+          condition = build_rank_condition(field, mode, term, opts)
+          {condition, rank}
+
+        {field, mode, opts, rank} ->
+          condition = build_rank_condition(field, mode, term, opts)
+          {condition, rank}
+      end)
+
+    # Build the CASE WHEN as a fragment
+    # This creates: CASE WHEN cond1 THEN rank1 WHEN cond2 THEN rank2 ... ELSE 999 END
+    build_case_when_dynamic(conditions)
+  end
+
+  # Build condition dynamic for a single field (with binding support)
+  defp build_rank_condition(field, mode, term, opts) do
+    binding = opts[:binding] || :root
+
+    case mode do
+      :exact ->
+        dynamic([{^binding, q}], field(q, ^field) == ^term)
+
+      :ilike ->
+        pattern = "%#{term}%"
+        dynamic([{^binding, q}], ilike(field(q, ^field), ^pattern))
+
+      :like ->
+        pattern = "%#{term}%"
+        dynamic([{^binding, q}], like(field(q, ^field), ^pattern))
+
+      :starts_with ->
+        pattern = "#{term}%"
+        case_sensitive = Keyword.get(opts, :case_sensitive, false)
+
+        if case_sensitive do
+          dynamic([{^binding, q}], like(field(q, ^field), ^pattern))
+        else
+          dynamic([{^binding, q}], ilike(field(q, ^field), ^pattern))
+        end
+
+      :ends_with ->
+        pattern = "%#{term}"
+        case_sensitive = Keyword.get(opts, :case_sensitive, false)
+
+        if case_sensitive do
+          dynamic([{^binding, q}], like(field(q, ^field), ^pattern))
+        else
+          dynamic([{^binding, q}], ilike(field(q, ^field), ^pattern))
+        end
+
+      :contains ->
+        pattern = "%#{term}%"
+        case_sensitive = Keyword.get(opts, :case_sensitive, false)
+
+        if case_sensitive do
+          dynamic([{^binding, q}], like(field(q, ^field), ^pattern))
+        else
+          dynamic([{^binding, q}], ilike(field(q, ^field), ^pattern))
+        end
+
+      :similarity ->
+        threshold = Keyword.get(opts, :threshold, 0.3)
+
+        dynamic(
+          [{^binding, q}],
+          fragment("similarity(?, ?) > ?", field(q, ^field), ^term, ^threshold)
+        )
+
+      :word_similarity ->
+        threshold = Keyword.get(opts, :threshold, 0.3)
+
+        dynamic(
+          [{^binding, q}],
+          fragment("word_similarity(?, ?) > ?", ^term, field(q, ^field), ^threshold)
+        )
+
+      :strict_word_similarity ->
+        threshold = Keyword.get(opts, :threshold, 0.3)
+
+        dynamic(
+          [{^binding, q}],
+          fragment("strict_word_similarity(?, ?) > ?", ^term, field(q, ^field), ^threshold)
+        )
+    end
+  end
+
+  # Build CASE WHEN dynamic expression
+  # Returns a dynamic that evaluates to the rank of the first matching condition
+  defp build_case_when_dynamic(conditions) do
+    # We need to build this as a fragment since Ecto doesn't have native CASE WHEN
+    # Build: CASE WHEN cond1 THEN 1 WHEN cond2 THEN 2 ... ELSE 999 END
+    Enum.reduce(Enum.reverse(conditions), dynamic([q], 999), fn {condition, rank}, acc ->
+      dynamic([q], fragment("CASE WHEN ? THEN ? ELSE ? END", ^condition, ^rank, ^acc))
+    end)
+  end
+
+  # Build similarity score expression for secondary sorting
+  # Only returns a value if there are similarity-based fields
+  # Handles both 4-tuple and 5-tuple formats
+  defp build_similarity_score_expression(parsed_fields, term) do
+    similarity_fields =
+      Enum.filter(parsed_fields, fn
+        {_field, mode, _opts, _rank, _take} ->
+          mode in [:similarity, :word_similarity, :strict_word_similarity]
+
+        {_field, mode, _opts, _rank} ->
+          mode in [:similarity, :word_similarity, :strict_word_similarity]
+      end)
+
+    case similarity_fields do
+      [] ->
+        nil
+
+      fields ->
+        # Build GREATEST of all similarity scores
+        # This ensures we sort by the best similarity match
+        build_greatest_similarity(fields, term)
+    end
+  end
+
+  # Extract field/mode/opts from both tuple formats
+  defp extract_field_info({field, mode, opts, _rank, _take}), do: {field, mode, opts}
+  defp extract_field_info({field, mode, opts, _rank}), do: {field, mode, opts}
+
+  defp build_greatest_similarity([tuple], term) do
+    {field, mode, opts} = extract_field_info(tuple)
+    build_similarity_expression(field, mode, term, opts)
+  end
+
+  defp build_greatest_similarity(fields, term) do
+    exprs =
+      Enum.map(fields, fn tuple ->
+        {field, mode, opts} = extract_field_info(tuple)
+        build_similarity_expression(field, mode, term, opts)
+      end)
+
+    # Combine with GREATEST
+    Enum.reduce(exprs, fn expr, acc ->
+      dynamic([q], fragment("GREATEST(?, ?)", ^acc, ^expr))
+    end)
+  end
+
+  defp build_similarity_expression(field, :similarity, term, opts) do
+    binding = opts[:binding] || :root
+    dynamic([{^binding, q}], fragment("similarity(?, ?)", field(q, ^field), ^term))
+  end
+
+  defp build_similarity_expression(field, :word_similarity, term, opts) do
+    binding = opts[:binding] || :root
+    dynamic([{^binding, q}], fragment("word_similarity(?, ?)", ^term, field(q, ^field)))
+  end
+
+  defp build_similarity_expression(field, :strict_word_similarity, term, opts) do
+    binding = opts[:binding] || :root
+    dynamic([{^binding, q}], fragment("strict_word_similarity(?, ?)", ^term, field(q, ^field)))
+  end
+
+  ## Search Ranking with Per-Field Limits (Take)
+  ##
+  ## Applies ranking with per-field limits. Results are ordered by rank,
+  ## with a total limit equal to the sum of all take values.
+  ##
+  ## For exact per-rank enforcement, consider using multiple queries or raw SQL.
+
+  defp apply_search_rank_limited(query, {parsed_fields, term}) do
+    # Build rank ordering expression
+    rank_expr = build_rank_case_expression(parsed_fields, term)
+
+    # Build similarity score for secondary ordering
+    similarity_expr = build_similarity_score_expression(parsed_fields, term)
+
+    # Calculate total limit from take values
+    total_limit =
+      parsed_fields
+      |> Enum.map(fn {_field, _mode, _opts, _rank, take} -> take || 1000 end)
+      |> Enum.sum()
+
+    # Apply ordering: rank ASC (lower rank = higher priority), then similarity DESC
+    query =
+      case similarity_expr do
+        nil ->
+          from(q in query, order_by: [asc: ^rank_expr])
+
+        sim_expr ->
+          from(q in query, order_by: [asc: ^rank_expr, desc: ^sim_expr])
+      end
+
+    # Apply total limit
+    from(q in query, limit: ^total_limit)
   end
 
   ## Join
@@ -643,9 +914,13 @@ defmodule Events.Query.Builder do
     # Build select expression from map
     select_expr =
       Enum.reduce(field_map, %{}, fn
-        # Simple field reference
+        # Simple field reference from base table
         {key, field}, acc when is_atom(field) ->
           Map.put(acc, key, dynamic([q], field(q, ^field)))
+
+        # Field from joined table: {:binding, :field}
+        {key, {binding, field}}, acc when is_atom(binding) and is_atom(field) ->
+          Map.put(acc, key, dynamic([{^binding, b}], field(b, ^field)))
 
         # Window function syntax - provide helpful error
         {key, {:window, _func, opts}}, _acc when is_list(opts) ->
