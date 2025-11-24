@@ -224,6 +224,7 @@ defmodule Events.Query.Demo do
       |> Query.limit(50)
 
     IO.puts("Token ready for building:")
+
     IO.inspect(
       %{
         source: token.source,

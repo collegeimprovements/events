@@ -204,16 +204,17 @@ defmodule Events.Query.DynamicBuilderFormatsTest do
       spec = %{
         filters: [{:status, :eq, "active"}],
         preloads: [
-          {:preload, :posts, %{
-            filters: [
-              {:published, :eq, true},
-              [filter: {:featured, :eq, true}]
-            ],
-            orders: [
-              {:created_at, :desc},
-              [order_by: {:priority, :desc}]
-            ]
-          }, []}
+          {:preload, :posts,
+           %{
+             filters: [
+               {:published, :eq, true},
+               [filter: {:featured, :eq, true}]
+             ],
+             orders: [
+               {:created_at, :desc},
+               [order_by: {:priority, :desc}]
+             ]
+           }, []}
         ]
       }
 
@@ -232,16 +233,18 @@ defmodule Events.Query.DynamicBuilderFormatsTest do
       spec = %{
         filters: [{:status, :eq, "active"}],
         preloads: [
-          {:preload, :posts, %{
-            filters: [[filter: {:published, :eq, true}]],
-            orders: [[order: {:created_at, :desc}]],
-            preloads: [
-              {:preload, :comments, %{
-                filters: [{:approved, :eq, true}],
-                orders: [{:created_at, :asc}]
-              }, []}
-            ]
-          }, []}
+          {:preload, :posts,
+           %{
+             filters: [[filter: {:published, :eq, true}]],
+             orders: [[order: {:created_at, :desc}]],
+             preloads: [
+               {:preload, :comments,
+                %{
+                  filters: [{:approved, :eq, true}],
+                  orders: [{:created_at, :asc}]
+                }, []}
+             ]
+           }, []}
         ]
       }
 
@@ -274,9 +277,10 @@ defmodule Events.Query.DynamicBuilderFormatsTest do
         [[filter: {:status, :eq, "active", []}]]
       ]
 
-      results = Enum.map(formats, fn format ->
-        DynamicBuilder.normalize_spec(format, :filter)
-      end)
+      results =
+        Enum.map(formats, fn format ->
+          DynamicBuilder.normalize_spec(format, :filter)
+        end)
 
       # All should normalize to the same result
       expected = [{:filter, :status, :eq, "active", []}]
@@ -300,9 +304,10 @@ defmodule Events.Query.DynamicBuilderFormatsTest do
         [[order: {:created_at, :desc, []}]]
       ]
 
-      results = Enum.map(formats, fn format ->
-        DynamicBuilder.normalize_spec(format, :order)
-      end)
+      results =
+        Enum.map(formats, fn format ->
+          DynamicBuilder.normalize_spec(format, :order)
+        end)
 
       # All should normalize to the same result
       expected = [{:order, :created_at, :desc, []}]

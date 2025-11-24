@@ -185,6 +185,7 @@ defmodule Events.Query.NestedExample do
         filter(:status, :eq, "active")
         order(:created_at, :desc)
         order(:id, :desc)
+
         paginate(:cursor,
           cursor_fields: [:created_at, :id],
           limit: 20,
@@ -196,6 +197,7 @@ defmodule Events.Query.NestedExample do
           filter(:status, :eq, "published")
           order(:published_at, :desc)
           order(:id, :desc)
+
           paginate(:cursor,
             cursor_fields: [:published_at, :id],
             limit: 10,
@@ -207,6 +209,7 @@ defmodule Events.Query.NestedExample do
             filter(:status, :eq, "approved")
             order(:created_at, :desc)
             order(:id, :desc)
+
             paginate(:cursor,
               cursor_fields: [:created_at, :id],
               limit: 5,

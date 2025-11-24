@@ -286,13 +286,18 @@ defmodule Events.Query.DSL do
   """
   defmacro with_cte(name, [{:do, block}]) do
     quote do
+      # Save the current query token
+      parent_token = var!(query_token, Events.Query.DSL)
+
+      # Build the CTE in isolation
       cte_token = Events.Query.new(:nested)
       var!(query_token, Events.Query.DSL) = cte_token
       unquote(block)
       cte_result = var!(query_token, Events.Query.DSL)
 
+      # Restore parent token and add the CTE to it
       var!(query_token, Events.Query.DSL) =
-        Events.Query.with_cte(var!(query_token, Events.Query.DSL), unquote(name), cte_result)
+        Events.Query.with_cte(parent_token, unquote(name), cte_result)
     end
   end
 
@@ -316,7 +321,14 @@ defmodule Events.Query.DSL do
   end
 
   @doc "Add raw WHERE clause"
-  defmacro raw_where(sql, params \\ %{}) do
+  defmacro raw_where(sql) do
+    quote do
+      var!(query_token, Events.Query.DSL) =
+        Events.Query.raw_where(var!(query_token, Events.Query.DSL), unquote(sql), %{})
+    end
+  end
+
+  defmacro raw_where(sql, params) do
     quote do
       var!(query_token, Events.Query.DSL) =
         Events.Query.raw_where(var!(query_token, Events.Query.DSL), unquote(sql), unquote(params))

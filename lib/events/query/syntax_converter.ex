@@ -48,7 +48,8 @@ defmodule Events.Query.SyntaxConverter do
   """
   @spec token_to_dsl(Token.t(), module() | atom()) :: String.t()
   def token_to_dsl(%Token{operations: operations}, schema_name) do
-    body = operations
+    body =
+      operations
       |> Enum.map(&operation_to_dsl/1)
       |> Enum.join("\n")
       |> indent(2)
@@ -85,7 +86,8 @@ defmodule Events.Query.SyntaxConverter do
   """
   @spec token_to_pipeline(Token.t(), module() | atom()) :: String.t()
   def token_to_pipeline(%Token{operations: operations}, schema_name) do
-    pipeline_ops = operations
+    pipeline_ops =
+      operations
       |> Enum.map(&operation_to_pipeline/1)
       |> Enum.join("\n")
 
@@ -116,7 +118,8 @@ defmodule Events.Query.SyntaxConverter do
   """
   @spec spec_to_dsl(map(), module() | atom()) :: String.t()
   def spec_to_dsl(spec, schema_name) do
-    body = []
+    body =
+      []
       |> add_spec_filters(spec[:filters])
       |> add_spec_orders(spec[:orders])
       |> add_spec_joins(spec[:joins])
@@ -143,7 +146,8 @@ defmodule Events.Query.SyntaxConverter do
   """
   @spec spec_to_pipeline(map(), module() | atom()) :: String.t()
   def spec_to_pipeline(spec, schema_name) do
-    pipeline = []
+    pipeline =
+      []
       |> add_spec_filters_pipeline(spec[:filters])
       |> add_spec_orders_pipeline(spec[:orders])
       |> add_spec_joins_pipeline(spec[:joins])
@@ -321,50 +325,66 @@ defmodule Events.Query.SyntaxConverter do
   # Spec to DSL helpers
   defp add_spec_filters(lines, nil), do: lines
   defp add_spec_filters(lines, []), do: lines
+
   defp add_spec_filters(lines, filters) when is_list(filters) do
-    filter_lines = Enum.map(filters, fn
-      {:filter, field, op, value, []} ->
-        "filter(#{inspect(field)}, #{inspect(op)}, #{format_value(value)})"
-      {:filter, field, op, value, opts} ->
-        "filter(#{inspect(field)}, #{inspect(op)}, #{format_value(value)}, #{inspect(opts)})"
-    end)
+    filter_lines =
+      Enum.map(filters, fn
+        {:filter, field, op, value, []} ->
+          "filter(#{inspect(field)}, #{inspect(op)}, #{format_value(value)})"
+
+        {:filter, field, op, value, opts} ->
+          "filter(#{inspect(field)}, #{inspect(op)}, #{format_value(value)}, #{inspect(opts)})"
+      end)
+
     lines ++ filter_lines
   end
 
   defp add_spec_orders(lines, nil), do: lines
   defp add_spec_orders(lines, []), do: lines
+
   defp add_spec_orders(lines, orders) when is_list(orders) do
-    order_lines = Enum.map(orders, fn
-      {:order, field, direction, []} ->
-        "order(#{inspect(field)}, #{inspect(direction)})"
-      {:order, field, direction, opts} ->
-        "order(#{inspect(field)}, #{inspect(direction)}, #{inspect(opts)})"
-    end)
+    order_lines =
+      Enum.map(orders, fn
+        {:order, field, direction, []} ->
+          "order(#{inspect(field)}, #{inspect(direction)})"
+
+        {:order, field, direction, opts} ->
+          "order(#{inspect(field)}, #{inspect(direction)}, #{inspect(opts)})"
+      end)
+
     lines ++ order_lines
   end
 
   defp add_spec_joins(lines, nil), do: lines
   defp add_spec_joins(lines, []), do: lines
+
   defp add_spec_joins(lines, joins) when is_list(joins) do
-    join_lines = Enum.map(joins, fn
-      {:join, assoc, type, []} ->
-        "join(#{inspect(assoc)}, #{inspect(type)})"
-      {:join, assoc, type, opts} ->
-        "join(#{inspect(assoc)}, #{inspect(type)}, #{inspect(opts)})"
-    end)
+    join_lines =
+      Enum.map(joins, fn
+        {:join, assoc, type, []} ->
+          "join(#{inspect(assoc)}, #{inspect(type)})"
+
+        {:join, assoc, type, opts} ->
+          "join(#{inspect(assoc)}, #{inspect(type)}, #{inspect(opts)})"
+      end)
+
     lines ++ join_lines
   end
 
   defp add_spec_preloads(lines, nil), do: lines
   defp add_spec_preloads(lines, []), do: lines
+
   defp add_spec_preloads(lines, preloads) when is_list(preloads) do
-    preload_lines = Enum.map(preloads, fn
-      {:preload, assoc, nil, _opts} ->
-        "preload(#{inspect(assoc)})"
-      {:preload, assoc, nested_spec, _opts} when is_map(nested_spec) ->
-        nested = format_nested_spec(nested_spec)
-        "preload(#{inspect(assoc)}) do\n#{indent(nested, 2)}\nend"
-    end)
+    preload_lines =
+      Enum.map(preloads, fn
+        {:preload, assoc, nil, _opts} ->
+          "preload(#{inspect(assoc)})"
+
+        {:preload, assoc, nested_spec, _opts} when is_map(nested_spec) ->
+          nested = format_nested_spec(nested_spec)
+          "preload(#{inspect(assoc)}) do\n#{indent(nested, 2)}\nend"
+      end)
+
     lines ++ preload_lines
   end
 
@@ -387,97 +407,125 @@ defmodule Events.Query.SyntaxConverter do
   defp add_spec_offset(lines, offset), do: lines ++ ["offset(#{offset})"]
 
   defp add_spec_pagination(lines, nil), do: lines
+
   defp add_spec_pagination(lines, {:paginate, type, config, _opts}) do
-    opts_str = config
+    opts_str =
+      config
       |> Enum.map(fn {k, v} -> "#{k}: #{inspect(v)}" end)
       |> Enum.join(", ")
+
     lines ++ ["paginate(#{inspect(type)}, #{opts_str})"]
   end
 
   # Spec to pipeline helpers
   defp add_spec_filters_pipeline(lines, nil), do: lines
   defp add_spec_filters_pipeline(lines, []), do: lines
+
   defp add_spec_filters_pipeline(lines, filters) when is_list(filters) do
-    filter_lines = Enum.map(filters, fn
-      {:filter, field, op, value, []} ->
-        "|> Query.filter(#{inspect(field)}, #{inspect(op)}, #{format_value(value)})"
-      {:filter, field, op, value, opts} ->
-        "|> Query.filter(#{inspect(field)}, #{inspect(op)}, #{format_value(value)}, #{inspect(opts)})"
-    end)
+    filter_lines =
+      Enum.map(filters, fn
+        {:filter, field, op, value, []} ->
+          "|> Query.filter(#{inspect(field)}, #{inspect(op)}, #{format_value(value)})"
+
+        {:filter, field, op, value, opts} ->
+          "|> Query.filter(#{inspect(field)}, #{inspect(op)}, #{format_value(value)}, #{inspect(opts)})"
+      end)
+
     lines ++ filter_lines
   end
 
   defp add_spec_orders_pipeline(lines, nil), do: lines
   defp add_spec_orders_pipeline(lines, []), do: lines
+
   defp add_spec_orders_pipeline(lines, orders) when is_list(orders) do
-    order_lines = Enum.map(orders, fn
-      {:order, field, direction, []} ->
-        "|> Query.order(#{inspect(field)}, #{inspect(direction)})"
-      {:order, field, direction, opts} ->
-        "|> Query.order(#{inspect(field)}, #{inspect(direction)}, #{inspect(opts)})"
-    end)
+    order_lines =
+      Enum.map(orders, fn
+        {:order, field, direction, []} ->
+          "|> Query.order(#{inspect(field)}, #{inspect(direction)})"
+
+        {:order, field, direction, opts} ->
+          "|> Query.order(#{inspect(field)}, #{inspect(direction)}, #{inspect(opts)})"
+      end)
+
     lines ++ order_lines
   end
 
   defp add_spec_joins_pipeline(lines, nil), do: lines
   defp add_spec_joins_pipeline(lines, []), do: lines
+
   defp add_spec_joins_pipeline(lines, joins) when is_list(joins) do
-    join_lines = Enum.map(joins, fn
-      {:join, assoc, type, []} ->
-        "|> Query.join(#{inspect(assoc)}, #{inspect(type)})"
-      {:join, assoc, type, opts} ->
-        "|> Query.join(#{inspect(assoc)}, #{inspect(type)}, #{inspect(opts)})"
-    end)
+    join_lines =
+      Enum.map(joins, fn
+        {:join, assoc, type, []} ->
+          "|> Query.join(#{inspect(assoc)}, #{inspect(type)})"
+
+        {:join, assoc, type, opts} ->
+          "|> Query.join(#{inspect(assoc)}, #{inspect(type)}, #{inspect(opts)})"
+      end)
+
     lines ++ join_lines
   end
 
   defp add_spec_preloads_pipeline(lines, nil), do: lines
   defp add_spec_preloads_pipeline(lines, []), do: lines
+
   defp add_spec_preloads_pipeline(lines, preloads) when is_list(preloads) do
-    preload_lines = Enum.map(preloads, fn
-      {:preload, assoc, nil, _opts} ->
-        "|> Query.preload(#{inspect(assoc)})"
-      {:preload, assoc, _nested_spec, _opts} ->
-        "|> Query.preload(#{inspect(assoc)}, fn token -> token end)"
-    end)
+    preload_lines =
+      Enum.map(preloads, fn
+        {:preload, assoc, nil, _opts} ->
+          "|> Query.preload(#{inspect(assoc)})"
+
+        {:preload, assoc, _nested_spec, _opts} ->
+          "|> Query.preload(#{inspect(assoc)}, fn token -> token end)"
+      end)
+
     lines ++ preload_lines
   end
 
   defp add_spec_select_pipeline(lines, nil), do: lines
+
   defp add_spec_select_pipeline(lines, select) do
     lines ++ ["|> Query.select(#{inspect(select)})"]
   end
 
   defp add_spec_group_by_pipeline(lines, nil), do: lines
+
   defp add_spec_group_by_pipeline(lines, group) do
     lines ++ ["|> Query.group_by(#{inspect(group)})"]
   end
 
   defp add_spec_having_pipeline(lines, nil), do: lines
+
   defp add_spec_having_pipeline(lines, having) do
     lines ++ ["|> Query.having(#{inspect(having)})"]
   end
 
   defp add_spec_distinct_pipeline(lines, nil), do: lines
+
   defp add_spec_distinct_pipeline(lines, distinct) do
     lines ++ ["|> Query.distinct(#{inspect(distinct)})"]
   end
 
   defp add_spec_limit_pipeline(lines, nil), do: lines
+
   defp add_spec_limit_pipeline(lines, limit) do
     lines ++ ["|> Query.limit(#{limit})"]
   end
 
   defp add_spec_offset_pipeline(lines, nil), do: lines
+
   defp add_spec_offset_pipeline(lines, offset) do
     lines ++ ["|> Query.offset(#{offset})"]
   end
 
   defp add_spec_pagination_pipeline(lines, nil), do: lines
+
   defp add_spec_pagination_pipeline(lines, {:paginate, type, config, _opts}) do
-    opts_str = config
+    opts_str =
+      config
       |> Enum.map(fn {k, v} -> "#{k}: #{inspect(v)}" end)
       |> Enum.join(", ")
+
     lines ++ ["|> Query.paginate(#{inspect(type)}, #{opts_str})"]
   end
 
@@ -505,6 +553,7 @@ defmodule Events.Query.SyntaxConverter do
 
   defp indent(string, spaces) do
     padding = String.duplicate(" ", spaces)
+
     string
     |> String.split("\n")
     |> Enum.map(&(padding <> &1))

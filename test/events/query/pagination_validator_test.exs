@@ -199,7 +199,8 @@ defmodule Events.Query.PaginationValidatorTest do
 
       cursor_fields = [
         {:priority, :desc},
-        {:created_at, :asc},  # Wrong direction!
+        # Wrong direction!
+        {:created_at, :asc},
         {:name, :asc},
         {:id, :asc}
       ]

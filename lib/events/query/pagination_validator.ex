@@ -41,8 +41,11 @@ defmodule Events.Query.PaginationValidator do
       # => {:error, "cursor_fields direction for :title must be :asc, got :desc"}
   """
   @spec validate(list(order_spec()), list(cursor_spec()) | nil) :: validation_result()
-  def validate(_order_by, nil), do: :ok  # Will be inferred
-  def validate([], _cursor_fields), do: :ok  # No order_by to validate against
+  # Will be inferred
+  def validate(_order_by, nil), do: :ok
+  # No order_by to validate against
+  def validate([], _cursor_fields), do: :ok
+
   def validate(order_by, cursor_fields) when is_list(order_by) and is_list(cursor_fields) do
     normalized_order = normalize_specs(order_by)
     normalized_cursor = normalize_specs(cursor_fields)
@@ -198,14 +201,18 @@ defmodule Events.Query.PaginationValidator do
     cond do
       # cursor has too many extra fields (more than just :id)
       cursor_count > order_count + 1 ->
-        extra = cursor_fields -- order_fields -- [:id]
-        {:error, "cursor_fields has extra fields not in order_by: #{inspect(extra)}. Only :id can be appended."}
+        extra = cursor_fields -- (order_fields -- [:id])
+
+        {:error,
+         "cursor_fields has extra fields not in order_by: #{inspect(extra)}. Only :id can be appended."}
 
       # cursor has one extra field but it's not :id
       cursor_count == order_count + 1 ->
         extra_field = Enum.at(cursor_fields, order_count)
+
         if extra_field != :id do
-          {:error, "cursor_fields has extra field #{inspect(extra_field)}. Only :id can be appended to order_by fields."}
+          {:error,
+           "cursor_fields has extra field #{inspect(extra_field)}. Only :id can be appended to order_by fields."}
         else
           # Extra field is :id, check if first N fields match
           check_first_n_match(order_specs, cursor_specs, order_count)
@@ -218,9 +225,14 @@ defmodule Events.Query.PaginationValidator do
 
         msg =
           cond do
-            missing != [] -> "cursor_fields missing required fields from order_by: #{inspect(missing)}"
-            extra != [] -> "cursor_fields has extra fields not in order_by: #{inspect(extra)}"
-            true -> "cursor_fields has different fields than order_by"
+            missing != [] ->
+              "cursor_fields missing required fields from order_by: #{inspect(missing)}"
+
+            extra != [] ->
+              "cursor_fields has extra fields not in order_by: #{inspect(extra)}"
+
+            true ->
+              "cursor_fields has different fields than order_by"
           end
 
         {:error, msg}
@@ -245,7 +257,8 @@ defmodule Events.Query.PaginationValidator do
       cursor_fields = Enum.map(cursor_first_n, fn {f, _} -> f end)
 
       if order_fields != cursor_fields do
-        {:error, "cursor_fields field order must match order_by. Expected: #{inspect(order_fields)}, got: #{inspect(cursor_fields)}"}
+        {:error,
+         "cursor_fields field order must match order_by. Expected: #{inspect(order_fields)}, got: #{inspect(cursor_fields)}"}
       else
         check_direction_mismatch(order_first_n, cursor_first_n)
       end
@@ -258,7 +271,8 @@ defmodule Events.Query.PaginationValidator do
     Enum.zip(order_specs, cursor_specs)
     |> Enum.find_value(:ok, fn
       {{field, order_dir}, {field, cursor_dir}} when order_dir != cursor_dir ->
-        {:error, "cursor_fields direction for #{inspect(field)} must be #{inspect(order_dir)}, got #{inspect(cursor_dir)}"}
+        {:error,
+         "cursor_fields direction for #{inspect(field)} must be #{inspect(order_dir)}, got #{inspect(cursor_dir)}"}
 
       _ ->
         nil

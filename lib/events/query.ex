@@ -209,19 +209,30 @@ defmodule Events.Query do
 
   ## Parameters
 
+  **Single field:**
   - `token` - The query token
   - `field` - Field name to order by
   - `direction` - Sort direction (`:asc` or `:desc`, default: `:asc`)
   - `opts` - Options (optional)
     - `:binding` - Named binding for joined tables (default: `:root`)
 
+  **Multiple fields (list):**
+  - `token` - The query token
+  - `order_list` - List of order specifications. Each can be:
+    - `field` - Atom, defaults to `:asc`
+    - `{field, direction}` - 2-tuple with direction
+    - `{field, direction, opts}` - 3-tuple with options
+
   ## Examples
 
-      # Simple ascending order
+      # Single field - ascending
       Query.order_by(token, :name)
 
-      # Descending order
+      # Single field - descending
       Query.order_by(token, :created_at, :desc)
+
+      # Multiple fields at once (NEW!)
+      Query.order_by(token, [{:priority, :desc}, {:created_at, :desc}, :id])
 
       # On joined table
       Query.order_by(token, :title, :asc, binding: :posts)
@@ -232,19 +243,29 @@ defmodule Events.Query do
       |> Query.order_by(:created_at, :desc)
       |> Query.order_by(:id, :asc)
   """
-  @spec order_by(Token.t(), atom(), :asc | :desc, keyword()) :: Token.t()
-  def order_by(token, field, direction \\ :asc, opts \\ []) do
+  @spec order_by(Token.t(), atom() | list(), :asc | :desc, keyword()) :: Token.t()
+  def order_by(token, field_or_list, direction \\ :asc, opts \\ [])
+
+  # List form - delegate to order_bys
+  def order_by(token, order_list, _direction, _opts) when is_list(order_list) do
+    order_bys(token, order_list)
+  end
+
+  # Single field form
+  def order_by(token, field, direction, opts) when is_atom(field) do
     Token.add_operation(token, {:order, {field, direction, opts}})
   end
 
   @doc """
   Alias for `order_by/4`. Semantic alternative name.
 
+  Supports both single field and list syntax.
+
   See `order_by/4` for documentation.
   """
-  @spec order(Token.t(), atom(), :asc | :desc, keyword()) :: Token.t()
-  def order(token, field, direction \\ :asc, opts \\ []) do
-    order_by(token, field, direction, opts)
+  @spec order(Token.t(), atom() | list(), :asc | :desc, keyword()) :: Token.t()
+  def order(token, field_or_list, direction \\ :asc, opts \\ []) do
+    order_by(token, field_or_list, direction, opts)
   end
 
   @doc """
@@ -252,38 +273,48 @@ defmodule Events.Query do
 
   Alias: `orders/2` - Semantic alternative name for the same operation.
 
+  Supports **both** Ecto keyword syntax and tuple syntax!
+
   ## Parameters
 
   - `token` - The query token
   - `order_list` - List of order specifications. Each can be:
     - `field` - Atom, defaults to `:asc`
-    - `{field, direction}` - 2-tuple with direction
+    - **Ecto keyword syntax**: `{direction, field}` - e.g., `asc: :name`
+    - **Tuple syntax**: `{field, direction}` - e.g., `{:name, :asc}`
     - `{field, direction, opts}` - 3-tuple with options
+
+  The function intelligently detects which syntax you're using!
 
   ## Examples
 
-      # List of atoms (all ascending)
-      Query.order_bys(token, [:name, :created_at, :id])
+      # Plain atoms (all default to :asc)
+      Query.order_bys(token, [:name, :email, :id])
 
-      # List of 2-tuples with directions
+      # Ecto keyword syntax (NEW! - just like Ecto.Query)
+      Query.order_bys(token, [asc: :name, desc: :created_at, asc: :id])
+      Query.order_bys(token, [desc: :priority, desc_nulls_first: :score])
+
+      # Tuple syntax (our original)
       Query.order_bys(token, [
         {:priority, :desc},
         {:created_at, :desc},
         {:id, :asc}
       ])
 
-      # List of 3-tuples with options
+      # 3-tuples with options
       Query.order_bys(token, [
         {:priority, :desc, []},
         {:title, :asc, [binding: :posts]},
         {:id, :asc, []}
       ])
 
-      # Mixed formats
+      # Mixed formats work too!
       Query.order_bys(token, [
-        :name,
-        {:created_at, :desc},
-        {:title, :asc, [binding: :posts]}
+        :name,                              # Plain atom
+        asc: :email,                        # Ecto keyword syntax
+        {:created_at, :desc},               # Tuple syntax
+        {:title, :asc, [binding: :posts]}  # Tuple with opts
       ])
   """
   @spec order_bys(Token.t(), [
@@ -293,12 +324,43 @@ defmodule Events.Query do
         ]) :: Token.t()
   def order_bys(token, order_list) when is_list(order_list) do
     Enum.reduce(order_list, token, fn
+      # Plain atom - defaults to :asc
       field, acc when is_atom(field) ->
         order_by(acc, field, :asc)
 
-      {field, direction}, acc ->
-        order_by(acc, field, direction)
+      # 2-tuple - could be keyword or tuple syntax
+      {key, value}, acc ->
+        cond do
+          # Ecto keyword syntax: [asc: :field, desc: :field]
+          # Key is direction, value is field
+          key in [
+            :asc,
+            :desc,
+            :asc_nulls_first,
+            :asc_nulls_last,
+            :desc_nulls_first,
+            :desc_nulls_last
+          ] ->
+            order_by(acc, value, key)
 
+          # Tuple syntax: [{:field, :asc}, {:field, :desc}]
+          # Key is field, value is direction
+          value in [
+            :asc,
+            :desc,
+            :asc_nulls_first,
+            :asc_nulls_last,
+            :desc_nulls_first,
+            :desc_nulls_last
+          ] ->
+            order_by(acc, key, value)
+
+          # Ambiguous - assume tuple syntax (field, direction) for backward compatibility
+          true ->
+            order_by(acc, key, value)
+        end
+
+      # 3-tuple - always tuple syntax with opts: {:field, :direction, opts}
       {field, direction, opts}, acc ->
         order_by(acc, field, direction, opts)
     end)
@@ -483,6 +545,28 @@ defmodule Events.Query do
   @spec raw_where(Token.t(), String.t(), map()) :: Token.t()
   def raw_where(token, sql, params \\ %{}) do
     Token.add_operation(token, {:raw_where, {sql, params}})
+  end
+
+  @doc """
+  Convert token to a subquery.
+
+  Wraps the query in an Ecto subquery for use in FROM, JOIN, WHERE, or SELECT clauses.
+
+  ## Examples
+
+      # Subquery in FROM
+      subset = Query.new(Post) |> Query.where(:status, :eq, "draft")
+      Query.from_subquery(subset) |> Query.where(:created_at, :gt, yesterday)
+
+      # Subquery in WHERE with :in_subquery operator
+      user_ids = Query.new(User) |> Query.where(:active, :eq, true) |> Query.select([:id])
+      Query.new(Post) |> Query.where(:user_id, :in_subquery, user_ids)
+  """
+  @spec from_subquery(Token.t()) :: Ecto.Query.t()
+  def from_subquery(%Token{} = token) do
+    import Ecto.Query
+    query = Builder.build(token)
+    subquery(query)
   end
 
   @doc "Build the Ecto query without executing"

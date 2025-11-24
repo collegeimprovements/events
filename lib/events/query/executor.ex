@@ -155,6 +155,7 @@ defmodule Events.Query.Executor do
           safe_limit = opts[:default_limit] || Token.default_limit()
 
           require Logger
+
           Logger.warning("""
           Query executed without pagination or limit. Automatically limiting to #{safe_limit} records.
 

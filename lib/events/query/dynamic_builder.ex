@@ -218,6 +218,7 @@ defmodule Events.Query.DynamicBuilder do
           Enum.flat_map(spec, fn {key, value} ->
             normalize_keyword_entry(key, value, type)
           end)
+
         _ ->
           # This is a list of tuples - normalize each
           Enum.map(spec, fn item -> normalize_one(item, type) end)

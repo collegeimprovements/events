@@ -93,6 +93,33 @@ defmodule Events.Query.Builder do
     from([{^binding, q}] in query, where: field(q, ^field) not in ^values)
   end
 
+  # In subquery
+  defp apply_filter_operation(query, binding, field, :in_subquery, %Token{} = subquery_token, _opts) do
+    sq = build(subquery_token)
+    from([{^binding, q}] in query, where: field(q, ^field) in subquery(sq))
+  end
+
+  defp apply_filter_operation(query, binding, field, :in_subquery, %Ecto.Query{} = sq, _opts) do
+    from([{^binding, q}] in query, where: field(q, ^field) in subquery(sq))
+  end
+
+  # Not in subquery
+  defp apply_filter_operation(
+         query,
+         binding,
+         field,
+         :not_in_subquery,
+         %Token{} = subquery_token,
+         _opts
+       ) do
+    sq = build(subquery_token)
+    from([{^binding, q}] in query, where: field(q, ^field) not in subquery(sq))
+  end
+
+  defp apply_filter_operation(query, binding, field, :not_in_subquery, %Ecto.Query{} = sq, _opts) do
+    from([{^binding, q}] in query, where: field(q, ^field) not in subquery(sq))
+  end
+
   # Like pattern
   defp apply_filter_operation(query, binding, field, :like, pattern, _opts) do
     from([{^binding, q}] in query, where: like(field(q, ^field), ^pattern))
@@ -432,17 +459,22 @@ defmodule Events.Query.Builder do
 
   ## CTE
 
-  # Note: Full CTE support in Ecto requires recursive_ctes or different approach
-  # This is a placeholder - for production use, implement proper CTE handling
-  defp apply_cte(query, {_name, %Token{} = _cte_token}) do
-    # Placeholder: CTEs require more complex Ecto.Query construction
-    # For now, return query unchanged
-    query
+  defp apply_cte(query, {name, %Token{} = cte_token}) do
+    # Build the CTE query from the token
+    cte_query = build(cte_token)
+
+    # Apply the CTE using Ecto.Query.with_cte/3
+    query |> with_cte(^name, as: ^cte_query)
   end
 
-  defp apply_cte(query, {_name, %Ecto.Query{} = _cte_query}) do
-    # Placeholder: CTEs require more complex Ecto.Query construction
-    query
+  defp apply_cte(query, {name, %Ecto.Query{} = cte_query}) do
+    # Use the Ecto query directly as CTE
+    query |> with_cte(^name, as: ^cte_query)
+  end
+
+  defp apply_cte(query, {name, {:fragment, sql}}) when is_binary(sql) do
+    # Raw SQL fragment as CTE
+    query |> with_cte(^name, as: fragment(^sql))
   end
 
   ## Window
@@ -457,12 +489,82 @@ defmodule Events.Query.Builder do
 
   ## Raw WHERE
 
-  # Note: Fragment requires literal SQL strings for security
-  # Named parameter support requires macro-based approach
-  # For now, raw_where is a placeholder
-  defp apply_raw_where(query, {_sql, _params}) do
-    # Placeholder: Raw SQL with named parameters requires macro-based implementation
-    # For production use, use Ecto.Query fragments directly or build custom macros
-    query
+  defp apply_raw_where(query, {sql, params}) when is_binary(sql) and is_map(params) do
+    # Convert named parameters to positional
+    {positional_sql, positional_params} = convert_named_params_to_positional(sql, params)
+
+    # Build fragment with positional parameters
+    fragment_expr = build_fragment(positional_sql, positional_params)
+
+    # Apply the where clause
+    from(q in query, where: ^fragment_expr)
+  end
+
+  # Convert named parameters (:name) to positional (?)
+  defp convert_named_params_to_positional(sql, params) do
+    # Find all named parameters in order they appear
+    param_names =
+      Regex.scan(~r/:(\w+)/, sql)
+      |> Enum.map(fn [_full, name] -> String.to_atom(name) end)
+
+    # Replace named params with ?
+    positional_sql = Regex.replace(~r/:(\w+)/, sql, "?")
+
+    # Build positional params list in order
+    positional_params = Enum.map(param_names, &Map.get(params, &1))
+
+    {positional_sql, positional_params}
+  end
+
+  # Build a fragment dynamically with list of parameters
+  # Note: SQL string must be passed as literal for security.
+  # We use Code.eval_quoted to build the fragment at runtime
+  defp build_fragment(sql, params) do
+    # Build the fragment AST with the literal SQL and parameter list
+    # Since fragment/1 is a macro, we need to construct the call properly
+    param_asts = Enum.map(params, fn param -> quote do: ^unquote(Macro.escape(param)) end)
+
+    fragment_ast =
+      case param_asts do
+        [] ->
+          quote do: fragment(unquote(sql))
+
+        [p1] ->
+          quote do: fragment(unquote(sql), unquote(p1))
+
+        [p1, p2] ->
+          quote do: fragment(unquote(sql), unquote(p1), unquote(p2))
+
+        [p1, p2, p3] ->
+          quote do: fragment(unquote(sql), unquote(p1), unquote(p2), unquote(p3))
+
+        [p1, p2, p3, p4] ->
+          quote do: fragment(unquote(sql), unquote(p1), unquote(p2), unquote(p3), unquote(p4))
+
+        [p1, p2, p3, p4, p5] ->
+          quote do:
+                  fragment(
+                    unquote(sql),
+                    unquote(p1),
+                    unquote(p2),
+                    unquote(p3),
+                    unquote(p4),
+                    unquote(p5)
+                  )
+
+        _ ->
+          raise ArgumentError,
+                "raw_where supports maximum 5 parameters, got #{length(params)}. " <>
+                  "Consider using multiple where clauses or a custom fragment."
+      end
+
+    # Evaluate the AST to get the actual dynamic expression
+    quoted =
+      quote do
+        Ecto.Query.dynamic([], unquote(fragment_ast))
+      end
+
+    {result, _} = Code.eval_quoted(quoted, [], __ENV__)
+    result
   end
 end

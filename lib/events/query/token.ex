@@ -74,6 +74,7 @@ defmodule Events.Query.Token do
       {:error, reason} when is_binary(reason) ->
         # Legacy string errors - convert to ValidationError
         {op_type, _} = operation
+
         raise ValidationError,
           operation: op_type,
           reason: reason,
@@ -127,7 +128,16 @@ defmodule Events.Query.Token do
   end
 
   defp validate_operation({:order, {field, dir, opts}})
-       when is_atom(field) and dir in [:asc, :desc] and is_list(opts) do
+       when is_atom(field) and
+              dir in [
+                :asc,
+                :desc,
+                :asc_nulls_first,
+                :asc_nulls_last,
+                :desc_nulls_first,
+                :desc_nulls_last
+              ] and
+              is_list(opts) do
     :ok
   end
 
@@ -143,6 +153,7 @@ defmodule Events.Query.Token do
 
   defp validate_operation({:limit, n}) when is_integer(n) and n > 0 do
     max = max_limit()
+
     if n <= max do
       :ok
     else
@@ -177,6 +188,8 @@ defmodule Events.Query.Token do
     :lte,
     :in,
     :not_in,
+    :in_subquery,
+    :not_in_subquery,
     :like,
     :ilike,
     :is_nil,
@@ -230,7 +243,8 @@ defmodule Events.Query.Token do
         {:error,
          %PaginationError{
            type: :cursor,
-           reason: ":cursor_fields must be a list or nil (will be inferred), got: #{inspect(cursor_fields)}",
+           reason:
+             ":cursor_fields must be a list or nil (will be inferred), got: #{inspect(cursor_fields)}",
            order_by: nil,
            cursor_fields: cursor_fields,
            suggestion:
