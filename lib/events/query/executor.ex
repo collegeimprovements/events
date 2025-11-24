@@ -10,6 +10,7 @@ defmodule Events.Query.Executor do
   - Total count computation
   """
 
+  import Ecto.Query
   alias Events.Query.{Token, Builder, Result}
 
   @default_timeout 15_000
@@ -28,9 +29,7 @@ defmodule Events.Query.Executor do
 
     try do
       # Build query
-      build_start = System.monotonic_time(:microsecond)
       query = Builder.build(token)
-      build_time = System.monotonic_time(:microsecond) - build_start
 
       # Execute query
       query_start = System.monotonic_time(:microsecond)
@@ -41,7 +40,7 @@ defmodule Events.Query.Executor do
       total_count =
         if include_total && has_pagination?(token) do
           count_query = build_count_query(query)
-          repo.one(from(q in subquery(count_query), select: count("*")), timeout: timeout)
+          repo.aggregate(count_query, :count, timeout: timeout)
         end
 
       # Build result

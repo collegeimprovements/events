@@ -150,16 +150,16 @@ defmodule Events.Query.DSL do
     end
   end
 
-  @doc "Add a simple preload"
-  defmacro preload(association) when is_atom(association) do
+  @doc "Add a simple preload (atom or list)"
+  defmacro preload(associations) do
     quote do
       var!(query_token, Events.Query.DSL) =
-        Events.Query.preload(var!(query_token, Events.Query.DSL), unquote(association))
+        Events.Query.preload(var!(query_token, Events.Query.DSL), unquote(associations))
     end
   end
 
   @doc "Add a nested preload with filters"
-  defmacro preload(association, do: block) do
+  defmacro preload(association, do: block) when is_atom(association) do
     quote do
       nested_fn = fn nested_token ->
         var!(query_token, Events.Query.DSL) = nested_token
@@ -212,8 +212,22 @@ defmodule Events.Query.DSL do
     end
   end
 
-  @doc "Add CTE"
-  defmacro with_cte(name, do: block) do
+  @doc """
+  Add CTE (Common Table Expression).
+
+  Can be used with a token/query or with a do block.
+
+  ## Examples
+
+      # With a token
+      with_cte :active_users, user_token
+
+      # With a do block
+      with_cte :active_users do
+        filter :status, :eq, "active"
+      end
+  """
+  defmacro with_cte(name, [{:do, block}]) do
     quote do
       cte_token = Events.Query.new(:nested)
       var!(query_token, Events.Query.DSL) = cte_token
@@ -222,6 +236,13 @@ defmodule Events.Query.DSL do
 
       var!(query_token, Events.Query.DSL) =
         Events.Query.with_cte(var!(query_token, Events.Query.DSL), unquote(name), cte_result)
+    end
+  end
+
+  defmacro with_cte(name, cte_token_or_query) do
+    quote do
+      var!(query_token, Events.Query.DSL) =
+        Events.Query.with_cte(var!(query_token, Events.Query.DSL), unquote(name), unquote(cte_token_or_query))
     end
   end
 

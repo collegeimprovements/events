@@ -83,7 +83,7 @@ defmodule Events.Query.Examples do
 
       # Filter on joined table
       join :posts, :inner, as: :user_posts
-      filter :user_posts, :published, :eq, true, binding: :user_posts
+      filter :published, :eq, true, binding: :user_posts
     end
     |> Query.execute()
   end
@@ -176,7 +176,7 @@ defmodule Events.Query.Examples do
       join :posts, :left, as: :user_posts
 
       # Filter on joined table
-      filter :user_posts, :published, :eq, true, binding: :user_posts
+      filter :published, :eq, true, binding: :user_posts
 
       select %{
         user_name: :name,
@@ -197,10 +197,7 @@ defmodule Events.Query.Examples do
 
       having count: {:gte, 10}
 
-      select %{
-        status: :status,
-        order_count: fragment("count(*)")
-      }
+      select [:id, :status, :created_at]
     end
     |> Query.execute()
   end
@@ -214,14 +211,9 @@ defmodule Events.Query.Examples do
 
       having count: {:gte, 5}
 
-      select %{
-        user_id: :id,
-        user_name: :name,
-        order_count: fragment("count(orders.id)"),
-        total_spent: fragment("sum(orders.amount)")
-      }
+      select [:id, :name, :email]
 
-      order :total_spent, :desc
+      order :name, :desc
       limit 10
     end
     |> Query.execute()
@@ -243,9 +235,8 @@ defmodule Events.Query.Examples do
     query Order do
       with_cte :active_users, active_users_cte
 
-      # Now can join with the CTE
-      # (Note: actual join syntax with CTE would need enhancement)
-      filter :user_id, :in, fragment("SELECT id FROM active_users")
+      # Filter orders (CTE usage would require additional join support)
+      filter :status, :eq, "completed"
 
       order :created_at, :desc
     end
