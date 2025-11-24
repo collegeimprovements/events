@@ -93,10 +93,62 @@ defmodule Events.Query do
 
       # On joined table
       Query.filter(token, :published, :eq, true, binding: :posts)
+
+      # Multiple separate calls (chaining)
+      token
+      |> Query.filter(:status, :eq, "active")
+      |> Query.filter(:age, :gte, 18)
+      |> Query.filter(:verified, :eq, true)
   """
   @spec filter(Token.t(), atom(), atom(), term(), keyword()) :: Token.t()
   def filter(token, field, op, value, opts \\ []) do
     Token.add_operation(token, {:filter, {field, op, value, opts}})
+  end
+
+  @doc """
+  Add multiple filter conditions at once.
+
+  ## Parameters
+
+  - `token` - The query token
+  - `filter_list` - List of filter specifications. Each can be:
+    - `{field, op, value}` - Simple 3-tuple
+    - `{field, op, value, opts}` - 4-tuple with options
+
+  ## Examples
+
+      # List of 3-tuples
+      Query.filters(token, [
+        {:status, :eq, "active"},
+        {:age, :gte, 18},
+        {:verified, :eq, true}
+      ])
+
+      # List of 4-tuples with options
+      Query.filters(token, [
+        {:status, :eq, "active", []},
+        {:email, :eq, "john@example.com", [case_insensitive: true]},
+        {:published, :eq, true, [binding: :posts]}
+      ])
+
+      # Mixed (3-tuples and 4-tuples)
+      Query.filters(token, [
+        {:status, :eq, "active"},
+        {:email, :ilike, "%@gmail.com", [case_insensitive: true]}
+      ])
+  """
+  @spec filters(Token.t(), [
+          {atom(), atom(), term()}
+          | {atom(), atom(), term(), keyword()}
+        ]) :: Token.t()
+  def filters(token, filter_list) when is_list(filter_list) do
+    Enum.reduce(filter_list, token, fn
+      {field, op, value}, acc ->
+        filter(acc, field, op, value)
+
+      {field, op, value, opts}, acc ->
+        filter(acc, field, op, value, opts)
+    end)
   end
 
   @doc """
@@ -144,10 +196,71 @@ defmodule Events.Query do
 
       # On joined table
       Query.order(token, :title, :asc, binding: :posts)
+
+      # Multiple separate calls (chaining)
+      token
+      |> Query.order(:priority, :desc)
+      |> Query.order(:created_at, :desc)
+      |> Query.order(:id, :asc)
   """
   @spec order(Token.t(), atom(), :asc | :desc, keyword()) :: Token.t()
   def order(token, field, direction \\ :asc, opts \\ []) do
     Token.add_operation(token, {:order, {field, direction, opts}})
+  end
+
+  @doc """
+  Add multiple order clauses at once.
+
+  ## Parameters
+
+  - `token` - The query token
+  - `order_list` - List of order specifications. Each can be:
+    - `field` - Atom, defaults to `:asc`
+    - `{field, direction}` - 2-tuple with direction
+    - `{field, direction, opts}` - 3-tuple with options
+
+  ## Examples
+
+      # List of atoms (all ascending)
+      Query.orders(token, [:name, :created_at, :id])
+
+      # List of 2-tuples with directions
+      Query.orders(token, [
+        {:priority, :desc},
+        {:created_at, :desc},
+        {:id, :asc}
+      ])
+
+      # List of 3-tuples with options
+      Query.orders(token, [
+        {:priority, :desc, []},
+        {:title, :asc, [binding: :posts]},
+        {:id, :asc, []}
+      ])
+
+      # Mixed formats
+      Query.orders(token, [
+        :name,
+        {:created_at, :desc},
+        {:title, :asc, [binding: :posts]}
+      ])
+  """
+  @spec orders(Token.t(), [
+          atom()
+          | {atom(), :asc | :desc}
+          | {atom(), :asc | :desc, keyword()}
+        ]) :: Token.t()
+  def orders(token, order_list) when is_list(order_list) do
+    Enum.reduce(order_list, token, fn
+      field, acc when is_atom(field) ->
+        order(acc, field, :asc)
+
+      {field, direction}, acc ->
+        order(acc, field, direction)
+
+      {field, direction, opts}, acc ->
+        order(acc, field, direction, opts)
+    end)
   end
 
   @doc "Add a join"

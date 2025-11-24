@@ -110,6 +110,26 @@ defmodule Events.Query.DSL do
     end
   end
 
+  @doc """
+  Add multiple filters at once.
+
+  ## Examples
+
+      query User do
+        filters [
+          {:status, :eq, "active"},
+          {:age, :gte, 18},
+          {:verified, :eq, true}
+        ]
+      end
+  """
+  defmacro filters(filter_list) do
+    quote do
+      var!(query_token, Events.Query.DSL) =
+        Events.Query.filters(var!(query_token, Events.Query.DSL), unquote(filter_list))
+    end
+  end
+
   @doc "Add ordering"
   defmacro order(field, direction \\ :asc) do
     quote do
@@ -127,6 +147,26 @@ defmodule Events.Query.DSL do
           unquote(direction),
           unquote(opts)
         )
+    end
+  end
+
+  @doc """
+  Add multiple order clauses at once.
+
+  ## Examples
+
+      query User do
+        orders [
+          {:priority, :desc},
+          {:created_at, :desc},
+          :id
+        ]
+      end
+  """
+  defmacro orders(order_list) do
+    quote do
+      var!(query_token, Events.Query.DSL) =
+        Events.Query.orders(var!(query_token, Events.Query.DSL), unquote(order_list))
     end
   end
 
