@@ -179,6 +179,138 @@ defmodule Events.Query do
   end
 
   @doc """
+  Add an OR filter group - matches if ANY condition is true.
+
+  ## Parameters
+
+  - `token` - The query token
+  - `filter_list` - List of filter specifications (at least 2 required)
+
+  ## Examples
+
+      # Match users who are active OR admins OR verified
+      Query.where_any(token, [
+        {:status, :eq, "active"},
+        {:role, :eq, "admin"},
+        {:verified, :eq, true}
+      ])
+
+      # With options
+      Query.where_any(token, [
+        {:email, :eq, "john@example.com", [case_insensitive: true]},
+        {:username, :eq, "john", [case_insensitive: true]}
+      ])
+
+  ## SQL Equivalent
+
+      WHERE (status = 'active' OR role = 'admin' OR verified = true)
+  """
+  @spec where_any(Token.t(), [
+          {atom(), atom(), term()}
+          | {atom(), atom(), term(), keyword()}
+        ]) :: Token.t()
+  def where_any(token, filter_list) when is_list(filter_list) and length(filter_list) >= 2 do
+    normalized = Enum.map(filter_list, &normalize_filter_spec/1)
+    Token.add_operation(token, {:filter_group, {:or, normalized}})
+  end
+
+  @doc """
+  Add an AND filter group - matches only if ALL conditions are true.
+
+  This is semantically equivalent to multiple `where/5` calls, but groups
+  the conditions explicitly for clarity.
+
+  ## Parameters
+
+  - `token` - The query token
+  - `filter_list` - List of filter specifications (at least 2 required)
+
+  ## Examples
+
+      # Match users who are BOTH active AND verified
+      Query.where_all(token, [
+        {:status, :eq, "active"},
+        {:verified, :eq, true}
+      ])
+
+  ## SQL Equivalent
+
+      WHERE (status = 'active' AND verified = true)
+  """
+  @spec where_all(Token.t(), [
+          {atom(), atom(), term()}
+          | {atom(), atom(), term(), keyword()}
+        ]) :: Token.t()
+  def where_all(token, filter_list) when is_list(filter_list) and length(filter_list) >= 2 do
+    normalized = Enum.map(filter_list, &normalize_filter_spec/1)
+    Token.add_operation(token, {:filter_group, {:and, normalized}})
+  end
+
+  @doc """
+  Add an EXISTS subquery condition.
+
+  Returns rows where the subquery returns at least one result.
+
+  ## Parameters
+
+  - `token` - The query token
+  - `subquery` - A Token or Ecto.Query for the subquery
+
+  ## Examples
+
+      # Find posts that have at least one comment
+      comments_subquery = Comment
+        |> Query.new()
+        |> Query.where(:post_id, :eq, some_post_id)
+
+      Post
+      |> Query.new()
+      |> Query.exists(comments_subquery)
+
+  ## SQL Equivalent
+
+      WHERE EXISTS (SELECT 1 FROM comments WHERE post_id = ?)
+  """
+  @spec exists(Token.t(), Token.t() | Ecto.Query.t()) :: Token.t()
+  def exists(token, subquery) do
+    Token.add_operation(token, {:exists, subquery})
+  end
+
+  @doc """
+  Add a NOT EXISTS subquery condition.
+
+  Returns rows where the subquery returns no results.
+
+  ## Parameters
+
+  - `token` - The query token
+  - `subquery` - A Token or Ecto.Query for the subquery
+
+  ## Examples
+
+      # Find posts with no comments
+      comments_subquery = Comment
+        |> Query.new()
+        |> Query.where(:post_id, :eq, some_post_id)
+
+      Post
+      |> Query.new()
+      |> Query.not_exists(comments_subquery)
+
+  ## SQL Equivalent
+
+      WHERE NOT EXISTS (SELECT 1 FROM comments WHERE post_id = ?)
+  """
+  @spec not_exists(Token.t(), Token.t() | Ecto.Query.t()) :: Token.t()
+  def not_exists(token, subquery) do
+    Token.add_operation(token, {:not_exists, subquery})
+  end
+
+  # Normalize filter spec to 4-tuple format
+  defp normalize_filter_spec({field, op, value}), do: {field, op, value, []}
+  defp normalize_filter_spec({field, op, value, opts}), do: {field, op, value, opts}
+
+  @doc """
   Add pagination.
 
   ## Parameters
@@ -466,6 +598,103 @@ defmodule Events.Query do
     Token.add_operation(token, {:select, fields})
   end
 
+  @doc """
+  Define a named window for use with window functions.
+
+  Windows define the partitioning and ordering for window functions
+  like `row_number()`, `rank()`, `sum() OVER`, etc.
+
+  ## Parameters
+
+  - `token` - The query token
+  - `name` - Atom name for the window (referenced in select)
+  - `opts` - Window definition options:
+    - `:partition_by` - Field or list of fields to partition by
+    - `:order_by` - Order specification within each partition
+    - `:frame` - Frame specification for which rows to include
+
+  ## Frame Specification
+
+  The `:frame` option specifies which rows are included in the window calculation.
+  Format: `{frame_type, start_bound, end_bound}` or `{frame_type, start_bound}`
+
+  **Frame types:**
+  - `:rows` - Physical row count
+  - `:range` - Logical range based on ORDER BY values
+  - `:groups` - Groups of peer rows (same ORDER BY value)
+
+  **Bounds:**
+  - `:unbounded_preceding` - From start of partition
+  - `{:preceding, n}` - n rows/range before current
+  - `:current_row` - Current row
+  - `{:following, n}` - n rows/range after current
+  - `:unbounded_following` - To end of partition
+
+  ## Examples
+
+      # Running total (all rows from start to current)
+      token
+      |> Query.window(:running,
+          partition_by: :category_id,
+          order_by: [asc: :date],
+          frame: {:rows, :unbounded_preceding, :current_row})
+
+      # 3-row moving average
+      token
+      |> Query.window(:moving_avg,
+          order_by: [asc: :date],
+          frame: {:rows, {:preceding, 1}, {:following, 1}})
+
+      # Range-based (value-based window)
+      token
+      |> Query.window(:price_range,
+          order_by: [asc: :price],
+          frame: {:range, {:preceding, 100}, {:following, 100}})
+
+      # Without frame (default behavior)
+      token
+      |> Query.window(:price_rank, partition_by: :category_id, order_by: [desc: :price])
+
+  ## Window Function Syntax in Select
+
+  Use `{:window, function, over: :window_name}` in select maps:
+
+      - `{:window, :row_number, over: :w}` - Row number
+      - `{:window, :rank, over: :w}` - Rank with gaps
+      - `{:window, :dense_rank, over: :w}` - Rank without gaps
+      - `{:window, {:sum, :amount}, over: :w}` - Running sum
+      - `{:window, {:avg, :price}, over: :w}` - Running average
+      - `{:window, {:lag, :value}, over: :w}` - Previous row value
+      - `{:window, {:lead, :value}, over: :w}` - Next row value
+      - `{:window, {:first_value, :field}, over: :w}` - First value in window
+      - `{:window, {:last_value, :field}, over: :w}` - Last value in window
+
+  ## SQL Equivalent
+
+      -- Running total with frame
+      SELECT name,
+             SUM(amount) OVER running as running_total
+      FROM sales
+      WINDOW running AS (
+        PARTITION BY category_id
+        ORDER BY date ASC
+        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+      )
+
+      -- 3-row moving average
+      SELECT name,
+             AVG(price) OVER moving_avg as avg_3
+      FROM products
+      WINDOW moving_avg AS (
+        ORDER BY date ASC
+        ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING
+      )
+  """
+  @spec window(Token.t(), atom(), keyword()) :: Token.t()
+  def window(token, name, opts \\ []) when is_atom(name) do
+    Token.add_operation(token, {:window, {name, opts}})
+  end
+
   @doc "Add a group by"
   @spec group_by(Token.t(), atom() | list()) :: Token.t()
   def group_by(token, fields) do
@@ -505,31 +734,60 @@ defmodule Events.Query do
   @doc """
   Add a CTE (Common Table Expression).
 
-  ## Example
+  ## Options
 
+  - `:recursive` - Enable recursive CTE mode (default: false)
+
+  ## Examples
+
+      # Simple CTE
       base_query = Events.Query.new(User) |> Events.Query.filter(:active, :eq, true)
 
       Events.Query.new(Order)
       |> Events.Query.with_cte(:active_users, base_query)
       |> Events.Query.join(:active_users, :inner, on: [user_id: :id])
+
+      # Recursive CTE for hierarchical data (trees, graphs)
+      # First define the base case and recursive case combined with union_all
+      import Ecto.Query
+
+      # Base case: root categories (no parent)
+      base = from(c in "categories", where: is_nil(c.parent_id), select: %{id: c.id, name: c.name, depth: 0})
+
+      # Recursive case: children joining with CTE
+      recursive = from(c in "categories",
+        join: tree in "category_tree", on: c.parent_id == tree.id,
+        select: %{id: c.id, name: c.name, depth: tree.depth + 1}
+      )
+
+      # Combine with union_all
+      cte_query = union_all(base, ^recursive)
+
+      # Use recursive CTE
+      from(c in "category_tree")
+      |> Events.Query.new()
+      |> Events.Query.with_cte(:category_tree, cte_query, recursive: true)
+      |> Events.Query.execute()
+
+  ## SQL Equivalent (Recursive)
+
+      WITH RECURSIVE category_tree AS (
+        SELECT id, name, 0 as depth FROM categories WHERE parent_id IS NULL
+        UNION ALL
+        SELECT c.id, c.name, tree.depth + 1
+        FROM categories c
+        JOIN category_tree tree ON c.parent_id = tree.id
+      )
+      SELECT * FROM category_tree
   """
-  @spec with_cte(Token.t(), atom(), Token.t() | Ecto.Query.t()) :: Token.t()
-  def with_cte(token, name, cte_token_or_query) do
-    Token.add_operation(token, {:cte, {name, cte_token_or_query}})
-  end
-
-  @doc """
-  Add a window definition.
-
-  ## Example
-
-      Events.Query.new(Sale)
-      |> Events.Query.window(:running_total, partition_by: :product_id, order_by: [asc: :date])
-      |> Events.Query.select(%{amount: :amount, total: {:window, :sum, :amount, :running_total}})
-  """
-  @spec window(Token.t(), atom(), keyword()) :: Token.t()
-  def window(token, name, definition) do
-    Token.add_operation(token, {:window, {name, definition}})
+  @spec with_cte(Token.t(), atom(), Token.t() | Ecto.Query.t(), keyword()) :: Token.t()
+  def with_cte(token, name, cte_token_or_query, opts \\ []) do
+    if opts == [] do
+      # Backwards compatible - no opts
+      Token.add_operation(token, {:cte, {name, cte_token_or_query}})
+    else
+      Token.add_operation(token, {:cte, {name, cte_token_or_query, opts}})
+    end
   end
 
   @doc """
@@ -546,6 +804,44 @@ defmodule Events.Query do
   def raw_where(token, sql, params \\ %{}) do
     Token.add_operation(token, {:raw_where, {sql, params}})
   end
+
+  @doc """
+  Include a query fragment's operations in the current token.
+
+  Fragments are reusable query components defined with `Events.Query.Fragment`.
+
+  ## Example
+
+      defmodule MyApp.QueryFragments do
+        use Events.Query.Fragment
+
+        defragment :active_users do
+          filter :status, :eq, "active"
+          filter :verified, :eq, true
+        end
+      end
+
+      # Include in query
+      User
+      |> Query.new()
+      |> Query.include(MyApp.QueryFragments.active_users())
+      |> Query.execute()
+  """
+  @spec include(Token.t(), Token.t()) :: Token.t()
+  defdelegate include(token, fragment), to: Events.Query.Fragment
+
+  @doc """
+  Conditionally include a query fragment.
+
+  ## Example
+
+      User
+      |> Query.new()
+      |> Query.include_if(user_params[:show_active], MyApp.QueryFragments.active_users())
+      |> Query.execute()
+  """
+  @spec include_if(Token.t(), boolean(), Token.t() | nil) :: Token.t()
+  defdelegate include_if(token, condition, fragment), to: Events.Query.Fragment
 
   @doc """
   Convert token to a subquery.
@@ -569,7 +865,42 @@ defmodule Events.Query do
     subquery(query)
   end
 
-  @doc "Build the Ecto query without executing"
+  @doc """
+  Build the Ecto query without executing (safe variant).
+
+  Returns `{:ok, query}` on success or `{:error, exception}` on failure.
+  Use this when you want to handle build errors gracefully.
+
+  For the raising variant, use `build!/1` or `build/1`.
+
+  ## Examples
+
+      case Query.build_safe(token) do
+        {:ok, query} -> Repo.all(query)
+        {:error, %CursorError{}} -> handle_invalid_cursor()
+        {:error, error} -> handle_error(error)
+      end
+  """
+  @spec build_safe(Token.t()) :: {:ok, Ecto.Query.t()} | {:error, Exception.t()}
+  defdelegate build_safe(token), to: Builder
+
+  @doc """
+  Build the Ecto query without executing (raising variant).
+
+  Raises an exception on failure. This is the same as `build/1`.
+
+  For the safe variant that returns tuples, use `build_safe/1`.
+  """
+  @spec build!(Token.t()) :: Ecto.Query.t()
+  defdelegate build!(token), to: Builder
+
+  @doc """
+  Build the Ecto query without executing.
+
+  Raises on failure. This is an alias for `build!/1` kept for backwards compatibility.
+
+  For the safe variant, use `build_safe/1`.
+  """
   @spec build(Token.t()) :: Ecto.Query.t()
   defdelegate build(token), to: Builder
 

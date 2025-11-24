@@ -23,8 +23,11 @@ defmodule Events.Query.Token do
   @default_limit 20
   @default_max_limit 1000
 
+  @type filter_spec :: {atom(), atom(), term(), keyword()}
+
   @type operation ::
-          {:filter, {atom(), atom(), term(), keyword()}}
+          {:filter, filter_spec()}
+          | {:filter_group, {:or | :and, [filter_spec()]}}
           | {:paginate, {:offset | :cursor, keyword()}}
           | {:order, {atom(), :asc | :desc, keyword()}}
           | {:join, {atom() | module(), atom(), keyword()}}
@@ -36,9 +39,11 @@ defmodule Events.Query.Token do
           | {:offset, non_neg_integer()}
           | {:distinct, boolean() | list()}
           | {:lock, String.t() | atom()}
-          | {:cte, {atom(), Token.t() | Ecto.Query.t()}}
+          | {:cte, {atom(), Token.t() | Ecto.Query.t(), keyword()}}
           | {:window, {atom(), keyword()}}
           | {:raw_where, {String.t(), map()}}
+          | {:exists, Token.t() | Ecto.Query.t()}
+          | {:not_exists, Token.t() | Ecto.Query.t()}
 
   @type t :: %__MODULE__{
           source: module() | Ecto.Query.t() | :nested,
@@ -57,30 +62,79 @@ defmodule Events.Query.Token do
     %Token{source: source}
   end
 
-  @doc "Add an operation to the token"
-  @spec add_operation(t(), operation()) :: t()
-  def add_operation(%Token{} = token, operation) when is_tuple(operation) do
-    # Validate operation
+  @doc """
+  Add an operation to the token (safe variant).
+
+  Returns `{:ok, token}` on success or `{:error, exception}` on validation failure.
+  Use this when you want to handle errors gracefully with pattern matching.
+
+  For the raising variant, use `add_operation!/2`.
+
+  ## Examples
+
+      case Token.add_operation_safe(token, {:filter, {:status, :eq, "active", []}}) do
+        {:ok, updated_token} -> updated_token
+        {:error, %ValidationError{} = error} -> handle_error(error)
+      end
+  """
+  @spec add_operation_safe(t(), operation()) :: {:ok, t()} | {:error, Exception.t()}
+  def add_operation_safe(%Token{} = token, operation) when is_tuple(operation) do
     case validate_operation(operation) do
       :ok ->
-        %{token | operations: token.operations ++ [operation]}
+        {:ok, %{token | operations: token.operations ++ [operation]}}
 
       {:error, %LimitExceededError{} = error} ->
-        raise error
+        {:error, error}
 
       {:error, %PaginationError{} = error} ->
-        raise error
+        {:error, error}
+
+      {:error, %Events.Query.FilterGroupError{} = error} ->
+        {:error, error}
 
       {:error, reason} when is_binary(reason) ->
-        # Legacy string errors - convert to ValidationError
         {op_type, _} = operation
 
-        raise ValidationError,
-          operation: op_type,
-          reason: reason,
-          value: operation,
-          suggestion: nil
+        {:error,
+         %ValidationError{
+           operation: op_type,
+           reason: reason,
+           value: operation,
+           suggestion: nil
+         }}
     end
+  end
+
+  @doc """
+  Add an operation to the token (raising variant).
+
+  Raises an exception on validation failure. This is the same as `add_operation/2`.
+
+  For the safe variant that returns tuples, use `add_operation_safe/2`.
+
+  ## Examples
+
+      token = Token.add_operation!(token, {:filter, {:status, :eq, "active", []}})
+  """
+  @spec add_operation!(t(), operation()) :: t()
+  def add_operation!(%Token{} = token, operation) when is_tuple(operation) do
+    case add_operation_safe(token, operation) do
+      {:ok, token} -> token
+      {:error, error} -> raise error
+    end
+  end
+
+  @doc """
+  Add an operation to the token.
+
+  Raises an exception on validation failure.
+  This is an alias for `add_operation!/2` kept for backwards compatibility.
+
+  For the safe variant that returns tuples, use `add_operation_safe/2`.
+  """
+  @spec add_operation(t(), operation()) :: t()
+  def add_operation(%Token{} = token, operation) when is_tuple(operation) do
+    add_operation!(token, operation)
   end
 
   @doc "Get all operations of a specific type"
@@ -169,6 +223,8 @@ defmodule Events.Query.Token do
   defp validate_operation({:offset, n}) when is_integer(n) and n >= 0, do: :ok
   defp validate_operation({:distinct, value}) when is_boolean(value) or is_list(value), do: :ok
   defp validate_operation({:lock, mode}) when is_atom(mode) or is_binary(mode), do: :ok
+  defp validate_operation({:cte, {name, _query, opts}}) when is_atom(name) and is_list(opts), do: :ok
+  # Backwards compatibility - CTE without opts
   defp validate_operation({:cte, {name, _query}}) when is_atom(name), do: :ok
   defp validate_operation({:window, {name, def}}) when is_atom(name) and is_list(def), do: :ok
 
@@ -176,7 +232,54 @@ defmodule Events.Query.Token do
        when is_binary(sql) and is_map(params),
        do: :ok
 
+  defp validate_operation({:filter_group, {combinator, filters}})
+       when combinator in [:or, :and] and is_list(filters) do
+    validate_filter_group(combinator, filters)
+  end
+
+  defp validate_operation({:exists, subquery})
+       when is_struct(subquery, Token) or is_struct(subquery, Ecto.Query),
+       do: :ok
+
+  defp validate_operation({:not_exists, subquery})
+       when is_struct(subquery, Token) or is_struct(subquery, Ecto.Query),
+       do: :ok
+
   defp validate_operation(op), do: {:error, "Unknown operation: #{inspect(op)}"}
+
+  # Validate filter group has at least 2 filters and all are valid
+  defp validate_filter_group(combinator, filters) when length(filters) < 2 do
+    {:error,
+     %Events.Query.FilterGroupError{
+       combinator: combinator,
+       filters: filters,
+       reason: "Filter group requires at least 2 filters",
+       suggestion: "Use where_any([{:field1, :eq, val1}, {:field2, :eq, val2}])"
+     }}
+  end
+
+  defp validate_filter_group(_combinator, filters) do
+    Enum.reduce_while(filters, :ok, fn filter, :ok ->
+      case validate_filter_spec(filter) do
+        :ok -> {:cont, :ok}
+        error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp validate_filter_spec({field, op, _value, opts})
+       when is_atom(field) and is_atom(op) and is_list(opts) do
+    validate_filter_operation(op)
+  end
+
+  defp validate_filter_spec({field, op, _value})
+       when is_atom(field) and is_atom(op) do
+    validate_filter_operation(op)
+  end
+
+  defp validate_filter_spec(spec) do
+    {:error, "Invalid filter spec in group: #{inspect(spec)}. Expected {field, op, value} or {field, op, value, opts}"}
+  end
 
   # Validate filter operations
   @valid_filter_ops [

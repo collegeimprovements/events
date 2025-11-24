@@ -202,3 +202,75 @@ defmodule Events.Query.PaginationError do
   defp maybe_add(list, _text, nil), do: list
   defp maybe_add(list, text, _), do: list ++ [text]
 end
+
+defmodule Events.Query.CursorError do
+  @moduledoc """
+  Error raised when cursor decoding or validation fails.
+
+  Previously cursor errors were silently ignored, causing queries to return
+  incorrect results. This error ensures fail-fast behavior.
+  """
+
+  defexception [:cursor, :reason, :suggestion]
+
+  @type t :: %__MODULE__{
+          cursor: String.t() | nil,
+          reason: String.t(),
+          suggestion: String.t() | nil
+        }
+
+  @impl Exception
+  def message(%__MODULE__{} = error) do
+    suggestion =
+      error.suggestion ||
+        "Request fresh data without a cursor, or check that the cursor hasn't expired."
+
+    base = "Invalid cursor: #{error.reason}"
+
+    """
+    #{base}
+
+    #{suggestion}
+
+    Cursor value: #{inspect(truncate_cursor(error.cursor))}
+    """
+    |> String.trim()
+  end
+
+  defp truncate_cursor(nil), do: nil
+  defp truncate_cursor(cursor) when byte_size(cursor) > 50 do
+    String.slice(cursor, 0, 50) <> "..."
+  end
+  defp truncate_cursor(cursor), do: cursor
+end
+
+defmodule Events.Query.FilterGroupError do
+  @moduledoc """
+  Error raised when filter group (OR/AND) configuration is invalid.
+  """
+
+  defexception [:combinator, :filters, :reason, :suggestion]
+
+  @type t :: %__MODULE__{
+          combinator: :or | :and,
+          filters: list(),
+          reason: String.t(),
+          suggestion: String.t() | nil
+        }
+
+  @impl Exception
+  def message(%__MODULE__{} = error) do
+    base = "Invalid #{error.combinator} filter group: #{error.reason}"
+
+    if error.suggestion do
+      """
+      #{base}
+
+      Suggestion: #{error.suggestion}
+      """
+      |> String.trim()
+    else
+      base
+    end
+  end
+end

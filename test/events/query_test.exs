@@ -197,14 +197,55 @@ defmodule Events.QueryTest do
       assert [{:cte, {:active_users, ^cte_token}}] = token.operations
     end
 
+    test "adds recursive CTE" do
+      import Ecto.Query
+
+      # Create a simple CTE query
+      base_query = from(c in "categories", select: c)
+
+      token =
+        Order
+        |> Query.new()
+        |> Query.with_cte(:category_tree, base_query, recursive: true)
+
+      assert [{:cte, {:category_tree, %Ecto.Query{}, [recursive: true]}}] = token.operations
+    end
+
     test "adds window definition" do
       token =
         Sale
         |> Query.new()
         |> Query.window(:running_total, partition_by: :product_id, order_by: [asc: :date])
 
-      assert [{:window, {:running_total, definition}}] = token.operations
-      assert definition[:partition_by] == :product_id
+      assert [{:window, {:running_total, _opts}}] = token.operations
+    end
+
+    test "adds window definition with frame" do
+      token =
+        Sale
+        |> Query.new()
+        |> Query.window(:moving_avg,
+          order_by: [asc: :date],
+          frame: {:rows, {:preceding, 1}, {:following, 1}}
+        )
+
+      [{:window, {:moving_avg, opts}}] = token.operations
+      assert opts[:frame] == {:rows, {:preceding, 1}, {:following, 1}}
+    end
+
+    test "adds window definition with unbounded frame" do
+      token =
+        Sale
+        |> Query.new()
+        |> Query.window(:running_sum,
+          partition_by: :category_id,
+          order_by: [asc: :date],
+          frame: {:rows, :unbounded_preceding, :current_row}
+        )
+
+      [{:window, {:running_sum, opts}}] = token.operations
+      assert opts[:partition_by] == :category_id
+      assert opts[:frame] == {:rows, :unbounded_preceding, :current_row}
     end
   end
 
@@ -358,6 +399,57 @@ defmodule Events.QueryTest do
       assert_raise Events.Query.LimitExceededError, fn ->
         Query.paginate(token, :offset, limit: 10_000)
       end
+    end
+  end
+
+  describe "safe error patterns" do
+    test "Token.add_operation_safe returns {:ok, token} on success" do
+      token = Token.new(User)
+
+      assert {:ok, updated_token} =
+               Token.add_operation_safe(token, {:filter, {:status, :eq, "active", []}})
+
+      assert length(updated_token.operations) == 1
+    end
+
+    test "Token.add_operation_safe returns {:error, exception} on validation failure" do
+      token = Token.new(User)
+
+      assert {:error, %Events.Query.ValidationError{}} =
+               Token.add_operation_safe(token, {:filter, {:status, :invalid_op, "value", []}})
+    end
+
+    test "Token.add_operation_safe returns {:error, LimitExceededError} for excessive limits" do
+      token = Token.new(User)
+
+      assert {:error, %Events.Query.LimitExceededError{}} =
+               Token.add_operation_safe(token, {:limit, 10_000})
+    end
+
+    test "Token.add_operation! raises on validation failure" do
+      token = Token.new(User)
+
+      assert_raise Events.Query.ValidationError, fn ->
+        Token.add_operation!(token, {:filter, {:status, :invalid_op, "value", []}})
+      end
+    end
+
+    test "Query.build_safe returns {:ok, query} on success" do
+      # Use an existing Ecto query with the :root binding
+      import Ecto.Query
+      base_query = from(u in "users", as: :root)
+      token = Query.new(base_query) |> Query.filter(:status, :eq, "active")
+
+      assert {:ok, %Ecto.Query{}} = Query.build_safe(token)
+    end
+
+    test "Query.build! works with valid token" do
+      # Use an existing Ecto query with the :root binding
+      import Ecto.Query
+      base_query = from(u in "users", as: :root)
+      token = Query.new(base_query)
+
+      assert %Ecto.Query{} = Query.build!(token)
     end
   end
 end
