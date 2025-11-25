@@ -2,17 +2,85 @@ defmodule Events.Query do
   @moduledoc """
   Production-grade query builder with token pattern and pipelines.
 
-  ## Features
+  This is the **single entry point** for all query operations. All other modules
+  in `Events.Query.*` are internal implementation details.
 
-  - Token-based composition with pattern matching
-  - Protocol-based operations for extensibility
-  - Cursor and offset pagination with metadata
-  - Nested filters and preloads
-  - Custom joins with conditions
-  - Transactions, batching, CTEs, subqueries
-  - Named SQL placeholders
-  - Telemetry integration
-  - Comprehensive result metadata
+  ## Public API Summary
+
+  ### Query Construction
+  - `new/1` - Create a query token from a schema
+  - `filter/5` - Add a filter condition (also aliased as `where/5`)
+  - `filter_by/2` - Add multiple filters from a map/keyword list
+  - `order/4` - Add ordering (also aliased as `order_by/4`)
+  - `orders/2` - Add multiple orderings
+  - `join/4` - Add a join
+  - `joins/2` - Add multiple joins
+  - `select/2` - Select specific fields
+  - `preload/2,3` - Preload associations
+  - `paginate/3` - Add pagination (cursor or offset)
+  - `limit/2`, `offset/2` - Manual limit/offset
+  - `distinct/2` - Add distinct clause
+  - `group_by/2`, `having/2` - Grouping and having
+  - `lock/2` - Add row locking
+
+  ### Filter Helpers
+  - `where_any/2` - OR filter group
+  - `where_all/2` - AND filter group
+  - `search/4` - Full-text search across fields
+  - `exclude_deleted/2` - Filter out soft-deleted records
+  - `only_deleted/2` - Return only soft-deleted records
+  - `created_between/4` - Filter by date range
+  - `updated_since/3` - Filter by update time
+  - `filter_subquery/4` - Filter using subquery
+
+  ### Execution
+  - `execute/2` - Execute and return `{:ok, result}` or `{:error, error}`
+  - `execute!/2` - Execute and return result or raise
+  - `stream/2` - Return a stream for large datasets
+  - `batch/2` - Execute multiple queries in parallel
+  - `transaction/2` - Execute in a transaction
+
+  ### Shortcuts
+  - `first/2`, `first!/2` - Get first record
+  - `one/2`, `one!/2` - Get exactly one record
+  - `all/2` - Get all records
+  - `count/2` - Count records
+  - `exists?/2` - Check existence
+  - `aggregate/4` - Run aggregate function
+
+  ### Advanced
+  - `build/1`, `build!/1` - Build raw Ecto.Query without executing
+  - `debug/3` - Debug query (prints and returns unchanged)
+  - `with_cte/4` - Add Common Table Expression
+  - `from_subquery/1` - Build from a subquery
+  - `raw_where/3` - Add raw SQL where clause
+  - `window/3` - Add window function
+  - `include/2` - Include a query fragment
+  - `then_if/3` - Conditional pipeline helper
+
+  ### Cursor Utilities
+  - `encode_cursor/2` - Create cursor for testing
+  - `decode_cursor/1` - Decode cursor for debugging
+
+  ## Optional Submodules
+
+  These modules provide additional features and can be explicitly imported:
+
+  - `Events.Query.DSL` - Macro-based DSL (`import Events.Query.DSL`)
+  - `Events.Query.Fragment` - Reusable query fragments (`use Events.Query.Fragment`)
+  - `Events.Query.Helpers` - Date/time utilities (`import Events.Query.Helpers`)
+  - `Events.Query.Multi` - Ecto.Multi integration (`alias Events.Query.Multi`)
+  - `Events.Query.FacetedSearch` - E-commerce faceted search
+  - `Events.Query.TestHelpers` - Test utilities (`use Events.Query.TestHelpers`)
+
+  ## Error Types
+
+  - `Events.Query.ValidationError` - Invalid operation or value
+  - `Events.Query.LimitExceededError` - Limit exceeds max_limit config
+  - `Events.Query.PaginationError` - Invalid pagination configuration
+  - `Events.Query.CursorError` - Invalid or expired cursor
+
+  ---
 
   ## Naming Conventions
 
@@ -87,34 +155,41 @@ defmodule Events.Query do
   }
   ```
 
-  ## Error Handling
-
-  Functions follow the Elixir convention:
-
-  - `execute/2` returns `{:ok, result}` or `{:error, exception}`
-  - `execute!/2` returns result or raises exception
-  - `build/1` returns `{:ok, query}` or `{:error, exception}`
-  - `build!/1` returns query or raises exception
-
-  Common errors:
-
-  - `Events.Query.ValidationError` - Invalid operation or value
-  - `Events.Query.LimitExceededError` - Limit exceeds max_limit config
-  - `Events.Query.PaginationError` - Invalid pagination configuration
-  - `Events.Query.CursorError` - Invalid or expired cursor
-
   ## Performance Tips
 
   1. **Use cursor pagination** for large datasets (offset becomes slow at high offsets)
-  2. **Index fields** used in filters, especially with `:similarity` mode
+
+  2. **Index filter fields properly:**
+     ```sql
+     -- Basic B-tree index for equality/range filters
+     CREATE INDEX idx_users_status ON users(status);
+
+     -- Partial index for common filters
+     CREATE INDEX idx_products_active ON products(category_id) WHERE deleted_at IS NULL;
+
+     -- GIN index for array/JSONB containment
+     CREATE INDEX idx_products_tags ON products USING gin(tags);
+
+     -- Trigram index for similarity search (requires pg_trgm)
+     CREATE EXTENSION IF NOT EXISTS pg_trgm;
+     CREATE INDEX idx_products_name_trgm ON products USING gin(name gin_trgm_ops);
+     ```
+
   3. **Use `:binding`** option for filters on joined tables (avoids subqueries)
-  4. **Limit preloads** - each preload is a separate query
+
+  4. **Limit preloads** - each preload is a separate query. Use `Query.join` + `Query.select`
+     for denormalized results in a single query.
 
   ## Limitations
 
-  - Window functions require compile-time macros (use `fragment/1` for dynamic)
+  - **Window functions:** Dynamic window functions aren't fully supported. Use `fragment/1`:
+    ```elixir
+    Query.select(token, %{
+      rank: fragment("ROW_NUMBER() OVER (PARTITION BY category_id ORDER BY price)")
+    })
+    ```
   - Subquery operators only work in filters, not in select
-  - `:explain_analyze` in debug executes the query (use carefully)
+  - `:explain_analyze` in debug executes the query (use with care in production)
   """
 
   alias Events.Query.{Token, Builder, Executor, Result}
@@ -591,6 +666,77 @@ defmodule Events.Query do
     filter(token, field, :gt, since)
   end
 
+  @doc """
+  Filter for records created today (UTC).
+
+  ## Examples
+
+      # Find users who signed up today
+      User
+      |> Query.new()
+      |> Query.created_today()
+
+      # Custom timestamp field
+      Order
+      |> Query.new()
+      |> Query.created_today(:placed_at)
+  """
+  @spec created_today(Token.t(), atom()) :: Token.t()
+  def created_today(token, field \\ :inserted_at) do
+    today = Date.utc_today()
+    start_time = DateTime.new!(today, ~T[00:00:00], "Etc/UTC")
+    end_time = DateTime.new!(today, ~T[23:59:59.999999], "Etc/UTC")
+    created_between(token, start_time, end_time, field)
+  end
+
+  @doc """
+  Filter for records updated in the last N hours.
+
+  ## Examples
+
+      # Find records updated in the last 2 hours
+      User
+      |> Query.new()
+      |> Query.updated_recently(2)
+
+      # Custom field
+      Product
+      |> Query.new()
+      |> Query.updated_recently(24, :last_synced_at)
+  """
+  @spec updated_recently(Token.t(), pos_integer(), atom()) :: Token.t()
+  def updated_recently(token, hours, field \\ :updated_at) when is_integer(hours) and hours > 0 do
+    since = DateTime.add(DateTime.utc_now(), -hours * 3600, :second)
+    updated_since(token, since, field)
+  end
+
+  @doc """
+  Filter records with a specific status or list of statuses.
+
+  Convenience wrapper for common status filtering pattern.
+
+  ## Examples
+
+      # Single status
+      Query.with_status(token, "active")
+
+      # Multiple statuses (IN query)
+      Query.with_status(token, ["pending", "processing"])
+
+      # Custom status field
+      Query.with_status(token, "published", :state)
+  """
+  @spec with_status(Token.t(), String.t() | [String.t()], atom()) :: Token.t()
+  def with_status(token, statuses, field \\ :status)
+
+  def with_status(token, statuses, field) when is_list(statuses) do
+    filter(token, field, :in, statuses)
+  end
+
+  def with_status(token, status, field) when is_binary(status) or is_atom(status) do
+    filter(token, field, :eq, status)
+  end
+
   # Normalize filter spec to 4-tuple format
   defp normalize_filter_spec({field, op, value}), do: {field, op, value, []}
   defp normalize_filter_spec({field, op, value, opts}), do: {field, op, value, opts}
@@ -884,8 +1030,23 @@ defmodule Events.Query do
     end)
   end
 
-  @doc "Add a preload (single association or list)"
-  @spec preload(Token.t(), atom() | keyword()) :: Token.t()
+  @doc """
+  Add a preload for associations.
+
+  ## Examples
+
+      # Single association
+      Query.preload(token, :posts)
+
+      # Multiple associations
+      Query.preload(token, [:posts, :comments])
+
+      # Nested preload with filters (use preload/3)
+      Query.preload(token, :posts, fn q ->
+        q |> Query.filter(:published, :eq, true)
+      end)
+  """
+  @spec preload(Token.t(), atom() | keyword() | list()) :: Token.t()
   def preload(token, associations) when is_atom(associations) do
     Token.add_operation(token, {:preload, associations})
   end
@@ -904,7 +1065,31 @@ defmodule Events.Query do
     preload(token, associations)
   end
 
-  @doc "Add nested preload with filters"
+  @doc """
+  Add nested preload with filters and ordering.
+
+  The builder function receives a fresh token and can add filters,
+  ordering, pagination, and even nested preloads.
+
+  ## Examples
+
+      # Preload only published posts
+      Query.preload(token, :posts, fn q ->
+        q
+        |> Query.filter(:published, :eq, true)
+        |> Query.order(:created_at, :desc)
+        |> Query.limit(10)
+      end)
+
+      # Nested preloads with filters at each level
+      Query.preload(token, :posts, fn q ->
+        q
+        |> Query.filter(:published, :eq, true)
+        |> Query.preload(:comments, fn c ->
+          c |> Query.filter(:approved, :eq, true)
+        end)
+      end)
+  """
   @spec preload(Token.t(), atom(), (Token.t() -> Token.t())) :: Token.t()
   def preload(token, association, builder_fn) when is_function(builder_fn, 1) do
     nested_token = Token.new(:nested)
@@ -1699,25 +1884,43 @@ defmodule Events.Query do
   def if_true(%Token{} = token, false, _fun), do: token
 
   @doc """
-  Apply multiple filter conditions from a map.
+  Apply multiple filter conditions from a map or keyword list.
 
   Supports both simple equality and explicit operator tuples.
+  Nil values and empty lists are automatically skipped.
 
   ## Filter Formats
 
   - `{field, value}` - Equality filter (`:eq`)
   - `{field, {op, value}}` - Explicit operator
-  - `{field, {op, value, opts}}` - Operator with options
+  - `{field, {op, value, opts}}` - Operator with options (e.g., binding)
 
-  ## Supported Operators
+  ## All Supported Operators
 
-  `:eq`, `:neq`, `:gt`, `:gte`, `:lt`, `:lte`, `:in`, `:not_in`,
-  `:like`, `:ilike`, `:is_nil`, `:not_nil`, `:between`,
-  `:contains`, `:jsonb_contains`, `:jsonb_has_key`
+  | Operator | SQL | Example |
+  |----------|-----|---------|
+  | `:eq` | `=` | `status: "active"` or `status: {:eq, "active"}` |
+  | `:neq` | `!=` | `status: {:neq, "deleted"}` |
+  | `:gt` | `>` | `age: {:gt, 18}` |
+  | `:gte` | `>=` | `rating: {:gte, 4}` |
+  | `:lt` | `<` | `price: {:lt, 100}` |
+  | `:lte` | `<=` | `stock: {:lte, 10}` |
+  | `:in` | `IN` | `status: {:in, ["active", "pending"]}` |
+  | `:not_in` | `NOT IN` | `role: {:not_in, ["banned", "spam"]}` |
+  | `:like` | `LIKE` | `name: {:like, "John%"}` |
+  | `:ilike` | `ILIKE` | `email: {:ilike, "%@gmail.com"}` |
+  | `:is_nil` | `IS NULL` | `deleted_at: {:is_nil, true}` |
+  | `:not_nil` | `IS NOT NULL` | `email: {:not_nil, true}` |
+  | `:between` | `BETWEEN` | `price: {:between, {10, 100}}` |
+  | `:contains` | `@>` | `tags: {:contains, ["elixir"]}` |
+  | `:jsonb_contains` | `@>` | `metadata: {:jsonb_contains, %{premium: true}}` |
+  | `:jsonb_has_key` | `?` | `settings: {:jsonb_has_key, "notifications"}` |
+  | `:similarity` | `similarity() >` | `name: {:similarity, "jon", threshold: 0.3}` |
+  | `:word_similarity` | `word_similarity() >` | `title: {:word_similarity, "phone"}` |
 
   ## Examples
 
-      # Simple equality filters
+      # Simple equality filters (most common)
       params = %{status: "active", role: "admin"}
       Query.filter_by(token, params)
 
@@ -1732,12 +1935,30 @@ defmodule Events.Query do
       }
       Query.filter_by(token, filters)
 
-      # With binding for joined tables
+      # JSONB queries
       filters = %{
-        status: "active",
-        category_name: {:eq, "Electronics", binding: :category}
+        metadata: {:jsonb_contains, %{verified: true}},
+        settings: {:jsonb_has_key, "theme"}
       }
       Query.filter_by(token, filters)
+
+      # Fuzzy matching (requires pg_trgm extension)
+      filters = %{
+        name: {:similarity, "john", threshold: 0.4}
+      }
+      Query.filter_by(token, filters)
+
+      # With binding for joined tables
+      token
+      |> Query.join(:category, :left, as: :cat)
+      |> Query.filter_by(%{
+        status: "active",
+        name: {:eq, "Electronics", binding: :cat}
+      })
+
+      # Nil values are skipped (useful with params)
+      params = %{status: "active", search: nil}  # search is skipped
+      Query.filter_by(token, params)
   """
   @spec filter_by(Token.t(), map() | keyword()) :: Token.t()
   def filter_by(%Token{} = token, filters) when is_map(filters) or is_list(filters) do
@@ -1773,6 +1994,28 @@ defmodule Events.Query do
   Supports multiple search modes from simple LIKE patterns to PostgreSQL
   fuzzy matching with pg_trgm similarity. Each field can have its own mode
   and rank for result ordering.
+
+  ## Quick Start
+
+      # Basic search (OR across all fields)
+      Query.search(token, "iphone", [:name, :description, :sku])
+
+      # E-commerce search with ranking (best matches first)
+      Query.search(token, "wireless headphones", [
+        {:sku, :exact, rank: 1, take: 3},           # Exact SKU matches first
+        {:name, :similarity, rank: 2, take: 10},    # Fuzzy name matches
+        {:brand, :ilike, rank: 3, take: 5},         # Brand contains term
+        {:description, :ilike, rank: 4, take: 5}    # Description matches
+      ], rank: true)
+      # Returns up to 23 results, ordered by relevance rank
+
+      # Cross-table search with joins
+      token
+      |> Query.join(:brand, :left, as: :brand)
+      |> Query.search("apple", [
+        {:name, :ilike},
+        {:name, :similarity, binding: :brand}       # Search brand.name too
+      ])
 
   ## Field Specifications
 

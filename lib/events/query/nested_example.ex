@@ -1,81 +1,12 @@
 defmodule Events.Query.NestedExample do
-  @moduledoc """
-  Comprehensive 3-level nested preload example with filters and pagination.
+  @moduledoc false
+  # Example module - not part of public API.
+  #
+  # Comprehensive 3-level nested preload example with filters and pagination.
+  # Demonstrates deep nesting capabilities of the query system.
 
-  This module demonstrates deep nesting capabilities of the query system,
-  showing how to build complex queries with multiple levels of preloads,
-  each with their own filters, ordering, and pagination.
-
-  ## Overview
-
-  The example shows a hierarchical data structure:
-
-      Organization
-      └── Users (Level 1 preload)
-          ├── Filters: active users only
-          ├── Pagination: 50 users per page
-          └── Posts (Level 2 preload)
-              ├── Filters: published posts only
-              ├── Pagination: 10 posts per user
-              ├── Ordering: by published date
-              └── Comments (Level 3 preload)
-                  ├── Filters: approved comments only
-                  ├── Pagination: 5 comments per post
-                  └── Ordering: by created date
-
-  ## Schema Assumptions
-
-  This example assumes the following Ecto schemas exist:
-
-      defmodule Organization do
-        schema "organizations" do
-          field :name, :string
-          field :status, :string
-          has_many :users
-        end
-      end
-
-      defmodule User do
-        schema "users" do
-          field :name, :string
-          field :email, :string
-          field :status, :string
-          field :role, :string
-          belongs_to :organization
-          has_many :posts
-        end
-      end
-
-      defmodule Post do
-        schema "posts" do
-          field :title, :string
-          field :content, :text
-          field :status, :string
-          field :views, :integer
-          field :published_at, :utc_datetime
-          belongs_to :user
-          has_many :comments
-          has_many :tags
-        end
-      end
-
-      defmodule Comment do
-        schema "comments" do
-          field :body, :text
-          field :status, :string
-          field :created_at, :utc_datetime
-          belongs_to :post
-          belongs_to :author, User
-        end
-      end
-
-      defmodule Tag do
-        schema "tags" do
-          field :name, :string
-          many_to_many :posts, Post
-        end
-      end
-  """
+  # Suppress warnings for undefined schemas
+  @compile {:no_warn_undefined, [Organization, User, Post, Comment, Tag]}
 
   import Events.Query.DSL
   alias Events.Query

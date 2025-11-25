@@ -1,25 +1,9 @@
 defmodule Events.Query.SyntaxConverter do
-  @moduledoc """
-  Convert between Pipeline and DSL syntax styles.
-
-  This module provides utilities to convert query tokens and AST between
-  the pipeline style and the macro DSL style.
-
-  ## Examples
-
-      # Convert token to DSL code
-      token = User
-        |> Query.new()
-        |> Query.filter(:status, :eq, "active")
-        |> Query.order(:name, :asc)
-
-      SyntaxConverter.token_to_dsl(token, User)
-      # => Returns DSL code string
-
-      # Convert token to pipeline code
-      SyntaxConverter.token_to_pipeline(token, User)
-      # => Returns pipeline code string
-  """
+  @moduledoc false
+  # Utility module for debugging/tooling - not part of primary public API.
+  #
+  # Convert between Pipeline and DSL syntax styles.
+  # Useful for tooling, debugging, and code generation.
 
   alias Events.Query.Token
 

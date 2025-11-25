@@ -1,10 +1,10 @@
 defmodule Events.Query.Validator do
-  @moduledoc """
-  Schema-aware validation for query operations.
-
-  Provides early validation with helpful error messages including
-  "did you mean?" suggestions for typos.
-  """
+  @moduledoc false
+  # Internal module - use Events.Query public API instead.
+  #
+  # Schema-aware validation for query operations.
+  # Provides early validation with helpful error messages including
+  # "did you mean?" suggestions for typos.
 
   alias Events.Query.ValidationError
 

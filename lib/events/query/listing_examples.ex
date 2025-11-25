@@ -1,20 +1,14 @@
 defmodule Events.Query.ListingExamples do
-  @moduledoc """
-  Comprehensive examples for listing/query operations.
-
-  This module demonstrates all the different ways to add filters and ordering
-  to queries, showcasing both individual calls and list-based approaches.
-
-  ## Key Patterns Demonstrated
-
-  1. **Multiple separate filter() calls** - Chain individual filters
-  2. **Single filters() call with list** - Pass all filters at once
-  3. **Multiple separate order() calls** - Chain individual orders
-  4. **Single orders() call with list** - Pass all orders at once
-  5. **Mixed approaches** - Combine both patterns
-
-  All patterns are equivalent and produce the same query token.
-  """
+  @moduledoc false
+  # Example module - not part of public API.
+  #
+  # Comprehensive examples for listing/query operations.
+  # Demonstrates different ways to add filters and ordering:
+  # 1. Multiple separate filter() calls - Chain individual filters
+  # 2. Single filters() call with list - Pass all filters at once
+  # 3. Multiple separate order() calls - Chain individual orders
+  # 4. Single orders() call with list - Pass all orders at once
+  # 5. Mixed approaches - Combine both patterns
 
   import Events.Query.DSL
   alias Events.Query

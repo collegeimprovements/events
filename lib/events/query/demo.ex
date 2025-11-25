@@ -1,17 +1,14 @@
 defmodule Events.Query.Demo do
-  @moduledoc """
-  Working demonstrations of the query system.
-
-  This module provides functions you can actually run to see how the
-  query system works, without requiring specific schemas.
-
-  ## Quick Start
-
-      # In IEx:
-      iex> Events.Query.Demo.token_composition()
-      iex> Events.Query.Demo.token_inspection()
-      iex> Events.Query.Demo.result_structure()
-  """
+  @moduledoc false
+  # Demo module - not part of public API.
+  #
+  # Working demonstrations of the query system.
+  # Run in IEx to see how the query system works.
+  #
+  # Quick Start:
+  #   iex> Events.Query.Demo.token_composition()
+  #   iex> Events.Query.Demo.token_inspection()
+  #   iex> Events.Query.Demo.result_structure()
 
   alias Events.Query
   alias Events.Query.{Token, Result}

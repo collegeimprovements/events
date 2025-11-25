@@ -1,16 +1,10 @@
 defmodule Events.Query.SearchExamples do
-  @moduledoc """
-  Comprehensive search examples with nested filters and pagination at multiple levels.
-
-  This module demonstrates building complex search queries with:
-  - Dynamic filter construction
-  - Multi-level nested preloads
-  - Different pagination at each nesting level
-  - Parameter interpolation throughout
-  - Real-world search scenarios
-
-  All examples use the DynamicBuilder for maximum flexibility.
-  """
+  @moduledoc false
+  # Example module - not part of public API.
+  #
+  # Comprehensive search examples with nested filters and pagination.
+  # Demonstrates: dynamic filter construction, multi-level nested preloads,
+  # different pagination at each level, parameter interpolation, real-world scenarios.
 
   alias Events.Query.DynamicBuilder
 

@@ -1,9 +1,9 @@
 defmodule Events.Query.Result do
-  @moduledoc """
-  Structured result format for all query executions.
-
-  Provides consistent interface with data, pagination, and metadata.
-  """
+  @moduledoc false
+  # Internal module - use Events.Query public API instead.
+  #
+  # Structured result format for all query executions.
+  # Provides consistent interface with data, pagination, and metadata.
 
   @type pagination :: %{
           type: :offset | :cursor | nil,
@@ -197,11 +197,13 @@ defmodule Events.Query.Result do
   def encode_cursor(nil, _fields), do: nil
 
   def encode_cursor(record, fields) when is_map(record) do
+    alias Events.Query.Builder
+
     cursor_data =
       fields
-      |> Enum.map(fn
-        {field, _dir} -> {field, Map.get(record, field)}
-        field -> {field, Map.get(record, field)}
+      |> Enum.map(fn spec ->
+        field = Builder.cursor_field(spec)
+        {field, Map.get(record, field)}
       end)
       |> Enum.into(%{})
 

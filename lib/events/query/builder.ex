@@ -1,22 +1,20 @@
 defmodule Events.Query.Builder do
-  @moduledoc """
-  Builds Ecto queries from tokens using pattern matching.
-
-  Converts the token's operation list into an executable Ecto query.
-
-  ## Architecture
-
-  The builder uses a unified filter system where all filter operators are defined
-  once in `build_filter_dynamic/4` and can be used both for direct query building
-  and dynamic expression building (for OR/AND groups).
-
-  ## Filter Operators
-
-  All operators defined in `@filter_operators` are supported in both contexts:
-  - Direct `filter/4` calls
-  - `where_any/2` (OR groups)
-  - `where_all/2` (AND groups)
-  """
+  @moduledoc false
+  # Internal module - use Events.Query public API instead.
+  #
+  # Builds Ecto queries from tokens using pattern matching.
+  # Converts the token's operation list into an executable Ecto query.
+  #
+  # Architecture:
+  # The builder uses a unified filter system where all filter operators are defined
+  # once in `build_filter_dynamic/4` and can be used both for direct query building
+  # and dynamic expression building (for OR/AND groups).
+  #
+  # Filter Operators:
+  # All operators defined in @filter_operators are supported in both contexts:
+  # - Direct filter/4 calls
+  # - where_any/2 (OR groups)
+  # - where_all/2 (AND groups)
 
   import Ecto.Query
   alias Events.Query.Token
@@ -391,10 +389,9 @@ defmodule Events.Query.Builder do
 
   defp apply_cursor_ordering(query, cursor_fields) do
     order_by_expr =
-      Enum.map(cursor_fields, fn
-        {field, dir} -> {dir, field}
-        field -> {:asc, field}
-      end)
+      cursor_fields
+      |> normalize_cursor_fields()
+      |> Enum.map(fn {field, dir} -> {dir, field} end)
 
     from(q in query, order_by: ^order_by_expr)
   end
@@ -565,6 +562,51 @@ defmodule Events.Query.Builder do
   end
 
   def decode_cursor(_), do: {:error, "Cursor must be a string"}
+
+  @doc """
+  Extract field name from a cursor field specification.
+
+  Cursor fields can be either atoms or `{field, direction}` tuples.
+  This helper normalizes them to just the field name.
+
+  ## Examples
+
+      cursor_field(:id) # => :id
+      cursor_field({:created_at, :desc}) # => :created_at
+  """
+  @spec cursor_field(atom() | {atom(), :asc | :desc}) :: atom()
+  def cursor_field({field, _dir}) when is_atom(field), do: field
+  def cursor_field(field) when is_atom(field), do: field
+
+  @doc """
+  Extract direction from a cursor field specification.
+
+  Returns `:asc` for bare atoms, extracts direction from tuples.
+
+  ## Examples
+
+      cursor_direction(:id) # => :asc
+      cursor_direction({:created_at, :desc}) # => :desc
+  """
+  @spec cursor_direction(atom() | {atom(), :asc | :desc}) :: :asc | :desc
+  def cursor_direction({_field, dir}) when dir in [:asc, :desc], do: dir
+  def cursor_direction(_field), do: :asc
+
+  @doc """
+  Normalize cursor fields to `{field, direction}` tuple format.
+
+  ## Examples
+
+      normalize_cursor_fields([:id, {:created_at, :desc}])
+      # => [{:id, :asc}, {:created_at, :desc}]
+  """
+  @spec normalize_cursor_fields([atom() | {atom(), :asc | :desc}]) :: [{atom(), :asc | :desc}]
+  def normalize_cursor_fields(fields) when is_list(fields) do
+    Enum.map(fields, fn
+      {field, dir} when is_atom(field) and dir in [:asc, :desc] -> {field, dir}
+      field when is_atom(field) -> {field, :asc}
+    end)
+  end
 
   defp decode_base64(encoded) do
     case Base.url_decode64(encoded, padding: false) do

@@ -1,21 +1,19 @@
 defmodule Events.Query.Token do
-  @moduledoc """
-  Composable query token using pipeline pattern.
-
-  Tokens are immutable and compose through a list of operations.
-  Each operation is validated and optimized before execution.
-
-  ## Configuration
-
-  - `:default_limit` - Default limit for pagination (default: 20)
-  - `:max_limit` - Maximum allowed limit (default: 1000)
-
-  Configure in config.exs:
-
-      config :events, Events.Query.Token,
-        default_limit: 50,
-        max_limit: 5000
-  """
+  @moduledoc false
+  # Internal module - use Events.Query public API instead.
+  #
+  # Composable query token using pipeline pattern.
+  # Tokens are immutable and compose through a list of operations.
+  # Each operation is validated and optimized before execution.
+  #
+  # Configuration:
+  # - :default_limit - Default limit for pagination (default: 20)
+  # - :max_limit - Maximum allowed limit (default: 1000)
+  #
+  # Configure in config.exs:
+  #     config :events, Events.Query.Token,
+  #       default_limit: 50,
+  #       max_limit: 5000
 
   alias __MODULE__
   alias Events.Query.{ValidationError, LimitExceededError, PaginationError}

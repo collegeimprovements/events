@@ -1,62 +1,16 @@
 defmodule Events.Query.DynamicBuilder do
-  @moduledoc """
-  Dynamic query builder with parameter support and consistent 4-arity tuples.
-
-  ## Consistent Tuple Format
-
-  ALL operations use 4-element tuples for maximum consistency:
-
-  - **Filter**: `{:filter, field, operation, value, options}`
-  - **Order**: `{:order, field, direction, options}`
-  - **Preload**: `{:preload, association, query_spec, options}`
-  - **Join**: `{:join, association, type, options}`
-  - **Paginate**: `{:paginate, type, config, options}`
-
-  ## Dynamic Building
-
-  Build queries from data structures with variable interpolation:
-
-      # Query specification with parameters
-      spec = %{
-        filters: [
-          {:filter, :status, :eq, {:param, :status}, []},
-          {:filter, :age, :gte, {:param, :min_age}, []}
-        ],
-        orders: [
-          {:order, :created_at, :desc, []},
-          {:order, :id, :asc, []}
-        ],
-        pagination: {:paginate, :offset, %{limit: 20, offset: 0}, []}
-      }
-
-      # Bind parameters
-      params = %{status: "active", min_age: 18}
-
-      # Build query
-      query = DynamicBuilder.build(User, spec, params)
-
-  ## Nested Specifications
-
-  Support for nested preloads with their own filters/pagination:
-
-      spec = %{
-        filters: [{:filter, :status, :eq, "active", []}],
-        preloads: [
-          {:preload, :posts, %{
-            filters: [{:filter, :published, :eq, true, []}],
-            orders: [{:order, :created_at, :desc, []}],
-            pagination: {:paginate, :offset, %{limit: 10}, []},
-            preloads: [
-              {:preload, :comments, %{
-                filters: [{:filter, :approved, :eq, true, []}],
-                orders: [{:order, :created_at, :desc, []}],
-                pagination: {:paginate, :offset, %{limit: 5}, []}
-              }, []}
-            ]
-          }, []}
-        ]
-      }
-  """
+  @moduledoc false
+  # Advanced utility module - not part of primary public API.
+  #
+  # Dynamic query builder with parameter support and consistent 4-arity tuples.
+  # Use this when building queries programmatically from data structures.
+  #
+  # Tuple Format:
+  # - Filter: {:filter, field, operation, value, options}
+  # - Order: {:order, field, direction, options}
+  # - Preload: {:preload, association, query_spec, options}
+  # - Join: {:join, association, type, options}
+  # - Paginate: {:paginate, type, config, options}
 
   alias Events.Query
   alias Events.Query.Token

@@ -1,27 +1,9 @@
 defmodule Events.Query.Examples do
-  @moduledoc """
-  Comprehensive examples demonstrating the query system.
-
-  **IMPORTANT**: This module contains documentation examples using placeholder
-  schemas (User, Post, Comment, etc.) that don't exist in this application.
-  These functions are for **reference only** and will not execute.
-
-  To use the query system with your own schemas, replace the placeholder
-  schema names with your actual Ecto schemas.
-
-  ## Table of Contents
-
-  1. Basic Queries
-  2. Filtering
-  3. Pagination
-  4. Joins and Preloads
-  5. Aggregations
-  6. CTEs and Subqueries
-  7. Window Functions
-  8. Transactions
-  9. Batch Operations
-  10. Advanced Patterns
-  """
+  @moduledoc false
+  # Documentation examples module - not part of public API.
+  #
+  # Contains documentation examples using placeholder schemas (User, Post, etc.)
+  # that don't exist in this application. These functions are for reference only.
 
   # Suppress warnings for undefined schemas (these are documentation examples)
   @compile {:no_warn_undefined,

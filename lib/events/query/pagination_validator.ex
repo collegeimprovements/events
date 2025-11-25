@@ -1,10 +1,10 @@
 defmodule Events.Query.PaginationValidator do
-  @moduledoc """
-  Validates cursor pagination configuration to prevent data loss.
-
-  Ensures cursor_fields match order_by specification exactly to avoid
-  skipped or duplicated records during pagination.
-  """
+  @moduledoc false
+  # Internal module - use Events.Query public API instead.
+  #
+  # Validates cursor pagination configuration to prevent data loss.
+  # Ensures cursor_fields match order_by specification exactly to avoid
+  # skipped or duplicated records during pagination.
 
   require Logger
 

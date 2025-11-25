@@ -1,14 +1,14 @@
 defmodule Events.Query.Executor do
-  @moduledoc """
-  Executes queries with production features.
-
-  - Telemetry integration
-  - Optional caching
-  - Batch execution
-  - Streaming support
-  - Timeout handling
-  - Total count computation
-  """
+  @moduledoc false
+  # Internal module - use Events.Query public API instead.
+  #
+  # Executes queries with production features:
+  # - Telemetry integration
+  # - Optional caching
+  # - Batch execution
+  # - Streaming support
+  # - Timeout handling
+  # - Total count computation
 
   import Ecto.Query
   alias Events.Query.{Token, Builder, Result}
@@ -110,27 +110,105 @@ defmodule Events.Query.Executor do
     end
   end
 
-  @doc "Execute query and return stream"
+  @doc """
+  Execute query and return a stream for large datasets.
+
+  Streams process records in batches without loading all into memory.
+  Useful for exports, migrations, and processing large datasets.
+
+  ## Options
+
+  - `:repo` - Repo to use (default: Events.Repo)
+  - `:max_rows` - Batch size for streaming (default: 500)
+
+  ## Warning
+
+  Streams should be used within a transaction for consistent reads.
+  Consider adding a limit or pagination for bounded result sets.
+
+  ## Examples
+
+      # Basic streaming
+      token
+      |> Query.stream()
+      |> Stream.each(&process_record/1)
+      |> Stream.run()
+
+      # With transaction for consistency
+      Repo.transaction(fn ->
+        token
+        |> Query.stream(max_rows: 1000)
+        |> Stream.each(&process_record/1)
+        |> Stream.run()
+      end)
+  """
   @spec stream(Token.t(), keyword()) :: Enumerable.t()
   def stream(%Token{} = token, opts \\ []) do
     repo = opts[:repo] || @default_repo
     max_rows = opts[:max_rows] || 500
 
+    # Warn if query has no limits - potential for large result sets
+    unless has_pagination?(token) or has_explicit_limit?(token) do
+      require Logger
+
+      Logger.warning("""
+      Stream executed without pagination or limit.
+      This may load large amounts of data. Consider:
+      1. Adding pagination: Query.paginate(token, :cursor, limit: 1000)
+      2. Adding explicit limit: Query.limit(token, 10000)
+      3. Using max_rows option to control batch size (current: #{max_rows})
+      """)
+    end
+
     query = Builder.build(token)
     repo.stream(query, max_rows: max_rows)
   end
 
-  @doc "Execute multiple queries in batch"
-  @spec batch([Token.t()], keyword()) :: [Result.t()]
+  @doc """
+  Execute multiple queries in parallel batch.
+
+  Returns a list of results in the same order as input tokens.
+  Each result is `{:ok, result}` or `{:error, exception}`, allowing
+  partial failures without crashing the entire batch.
+
+  ## Options
+
+  - `:timeout` - Timeout per query in ms (default: 15000)
+  - All options from `execute/2`
+
+  ## Examples
+
+      tokens = [
+        User |> Query.new() |> Query.filter(:active, :eq, true),
+        Post |> Query.new() |> Query.limit(10)
+      ]
+
+      results = Query.batch(tokens)
+
+      Enum.each(results, fn
+        {:ok, result} -> IO.puts("Got \#{length(result.data)} records")
+        {:error, error} -> IO.puts("Query failed: \#{Exception.message(error)}")
+      end)
+  """
+  @spec batch([Token.t()], keyword()) :: [{:ok, Result.t()} | {:error, Exception.t()}]
   def batch(tokens, opts \\ []) when is_list(tokens) do
+    timeout = opts[:timeout] || @default_timeout
+
     # Execute all queries in parallel using Task
+    # Each task returns {:ok, result} or {:error, exception}
     tasks =
       Enum.map(tokens, fn token ->
-        Task.async(fn -> execute(token, opts) end)
+        Task.async(fn ->
+          try do
+            execute(token, opts)
+          rescue
+            e -> {:error, e}
+          end
+        end)
       end)
 
     # Collect results maintaining order
-    Enum.map(tasks, &Task.await(&1, opts[:timeout] || @default_timeout))
+    Enum.map(tasks, &Task.await(&1, timeout))
   end
 
   ## Helpers
@@ -258,15 +336,28 @@ defmodule Events.Query.Executor do
   end
 
   ## Telemetry
+  #
+  # Telemetry events emitted:
+  # - [:events, :query, :start] - Query execution starting
+  # - [:events, :query, :stop] - Query execution completed
+  # - [:events, :query, :exception] - Query execution failed
+  #
+  # Metadata includes filter context for debugging slow queries.
 
   defp emit_telemetry_start(token, opts) do
     if opts[:telemetry] != false do
+      {filter_summary, filter_count} = extract_filter_context(token)
+
       :telemetry.execute(
         [:events, :query, :start],
         %{system_time: System.system_time()},
         %{
           source: token.source,
           operation_count: length(token.operations),
+          filter_count: filter_count,
+          filters: filter_summary,
+          has_pagination: has_pagination?(token),
+          has_joins: has_joins?(token),
           opts: opts
         }
       )
@@ -275,6 +366,8 @@ defmodule Events.Query.Executor do
 
   defp emit_telemetry_stop(token, result, opts) do
     if opts[:telemetry] != false do
+      {filter_summary, filter_count} = extract_filter_context(token)
+
       :telemetry.execute(
         [:events, :query, :stop],
         %{
@@ -285,10 +378,27 @@ defmodule Events.Query.Executor do
           source: token.source,
           operation_count: length(token.operations),
           result_count: length(result.data || []),
+          filter_count: filter_count,
+          filters: filter_summary,
+          has_pagination: has_pagination?(token),
           opts: opts
         }
       )
     end
+  end
+
+  # Extract filter context for telemetry (field:operator format, no values for security)
+  defp extract_filter_context(%Token{operations: ops}) do
+    filters =
+      ops
+      |> Enum.filter(fn {op, _} -> op == :filter end)
+      |> Enum.map(fn {:filter, {field, op, _value, _opts}} -> "#{field}:#{op}" end)
+
+    {filters, length(filters)}
+  end
+
+  defp has_joins?(%Token{operations: ops}) do
+    Enum.any?(ops, fn {op, _} -> op == :join end)
   end
 
   defp emit_telemetry_exception(token, exception, duration, opts) do

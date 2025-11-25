@@ -1,21 +1,23 @@
 defmodule Events.Query.Guide do
-  @moduledoc """
+  @moduledoc false
+  # Reference guide module - not part of public API.
+  # This module contains comprehensive documentation for Events.Query.
+  # The content below is kept as a large @doc for reference purposes.
+
+  @doc ~S"""
   # Events.Query - Comprehensive Reference Guide
 
   A production-grade, composable query builder for Ecto with a focus on
-  **simplicity**, **consistency**, **composability**, and **safety**.
+  simplicity, consistency, composability, and safety.
 
   ## Design Philosophy
 
-  Inspired by:
-  - **SQL**: Familiar declarative syntax
-  - **PRQL**: Pipeline composition and transforms
-  - **Functional Programming**: Immutable tokens, pure transformations
-  - **Elixir**: Pattern matching, explicit > implicit, pipelines
+  - SQL: Familiar declarative syntax
+  - PRQL: Pipeline composition and transforms
+  - Functional Programming: Immutable tokens, pure transformations
+  - Elixir: Pattern matching, explicit > implicit, pipelines
 
-  ## Core Concepts
-
-  ### Token Pattern
+  ## Core Concepts - Token Pattern
 
   Queries are built by composing operations on an immutable Token:
 
@@ -996,4 +998,5 @@ defmodule Events.Query.Guide do
   Query.stream(token) |> Stream.each(&process/1) |> Stream.run()
   ```
   """
+  def guide, do: :see_moduledoc
 end

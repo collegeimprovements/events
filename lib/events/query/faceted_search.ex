@@ -239,7 +239,10 @@ defmodule Events.Query.FacetedSearch do
       FacetedSearch.facet(builder, :ratings, :rating)
   """
   @spec facet(t(), atom(), atom(), keyword()) :: t()
-  def facet(%__MODULE__{facets: facets} = builder, name, field, opts \\ []) do
+  def facet(%__MODULE__{facets: facets, source: source} = builder, name, field, opts \\ []) do
+    # Validate field exists in schema (if source is a schema module)
+    validate_facet_field(source, field, opts[:join])
+
     config = %{
       field: field,
       join: opts[:join],
@@ -251,6 +254,27 @@ defmodule Events.Query.FacetedSearch do
 
     %{builder | facets: facets ++ [{name, config}]}
   end
+
+  # Validate facet field exists in schema (warns if not found)
+  defp validate_facet_field(source, field, join) when is_atom(source) and is_nil(join) do
+    if function_exported?(source, :__schema__, 1) do
+      fields = source.__schema__(:fields)
+
+      unless field in fields do
+        require Logger
+
+        Logger.warning("""
+        Facet field #{inspect(field)} not found in #{inspect(source)}.
+        Available fields: #{inspect(fields)}
+
+        If this is a field from a joined table, specify the :join option:
+          facet(builder, :name, :category_name, join: :category)
+        """)
+      end
+    end
+  end
+
+  defp validate_facet_field(_source, _field, _join), do: :ok
 
   @doc """
   Set pagination for the main results.
