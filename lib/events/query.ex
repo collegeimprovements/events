@@ -1681,7 +1681,7 @@ defmodule Events.Query do
     case result do
       [] -> nil
       [single] -> single
-      [_ | _] -> raise Ecto.MultipleResultsError, queryable: build(token)
+      [_ | _] -> raise Ecto.MultipleResultsError, queryable: build(token), count: 2
     end
   end
 

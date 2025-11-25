@@ -73,7 +73,9 @@ defmodule Events.MixProject do
       {:req_s3, "~> 0.2.3"},
       {:hammer, "~> 6.2"},
       {:hammer_backend_redis, "~> 6.2"},
-      {:redix, "~> 1.5"}
+      {:redix, "~> 1.5"},
+      # Benchmarking
+      {:benchee, "~> 1.3", only: :dev}
     ]
   end
 
