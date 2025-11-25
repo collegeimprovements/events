@@ -66,7 +66,7 @@ defmodule Events.DSLAdvancedTest do
         end
 
       assert length(token.operations) == 3
-      assert [{:filter, _}, {:raw_where, {sql, params}}, {:filter, _}] = token.operations
+      assert [{:filter, _}, {:raw_where, {sql, params, _opts}}, {:filter, _}] = token.operations
       assert sql == "age BETWEEN :min AND :max"
       assert params == %{min: 18, max: 65}
     end
@@ -77,9 +77,9 @@ defmodule Events.DSLAdvancedTest do
           raw_where("created_at > NOW() - INTERVAL '7 days'")
         end
 
-      assert [{:raw_where, {sql, params}}] = token.operations
+      assert [{:raw_where, {sql, params, _opts}}] = token.operations
       assert sql =~ "NOW()"
-      assert params == %{}
+      assert params == []
     end
 
     test "raw_where with single parameter" do
@@ -88,7 +88,7 @@ defmodule Events.DSLAdvancedTest do
           raw_where("status = :status", %{status: "premium"})
         end
 
-      assert [{:raw_where, {"status = :status", %{status: "premium"}}}] = token.operations
+      assert [{:raw_where, {"status = :status", %{status: "premium"}, []}}] = token.operations
     end
 
     test "multiple raw_where clauses" do
@@ -271,6 +271,148 @@ defmodule Events.DSLAdvancedTest do
       assert %Query.Token{} = token
       # 1: with_cte, 2: filter (subquery), 3: raw_where, 4-5: filters, 6: order, 7: paginate
       assert length(token.operations) == 7
+    end
+  end
+
+  describe "DSL - maybe with :when predicate" do
+    test "maybe with default :present predicate" do
+      # nil value - should not add filter
+      token =
+        Query.new(User)
+        |> Query.maybe(:status, nil)
+
+      assert token.operations == []
+
+      # present value - should add filter
+      token =
+        Query.new(User)
+        |> Query.maybe(:status, "active")
+
+      assert [{:filter, {:status, :eq, "active", []}}] = token.operations
+    end
+
+    test "maybe with :not_nil predicate allows false and empty string" do
+      # nil - should not add filter
+      token =
+        Query.new(User)
+        |> Query.maybe(:active, nil, :eq, when: :not_nil)
+
+      assert token.operations == []
+
+      # false - should add filter (not nil)
+      token =
+        Query.new(User)
+        |> Query.maybe(:active, false, :eq, when: :not_nil)
+
+      assert [{:filter, {:active, :eq, false, []}}] = token.operations
+
+      # empty string - should add filter (not nil)
+      token =
+        Query.new(User)
+        |> Query.maybe(:name, "", :eq, when: :not_nil)
+
+      assert [{:filter, {:name, :eq, "", []}}] = token.operations
+    end
+
+    test "maybe with :not_blank predicate" do
+      # nil - should not add filter
+      token =
+        Query.new(User)
+        |> Query.maybe(:name, nil, :ilike, when: :not_blank)
+
+      assert token.operations == []
+
+      # empty string - should not add filter
+      token =
+        Query.new(User)
+        |> Query.maybe(:name, "", :ilike, when: :not_blank)
+
+      assert token.operations == []
+
+      # whitespace only - should not add filter
+      token =
+        Query.new(User)
+        |> Query.maybe(:name, "   ", :ilike, when: :not_blank)
+
+      assert token.operations == []
+
+      # valid string - should add filter
+      token =
+        Query.new(User)
+        |> Query.maybe(:name, "john", :ilike, when: :not_blank)
+
+      assert [{:filter, {:name, :ilike, "john", []}}] = token.operations
+    end
+
+    test "maybe with :not_empty predicate" do
+      # nil - should not add filter
+      token =
+        Query.new(User)
+        |> Query.maybe(:tags, nil, :in, when: :not_empty)
+
+      assert token.operations == []
+
+      # empty list - should not add filter
+      token =
+        Query.new(User)
+        |> Query.maybe(:tags, [], :in, when: :not_empty)
+
+      assert token.operations == []
+
+      # empty map - should not add filter
+      token =
+        Query.new(User)
+        |> Query.maybe(:metadata, %{}, :eq, when: :not_empty)
+
+      assert token.operations == []
+
+      # non-empty list - should add filter
+      token =
+        Query.new(User)
+        |> Query.maybe(:tags, ["a", "b"], :in, when: :not_empty)
+
+      assert [{:filter, {:tags, :in, ["a", "b"], []}}] = token.operations
+    end
+
+    test "maybe with custom predicate function" do
+      # Value doesn't pass predicate
+      token =
+        Query.new(User)
+        |> Query.maybe(:score, 0, :gte, when: &(&1 && &1 > 0))
+
+      assert token.operations == []
+
+      # Value passes predicate
+      token =
+        Query.new(User)
+        |> Query.maybe(:score, 50, :gte, when: &(&1 && &1 > 0))
+
+      assert [{:filter, {:score, :gte, 50, []}}] = token.operations
+    end
+
+    test "maybe_on with :when predicate on joined table" do
+      # nil value - should not add filter
+      token =
+        Query.new(Product)
+        |> Query.maybe_on(:cat, :name, nil, :eq, when: :not_nil)
+
+      assert token.operations == []
+
+      # present value - should add filter with binding
+      token =
+        Query.new(Product)
+        |> Query.maybe_on(:cat, :name, "Electronics", :eq, when: :not_nil)
+
+      assert [{:filter, {:name, :eq, "Electronics", [binding: :cat]}}] = token.operations
+    end
+
+    test "maybe in DSL with :when option" do
+      token =
+        query User do
+          maybe(:status == "active", when: :not_nil)
+        end
+
+      assert [{:filter, {:status, :eq, "active", []}}] = token.operations
     end
   end
 end

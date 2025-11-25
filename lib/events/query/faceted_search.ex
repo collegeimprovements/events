@@ -257,24 +257,31 @@ defmodule Events.Query.FacetedSearch do
 
   # Validate facet field exists in schema (warns if not found)
   defp validate_facet_field(source, field, join) when is_atom(source) and is_nil(join) do
-    if function_exported?(source, :__schema__, 1) do
-      fields = source.__schema__(:fields)
-
-      unless field in fields do
-        require Logger
-
-        Logger.warning("""
-        Facet field #{inspect(field)} not found in #{inspect(source)}.
-        Available fields: #{inspect(fields)}
-
-        If this is a field from a joined table, specify the :join option:
-          facet(builder, :name, :category_name, join: :category)
-        """)
-      end
-    end
+    do_validate_facet_field(function_exported?(source, :__schema__, 1), source, field)
   end
 
   defp validate_facet_field(_source, _field, _join), do: :ok
+
+  defp do_validate_facet_field(false, _source, _field), do: :ok
+
+  defp do_validate_facet_field(true, source, field) do
+    fields = source.__schema__(:fields)
+    warn_if_field_missing(field in fields, field, source, fields)
+  end
+
+  defp warn_if_field_missing(true, _field, _source, _fields), do: :ok
+
+  defp warn_if_field_missing(false, field, source, fields) do
+    require Logger
+
+    Logger.warning("""
+    Facet field #{inspect(field)} not found in #{inspect(source)}.
+    Available fields: #{inspect(fields)}
+
+    If this is a field from a joined table, specify the :join option:
+      facet(builder, :name, :category_name, join: :category)
+    """)
+  end
 
   @doc """
   Set pagination for the main results.
@@ -464,32 +471,34 @@ defmodule Events.Query.FacetedSearch do
   defp apply_select(token, nil), do: token
   defp apply_select(token, fields), do: Query.select(token, fields)
 
-  # Execute all facet count queries
+  # Execute all facet count queries - parallel version
   defp execute_facet_queries(%__MODULE__{facets: facets} = builder, opts) do
-    parallel? = Keyword.get(opts, :parallel_facets, true)
-
-    if parallel? do
-      facets
-      |> Task.async_stream(fn {name, config} ->
-        {name, execute_single_facet(builder, name, config, opts)}
-      end)
-      |> Enum.reduce(%{}, fn {:ok, {name, counts}}, acc ->
-        Map.put(acc, name, counts)
-      end)
-    else
-      Enum.reduce(facets, %{}, fn {name, config}, acc ->
-        Map.put(acc, name, execute_single_facet(builder, name, config, opts))
-      end)
-    end
+    opts
+    |> Keyword.get(:parallel_facets, true)
+    |> do_execute_facets(facets, builder, opts)
   end
 
-  # Execute a single facet count query
-  defp execute_single_facet(builder, _name, config, opts) do
-    if config.ranges do
-      execute_range_facet(builder, config, opts)
-    else
-      execute_group_facet(builder, config, opts)
-    end
+  defp do_execute_facets(true, facets, builder, opts) do
+    facets
+    |> Task.async_stream(&execute_facet_tuple(&1, builder, opts))
+    |> Map.new(fn {:ok, result} -> result end)
+  end
+
+  defp do_execute_facets(false, facets, builder, opts) do
+    Map.new(facets, &execute_facet_tuple(&1, builder, opts))
+  end
+
+  defp execute_facet_tuple({name, config}, builder, opts) do
+    {name, execute_single_facet(builder, config, opts)}
+  end
+
+  # Execute a single facet - pattern match on ranges presence
+  defp execute_single_facet(builder, %{ranges: ranges} = config, opts) when not is_nil(ranges) do
+    execute_range_facet(builder, config, opts)
+  end
+
+  defp execute_single_facet(builder, config, opts) do
+    execute_group_facet(builder, config, opts)
   end
 
   # Execute a facet with predefined ranges (e.g., price ranges)
@@ -531,71 +540,50 @@ defmodule Events.Query.FacetedSearch do
 
   # Execute a facet with group by (e.g., categories, brands)
   defp execute_group_facet(builder, config, opts) do
-    base_token = build_facet_base_token(builder, config)
     repo = opts[:repo] || get_repo()
 
-    # Build the count query with group by
-    base_query =
-      base_token
-      |> Query.Builder.build()
-      |> exclude(:select)
-      |> exclude(:order_by)
+    builder
+    |> build_facet_base_token(config)
+    |> Query.Builder.build()
+    |> exclude(:select)
+    |> exclude(:order_by)
+    |> build_group_query(config)
+    |> repo.all()
+  end
 
-    # Build group by with dynamic expressions
-    count_field = config.count_field
+  # Build group query with join for related table labels
+  defp build_group_query(base_query, %{join: join, label_field: label_field, count_field: count_field})
+       when not is_nil(join) do
+    from(q in base_query,
+      left_join: j in assoc(q, ^join),
+      group_by: [field(q, ^count_field), field(j, ^label_field)],
+      select: %{id: field(q, ^count_field), label: field(j, ^label_field), count: count(q.id)},
+      order_by: [desc: count(q.id)]
+    )
+  end
 
-    query =
-      if config.join do
-        # For joins, we need to use a simpler approach with raw Ecto
-        # This queries counts grouped by the field
-        join_assoc = config.join
-        label_field = config.label_field
-
-        from(q in base_query,
-          left_join: j in assoc(q, ^join_assoc),
-          group_by: [field(q, ^count_field), field(j, ^label_field)],
-          select: %{
-            id: field(q, ^count_field),
-            label: field(j, ^label_field),
-            count: count(q.id)
-          },
-          order_by: [desc: count(q.id)]
-        )
-      else
-        from(q in base_query,
-          group_by: field(q, ^count_field),
-          select: %{
-            id: field(q, ^count_field),
-            count: count(q.id)
-          },
-          order_by: [desc: count(q.id)]
-        )
-      end
-
-    repo.all(query)
+  # Build simple group query without join
+  defp build_group_query(base_query, %{count_field: count_field}) do
+    from(q in base_query,
+      group_by: field(q, ^count_field),
+      select: %{id: field(q, ^count_field), count: count(q.id)},
+      order_by: [desc: count(q.id)]
+    )
   end
 
   # Build base token for facet, optionally excluding the facet's own filter
   defp build_facet_base_token(builder, config) do
-    filters =
-      if config.exclude_from_self do
-        Map.delete(builder.filters, config.field)
-      else
-        builder.filters
-      end
-
-    token = Query.new(builder.source)
-
-    # Apply search if configured
-    token =
-      case builder.search_config do
-        {term, fields, opts} -> Query.search(token, term, fields, opts)
-        nil -> token
-      end
-
-    # Apply filters (excluding self if configured)
-    Query.filter_by(token, filters)
+    builder.source
+    |> Query.new()
+    |> maybe_apply_search(builder.search_config)
+    |> Query.filter_by(get_facet_filters(builder.filters, config))
   end
+
+  defp get_facet_filters(filters, %{exclude_from_self: true, field: field}), do: Map.delete(filters, field)
+  defp get_facet_filters(filters, _config), do: filters
+
+  defp maybe_apply_search(token, nil), do: token
+  defp maybe_apply_search(token, {term, fields, opts}), do: Query.search(token, term, fields, opts)
 
   defp get_repo do
     Application.get_env(:events, :ecto_repos, []) |> List.first() ||

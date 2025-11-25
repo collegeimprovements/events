@@ -2527,4 +2527,1885 @@ defmodule Events.Query.Examples do
   ```
   """
   def ecommerce_summary, do: :see_docs_above
+
+  # ============================================================================
+  # ADVANCED FEATURES - Maybe, Scopes, String Ops, Field Comparison
+  # ============================================================================
+
+  @doc """
+  ## Summary: Maybe (Conditional Filters)
+
+  `maybe` filters only apply when the value is "present" (not nil, not empty string,
+  not empty list, not empty map). Perfect for building dynamic queries from user params.
+
+  ```elixir
+  # Basic maybe - only applies filter if value is truthy
+  Query.maybe(token, :status, params[:status])
+
+  # Maybe with specific operator
+  Query.maybe(token, :price, params[:min_price], :gte)
+  Query.maybe(token, :category, params[:categories], :in)
+  Query.maybe(token, :name, params[:search], :ilike)
+
+  # Maybe with options (case insensitive)
+  Query.maybe(token, :email, params[:email], :eq, case_insensitive: true)
+  Query.maybe(token, :name, params[:name], :ilike, case_insensitive: true)
+  Query.maybe(token, :tags, params[:tags], :in, case_insensitive: true)
+
+  # Maybe on joined tables
+  Query.maybe_on(token, :category, :name, params[:category_name], :eq)
+  Query.maybe_on(token, :brand, :name, params[:brand], :ilike, case_insensitive: true)
+
+  # DSL syntax
+  query User do
+    maybe :status == params[:status]
+    maybe :role in params[:roles]
+    maybe :name =~ params[:search]
+    maybe :age >= params[:min_age]
+    maybe :age <= params[:max_age]
+
+    # On joined tables
+    left_join :department, as: :dept
+    maybe {:dept, :name} == params[:department], case: :insensitive
+  end
+  ```
+  """
+  def maybe_examples, do: :see_docs_above
+
+  @doc """
+  ## Summary: Complex Maybe Example with All Features
+
+  ```elixir
+  defmodule ProductSearch do
+    alias Events.Query
+    import Events.Query.Helpers
+
+    def search(params \\\\ %{}) do
+      Product
+      |> Query.new()
+
+      # ========== ROOT LEVEL MAYBE FILTERS ==========
+
+      # Text search with ILIKE (case insensitive partial match)
+      |> Query.maybe(:name, build_pattern(params[:search]), :ilike)
+
+      # Maybe with :in operator - filter by multiple statuses
+      |> Query.maybe(:status, params[:statuses], :in)
+
+      # Maybe with :eq operator
+      |> Query.maybe(:active, params[:active], :eq)
+
+      # Maybe with case_insensitive option
+      |> Query.maybe(:sku, params[:sku], :eq, case_insensitive: true)
+
+      # Price range using maybe
+      |> Query.maybe(:price, params[:min_price], :gte)
+      |> Query.maybe(:price, params[:max_price], :lte)
+
+      # Stock check - only apply if flag is true
+      |> maybe_in_stock(params[:in_stock])
+
+      # Date filters
+      |> Query.maybe(:inserted_at, params[:created_after], :gte)
+      |> Query.maybe(:inserted_at, params[:created_before], :lte)
+
+      # ========== JOINS WITH MAYBE FILTERS ==========
+
+      # Category join with case-insensitive IN filter
+      |> Query.join(:category, :left, as: :cat)
+      |> Query.maybe_on(:cat, :name, params[:categories], :in, case_insensitive: true)
+      |> Query.maybe_on(:cat, :active, true, :eq)
+
+      # Brand join with partial match (ILIKE)
+      |> Query.join(:brand, :left, as: :brand)
+      |> Query.maybe_on(:brand, :name, build_pattern(params[:brand]), :ilike)
+      |> Query.maybe_on(:brand, :country, params[:brand_country], :eq, case_insensitive: true)
+
+      # Supplier join
+      |> Query.join(:supplier, :left, as: :supplier)
+      |> Query.maybe_on(:supplier, :country, params[:supplier_country], :eq)
+      |> Query.maybe_on(:supplier, :verified, true, :eq)
+      |> Query.maybe_on(:supplier, :rating, params[:min_supplier_rating], :gte)
+
+      # Tags join (many-to-many)
+      |> Query.join(:tags, :left, as: :tag)
+      |> Query.maybe_on(:tag, :name, params[:tags], :in, case_insensitive: true)
+
+      # ========== PRELOADS WITH MAYBE FILTERS ==========
+
+      # Simple preload
+      |> Query.preload(:category)
+      |> Query.preload(:brand)
+
+      # Preload with conditional filters
+      |> Query.preload(:variants, fn q ->
+        q
+        |> Query.maybe(:status, "active", :eq)
+        |> Query.maybe(:sku, params[:variant_sku], :ilike, case_insensitive: true)
+        |> Query.maybe(:color, params[:colors], :in, case_insensitive: true)
+        |> Query.maybe(:size, params[:sizes], :in)
+        |> Query.maybe(:price, params[:variant_max_price], :lte)
+        |> Query.order(:price, :asc)
+      end)
+
+      # Preload reviews with nested user preload
+      |> Query.preload(:reviews, fn q ->
+        q
+        |> Query.maybe(:rating, params[:min_rating], :gte)
+        |> Query.maybe(:status, "approved", :eq)
+        |> Query.maybe(:content, build_pattern(params[:review_search]), :ilike)
+        |> Query.order(:created_at, :desc)
+        |> Query.limit(10)
+        |> Query.preload(:user, fn user_q ->
+          user_q
+          |> Query.maybe(:status, "active", :eq)
+          |> Query.select([:id, :name, :avatar_url])
+        end)
+      end)
+
+      # Preload inventory with warehouse info
+      |> Query.preload(:warehouse_stocks, fn q ->
+        q
+        |> Query.maybe(:quantity, 0, :gt)
+        |> Query.preload(:warehouse, fn wh_q ->
+          wh_q
+          |> Query.maybe(:region, params[:warehouse_region], :eq)
+          |> Query.maybe(:active, true, :eq)
+        end)
+      end)
+
+      # ========== ORDERING ==========
+      |> apply_ordering(params[:sort])
+
+      # ========== CURSOR PAGINATION ==========
+      |> apply_pagination(params)
+
+      |> Query.execute()
+    end
+
+    # Helper: Build LIKE pattern
+    defp build_pattern(nil), do: nil
+    defp build_pattern(""), do: nil
+    defp build_pattern(term), do: "%\#{term}%"
+
+    # Helper: Conditional stock filter
+    defp maybe_in_stock(token, true), do: Query.filter(token, :stock_quantity, :gt, 0)
+    defp maybe_in_stock(token, _), do: token
+
+    # Helper: Dynamic ordering
+    defp apply_ordering(token, "price_asc"), do: Query.order(token, :price, :asc)
+    defp apply_ordering(token, "price_desc"), do: Query.order(token, :price, :desc)
+    defp apply_ordering(token, "name"), do: Query.order(token, :name, :asc)
+    defp apply_ordering(token, "newest"), do: Query.order(token, :inserted_at, :desc)
+    defp apply_ordering(token, "popular") do
+      token
+      |> Query.order(:sales_count, :desc)
+      |> Query.order(:inserted_at, :desc)
+    end
+    defp apply_ordering(token, _), do: Query.order(token, :inserted_at, :desc)
+
+    # Helper: Cursor pagination with after/before
+    defp apply_pagination(token, params) do
+      limit = params[:limit] || 20
+
+      cond do
+        cursor = params[:after] || params[:cursor] ->
+          Query.paginate(token, :cursor, limit: limit, after: cursor)
+
+        cursor = params[:before] ->
+          Query.paginate(token, :cursor, limit: limit, before: cursor)
+
+        true ->
+          Query.paginate(token, :cursor, limit: limit)
+      end
+    end
+  end
+
+  # Usage examples:
+
+  # Basic search
+  ProductSearch.search(%{
+    search: "laptop",
+    categories: ["Electronics", "Computers"],
+    min_price: 500,
+    max_price: 2000,
+    in_stock: true
+  })
+
+  # With pagination - next page
+  ProductSearch.search(%{
+    categories: ["Electronics"],
+    after: "g3QAAAACZAAKaW5zZXJ0ZWRfYXR0..."
+  })
+
+  # With pagination - previous page
+  ProductSearch.search(%{
+    categories: ["Electronics"],
+    before: "g3QAAAACZAAKaW5zZXJ0ZWRfYXR0..."
+  })
+
+  # Complex filtering
+  ProductSearch.search(%{
+    search: "wireless",
+    brand: "Sony",
+    tags: ["bluetooth", "portable"],
+    supplier_country: "Japan",
+    statuses: ["active", "featured"],
+    colors: ["black", "white", "silver"],
+    min_rating: 4,
+    sort: "popular",
+    limit: 24
+  })
+  ```
+  """
+  def complex_maybe_example, do: :see_docs_above
+
+  @doc """
+  ## Summary: Scopes - Reusable Query Fragments
+
+  Scopes are reusable query building blocks that can be applied anywhere.
+
+  ```elixir
+  # Define scopes in a module
+  defmodule UserScopes do
+    alias Events.Query
+
+    def active(token), do: Query.filter(token, :status, :eq, "active")
+    def verified(token), do: Query.filter(token, :verified_at, :not_nil, true)
+    def admin(token), do: Query.filter(token, :role, :eq, "admin")
+    def recent(token), do: Query.order(token, :created_at, :desc) |> Query.limit(10)
+
+    # Scope with arguments
+    def created_after(token, date), do: Query.filter(token, :inserted_at, :gte, date)
+    def role(token, role), do: Query.filter(token, :role, :eq, role)
+    def older_than(token, age), do: Query.filter(token, :age, :gt, age)
+  end
+
+  defmodule ProductScopes do
+    alias Events.Query
+
+    def active(token), do: Query.filter(token, :active, :eq, true)
+    def in_stock(token), do: Query.filter(token, :stock_quantity, :gt, 0)
+    def on_sale(token), do: Query.filter(token, :sale_price, :not_nil, true)
+    def featured(token), do: Query.filter(token, :featured, :eq, true)
+
+    def priced_between(token, min, max), do: Query.between(token, :price, min, max)
+    def in_category(token, cat_id), do: Query.filter(token, :category_id, :eq, cat_id)
+  end
+
+  # ========== Using Scopes ==========
+
+  # Apply scope with function reference
+  User
+  |> Query.scope(&UserScopes.active/1)
+  |> Query.scope(&UserScopes.verified/1)
+  |> Query.execute()
+
+  # Apply scope from module by name
+  User
+  |> Query.apply_scope(UserScopes, :active)
+  |> Query.apply_scope(UserScopes, :verified)
+  |> Query.execute()
+
+  # Apply scope with arguments
+  User
+  |> Query.apply_scope(UserScopes, :active)
+  |> Query.apply_scope(UserScopes, :created_after, [~D[2024-01-01]])
+  |> Query.apply_scope(UserScopes, :older_than, [18])
+  |> Query.execute()
+
+  # Chain multiple scopes
+  scopes = [
+    &ProductScopes.active/1,
+    &ProductScopes.in_stock/1,
+    &ProductScopes.featured/1
+  ]
+
+  Product
+  |> Query.scopes(scopes)
+  |> Query.execute()
+
+  # ========== Scopes in Preloads ==========
+
+  User
+  |> Query.preload(:posts, fn q ->
+    q
+    |> Query.scope(&PostScopes.published/1)
+    |> Query.scope(&PostScopes.recent/1)
+  end)
+  |> Query.execute()
+
+  # Or using apply_scope
+  User
+  |> Query.preload(:orders, fn q ->
+    Query.apply_scope(q, OrderScopes, :completed)
+  end)
+  |> Query.execute()
+
+  # ========== Scopes with Joins ==========
+
+  Product
+  |> Query.join(:category, :left, as: :cat)
+  |> Query.scope(&ProductScopes.active/1)
+  |> Query.scope(&ProductScopes.in_stock/1)
+  |> Query.execute()
+
+  # ========== DSL Syntax ==========
+
+  query User do
+    scope &UserScopes.active/1
+    scope &UserScopes.verified/1
+    apply_scope UserScopes, :older_than, [21]
+  end
+  |> Query.execute()
+
+  # ========== Combining Scopes with Maybe ==========
+
+  Product
+  |> Query.scope(&ProductScopes.active/1)
+  |> Query.maybe(:category_id, params[:category_id], :eq)
+  |> Query.maybe(:brand_id, params[:brand_id], :eq)
+  |> Query.scope(&ProductScopes.in_stock/1)
+  |> Query.apply_scope(ProductScopes, :priced_between, [params[:min] || 0, params[:max] || 10000])
+  |> Query.execute()
+  ```
+  """
+  def scope_examples, do: :see_docs_above
+
+  @doc """
+  ## Summary: OR / AND / NOT Conditions
+
+  ```elixir
+  # ========== OR Conditions (any_of / where_any) ==========
+
+  # Match if ANY condition is true
+  Query.where_any(token, [
+    {:status, :eq, "active"},
+    {:role, :eq, "admin"},
+    {:verified, :eq, true}
+  ])
+  # SQL: WHERE (status = 'active' OR role = 'admin' OR verified = true)
+
+  # With options
+  Query.where_any(token, [
+    {:email, :eq, "admin@example.com", [case_insensitive: true]},
+    {:role, :eq, "admin"}
+  ])
+
+  # DSL syntax
+  query User do
+    any_of [
+      {:status, :eq, "active"},
+      {:role, :eq, "admin"}
+    ]
+  end
+
+  # ========== AND Conditions (all_of / where_all) ==========
+
+  # Match if ALL conditions are true (explicit grouping)
+  Query.where_all(token, [
+    {:status, :eq, "active"},
+    {:verified, :eq, true}
+  ])
+  # SQL: WHERE (status = 'active' AND verified = true)
+
+  # DSL syntax
+  query User do
+    all_of [
+      {:status, :eq, "active"},
+      {:age, :gte, 18}
+    ]
+  end
+
+  # ========== NOT Conditions (none_of / where_none / where_not) ==========
+
+  # Match if NONE of the conditions are true
+  Query.where_none(token, [
+    {:status, :eq, "banned"},
+    {:status, :eq, "deleted"},
+    {:status, :eq, "suspended"}
+  ])
+  # SQL: WHERE NOT (status = 'banned' OR status = 'deleted' OR status = 'suspended')
+
+  # Negate a single filter
+  Query.where_not(token, :status, :eq, "active")
+  # SQL: WHERE status != 'active'
+
+  Query.where_not(token, :price, :gt, 100)
+  # SQL: WHERE price <= 100 (operator is inverted)
+
+  Query.where_not(token, :role, :in, ["banned", "suspended"])
+  # SQL: WHERE role NOT IN ('banned', 'suspended')
+
+  # DSL syntax
+  query User do
+    none_of [
+      {:status, :eq, "banned"},
+      {:status, :eq, "spam"}
+    ]
+
+    where_not :role, :eq, "guest"
+  end
+
+  # ========== Operator Inversions for where_not ==========
+  # :eq      -> :neq
+  # :neq     -> :eq
+  # :gt      -> :lte
+  # :gte     -> :lt
+  # :lt      -> :gte
+  # :lte     -> :gt
+  # :in      -> :not_in
+  # :not_in  -> :in
+  # :is_nil  -> :not_nil
+  # :not_nil -> :is_nil
+  # :like    -> :not_like
+  # :ilike   -> :not_ilike
+  ```
+  """
+  def or_and_not_examples, do: :see_docs_above
+
+  @doc """
+  ## Summary: Field-to-Field Comparison
+
+  Compare two fields within the same row.
+
+  ```elixir
+  # Records modified after creation
+  Query.where_field(token, :updated_at, :gt, :created_at)
+  # SQL: WHERE updated_at > created_at
+
+  # Products running low on stock
+  Query.where_field(token, :current_stock, :lt, :min_stock)
+  # SQL: WHERE current_stock < min_stock
+
+  # Orders where total equals subtotal (no discount)
+  Query.where_field(token, :total, :eq, :subtotal)
+  # SQL: WHERE total = subtotal
+
+  # With binding for joined tables
+  Query.where_field(token, :user_id, :eq, :author_id, binding: :post)
+
+  # Supported operators: :eq, :neq, :gt, :gte, :lt, :lte
+
+  # DSL syntax
+  query Product do
+    where_field :updated_at, :gt, :created_at
+    where_field :current_stock, :lte, :reorder_point
+  end
+  ```
+  """
+  def field_comparison_examples, do: :see_docs_above
+
+  @doc """
+  ## Summary: String Operations
+
+  ```elixir
+  # ========== Starts With ==========
+  Query.starts_with(token, :name, "John")
+  # SQL: WHERE name LIKE 'John%'
+
+  Query.starts_with(token, :email, "admin", case_insensitive: true)
+  # SQL: WHERE email ILIKE 'admin%'
+
+  # ========== Ends With ==========
+  Query.ends_with(token, :email, "@example.com")
+  # SQL: WHERE email LIKE '%@example.com'
+
+  Query.ends_with(token, :filename, ".pdf", case_insensitive: true)
+  # SQL: WHERE filename ILIKE '%.pdf'
+
+  # ========== Contains ==========
+  Query.contains_string(token, :description, "important")
+  # SQL: WHERE description LIKE '%important%'
+
+  Query.contains_string(token, :content, "urgent", case_insensitive: true)
+  # SQL: WHERE content ILIKE '%urgent%'
+
+  # ========== Negations ==========
+  Query.not_starts_with(token, :name, "Test")
+  # SQL: WHERE name NOT LIKE 'Test%'
+
+  Query.not_ends_with(token, :filename, ".tmp")
+  # SQL: WHERE filename NOT LIKE '%.tmp'
+
+  Query.not_contains_string(token, :content, "spam")
+  # SQL: WHERE content NOT LIKE '%spam%'
+
+  # ========== DSL Syntax ==========
+  query User do
+    starts_with :name, "John"
+    ends_with :email, "@company.com"
+    contains_string :bio, "developer"
+  end
+
+  # ========== Combining with Maybe ==========
+  Query.maybe(token, :name, build_pattern(params[:search]), :ilike)
+
+  defp build_pattern(nil), do: nil
+  defp build_pattern(""), do: nil
+  defp build_pattern(term), do: "%\#{term}%"
+  ```
+  """
+  def string_operations_examples, do: :see_docs_above
+
+  @doc """
+  ## Summary: Null/Blank Helpers
+
+  ```elixir
+  # ========== Null Checks ==========
+
+  # Field is NULL
+  Query.where_nil(token, :deleted_at)
+  # SQL: WHERE deleted_at IS NULL
+
+  # Field is NOT NULL
+  Query.where_not_nil(token, :email)
+  # SQL: WHERE email IS NOT NULL
+
+  # ========== Blank Checks (NULL or empty string) ==========
+
+  # Field is blank (NULL OR empty string)
+  Query.where_blank(token, :bio)
+  # SQL: WHERE (bio IS NULL OR bio = '')
+
+  # Field is present (NOT NULL AND NOT empty)
+  Query.where_present(token, :name)
+  # SQL: WHERE name IS NOT NULL AND name != ''
+
+  # ========== DSL Syntax ==========
+  query User do
+    null :deleted_at        # IS NULL
+    not_null :email         # IS NOT NULL
+    blank :middle_name      # IS NULL OR = ''
+    present :first_name     # IS NOT NULL AND != ''
+  end
+
+  # ========== With Bindings ==========
+  Query.where_nil(token, :deleted_at, binding: :user)
+  Query.where_present(token, :title, binding: :post)
+
+  # ========== Soft Delete Helpers ==========
+  Query.exclude_deleted(token)           # WHERE deleted_at IS NULL
+  Query.exclude_deleted(token, :removed_at)  # Custom field
+
+  Query.only_deleted(token)              # WHERE deleted_at IS NOT NULL
+  ```
+  """
+  def null_blank_examples, do: :see_docs_above
+
+  @doc """
+  ## Summary: Between and Range Shortcuts
+
+  ```elixir
+  # ========== Between ==========
+
+  # Price between 10 and 100
+  Query.between(token, :price, 10, 100)
+  # SQL: WHERE price BETWEEN 10 AND 100
+
+  # Age between 18 and 65
+  Query.between(token, :age, 18, 65)
+
+  # With binding
+  Query.between(token, :quantity, 1, 10, binding: :items)
+
+  # ========== At Least (>=) ==========
+
+  Query.at_least(token, :price, 100)
+  # SQL: WHERE price >= 100
+
+  Query.at_least(token, :age, 18)
+  # SQL: WHERE age >= 18
+
+  # ========== At Most (<=) ==========
+
+  Query.at_most(token, :price, 1000)
+  # SQL: WHERE price <= 1000
+
+  Query.at_most(token, :quantity, 50)
+  # SQL: WHERE quantity <= 50
+
+  # ========== DSL Syntax ==========
+  query Product do
+    between :price, 10, 100
+    at_least :stock, 5
+    at_most :weight, 10
+  end
+
+  # ========== Date Range Helpers ==========
+
+  # Records created between dates
+  Query.created_between(token, start_date, end_date)
+  Query.created_between(token, start_date, end_date, :published_at)  # Custom field
+
+  # Records created today
+  Query.created_today(token)
+  Query.created_today(token, :placed_at)  # Custom field
+
+  # Records updated recently
+  Query.updated_recently(token, 24)  # Last 24 hours
+  Query.updated_since(token, datetime)
+  ```
+  """
+  def between_range_examples, do: :see_docs_above
+
+  @doc """
+  ## Summary: Raw SQL Escape Hatch
+
+  For complex SQL that can't be expressed with the DSL.
+
+  ```elixir
+  # Basic raw WHERE clause
+  Query.raw(token, "price > 100 AND stock < 10")
+  # SQL: WHERE price > 100 AND stock < 10
+
+  # With parameters (prevents SQL injection)
+  Query.raw(token, "price > ? AND stock < ?", [100, 10])
+  # SQL: WHERE price > $1 AND stock < $2
+
+  # Complex expressions
+  Query.raw(token, "EXTRACT(YEAR FROM created_at) = ?", [2024])
+
+  Query.raw(token, "similarity(name, ?) > 0.3", [search_term])
+
+  Query.raw(token,
+    "ST_Distance(location, ST_Point(?, ?)) < ?",
+    [lng, lat, radius_meters]
+  )
+
+  # Full-text search
+  Query.raw(token,
+    "to_tsvector('english', name || ' ' || description) @@ plainto_tsquery('english', ?)",
+    [search_query]
+  )
+
+  # Array operations
+  Query.raw(token, "? = ANY(tags)", [tag_name])
+  Query.raw(token, "tags && ARRAY[?]::text[]", [tag_list])
+
+  # DSL syntax
+  query Product do
+    raw "price > ? AND featured = ?", [100, true]
+    raw "EXTRACT(DOW FROM created_at) IN (0, 6)"  # Weekends only
+  end
+
+  # Combining with other filters
+  Product
+  |> Query.filter(:status, :eq, "active")
+  |> Query.raw("similarity(name, ?) > 0.5", [search_term])
+  |> Query.filter(:category_id, :eq, category_id)
+  |> Query.execute()
+  ```
+  """
+  def raw_sql_examples, do: :see_docs_above
+
+  @doc """
+  ## Summary: Cursor Pagination with After/Before
+
+  ```elixir
+  # ========== Basic Cursor Pagination ==========
+
+  # First page
+  Query.paginate(token, :cursor, limit: 20)
+
+  # Next page (forward)
+  Query.paginate(token, :cursor, limit: 20, after: cursor)
+
+  # Previous page (backward)
+  Query.paginate(token, :cursor, limit: 20, before: cursor)
+
+  # ========== With Custom Cursor Fields ==========
+
+  # Automatic inference from order_by (recommended)
+  Product
+  |> Query.order(:price, :asc)
+  |> Query.order(:id, :asc)
+  |> Query.paginate(:cursor, limit: 20)
+  # cursor_fields automatically inferred as [:price, :id]
+
+  # Explicit cursor fields
+  Query.paginate(token, :cursor,
+    limit: 20,
+    cursor_fields: [:created_at, :id],
+    after: cursor
+  )
+
+  # ========== Pagination Helper Pattern ==========
+
+  defmodule PaginationHelper do
+    alias Events.Query
+
+    def paginate(token, params) do
+      limit = params[:limit] || params["limit"] || 20
+
+      cond do
+        # Forward pagination
+        cursor = params[:after] || params["after"] || params[:cursor] ->
+          Query.paginate(token, :cursor, limit: limit, after: cursor)
+
+        # Backward pagination
+        cursor = params[:before] || params["before"] ->
+          Query.paginate(token, :cursor, limit: limit, before: cursor)
+
+        # First page
+        true ->
+          Query.paginate(token, :cursor, limit: limit)
+      end
+    end
+  end
+
+  # Usage
+  Product
+  |> Query.filter(:status, :eq, "active")
+  |> Query.order(:created_at, :desc)
+  |> PaginationHelper.paginate(params)
+  |> Query.execute()
+
+  # ========== Result Structure ==========
+
+  # Query.execute() returns:
+  %Events.Query.Result{
+    data: [%Product{}, %Product{}, ...],
+    pagination: %{
+      has_next_page: true,
+      has_previous_page: false,
+      start_cursor: "g3QAAAACZAAKaW5zZXJ0...",
+      end_cursor: "g3QAAAACZAAKaW5zZXJ0...",
+      limit: 20
+    },
+    metadata: %{
+      query_time_ms: 12
+    }
+  }
+
+  # ========== Pagination in Controller ==========
+
+  def index(conn, params) do
+    result =
+      Product
+      |> Query.new()
+      |> Query.scope(&ProductScopes.active/1)
+      |> Query.maybe(:category_id, params["category_id"], :eq)
+      |> Query.order(:created_at, :desc)
+      |> paginate_from_params(params)
+      |> Query.execute()
+
+    json(conn, %{
+      data: result.data,
+      pagination: %{
+        has_next: result.pagination.has_next_page,
+        has_prev: result.pagination.has_previous_page,
+        next_cursor: result.pagination.end_cursor,
+        prev_cursor: result.pagination.start_cursor
+      }
+    })
+  end
+
+  defp paginate_from_params(token, params) do
+    limit = parse_int(params["limit"], 20)
+
+    cond do
+      cursor = params["after"] ->
+        Query.paginate(token, :cursor, limit: limit, after: cursor)
+      cursor = params["before"] ->
+        Query.paginate(token, :cursor, limit: limit, before: cursor)
+      true ->
+        Query.paginate(token, :cursor, limit: limit)
+    end
+  end
+  ```
+  """
+  def cursor_pagination_examples, do: :see_docs_above
+
+  @doc """
+  ## Summary: Maybe with Custom Predicates (`:when` option)
+
+  The `maybe` function accepts a `:when` option to customize when the filter is applied.
+
+  ### Built-in Predicates
+
+  ```elixir
+  # :present (default) - not nil, false, "", [], %{}
+  Query.maybe(User, :status, params[:status], :eq)  # same as when: :present
+
+  # :not_nil - only checks for nil (allows false, "", [])
+  Query.maybe(User, :active, params[:active], :eq, when: :not_nil)
+
+  # :not_blank - not nil, "", or whitespace-only string
+  Query.maybe(User, :name, params[:name], :ilike, when: :not_blank)
+
+  # :not_empty - not nil, [], or %{}
+  Query.maybe(User, :tags, params[:tags], :in, when: :not_empty)
+  ```
+
+  ### Custom Predicate Functions
+
+  ```elixir
+  # Only apply filter if value is positive
+  Query.maybe(User, :score, params[:min_score], :gte, when: &(&1 && &1 > 0))
+
+  # Only apply filter if list has items
+  Query.maybe(User, :roles, params[:roles], :in, when: &(is_list(&1) and &1 != []))
+
+  # Check for valid UUID
+  Query.maybe(User, :external_id, params[:ext_id], :eq, when: &valid_uuid?/1)
+  ```
+
+  ### Use Cases
+
+  ```elixir
+  # Boolean filters - allow false value
+  # With :present (default), false would skip the filter
+  # With :not_nil, false applies the filter
+  Query.maybe(User, :active, params[:active], :eq, when: :not_nil)
+
+  # Search fields - skip whitespace-only input
+  Query.maybe(User, :name, params[:search], :ilike, when: :not_blank)
+
+  # Multi-select - skip empty arrays
+  Query.maybe(Product, :category_ids, params[:categories], :in, when: :not_empty)
+  ```
+
+  ### In DSL
+
+  ```elixir
+  query User do
+    maybe(:status == params[:status], when: :not_nil)
+    maybe(:name =~ params[:search], when: :not_blank)
+    maybe(:role in params[:roles], when: :not_empty)
+  end
+  ```
+
+  ### On Joined Tables
+
+  ```elixir
+  Product
+  |> Query.join(:category, :left, as: :cat)
+  |> Query.maybe_on(:cat, :active, params[:cat_active], :eq, when: :not_nil)
+  |> Query.maybe_on(:cat, :name, params[:cat_search], :ilike, when: :not_blank)
+  ```
+  """
+  def maybe_predicates_examples, do: :see_docs_above
+
+  @doc """
+  ## Summary: Query Params Helper (`Events.Query.Params`)
+
+  Utility module for working with query parameters from Phoenix controllers, LiveView, etc.
+  Provides indifferent access (atom or string keys) and normalization.
+
+  ### Indifferent Access
+
+  ```elixir
+  alias Events.Query.Params
+
+  # Works with both string and atom keys
+  params = %{"limit" => 20, "status" => "active"}
+
+  Params.get(params, :limit)    #=> 20
+  Params.get(params, :status)   #=> "active"
+  Params.get(params, :missing)  #=> nil
+  Params.get(params, :missing, "default")  #=> "default"
+  ```
+
+  ### With Query Functions
+
+  ```elixir
+  alias Events.Query
+  alias Events.Query.Params
+
+  def search(params) do
+    Product
+    |> Query.new()
+    |> Query.maybe(:status, Params.get(params, :status))
+    |> Query.maybe(:category_id, Params.get(params, :category_id), :eq)
+    |> Query.maybe(:min_price, Params.get(params, :min_price), :gte)
+    |> Query.execute()
+  end
+  ```
+
+  ### Pagination Options Helper
+
+  ```elixir
+  # Extracts and parses pagination options automatically
+  params = %{"limit" => "25", "after" => "cursor_token"}
+
+  opts = Params.pagination_opts(params)
+  #=> [limit: 25, after: "cursor_token"]
+
+  # Use directly with paginate
+  Query.paginate(token, :cursor, opts)
+
+  # Custom key mapping
+  params = %{"page_size" => "10", "cursor" => "abc"}
+  Params.pagination_opts(params, limit: :page_size, after: :cursor)
+  #=> [limit: 10, after: "abc"]
+  ```
+
+  ### Normalize Params
+
+  ```elixir
+  # Convert string keys to atoms
+  params = %{"limit" => 20, "status" => "active"}
+  Params.normalize(params)
+  #=> %{limit: 20, status: "active"}
+
+  # Safe normalization with allowed keys (recommended)
+  Params.normalize(params, only: [:limit, :status, :page])
+  #=> %{limit: 20, status: "active"}  # unknown keys dropped
+  ```
+
+  ### Take and Compact
+
+  ```elixir
+  # Take only specific keys
+  params = %{"limit" => 20, "status" => "active", "other" => "ignored"}
+  Params.take(params, [:limit, :status])
+  #=> %{limit: 20, status: "active"}
+
+  # Remove nil values
+  Params.compact(limit: nil, after: "cursor", status: nil)
+  #=> [after: "cursor"]
+  ```
+
+  ### Full Controller Example
+
+  ```elixir
+  defmodule MyAppWeb.ProductController do
+    alias Events.Query
+    alias Events.Query.Params
+
+    def index(conn, params) do
+      result =
+        Product
+        |> Query.new()
+        |> Query.maybe(:status, Params.get(params, :status))
+        |> Query.maybe(:category_id, Params.get(params, :category_id), :eq)
+        |> Query.maybe(:search, Params.get(params, :q), :ilike, when: :not_blank)
+        |> Query.maybe(:in_stock, Params.get(params, :in_stock), :eq, when: :not_nil)
+        |> Query.order(:created_at, :desc)
+        |> Query.paginate(:cursor, Params.pagination_opts(params))
+        |> Query.execute()
+
+      json(conn, %{
+        data: result.data,
+        pagination: result.pagination
+      })
+    end
+  end
+  ```
+
+  ### LiveView Example
+
+  ```elixir
+  defmodule MyAppWeb.ProductLive.Index do
+    alias Events.Query
+    alias Events.Query.Params
+
+    def handle_event("filter", params, socket) do
+      products = search_products(params)
+      {:noreply, assign(socket, products: products)}
+    end
+
+    defp search_products(params) do
+      Product
+      |> Query.new()
+      |> Query.maybe(:category, Params.get(params, :category), when: :not_blank)
+      |> Query.maybe(:min_price, Params.get(params, :min_price), :gte)
+      |> Query.maybe(:max_price, Params.get(params, :max_price), :lte)
+      |> Query.paginate(:cursor, Params.pagination_opts(params))
+      |> Query.execute()
+    end
+  end
+  ```
+  """
+  def params_helper_examples, do: :see_docs_above
+
+  @doc """
+  ## Summary: Complete Real-World Example
+
+  A full e-commerce product search combining all features.
+
+  ```elixir
+  defmodule MyApp.Catalog.ProductQuery do
+    @moduledoc "Product search with all advanced query features"
+
+    alias Events.Query
+    import Events.Query.Helpers
+
+    # Scope definitions
+    defmodule Scopes do
+      alias Events.Query
+
+      def active(q), do: Query.filter(q, :status, :eq, "active")
+      def in_stock(q), do: Query.filter(q, :stock_quantity, :gt, 0)
+      def featured(q), do: Query.filter(q, :featured, :eq, true)
+      def on_sale(q), do: Query.where_not_nil(q, :sale_price)
+      def recent(q), do: Query.filter(q, :inserted_at, :gte, days_ago(30))
+    end
+
+    @doc "Search products with comprehensive filtering"
+    def search(params \\\\ %{}) do
+      Product
+      |> Query.new()
+
+      # Apply base scopes
+      |> Query.scope(&Scopes.active/1)
+      |> maybe_apply_scope(params[:in_stock], &Scopes.in_stock/1)
+      |> maybe_apply_scope(params[:featured], &Scopes.featured/1)
+      |> maybe_apply_scope(params[:on_sale], &Scopes.on_sale/1)
+
+      # Text search (ILIKE with pattern)
+      |> Query.maybe(:name, like_pattern(params[:q]), :ilike)
+      |> Query.maybe(:description, like_pattern(params[:q]), :ilike)
+      |> Query.maybe(:sku, params[:sku], :eq, case_insensitive: true)
+
+      # Status filtering with IN
+      |> Query.maybe(:visibility, params[:visibility], :in)
+
+      # Price range
+      |> Query.maybe(:price, params[:min_price], :gte)
+      |> Query.maybe(:price, params[:max_price], :lte)
+
+      # Date filters
+      |> Query.maybe(:inserted_at, params[:created_after], :gte)
+      |> Query.maybe(:updated_at, params[:updated_after], :gte)
+
+      # Field comparison - products needing restock
+      |> maybe_low_stock(params[:low_stock])
+
+      # Category join with filters
+      |> Query.join(:category, :left, as: :cat)
+      |> Query.maybe_on(:cat, :id, params[:category_ids], :in)
+      |> Query.maybe_on(:cat, :name, params[:category_names], :in, case_insensitive: true)
+      |> Query.maybe_on(:cat, :slug, params[:category_slug], :eq)
+
+      # Brand join
+      |> Query.join(:brand, :left, as: :brand)
+      |> Query.maybe_on(:brand, :id, params[:brand_ids], :in)
+      |> Query.maybe_on(:brand, :name, like_pattern(params[:brand]), :ilike)
+
+      # Tags (OR match - product has ANY of these tags)
+      |> maybe_filter_tags(params[:tags])
+
+      # Supplier country filter
+      |> Query.join(:supplier, :left, as: :supplier)
+      |> Query.maybe_on(:supplier, :country_code, params[:origin_countries], :in)
+
+      # Exclusion filters using none_of
+      |> maybe_exclude_statuses(params[:exclude_statuses])
+
+      # Preloads with filtered associations
+      |> Query.preload(:category)
+      |> Query.preload(:brand)
+
+      |> Query.preload(:variants, fn q ->
+        q
+        |> Query.filter(:status, :eq, "active")
+        |> Query.maybe(:color, params[:colors], :in, case_insensitive: true)
+        |> Query.maybe(:size, params[:sizes], :in)
+        |> Query.order(:price, :asc)
+      end)
+
+      |> Query.preload(:images, fn q ->
+        q
+        |> Query.filter(:type, :eq, "gallery")
+        |> Query.order(:position, :asc)
+        |> Query.limit(5)
+      end)
+
+      |> Query.preload(:reviews, fn q ->
+        q
+        |> Query.filter(:status, :eq, "approved")
+        |> Query.maybe(:rating, params[:min_rating], :gte)
+        |> Query.order(:helpful_count, :desc)
+        |> Query.limit(3)
+        |> Query.preload(:user, fn u ->
+          u |> Query.select([:id, :name, :avatar_url])
+        end)
+      end)
+
+      # Ordering
+      |> apply_sort(params[:sort])
+
+      # Cursor pagination
+      |> apply_pagination(params)
+
+      |> Query.execute()
+    end
+
+    # ========== Private Helpers ==========
+
+    defp like_pattern(nil), do: nil
+    defp like_pattern(""), do: nil
+    defp like_pattern(term), do: "%\#{String.trim(term)}%"
+
+    defp maybe_apply_scope(token, true, scope_fn), do: Query.scope(token, scope_fn)
+    defp maybe_apply_scope(token, _, _), do: token
+
+    defp maybe_low_stock(token, true) do
+      Query.where_field(token, :stock_quantity, :lte, :reorder_point)
+    end
+    defp maybe_low_stock(token, _), do: token
+
+    defp maybe_filter_tags(token, nil), do: token
+    defp maybe_filter_tags(token, []), do: token
+    defp maybe_filter_tags(token, tags) when is_list(tags) do
+      token
+      |> Query.join(:product_tags, :inner, as: :pt)
+      |> Query.join(:tags, :inner, as: :tag, on: [id: {:pt, :tag_id}])
+      |> Query.filter(:name, :in, tags, binding: :tag, case_insensitive: true)
+    end
+
+    defp maybe_exclude_statuses(token, nil), do: token
+    defp maybe_exclude_statuses(token, []), do: token
+    defp maybe_exclude_statuses(token, statuses) when is_list(statuses) do
+      exclusions = Enum.map(statuses, &{:status, :eq, &1})
+      Query.where_none(token, exclusions)
+    end
+
+    defp apply_sort(token, "price_asc"), do: Query.orders(token, [price: :asc, id: :asc])
+    defp apply_sort(token, "price_desc"), do: Query.orders(token, [price: :desc, id: :asc])
+    defp apply_sort(token, "name"), do: Query.orders(token, [name: :asc, id: :asc])
+    defp apply_sort(token, "newest"), do: Query.orders(token, [inserted_at: :desc, id: :asc])
+    defp apply_sort(token, "bestselling"), do: Query.orders(token, [sales_count: :desc, id: :asc])
+    defp apply_sort(token, "rating"), do: Query.orders(token, [avg_rating: :desc, id: :asc])
+    defp apply_sort(token, _), do: Query.orders(token, [inserted_at: :desc, id: :asc])
+
+    defp apply_pagination(token, params) do
+      limit = min(params[:limit] || 24, 100)
+
+      cond do
+        cursor = params[:after] -> Query.paginate(token, :cursor, limit: limit, after: cursor)
+        cursor = params[:before] -> Query.paginate(token, :cursor, limit: limit, before: cursor)
+        true -> Query.paginate(token, :cursor, limit: limit)
+      end
+    end
+  end
+
+  # ========== Usage Examples ==========
+
+  # Homepage featured products
+  ProductQuery.search(%{featured: true, limit: 8})
+
+  # Category page
+  ProductQuery.search(%{
+    category_slug: "electronics",
+    sort: "bestselling",
+    limit: 24
+  })
+
+  # Search results
+  ProductQuery.search(%{
+    q: "wireless headphones",
+    min_price: 50,
+    max_price: 300,
+    brand: "Sony",
+    in_stock: true,
+    sort: "rating"
+  })
+
+  # Filter by multiple criteria
+  ProductQuery.search(%{
+    category_ids: [1, 2, 3],
+    brand_ids: [10, 20],
+    colors: ["black", "white"],
+    sizes: ["M", "L", "XL"],
+    min_rating: 4,
+    on_sale: true,
+    sort: "price_asc",
+    limit: 48
+  })
+
+  # Pagination - next page
+  ProductQuery.search(%{
+    category_slug: "clothing",
+    after: "g3QAAAACZAAKaW5zZXJ0ZWR..."
+  })
+
+  # Pagination - previous page
+  ProductQuery.search(%{
+    category_slug: "clothing",
+    before: "g3QAAAACZAAKaW5zZXJ0ZWR..."
+  })
+
+  # Admin: low stock products
+  ProductQuery.search(%{
+    low_stock: true,
+    sort: "name"
+  })
+
+  # Exclude certain statuses
+  ProductQuery.search(%{
+    exclude_statuses: ["draft", "archived", "discontinued"]
+  })
+  ```
+  """
+  def complete_real_world_example, do: :see_docs_above
+
+  # ============================================================================
+  # 17. PRODUCTION-READY COMPREHENSIVE SHOWCASE
+  # ============================================================================
+  #
+  # This section demonstrates the Query module's production readiness through
+  # a comprehensive example showcasing ALL available features:
+  #
+  # - Both DSL (macro) and Pipeline syntax side-by-side
+  # - Cursor-based pagination at root, preload, and join levels
+  # - All filter functions: comparison, range, string, null/blank, JSONB
+  # - New features: between_any, composable filter builders, global opts
+  # - Complex joins, CTEs, aggregations, window functions
+  # - Conditional query building with then_if, if_true
+  # - Search with ranking across multiple fields
+  #
+  # ============================================================================
+
+  @doc """
+  ## Production-Ready Assessment
+
+  The Events.Query module is **production-ready** for complex queries because:
+
+  ### 1. Complete Filter Coverage
+  - All comparison operators: eq, neq, gt, gte, lt, lte
+  - Range operators: in, not_in, between, between_any (list of ranges)
+  - String patterns: like, ilike, not_like, not_ilike, starts_with, ends_with, contains_string
+  - Null handling: is_nil, not_nil, where_nil, where_not_nil, where_blank, where_present
+  - JSONB: jsonb_contains, jsonb_has_key, contains (array)
+  - Subqueries: in_subquery, not_in_subquery
+  - Similarity search: similarity, word_similarity, strict_word_similarity
+
+  ### 2. Advanced Query Composition
+  - OR/AND/NOT groups: where_any, where_all, where_none with global opts
+  - Composable filter builders: condition/4, apply_any/3, apply_all/3, apply_none/3
+  - Conditional building: then_if, if_true, scope, scopes
+  - Fragment composition: include, include_if
+  - Full-text search with ranking: search/4
+
+  ### 3. Pagination at All Levels
+  - Root level: cursor and offset pagination
+  - Preload level: paginated associations
+  - Join level: filtered and ordered joins
+  - Automatic cursor field inference from order_by
+
+  ### 4. Type-Safe Value Casting
+  - Automatic casting: integer, float, decimal, boolean, date, datetime, uuid, atom
+  - List casting for :in operators
+  - Safe error handling for invalid values
+
+  ### 5. Production Features
+  - Query validation and error messages
+  - Debug mode for SQL inspection
+  - Streaming for large result sets
+  - Batch parallel execution
+  - Transaction support
+  - Raw SQL escape hatch
+
+  ---
+
+  ## Comprehensive Example: E-Commerce Order Management System
+
+  This example demonstrates a complex real-world query for an order management
+  dashboard with:
+
+  - **Root Query**: Orders with filters, search, and cursor pagination
+  - **Joined Tables**: Customer, Products with bindings
+  - **Nested Preloads**: Order items → Products → Category (3 levels deep)
+  - **All Filter Types**: Every filter operator in use
+  - **Multiple Pagination Levels**: Root + Preloads with cursors
+
+  ---
+
+  ## Pipeline Syntax - Order Management Dashboard
+
+  Demonstrates ALL Query features using pipeline style.
+  Best for: Dynamic queries, complex conditionals, maximum flexibility.
+  """
+
+  # ---------------------------------------------------------------------------
+  # PIPELINE SYNTAX - Maximum Control & Flexibility
+  # ---------------------------------------------------------------------------
+
+  def order_dashboard_comprehensive_pipeline(params, current_user) do
+    # Extract parameters
+    search_term = params[:search]
+    cursor = params[:after]
+    status_list = params[:statuses] || ["pending", "processing", "shipped"]
+    date_range = params[:date_range]
+    price_tiers = params[:price_tiers]  # e.g., [{0, 100}, {500, 1000}, {2000, 5000}]
+
+    # =========================================================================
+    # BUILD BASE QUERY WITH ALL FILTER TYPES
+    # =========================================================================
+
+    Order
+    |> Query.new()
+
+    # -------------------------------------------------------------------------
+    # 1. BASIC EQUALITY FILTERS
+    # -------------------------------------------------------------------------
+    |> Query.filter(:deleted_at, :is_nil, true)
+    |> Query.filter(:organization_id, :eq, current_user.organization_id)
+
+    # -------------------------------------------------------------------------
+    # 2. LIST MEMBERSHIP FILTERS (in, not_in)
+    # -------------------------------------------------------------------------
+    |> Query.filter(:status, :in, status_list)
+    |> Query.filter(:source, :not_in, ["test", "demo", "internal"])
+
+    # -------------------------------------------------------------------------
+    # 3. COMPARISON FILTERS (gt, gte, lt, lte)
+    # -------------------------------------------------------------------------
+    |> Query.filter(:item_count, :gt, 0)
+    |> Query.at_least(:subtotal, Decimal.new("10.00"))  # Convenience wrapper for :gte
+    |> Query.at_most(:discount_percent, 50)  # Convenience wrapper for :lte
+
+    # -------------------------------------------------------------------------
+    # 4. RANGE FILTERS (between, between_any)
+    # -------------------------------------------------------------------------
+    |> Query.then_if(date_range, fn token, {start_date, end_date} ->
+      Query.between(token, :created_at, start_date, end_date)
+    end)
+    # NEW: between_any for multiple ranges (OR of BETWEENs)
+    |> Query.then_if(price_tiers, fn token, tiers ->
+      Query.between_any(token, :total, tiers)
+    end)
+
+    # -------------------------------------------------------------------------
+    # 5. STRING PATTERN FILTERS (like, ilike, starts_with, ends_with, contains)
+    # -------------------------------------------------------------------------
+    |> Query.then_if(params[:order_prefix], fn token, prefix ->
+      Query.starts_with(token, :order_number, prefix)
+    end)
+    |> Query.then_if(params[:email_domain], fn token, domain ->
+      Query.ends_with(token, :customer_email, "@#{domain}", case_insensitive: true)
+    end)
+
+    # -------------------------------------------------------------------------
+    # 6. NULL/BLANK FILTERS (is_nil, not_nil, where_nil, where_not_nil)
+    # -------------------------------------------------------------------------
+    |> Query.if_true(params[:shipped_only], fn token ->
+      token
+      |> Query.where_not_nil(:shipped_at)
+      |> Query.where_present(:tracking_number)
+    end)
+    |> Query.if_true(params[:unshipped], fn token ->
+      token
+      |> Query.where_nil(:shipped_at)
+      |> Query.where_blank(:tracking_number)
+    end)
+
+    # -------------------------------------------------------------------------
+    # 7. JSONB FILTERS (jsonb_contains, jsonb_has_key)
+    # -------------------------------------------------------------------------
+    |> Query.then_if(params[:metadata_filter], fn token, meta ->
+      Query.filter(token, :metadata, :jsonb_contains, meta)
+    end)
+    |> Query.if_true(params[:has_gift_message], fn token ->
+      Query.filter(token, :metadata, :jsonb_has_key, "gift_message")
+    end)
+
+    # -------------------------------------------------------------------------
+    # 8. OR/AND/NOT GROUPS (where_any, where_all, where_none)
+    # -------------------------------------------------------------------------
+    # where_any with global opts (NEW: all filters use same binding)
+    |> Query.then_if(params[:priority_flags], fn token, _flags ->
+      Query.where_any(token, [
+        {:priority, :eq, "high"},
+        {:expedited, :eq, true},
+        {:vip_customer, :eq, true}
+      ])
+    end)
+
+    # where_all - require ALL conditions
+    |> Query.if_true(params[:complete_orders], fn token ->
+      Query.where_all(token, [
+        {:payment_status, :eq, "paid"},
+        {:shipped_at, :not_nil, true},
+        {:delivered_at, :not_nil, true}
+      ])
+    end)
+
+    # where_none - exclude matching NONE of these
+    |> Query.where_none([
+      {:status, :eq, "cancelled"},
+      {:status, :eq, "refunded"}
+    ])
+
+    # -------------------------------------------------------------------------
+    # 9. COMPOSABLE FILTER BUILDERS (NEW)
+    # -------------------------------------------------------------------------
+    |> apply_dynamic_conditions(params)
+
+    # -------------------------------------------------------------------------
+    # 10. FULL-TEXT SEARCH WITH RANKING
+    # -------------------------------------------------------------------------
+    |> Query.search(search_term, [
+      {:order_number, :exact, rank: 1},
+      {:customer_name, :ilike, rank: 2},
+      {:customer_email, :ilike, rank: 3},
+      {:notes, :similarity, threshold: 0.3, rank: 4}
+    ], mode: :ilike, rank: true)
+
+    # -------------------------------------------------------------------------
+    # 11. JOINS WITH BINDINGS
+    # -------------------------------------------------------------------------
+    |> Query.join(:customer, :left, as: :cust)
+    |> Query.join(:shipping_address, :left, as: :ship)
+    |> Query.join(:assigned_agent, :left, as: :agent)
+
+    # Filter on joined tables using binding option
+    |> Query.then_if(params[:customer_tier], fn token, tier ->
+      Query.filter(token, :tier, :eq, tier, binding: :cust)
+    end)
+    |> Query.then_if(params[:shipping_country], fn token, country ->
+      Query.filter(token, :country_code, :eq, country, binding: :ship)
+    end)
+    # where_any with global binding (NEW)
+    |> Query.then_if(params[:agent_filter], fn token, _filter ->
+      Query.where_any(token, [
+        {:status, :eq, "available"},
+        {:status, :eq, "assigned"}
+      ], binding: :agent)
+    end)
+
+    # -------------------------------------------------------------------------
+    # 12. SELECT WITH JOINED FIELDS
+    # -------------------------------------------------------------------------
+    |> Query.select(%{
+      id: :id,
+      order_number: :order_number,
+      status: :status,
+      total: :total,
+      created_at: :created_at,
+      shipped_at: :shipped_at,
+      # Fields from joined tables
+      customer_id: {:cust, :id},
+      customer_name: {:cust, :name},
+      customer_email: {:cust, :email},
+      customer_tier: {:cust, :tier},
+      shipping_city: {:ship, :city},
+      shipping_country: {:ship, :country_code},
+      agent_name: {:agent, :name}
+    })
+
+    # -------------------------------------------------------------------------
+    # 13. ORDERING WITH MULTIPLE FIELDS
+    # -------------------------------------------------------------------------
+    |> apply_order_sorting(params[:sort])
+
+    # -------------------------------------------------------------------------
+    # 14. CURSOR PAGINATION AT ROOT LEVEL
+    # -------------------------------------------------------------------------
+    |> Query.then_if(cursor, fn token, c ->
+      Query.paginate(token, :cursor,
+        limit: params[:limit] || 25,
+        after: c
+      )
+    end)
+    |> Query.if_true(is_nil(cursor), fn token ->
+      Query.paginate(token, :cursor, limit: params[:limit] || 25)
+    end)
+
+    # -------------------------------------------------------------------------
+    # 15. PRELOADS WITH PAGINATION AND FILTERING
+    # -------------------------------------------------------------------------
+
+    # Preload customer with their recent orders (cursor pagination in preload)
+    |> Query.preload(:customer, fn cust_token ->
+      cust_token
+      |> Query.preload(:recent_orders, fn orders ->
+        orders
+        |> Query.filter(:status, :in, ["completed", "shipped"])
+        |> Query.order(:created_at, :desc)
+        |> Query.order(:id, :asc)
+        |> Query.paginate(:cursor, limit: 5)
+      end)
+      |> Query.preload(:addresses)
+      |> Query.select([:id, :name, :email, :tier, :lifetime_value])
+    end)
+
+    # Preload order items with products and categories (3 levels deep)
+    |> Query.preload(:order_items, fn items_token ->
+      items_token
+      |> Query.filter(:deleted_at, :is_nil, true)
+      |> Query.order(:position, :asc)
+      # Nested preload: Product → Category
+      |> Query.preload(:product, fn prod_token ->
+        prod_token
+        |> Query.filter(:active, :eq, true)
+        |> Query.preload(:category, fn cat ->
+          cat |> Query.select([:id, :name, :slug])
+        end)
+        |> Query.preload(:images, fn img ->
+          img
+          |> Query.filter(:primary, :eq, true)
+          |> Query.limit(1)
+        end)
+        |> Query.select([:id, :name, :sku, :price, :thumbnail_url])
+      end)
+    end)
+
+    # Preload shipping events with cursor pagination
+    |> Query.preload(:shipping_events, fn events_token ->
+      events_token
+      |> Query.filter(:deleted_at, :is_nil, true)
+      |> Query.order(:occurred_at, :desc)
+      |> Query.order(:id, :asc)
+      |> Query.paginate(:cursor, limit: 10)
+      |> Query.preload(:carrier)
+    end)
+
+    # Preload payment transactions
+    |> Query.preload(:transactions, fn tx_token ->
+      tx_token
+      |> Query.filter(:status, :in, ["completed", "pending"])
+      |> Query.order(:created_at, :desc)
+      |> Query.limit(5)
+    end)
+
+    # Preload notes (internal)
+    |> Query.preload(:notes, fn notes_token ->
+      notes_token
+      |> Query.filter(:visibility, :eq, "internal")
+      |> Query.order(:created_at, :desc)
+      |> Query.limit(10)
+      |> Query.preload(:author, fn author ->
+        author |> Query.select([:id, :name, :avatar_url])
+      end)
+    end)
+
+    # -------------------------------------------------------------------------
+    # 16. EXECUTE WITH OPTIONS
+    # -------------------------------------------------------------------------
+    |> Query.execute(include_total_count: true)
+  end
+
+  # Helper: Apply composable filter conditions
+  defp apply_dynamic_conditions(token, params) do
+    # Build conditions using composable filter builders
+    conditions =
+      []
+      |> maybe_add_condition(params[:high_value], Query.condition(:total, :gte, 1000))
+      |> maybe_add_condition(params[:repeat_customer], Query.condition(:is_repeat, :eq, true))
+      |> maybe_add_condition(params[:has_discount], Query.condition(:discount_amount, :gt, 0))
+      |> maybe_add_condition(params[:express_shipping], Query.condition(:shipping_method, :eq, "express"))
+
+    case length(conditions) do
+      0 -> token
+      1 -> Query.filter(token, elem(hd(conditions), 0), elem(hd(conditions), 1), elem(hd(conditions), 2))
+      _ -> Query.apply_any(token, conditions)  # At least one must match
+    end
+  end
+
+  defp maybe_add_condition(conditions, true, condition), do: [condition | conditions]
+  defp maybe_add_condition(conditions, _, _condition), do: conditions
+
+  # Helper: Apply sorting based on params
+  defp apply_order_sorting(token, "newest"), do: Query.orders(token, desc: :created_at, asc: :id)
+  defp apply_order_sorting(token, "oldest"), do: Query.orders(token, asc: :created_at, asc: :id)
+  defp apply_order_sorting(token, "total_high"), do: Query.orders(token, desc: :total, asc: :id)
+  defp apply_order_sorting(token, "total_low"), do: Query.orders(token, asc: :total, asc: :id)
+  defp apply_order_sorting(token, "priority"), do: Query.orders(token, desc: :priority_score, asc: :created_at, asc: :id)
+  defp apply_order_sorting(token, _), do: Query.orders(token, desc: :created_at, asc: :id)
+
+  # ---------------------------------------------------------------------------
+  # DSL (MACRO) SYNTAX - Declarative & SQL-like
+  #
+  # Same functionality as pipeline version using macro DSL.
+  # Best for: Static queries, SQL familiarity, readability.
+  # ---------------------------------------------------------------------------
+
+  def order_dashboard_comprehensive_dsl(params, current_user) do
+    import Events.Query.DSL
+
+    # Build base query with DSL - static parts
+    base =
+      query Order do
+        # Equality filters
+        filter(:deleted_at, :is_nil, true)
+        filter(:organization_id, :eq, current_user.organization_id)
+
+        # List membership
+        filter(:status, :in, params[:statuses] || ["pending", "processing", "shipped"])
+        filter(:source, :not_in, ["test", "demo", "internal"])
+
+        # Comparison
+        filter(:item_count, :gt, 0)
+
+        # Exclude cancelled/refunded
+        filters([
+          {:status, :neq, "cancelled"},
+          {:status, :neq, "refunded"}
+        ])
+
+        # Joins with bindings
+        join(:customer, :left, as: :cust)
+        join(:shipping_address, :left, as: :ship)
+        join(:assigned_agent, :left, as: :agent)
+
+        # Select with joined fields
+        select(%{
+          id: :id,
+          order_number: :order_number,
+          status: :status,
+          total: :total,
+          created_at: :created_at,
+          shipped_at: :shipped_at,
+          customer_id: {:cust, :id},
+          customer_name: {:cust, :name},
+          customer_email: {:cust, :email},
+          customer_tier: {:cust, :tier},
+          shipping_city: {:ship, :city},
+          shipping_country: {:ship, :country_code},
+          agent_name: {:agent, :name}
+        })
+
+        # Default ordering
+        order(:created_at, :desc)
+        order(:id, :asc)
+
+        # Preload customer with nested associations
+        preload :customer do
+          preload :recent_orders do
+            filter(:status, :in, ["completed", "shipped"])
+            order(:created_at, :desc)
+            order(:id, :asc)
+            limit(5)
+          end
+
+          preload([:addresses])
+          select([:id, :name, :email, :tier, :lifetime_value])
+        end
+
+        # Preload order items with products (3 levels deep)
+        preload :order_items do
+          filter(:deleted_at, :is_nil, true)
+          order(:position, :asc)
+
+          preload :product do
+            filter(:active, :eq, true)
+
+            preload :category do
+              select([:id, :name, :slug])
+            end
+
+            preload :images do
+              filter(:primary, :eq, true)
+              limit(1)
+            end
+
+            select([:id, :name, :sku, :price, :thumbnail_url])
+          end
+        end
+
+        # Preload shipping events with cursor pagination
+        preload :shipping_events do
+          filter(:deleted_at, :is_nil, true)
+          order(:occurred_at, :desc)
+          order(:id, :asc)
+          paginate(:cursor, limit: 10)
+          preload([:carrier])
+        end
+
+        # Preload transactions
+        preload :transactions do
+          filter(:status, :in, ["completed", "pending"])
+          order(:created_at, :desc)
+          limit(5)
+        end
+
+        # Preload notes with authors
+        preload :notes do
+          filter(:visibility, :eq, "internal")
+          order(:created_at, :desc)
+          limit(10)
+
+          preload :author do
+            select([:id, :name, :avatar_url])
+          end
+        end
+      end
+
+    # Apply conditional/dynamic parts using pipeline
+    base
+    # Search
+    |> Query.search(params[:search], [
+      {:order_number, :exact, rank: 1},
+      {:customer_name, :ilike, rank: 2},
+      {:customer_email, :ilike, rank: 3},
+      {:notes, :similarity, threshold: 0.3, rank: 4}
+    ], mode: :ilike, rank: true)
+    # Date range
+    |> Query.then_if(params[:date_range], fn token, {start_date, end_date} ->
+      Query.between(token, :created_at, start_date, end_date)
+    end)
+    # Multiple price ranges (NEW: between_any)
+    |> Query.then_if(params[:price_tiers], fn token, tiers ->
+      Query.between_any(token, :total, tiers)
+    end)
+    # String patterns
+    |> Query.then_if(params[:order_prefix], fn token, prefix ->
+      Query.starts_with(token, :order_number, prefix)
+    end)
+    |> Query.then_if(params[:email_domain], fn token, domain ->
+      Query.ends_with(token, :customer_email, "@#{domain}", case_insensitive: true)
+    end)
+    # Null checks
+    |> Query.if_true(params[:shipped_only], fn token ->
+      token
+      |> Query.where_not_nil(:shipped_at)
+      |> Query.where_present(:tracking_number)
+    end)
+    # JSONB filters
+    |> Query.then_if(params[:metadata_filter], fn token, meta ->
+      Query.filter(token, :metadata, :jsonb_contains, meta)
+    end)
+    # Priority flags (OR group with multiple conditions)
+    |> Query.then_if(params[:priority_flags], fn token, _flags ->
+      Query.where_any(token, [
+        {:priority, :eq, "high"},
+        {:expedited, :eq, true},
+        {:vip_customer, :eq, true}
+      ])
+    end)
+    # Customer tier filter on joined table
+    |> Query.then_if(params[:customer_tier], fn token, tier ->
+      Query.filter(token, :tier, :eq, tier, binding: :cust)
+    end)
+    # Shipping country filter on joined table
+    |> Query.then_if(params[:shipping_country], fn token, country ->
+      Query.filter(token, :country_code, :eq, country, binding: :ship)
+    end)
+    # Custom sorting
+    |> apply_order_sorting(params[:sort])
+    # Cursor pagination
+    |> Query.then_if(params[:after], fn token, cursor ->
+      Query.paginate(token, :cursor, limit: params[:limit] || 25, after: cursor)
+    end)
+    |> Query.if_true(is_nil(params[:after]), fn token ->
+      Query.paginate(token, :cursor, limit: params[:limit] || 25)
+    end)
+    |> Query.execute(include_total_count: true)
+  end
+
+  @doc """
+  ### Usage Examples
+
+  ```elixir
+  # Basic usage - recent orders
+  order_dashboard_comprehensive_pipeline(%{}, current_user)
+
+  # With search and filters
+  order_dashboard_comprehensive_pipeline(%{
+    search: "ORD-2024",
+    statuses: ["pending", "processing"],
+    date_range: {~D[2024-01-01], ~D[2024-12-31]},
+    shipped_only: true
+  }, current_user)
+
+  # With multiple price tiers (NEW: between_any)
+  order_dashboard_comprehensive_pipeline(%{
+    price_tiers: [{0, 50}, {200, 500}, {1000, 5000}],
+    customer_tier: "gold",
+    shipping_country: "US"
+  }, current_user)
+
+  # With priority filtering and sorting
+  order_dashboard_comprehensive_pipeline(%{
+    priority_flags: true,
+    sort: "priority",
+    limit: 50,
+    after: "eyJpZCI6MTIzLCJjcmVhdGVkX2F0IjoiMjAyNC..."
+  }, current_user)
+
+  # With JSONB metadata filtering
+  order_dashboard_comprehensive_pipeline(%{
+    metadata_filter: %{"source" => "mobile", "campaign" => "summer_sale"},
+    has_gift_message: true
+  }, current_user)
+
+  # DSL syntax produces identical results
+  order_dashboard_comprehensive_dsl(%{
+    search: "ORD-2024",
+    statuses: ["pending"],
+    date_range: {~D[2024-01-01], ~D[2024-06-30]}
+  }, current_user)
+  ```
+
+  ### Result Structure
+
+  ```elixir
+  %Events.Query.Result{
+    data: [
+      %{
+        id: 12345,
+        order_number: "ORD-2024-00123",
+        status: "processing",
+        total: #Decimal<299.99>,
+        created_at: ~U[2024-03-15 10:30:00Z],
+        shipped_at: nil,
+        customer_id: 789,
+        customer_name: "John Doe",
+        customer_email: "john@example.com",
+        customer_tier: "gold",
+        shipping_city: "San Francisco",
+        shipping_country: "US",
+        agent_name: "Support Agent",
+        # Preloaded associations
+        customer: %{
+          id: 789,
+          name: "John Doe",
+          email: "john@example.com",
+          tier: "gold",
+          lifetime_value: #Decimal<5000.00>,
+          recent_orders: [...],  # Cursor-paginated
+          addresses: [...]
+        },
+        order_items: [
+          %{
+            position: 1,
+            product: %{
+              id: 456,
+              name: "Widget Pro",
+              sku: "WGT-PRO-001",
+              price: #Decimal<99.99>,
+              thumbnail_url: "https://...",
+              category: %{id: 10, name: "Electronics", slug: "electronics"},
+              images: [%{url: "https://...", primary: true}]
+            }
+          }
+        ],
+        shipping_events: [...],  # Cursor-paginated
+        transactions: [...],
+        notes: [...]
+      }
+    ],
+    pagination: %{
+      has_more: true,
+      end_cursor: "eyJpZCI6MTIzNDUsImNyZWF0ZWRfYXQiOiIyMDI0Li4uIg==",
+      start_cursor: "eyJpZCI6MTIzMDAsImNyZWF0ZWRfYXQiOiIyMDI0Li4uIg==",
+      total_count: 1543
+    },
+    metadata: %{
+      query_time_μs: 45230,
+      source: Order,
+      executed_at: ~U[2024-03-15 14:30:00Z]
+    }
+  }
+  ```
+
+  ### Production Checklist
+
+  This example demonstrates production-ready patterns:
+
+  - ✅ Tenant isolation (organization_id filter)
+  - ✅ Soft delete handling (deleted_at checks)
+  - ✅ Input validation (status whitelist)
+  - ✅ Pagination at all levels (prevents memory issues)
+  - ✅ Limited preloads (prevents N+1 and over-fetching)
+  - ✅ Indexed fields for filtering (status, created_at, etc.)
+  - ✅ Cursor-based pagination (stable for real-time data)
+  - ✅ Total count for UI pagination controls
+  - ✅ Query timing in metadata (for monitoring)
+  """
+  def showcase_documentation, do: :see_docs_above
 end

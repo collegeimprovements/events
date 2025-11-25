@@ -134,37 +134,50 @@ defmodule Events.Query.Result do
     has_more = length(data) >= limit
     has_previous = offset > 0
 
-    current_page = if limit > 0, do: div(offset, limit) + 1, else: 1
-    total_pages = if total_count && limit > 0, do: ceil(total_count / limit), else: nil
-
-    next_offset = if has_more, do: offset + limit, else: nil
-    prev_offset = if has_previous, do: max(0, offset - limit), else: nil
-
     Map.merge(base, %{
       has_more: has_more,
       has_previous: has_previous,
-      current_page: current_page,
-      total_pages: total_pages,
-      next_offset: next_offset,
-      prev_offset: prev_offset
+      current_page: compute_current_page(offset, limit),
+      total_pages: compute_total_pages(total_count, limit),
+      next_offset: compute_next_offset(has_more, offset, limit),
+      prev_offset: compute_prev_offset(has_previous, offset, limit)
     })
   end
+
+  defp compute_current_page(_offset, limit) when limit <= 0, do: 1
+  defp compute_current_page(offset, limit), do: div(offset, limit) + 1
+
+  defp compute_total_pages(nil, _limit), do: nil
+  defp compute_total_pages(_total_count, limit) when limit <= 0, do: nil
+  defp compute_total_pages(total_count, limit), do: ceil(total_count / limit)
+
+  defp compute_next_offset(false, _offset, _limit), do: nil
+  defp compute_next_offset(true, offset, limit), do: offset + limit
+
+  defp compute_prev_offset(false, _offset, _limit), do: nil
+  defp compute_prev_offset(true, offset, limit), do: max(0, offset - limit)
 
   # Build cursor pagination metadata
   defp build_cursor_pagination(data, base, opts) do
     cursor_fields = opts[:cursor_fields] || []
     limit = opts[:limit]
 
-    has_more = if limit, do: length(data) >= limit, else: false
-
-    start_cursor = if length(data) > 0, do: encode_cursor(List.first(data), cursor_fields)
-    end_cursor = if length(data) > 0, do: encode_cursor(List.last(data), cursor_fields)
+    {start_cursor, end_cursor} = compute_cursors(data, cursor_fields)
 
     Map.merge(base, %{
-      has_more: has_more,
+      has_more: compute_cursor_has_more(data, limit),
       start_cursor: start_cursor,
       end_cursor: end_cursor
     })
+  end
+
+  defp compute_cursor_has_more(_data, nil), do: false
+  defp compute_cursor_has_more(data, limit), do: length(data) >= limit
+
+  defp compute_cursors([], _cursor_fields), do: {nil, nil}
+
+  defp compute_cursors(data, cursor_fields) do
+    {encode_cursor(List.first(data), cursor_fields), encode_cursor(List.last(data), cursor_fields)}
   end
 
   @doc """

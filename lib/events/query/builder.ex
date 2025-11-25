@@ -106,6 +106,8 @@ defmodule Events.Query.Builder do
   defp apply_operation({:search_rank_limited, spec}, query),
     do: apply_search_rank_limited(query, spec)
 
+  defp apply_operation({:field_compare, spec}, query), do: apply_field_compare(query, spec)
+
   ## Filter Operations - Unified Dynamic Builder
   ##
   ## All filter operators are defined once in `filter_dynamic/4` and used
@@ -173,16 +175,7 @@ defmodule Events.Query.Builder do
   # Equality - with case insensitive support
   def filter_dynamic(field, :eq, value, opts) do
     binding = opts[:binding] || :root
-    case_insensitive = opts[:case_insensitive] || false
-
-    if is_binary(value) && case_insensitive do
-      dynamic(
-        [{^binding, q}],
-        fragment("lower(?)", field(q, ^field)) == fragment("lower(?)", ^value)
-      )
-    else
-      dynamic([{^binding, q}], field(q, ^field) == ^value)
-    end
+    build_eq_dynamic(field, value, binding, opts[:case_insensitive] || false)
   end
 
   # Not equal
@@ -212,15 +205,15 @@ defmodule Events.Query.Builder do
     dynamic([{^binding, q}], field(q, ^field) <= ^value)
   end
 
-  # List membership
+  # List membership - with case insensitive support
   def filter_dynamic(field, :in, values, opts) when is_list(values) do
     binding = opts[:binding] || :root
-    dynamic([{^binding, q}], field(q, ^field) in ^values)
+    build_in_dynamic(field, values, binding, opts[:case_insensitive] || false)
   end
 
   def filter_dynamic(field, :not_in, values, opts) when is_list(values) do
     binding = opts[:binding] || :root
-    dynamic([{^binding, q}], field(q, ^field) not in ^values)
+    build_not_in_dynamic(field, values, binding, opts[:case_insensitive] || false)
   end
 
   # Pattern matching
@@ -232,6 +225,16 @@ defmodule Events.Query.Builder do
   def filter_dynamic(field, :ilike, pattern, opts) do
     binding = opts[:binding] || :root
     dynamic([{^binding, q}], ilike(field(q, ^field), ^pattern))
+  end
+
+  def filter_dynamic(field, :not_like, pattern, opts) do
+    binding = opts[:binding] || :root
+    dynamic([{^binding, q}], not like(field(q, ^field), ^pattern))
+  end
+
+  def filter_dynamic(field, :not_ilike, pattern, opts) do
+    binding = opts[:binding] || :root
+    dynamic([{^binding, q}], not ilike(field(q, ^field), ^pattern))
   end
 
   # PostgreSQL pg_trgm similarity operators (requires pg_trgm extension)
@@ -280,10 +283,26 @@ defmodule Events.Query.Builder do
     dynamic([{^binding, q}], not is_nil(field(q, ^field)))
   end
 
-  # Range
+  # Range - single tuple
   def filter_dynamic(field, :between, {min, max}, opts) do
     binding = opts[:binding] || :root
     dynamic([{^binding, q}], field(q, ^field) >= ^min and field(q, ^field) <= ^max)
+  end
+
+  # Range - list of ranges (OR of multiple BETWEEN conditions)
+  def filter_dynamic(field, :between, ranges, opts) when is_list(ranges) do
+    binding = opts[:binding] || :root
+
+    ranges
+    |> Enum.reduce(nil, fn {min, max}, acc ->
+      range_condition = dynamic([{^binding, q}], field(q, ^field) >= ^min and field(q, ^field) <= ^max)
+
+      if acc do
+        dynamic(^acc or ^range_condition)
+      else
+        range_condition
+      end
+    end)
   end
 
   # Array/JSONB operators
@@ -316,6 +335,40 @@ defmodule Events.Query.Builder do
     """
   end
 
+  # Private helpers for filter_dynamic
+  defp build_eq_dynamic(field, value, binding, true) when is_binary(value) do
+    dynamic([{^binding, q}], fragment("lower(?)", field(q, ^field)) == fragment("lower(?)", ^value))
+  end
+
+  defp build_eq_dynamic(field, value, binding, _case_insensitive) do
+    dynamic([{^binding, q}], field(q, ^field) == ^value)
+  end
+
+  defp build_in_dynamic(field, values, binding, true) do
+    # Case insensitive: lowercase field and all string values
+    lower_values = Enum.map(values, fn
+      v when is_binary(v) -> String.downcase(v)
+      v -> v
+    end)
+    dynamic([{^binding, q}], fragment("lower(?)", field(q, ^field)) in ^lower_values)
+  end
+
+  defp build_in_dynamic(field, values, binding, _case_insensitive) do
+    dynamic([{^binding, q}], field(q, ^field) in ^values)
+  end
+
+  defp build_not_in_dynamic(field, values, binding, true) do
+    lower_values = Enum.map(values, fn
+      v when is_binary(v) -> String.downcase(v)
+      v -> v
+    end)
+    dynamic([{^binding, q}], fragment("lower(?)", field(q, ^field)) not in ^lower_values)
+  end
+
+  defp build_not_in_dynamic(field, values, binding, _case_insensitive) do
+    dynamic([{^binding, q}], field(q, ^field) not in ^values)
+  end
+
   ## Filter Groups (OR/AND)
 
   defp apply_filter_group(query, {:or, filters}) do
@@ -339,9 +392,52 @@ defmodule Events.Query.Builder do
     end
   end
 
+  defp apply_filter_group(query, {:not_or, filters}) do
+    # NOT (a OR b OR c) - matches if none of the conditions are true
+    conditions =
+      filters
+      |> Enum.map(&spec_to_dynamic/1)
+      |> combine_with_or()
+
+    negated = dynamic(not (^conditions))
+    from(q in query, where: ^negated)
+  end
+
   # Convert filter spec to dynamic expression using unified filter_dynamic/4
   defp spec_to_dynamic({field, op, value, opts}), do: filter_dynamic(field, op, value, opts)
   defp spec_to_dynamic({field, op, value}), do: filter_dynamic(field, op, value, [])
+
+  ## Field-to-Field Comparison
+
+  defp apply_field_compare(query, {field1, op, field2, opts}) do
+    binding = opts[:binding] || :root
+    condition = field_compare_dynamic(field1, op, field2, binding)
+    from(q in query, where: ^condition)
+  end
+
+  defp field_compare_dynamic(field1, :eq, field2, binding) do
+    dynamic([{^binding, q}], field(q, ^field1) == field(q, ^field2))
+  end
+
+  defp field_compare_dynamic(field1, :neq, field2, binding) do
+    dynamic([{^binding, q}], field(q, ^field1) != field(q, ^field2))
+  end
+
+  defp field_compare_dynamic(field1, :gt, field2, binding) do
+    dynamic([{^binding, q}], field(q, ^field1) > field(q, ^field2))
+  end
+
+  defp field_compare_dynamic(field1, :gte, field2, binding) do
+    dynamic([{^binding, q}], field(q, ^field1) >= field(q, ^field2))
+  end
+
+  defp field_compare_dynamic(field1, :lt, field2, binding) do
+    dynamic([{^binding, q}], field(q, ^field1) < field(q, ^field2))
+  end
+
+  defp field_compare_dynamic(field1, :lte, field2, binding) do
+    dynamic([{^binding, q}], field(q, ^field1) <= field(q, ^field2))
+  end
 
   ## EXISTS/NOT EXISTS Subqueries
 
@@ -370,7 +466,7 @@ defmodule Events.Query.Builder do
 
     query
     |> from(limit: ^limit)
-    |> then(fn q -> if offset > 0, do: from(x in q, offset: ^offset), else: q end)
+    |> maybe_apply_offset(offset)
   end
 
   defp apply_pagination(query, {:cursor, opts}) do
@@ -384,6 +480,9 @@ defmodule Events.Query.Builder do
     |> apply_cursor_filter(after_cursor, before_cursor, cursor_fields)
     |> from(limit: ^limit)
   end
+
+  defp maybe_apply_offset(query, 0), do: query
+  defp maybe_apply_offset(query, offset), do: from(q in query, offset: ^offset)
 
   defp apply_cursor_ordering(query, []), do: query
 
@@ -616,31 +715,21 @@ defmodule Events.Query.Builder do
   end
 
   defp decode_term(binary) do
-    try do
-      cursor_data = :erlang.binary_to_term(binary, [:safe])
-
-      if is_map(cursor_data) do
-        {:ok, cursor_data}
-      else
-        {:error, "Cursor contains invalid data structure"}
-      end
-    rescue
-      ArgumentError ->
-        {:error, "Cursor contains unsafe or malformed data"}
-    end
+    binary
+    |> :erlang.binary_to_term([:safe])
+    |> validate_cursor_data()
+  rescue
+    ArgumentError -> {:error, "Cursor contains unsafe or malformed data"}
   end
+
+  defp validate_cursor_data(data) when is_map(data), do: {:ok, data}
+  defp validate_cursor_data(_data), do: {:error, "Cursor contains invalid data structure"}
 
   ## Order
 
   defp apply_order(query, {field, direction, opts}) do
     binding = opts[:binding] || :root
-
-    if binding == :root do
-      from([{^binding, q}] in query, order_by: [{^direction, field(q, ^field)}])
-    else
-      # For joined tables, use the binding
-      from([{^binding, q}] in query, order_by: [{^direction, field(q, ^field)}])
-    end
+    from([{^binding, q}] in query, order_by: [{^direction, field(q, ^field)}])
   end
 
   ## Search Ranking
@@ -687,74 +776,67 @@ defmodule Events.Query.Builder do
   end
 
   # Build condition dynamic for a single field (with binding support)
+  # Uses pattern matching on function heads for flat, readable code
   defp build_rank_condition(field, mode, term, opts) do
     binding = opts[:binding] || :root
+    do_build_rank_condition(field, mode, term, binding, opts)
+  end
 
-    case mode do
-      :exact ->
-        dynamic([{^binding, q}], field(q, ^field) == ^term)
+  # Exact match
+  defp do_build_rank_condition(field, :exact, term, binding, _opts) do
+    dynamic([{^binding, q}], field(q, ^field) == ^term)
+  end
 
-      :ilike ->
-        pattern = "%#{term}%"
-        dynamic([{^binding, q}], ilike(field(q, ^field), ^pattern))
+  # Case-insensitive contains
+  defp do_build_rank_condition(field, :ilike, term, binding, _opts) do
+    pattern = "%#{term}%"
+    dynamic([{^binding, q}], ilike(field(q, ^field), ^pattern))
+  end
 
-      :like ->
-        pattern = "%#{term}%"
-        dynamic([{^binding, q}], like(field(q, ^field), ^pattern))
+  # Case-sensitive contains
+  defp do_build_rank_condition(field, :like, term, binding, _opts) do
+    pattern = "%#{term}%"
+    dynamic([{^binding, q}], like(field(q, ^field), ^pattern))
+  end
 
-      :starts_with ->
-        pattern = "#{term}%"
-        case_sensitive = Keyword.get(opts, :case_sensitive, false)
+  # Starts with - uses helper for case sensitivity
+  defp do_build_rank_condition(field, :starts_with, term, binding, opts) do
+    build_like_condition(field, "#{term}%", binding, opts)
+  end
 
-        if case_sensitive do
-          dynamic([{^binding, q}], like(field(q, ^field), ^pattern))
-        else
-          dynamic([{^binding, q}], ilike(field(q, ^field), ^pattern))
-        end
+  # Ends with - uses helper for case sensitivity
+  defp do_build_rank_condition(field, :ends_with, term, binding, opts) do
+    build_like_condition(field, "%#{term}", binding, opts)
+  end
 
-      :ends_with ->
-        pattern = "%#{term}"
-        case_sensitive = Keyword.get(opts, :case_sensitive, false)
+  # Contains with case sensitivity option
+  defp do_build_rank_condition(field, :contains, term, binding, opts) do
+    build_like_condition(field, "%#{term}%", binding, opts)
+  end
 
-        if case_sensitive do
-          dynamic([{^binding, q}], like(field(q, ^field), ^pattern))
-        else
-          dynamic([{^binding, q}], ilike(field(q, ^field), ^pattern))
-        end
+  # Trigram similarity
+  defp do_build_rank_condition(field, :similarity, term, binding, opts) do
+    threshold = Keyword.get(opts, :threshold, 0.3)
+    dynamic([{^binding, q}], fragment("similarity(?, ?) > ?", field(q, ^field), ^term, ^threshold))
+  end
 
-      :contains ->
-        pattern = "%#{term}%"
-        case_sensitive = Keyword.get(opts, :case_sensitive, false)
+  # Word similarity (better for phrases)
+  defp do_build_rank_condition(field, :word_similarity, term, binding, opts) do
+    threshold = Keyword.get(opts, :threshold, 0.3)
+    dynamic([{^binding, q}], fragment("word_similarity(?, ?) > ?", ^term, field(q, ^field), ^threshold))
+  end
 
-        if case_sensitive do
-          dynamic([{^binding, q}], like(field(q, ^field), ^pattern))
-        else
-          dynamic([{^binding, q}], ilike(field(q, ^field), ^pattern))
-        end
+  # Strict word similarity
+  defp do_build_rank_condition(field, :strict_word_similarity, term, binding, opts) do
+    threshold = Keyword.get(opts, :threshold, 0.3)
+    dynamic([{^binding, q}], fragment("strict_word_similarity(?, ?) > ?", ^term, field(q, ^field), ^threshold))
+  end
 
-      :similarity ->
-        threshold = Keyword.get(opts, :threshold, 0.3)
-
-        dynamic(
-          [{^binding, q}],
-          fragment("similarity(?, ?) > ?", field(q, ^field), ^term, ^threshold)
-        )
-
-      :word_similarity ->
-        threshold = Keyword.get(opts, :threshold, 0.3)
-
-        dynamic(
-          [{^binding, q}],
-          fragment("word_similarity(?, ?) > ?", ^term, field(q, ^field), ^threshold)
-        )
-
-      :strict_word_similarity ->
-        threshold = Keyword.get(opts, :threshold, 0.3)
-
-        dynamic(
-          [{^binding, q}],
-          fragment("strict_word_similarity(?, ?) > ?", ^term, field(q, ^field), ^threshold)
-        )
+  # Helper: builds like/ilike based on case_sensitive option
+  defp build_like_condition(field, pattern, binding, opts) do
+    case Keyword.get(opts, :case_sensitive, false) do
+      true -> dynamic([{^binding, q}], like(field(q, ^field), ^pattern))
+      false -> dynamic([{^binding, q}], ilike(field(q, ^field), ^pattern))
     end
   end
 
@@ -868,9 +950,11 @@ defmodule Events.Query.Builder do
   defp apply_join(query, {association, type, opts}) when is_atom(association) do
     # Association join
     as_name = opts[:as] || association
-    on_condition = opts[:on]
+    on_conditions = opts[:on]
 
-    case {type, on_condition} do
+    # If no custom ON conditions, use association-based join
+    # If custom ON conditions provided, build dynamic expression
+    case {type, on_conditions} do
       {:inner, nil} ->
         from(q in query, join: a in assoc(q, ^association), as: ^as_name)
 
@@ -886,8 +970,15 @@ defmodule Events.Query.Builder do
       {:cross, nil} ->
         from(q in query, cross_join: a in assoc(q, ^association), as: ^as_name)
 
-      {_, _on} ->
-        # TODO: Support custom on conditions for associations
+      {join_type, conditions} when is_list(conditions) ->
+        # Custom ON conditions as keyword list
+        apply_join_with_conditions(query, association, join_type, as_name, conditions)
+
+      {join_type, %Ecto.Query.DynamicExpr{} = dynamic_on} ->
+        # Dynamic expression passed directly
+        apply_schema_join(query, association, join_type, as_name, dynamic_on)
+
+      _ ->
         query
     end
   end
@@ -895,25 +986,61 @@ defmodule Events.Query.Builder do
   defp apply_join(query, {schema, type, opts}) when is_atom(schema) do
     # Schema join with custom on condition
     as_name = opts[:as] || schema
-    on_condition = opts[:on]
+    on_conditions = opts[:on]
 
-    case {type, on_condition} do
-      {:inner, on} when not is_nil(on) ->
-        from(q in query, join: s in ^schema, on: ^on, as: ^as_name)
+    case {type, on_conditions} do
+      {_type, nil} ->
+        # No ON condition - can't do schema join without it
+        query
 
-      {:left, on} when not is_nil(on) ->
-        from(q in query, left_join: s in ^schema, on: ^on, as: ^as_name)
+      {join_type, conditions} when is_list(conditions) ->
+        # Keyword list of conditions: [foreign_key: :local_key, ...]
+        apply_join_with_conditions(query, schema, join_type, as_name, conditions)
 
-      {:right, on} when not is_nil(on) ->
-        from(q in query, right_join: s in ^schema, on: ^on, as: ^as_name)
-
-      {:full, on} when not is_nil(on) ->
-        from(q in query, full_join: s in ^schema, on: ^on, as: ^as_name)
+      {join_type, %Ecto.Query.DynamicExpr{} = dynamic_on} ->
+        apply_schema_join(query, schema, join_type, as_name, dynamic_on)
 
       _ ->
         query
     end
   end
+
+  # Build join with keyword list conditions
+  # e.g., on: [id: :category_id, tenant_id: :tenant_id]
+  defp apply_join_with_conditions(query, schema, type, as_name, conditions) do
+    dynamic_on = build_join_conditions(conditions)
+    apply_schema_join(query, schema, type, as_name, dynamic_on)
+  end
+
+  defp build_join_conditions(conditions) do
+    conditions
+    |> Enum.reduce(nil, fn {join_field, root_field}, acc ->
+      condition = dynamic([q, j], field(j, ^join_field) == field(q, ^root_field))
+
+      case acc do
+        nil -> condition
+        prev -> dynamic([q, j], ^prev and ^condition)
+      end
+    end)
+  end
+
+  defp apply_schema_join(query, schema, :inner, as_name, on) do
+    from(q in query, join: s in ^schema, on: ^on, as: ^as_name)
+  end
+
+  defp apply_schema_join(query, schema, :left, as_name, on) do
+    from(q in query, left_join: s in ^schema, on: ^on, as: ^as_name)
+  end
+
+  defp apply_schema_join(query, schema, :right, as_name, on) do
+    from(q in query, right_join: s in ^schema, on: ^on, as: ^as_name)
+  end
+
+  defp apply_schema_join(query, schema, :full, as_name, on) do
+    from(q in query, full_join: s in ^schema, on: ^on, as: ^as_name)
+  end
+
+  defp apply_schema_join(query, _schema, _type, _as_name, _on), do: query
 
   ## Preload
 
@@ -1083,19 +1210,18 @@ defmodule Events.Query.Builder do
 
   # CTE with options (including recursive support)
   defp apply_cte(query, {name, cte_source, opts}) when is_list(opts) do
-    recursive = Keyword.get(opts, :recursive, false)
-
-    # Enable recursive CTEs if requested
-    query = if recursive, do: recursive_ctes(query, true), else: query
-
-    # Build and apply the CTE
-    apply_cte_query(query, name, cte_source)
+    query
+    |> maybe_enable_recursive(Keyword.get(opts, :recursive, false))
+    |> apply_cte_query(name, cte_source)
   end
 
   # Backwards compatible: CTE without options
   defp apply_cte(query, {name, cte_source}) do
     apply_cte_query(query, name, cte_source)
   end
+
+  defp maybe_enable_recursive(query, true), do: recursive_ctes(query, true)
+  defp maybe_enable_recursive(query, false), do: query
 
   defp apply_cte_query(query, name, %Token{} = cte_token) do
     # Build the CTE query from the token
@@ -1173,58 +1299,48 @@ defmodule Events.Query.Builder do
   end
 
   defp build_window_sql(name, definition) do
-    parts = []
+    window_body =
+      []
+      |> maybe_add_partition(definition[:partition_by])
+      |> maybe_add_order(definition[:order_by])
+      |> maybe_add_frame(definition[:frame])
+      |> Enum.reverse()
+      |> Enum.join(" ")
 
-    parts =
-      case definition[:partition_by] do
-        nil ->
-          parts
-
-        field when is_atom(field) ->
-          ["PARTITION BY #{field}" | parts]
-
-        fields when is_list(fields) ->
-          field_str = Enum.map_join(fields, ", ", &Atom.to_string/1)
-          ["PARTITION BY #{field_str}" | parts]
-      end
-
-    parts =
-      case definition[:order_by] do
-        nil ->
-          parts
-
-        orders when is_list(orders) ->
-          order_str =
-            Enum.map_join(orders, ", ", fn
-              {dir, field} when dir in [:asc, :desc] ->
-                "#{field} #{String.upcase(Atom.to_string(dir))}"
-
-              {field, dir} when dir in [:asc, :desc] ->
-                "#{field} #{String.upcase(Atom.to_string(dir))}"
-
-              field when is_atom(field) ->
-                "#{field} ASC"
-            end)
-
-          ["ORDER BY #{order_str}" | parts]
-
-        field when is_atom(field) ->
-          ["ORDER BY #{field} ASC" | parts]
-      end
-
-    # Add frame specification if present
-    parts =
-      case definition[:frame] do
-        nil ->
-          parts
-
-        frame_spec ->
-          [build_frame_sql(frame_spec) | parts]
-      end
-
-    window_body = parts |> Enum.reverse() |> Enum.join(" ")
     "WINDOW #{name} AS (#{window_body})"
   end
+
+  # Partition by clause helpers
+  defp maybe_add_partition(parts, nil), do: parts
+  defp maybe_add_partition(parts, field) when is_atom(field), do: ["PARTITION BY #{field}" | parts]
+
+  defp maybe_add_partition(parts, fields) when is_list(fields) do
+    field_str = Enum.map_join(fields, ", ", &Atom.to_string/1)
+    ["PARTITION BY #{field_str}" | parts]
+  end
+
+  # Order by clause helpers
+  defp maybe_add_order(parts, nil), do: parts
+  defp maybe_add_order(parts, field) when is_atom(field), do: ["ORDER BY #{field} ASC" | parts]
+
+  defp maybe_add_order(parts, orders) when is_list(orders) do
+    order_str = Enum.map_join(orders, ", ", &format_order_clause/1)
+    ["ORDER BY #{order_str}" | parts]
+  end
+
+  defp format_order_clause({dir, field}) when dir in [:asc, :desc] do
+    "#{field} #{String.upcase(Atom.to_string(dir))}"
+  end
+
+  defp format_order_clause({field, dir}) when dir in [:asc, :desc] do
+    "#{field} #{String.upcase(Atom.to_string(dir))}"
+  end
+
+  defp format_order_clause(field) when is_atom(field), do: "#{field} ASC"
+
+  # Frame clause helper
+  defp maybe_add_frame(parts, nil), do: parts
+  defp maybe_add_frame(parts, frame_spec), do: [build_frame_sql(frame_spec) | parts]
 
   # Build SQL for window frame specification
   # Supports ROWS, RANGE, and GROUPS frame types
@@ -1317,6 +1433,16 @@ defmodule Events.Query.Builder do
 
   ## Raw WHERE
 
+  # New format with opts (positional params list)
+  defp apply_raw_where(query, {sql, params, _opts}) when is_binary(sql) and is_list(params) do
+    # Build fragment with positional parameters directly
+    fragment_expr = build_fragment(sql, params)
+
+    # Apply the where clause
+    from(q in query, where: ^fragment_expr)
+  end
+
+  # Legacy format with named params map
   defp apply_raw_where(query, {sql, params}) when is_binary(sql) and is_map(params) do
     # Convert named parameters to positional
     {positional_sql, positional_params} = convert_named_params_to_positional(sql, params)
@@ -1325,6 +1451,12 @@ defmodule Events.Query.Builder do
     fragment_expr = build_fragment(positional_sql, positional_params)
 
     # Apply the where clause
+    from(q in query, where: ^fragment_expr)
+  end
+
+  # Legacy format with positional params list (no opts)
+  defp apply_raw_where(query, {sql, params}) when is_binary(sql) and is_list(params) do
+    fragment_expr = build_fragment(sql, params)
     from(q in query, where: ^fragment_expr)
   end
 

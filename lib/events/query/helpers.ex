@@ -105,6 +105,38 @@ defmodule Events.Query.Helpers do
     days_ago(n * 7)
   end
 
+  ## Future DateTime Helpers
+
+  @doc "DateTime N minutes from now"
+  @spec minutes_from_now(integer()) :: DateTime.t()
+  def minutes_from_now(n) when is_integer(n) and n >= 0 do
+    DateTime.add(now(), n * 60, :second)
+  end
+
+  @doc "DateTime N hours from now"
+  @spec hours_from_now(integer()) :: DateTime.t()
+  def hours_from_now(n) when is_integer(n) and n >= 0 do
+    DateTime.add(now(), n * 3600, :second)
+  end
+
+  @doc "DateTime N days from now"
+  @spec days_from_now(integer()) :: DateTime.t()
+  def days_from_now(n) when is_integer(n) and n >= 0 do
+    DateTime.add(now(), n * 86400, :second)
+  end
+
+  @doc "DateTime N weeks from now"
+  @spec weeks_from_now(integer()) :: DateTime.t()
+  def weeks_from_now(n) when is_integer(n) and n >= 0 do
+    days_from_now(n * 7)
+  end
+
+  @doc "Date N days from now"
+  @spec next_n_days(integer()) :: Date.t()
+  def next_n_days(n) when is_integer(n) and n >= 0 do
+    Date.add(today(), n)
+  end
+
   ## Time Period Helpers
 
   @doc """

@@ -44,6 +44,7 @@ defmodule Events.Query.Token do
           | {:not_exists, Token.t() | Ecto.Query.t()}
           | {:search_rank, {list(), String.t()}}
           | {:search_rank_limited, {list(), String.t()}}
+          | {:field_compare, {atom(), atom(), atom(), keyword()}}
 
   @type t :: %__MODULE__{
           source: module() | Ecto.Query.t() | :nested,
@@ -206,18 +207,7 @@ defmodule Events.Query.Token do
   defp validate_operation({:having, conditions}) when is_list(conditions), do: :ok
 
   defp validate_operation({:limit, n}) when is_integer(n) and n > 0 do
-    max = max_limit()
-
-    if n <= max do
-      :ok
-    else
-      {:error,
-       %LimitExceededError{
-         requested: n,
-         max_allowed: max,
-         suggestion: "Use streaming for large datasets or increase config."
-       }}
-    end
+    validate_limit_bounds(n, max_limit())
   end
 
   defp validate_operation({:offset, n}) when is_integer(n) and n >= 0, do: :ok
@@ -231,12 +221,17 @@ defmodule Events.Query.Token do
   defp validate_operation({:cte, {name, _query}}) when is_atom(name), do: :ok
   defp validate_operation({:window, {name, def}}) when is_atom(name) and is_list(def), do: :ok
 
+  defp validate_operation({:raw_where, {sql, params, opts}})
+       when is_binary(sql) and (is_list(params) or is_map(params)) and is_list(opts),
+       do: :ok
+
+  # Backwards compatibility
   defp validate_operation({:raw_where, {sql, params}})
-       when is_binary(sql) and is_map(params),
+       when is_binary(sql) and (is_list(params) or is_map(params)),
        do: :ok
 
   defp validate_operation({:filter_group, {combinator, filters}})
-       when combinator in [:or, :and] and is_list(filters) do
+       when combinator in [:or, :and, :not_or] and is_list(filters) do
     validate_filter_group(combinator, filters)
   end
 
@@ -256,7 +251,29 @@ defmodule Events.Query.Token do
        when is_list(fields) and is_binary(term),
        do: :ok
 
+  @field_compare_ops [:eq, :neq, :gt, :gte, :lt, :lte]
+  defp validate_operation({:field_compare, {field1, op, field2, opts}})
+       when is_atom(field1) and is_atom(op) and is_atom(field2) and is_list(opts) do
+    if op in @field_compare_ops do
+      :ok
+    else
+      {:error, "Invalid field comparison operator: #{inspect(op)}. Valid: #{inspect(@field_compare_ops)}"}
+    end
+  end
+
   defp validate_operation(op), do: {:error, "Unknown operation: #{inspect(op)}"}
+
+  # Limit bounds validation (separate from validate_operation)
+  defp validate_limit_bounds(n, max) when n <= max, do: :ok
+
+  defp validate_limit_bounds(n, max) do
+    {:error,
+     %LimitExceededError{
+       requested: n,
+       max_allowed: max,
+       suggestion: "Use streaming for large datasets or increase config."
+     }}
+  end
 
   # Validate filter group has at least 2 filters and all are valid
   defp validate_filter_group(combinator, filters) when length(filters) < 2 do
@@ -307,6 +324,8 @@ defmodule Events.Query.Token do
     :not_in_subquery,
     :like,
     :ilike,
+    :not_like,
+    :not_ilike,
     :is_nil,
     :not_nil,
     :between,

@@ -192,16 +192,35 @@ defmodule Events.Query do
   - `:explain_analyze` in debug executes the query (use with care in production)
   """
 
-  alias Events.Query.{Token, Builder, Executor, Result}
+  alias Events.Query.{Token, Builder, Executor, Result, Queryable, Cast, Predicates, Search}
 
   # Re-export key types
   @type t :: Token.t()
+  @type queryable :: Token.t() | module() | Ecto.Query.t() | String.t()
 
   ## Public API
 
-  @doc "Create a new query token from a schema"
-  @spec new(module() | Ecto.Query.t()) :: Token.t()
+  @doc """
+  Create a new query token from a schema, Ecto query, or table name.
+
+  ## Examples
+
+      # From schema module
+      Query.new(User)
+
+      # From existing Ecto query
+      Query.new(from u in User, where: u.admin == true)
+
+      # From table name string (schemaless)
+      Query.new("users")
+  """
+  @spec new(module() | Ecto.Query.t() | String.t()) :: Token.t()
   defdelegate new(schema_or_query), to: Token
+
+  # Internal helper to ensure we have a token from any queryable source
+  @doc false
+  defp ensure_token(%Token{} = token), do: token
+  defp ensure_token(source), do: Queryable.to_token(source)
 
   @doc """
   Debug a query token - prints debug info and returns input unchanged.
@@ -293,19 +312,406 @@ defmodule Events.Query do
       |> Query.where(:age, :gte, 18)
       |> Query.where(:verified, :eq, true)
   """
-  @spec where(Token.t(), atom(), atom(), term(), keyword()) :: Token.t()
-  def where(token, field, op, value, opts \\ []) do
-    Token.add_operation(token, {:filter, {field, op, value, opts}})
+  @spec where(queryable(), atom(), atom(), term(), keyword()) :: Token.t()
+  def where(source, field, op, value, opts \\ []) do
+    {cast_type, filter_opts} = Keyword.pop(opts, :cast)
+    casted_value = Cast.cast(value, cast_type)
+
+    source
+    |> ensure_token()
+    |> Token.add_operation({:filter, {field, op, casted_value, filter_opts}})
   end
 
   @doc """
   Alias for `where/5`. Semantic alternative name.
 
   See `where/5` for documentation.
+
+  ## Shorthand Syntax
+
+  When operator is `:eq`, you can omit it:
+
+      # These are equivalent:
+      Query.filter(token, :status, :eq, "active")
+      Query.filter(token, :status, "active")
+
+  For keyword-based equality filters:
+
+      # These are equivalent:
+      token
+      |> Query.filter(:status, :eq, "active")
+      |> Query.filter(:verified, :eq, true)
+
+      Query.filter(token, status: "active", verified: true)
+
+  ## Piping from Schema
+
+  You can pipe directly from a schema without `Query.new()`:
+
+      # These are equivalent:
+      User |> Query.new() |> Query.filter(:status, :eq, "active")
+      User |> Query.filter(:status, :eq, "active")
   """
-  @spec filter(Token.t(), atom(), atom(), term(), keyword()) :: Token.t()
-  def filter(token, field, op, value, opts \\ []) do
-    where(token, field, op, value, opts)
+  @spec filter(queryable(), atom(), atom(), term(), keyword()) :: Token.t()
+  def filter(source, field, op, value, opts \\ []) do
+    where(source, field, op, value, opts)
+  end
+
+  @doc """
+  Shorthand filter for equality (`:eq` operator).
+
+  This is a convenience function when the operator is `:eq`.
+
+  ## Examples
+
+      # These are equivalent:
+      Query.filter(token, :status, :eq, "active")
+      Query.filter(token, :status, "active")
+
+      # Pipe from schema directly:
+      User |> Query.filter(:status, "active")
+  """
+  @spec filter(queryable(), atom(), term()) :: Token.t()
+  def filter(source, field, value) when is_atom(field) do
+    where(source, field, :eq, value, [])
+  end
+
+  @doc """
+  Filter with keyword list for multiple equality conditions.
+
+  A convenient shorthand for multiple equality filters.
+
+  ## Examples
+
+      # These are equivalent:
+      token
+      |> Query.filter(:status, :eq, "active")
+      |> Query.filter(:verified, :eq, true)
+      |> Query.filter(:role, :eq, "admin")
+
+      Query.filter(token, status: "active", verified: true, role: "admin")
+
+      # Pipe from schema:
+      User |> Query.filter(status: "active", verified: true)
+  """
+  @spec filter(queryable(), keyword()) :: Token.t()
+  def filter(source, filters) when is_list(filters) and length(filters) > 0 do
+    token = ensure_token(source)
+
+    Enum.reduce(filters, token, fn {field, value}, acc ->
+      Token.add_operation(acc, {:filter, {field, :eq, value, []}})
+    end)
+  end
+
+  @doc """
+  Filter on a joined table using its binding name.
+
+  This is a shorthand for `filter/5` with the `binding:` option.
+
+  ## Parameters
+
+  - `source` - The query token or queryable source
+  - `binding` - The binding name (from `as:` in join)
+  - `field` - Field name on the joined table
+  - `value` - Value for equality filter (defaults to `:eq` operator)
+
+  ## Examples
+
+      # Long form:
+      token
+      |> Query.join(:category, :left, as: :cat)
+      |> Query.filter(:active, :eq, true, binding: :cat)
+
+      # Short form with on/4:
+      token
+      |> Query.join(:category, :left, as: :cat)
+      |> Query.on(:cat, :active, true)
+
+      # With operator:
+      token
+      |> Query.join(:category, :left, as: :cat)
+      |> Query.on(:cat, :price, :gte, 100)
+
+  ## Pipeline Example
+
+      Product
+      |> Query.join(:category, :left, as: :cat)
+      |> Query.join(:brand, :left, as: :brand)
+      |> Query.filter(:active, true)           # Filter on root table
+      |> Query.on(:cat, :name, "Electronics")  # Filter on category
+      |> Query.on(:brand, :country, "US")      # Filter on brand
+      |> Query.execute()
+  """
+  @spec on(queryable(), atom(), atom(), term()) :: Token.t()
+  def on(source, binding, field, value) when is_atom(binding) and is_atom(field) do
+    source
+    |> ensure_token()
+    |> Token.add_operation({:filter, {field, :eq, value, [binding: binding]}})
+  end
+
+  @doc """
+  Filter on a joined table with explicit operator.
+
+  ## Examples
+
+      token
+      |> Query.join(:products, :left, as: :prod)
+      |> Query.on(:prod, :price, :gte, 100)
+      |> Query.on(:prod, :status, :in, ["active", "pending"])
+  """
+  @spec on(queryable(), atom(), atom(), atom(), term()) :: Token.t()
+  def on(source, binding, field, op, value) when is_atom(binding) and is_atom(field) and is_atom(op) do
+    source
+    |> ensure_token()
+    |> Token.add_operation({:filter, {field, op, value, [binding: binding]}})
+  end
+
+  # ============================================================================
+  # Conditional Filters (maybe)
+  # ============================================================================
+
+  @doc """
+  Conditionally apply a filter only if the value is truthy.
+
+  This is extremely useful when building queries from optional parameters.
+  If value is `nil`, `false`, or empty string, the filter is skipped entirely.
+
+  ## Parameters
+
+  - `source` - The query token or queryable source
+  - `field` - Field name to filter on
+  - `value` - Value to filter by (filter skipped if nil/false/"")
+
+  ## Examples
+
+      # Instead of:
+      token = User |> Query.new()
+      token = if params["status"], do: Query.filter(token, :status, params["status"]), else: token
+      token = if params["role"], do: Query.filter(token, :role, params["role"]), else: token
+
+      # Just write:
+      User
+      |> Query.maybe(:status, params["status"])
+      |> Query.maybe(:role, params["role"])
+      |> Query.maybe(:min_age, params["min_age"], :gte, cast: :integer)
+      |> Query.execute()
+
+  ## With Operators
+
+      User
+      |> Query.maybe(:age, params["min_age"], :gte)
+      |> Query.maybe(:created_at, params["since"], :gte)
+      |> Query.maybe(:role, params["roles"], :in)
+
+  ## Custom Predicates
+
+  Use the `:when` option to customize when the filter is applied:
+
+      # Only apply if not nil (allows false, "", [])
+      Query.maybe(User, :active, params[:active], :eq, when: :not_nil)
+
+      # Only apply if not blank (nil, "", whitespace)
+      Query.maybe(User, :name, params[:name], :ilike, when: :not_blank)
+
+      # Custom predicate function
+      Query.maybe(User, :score, params[:min], :gte, when: &(&1 && &1 > 0))
+      Query.maybe(User, :tags, params[:tags], :in, when: &(is_list(&1) and &1 != []))
+
+  Built-in predicates:
+  - `:present` - (default) not nil, false, "", [], %{}
+  - `:not_nil` - only checks for nil
+  - `:not_blank` - not nil, "", or whitespace-only string
+  - `:not_empty` - not nil, [], or %{}
+  """
+  @spec maybe(queryable(), atom(), term()) :: Token.t()
+  def maybe(source, field, value) do
+    maybe(source, field, value, :eq, [])
+  end
+
+  @spec maybe(queryable(), atom(), term(), atom()) :: Token.t()
+  def maybe(source, field, value, op) when is_atom(op) and op not in [:when] do
+    maybe(source, field, value, op, [])
+  end
+
+  @spec maybe(queryable(), atom(), term(), keyword()) :: Token.t()
+  def maybe(source, field, value, opts) when is_list(opts) do
+    maybe(source, field, value, :eq, opts)
+  end
+
+  @spec maybe(queryable(), atom(), term(), atom(), keyword()) :: Token.t()
+  def maybe(source, field, value, op, opts) when is_atom(op) do
+    token = ensure_token(source)
+    {predicate, filter_opts} = Keyword.pop(opts, :when, :present)
+
+    if Predicates.check(predicate, value) do
+      where(token, field, op, value, filter_opts)
+    else
+      token
+    end
+  end
+
+  @doc """
+  Conditionally apply a filter on a joined table.
+
+  Like `maybe/4` but for joined tables using their binding name.
+  Supports the same `:when` option for custom predicates.
+
+  ## Examples
+
+      Product
+      |> Query.left_join(Category, as: :cat, on: [id: :category_id])
+      |> Query.maybe_on(:cat, :name, params["category"])
+      |> Query.maybe_on(:cat, :priority, params["min_priority"], :gte)
+      |> Query.maybe_on(:cat, :active, params["active"], :eq, when: :not_nil)
+  """
+  @spec maybe_on(queryable(), atom(), atom(), term()) :: Token.t()
+  def maybe_on(source, binding, field, value) do
+    maybe_on(source, binding, field, value, :eq, [])
+  end
+
+  @spec maybe_on(queryable(), atom(), atom(), term(), atom()) :: Token.t()
+  def maybe_on(source, binding, field, value, op) when is_atom(op) do
+    maybe_on(source, binding, field, value, op, [])
+  end
+
+  @spec maybe_on(queryable(), atom(), atom(), term(), atom(), keyword()) :: Token.t()
+  def maybe_on(source, binding, field, value, op, opts) when is_atom(binding) and is_atom(op) do
+    token = ensure_token(source)
+    {predicate, filter_opts} = Keyword.pop(opts, :when, :present)
+
+    if Predicates.check(predicate, value) do
+      full_opts = Keyword.put(filter_opts, :binding, binding)
+      where(token, field, op, value, full_opts)
+    else
+      token
+    end
+  end
+
+  # ============================================================================
+  # Raw SQL Escape Hatch
+  # ============================================================================
+
+  @doc """
+  Add a raw SQL fragment to the WHERE clause.
+
+  Use this when you need SQL features not directly supported by the Query DSL.
+  Parameters are safely interpolated using Ecto's fragment.
+
+  ## Parameters
+
+  - `source` - The query token or queryable source
+  - `sql` - SQL fragment string with `?` placeholders
+  - `params` - List of parameters to interpolate (default: [])
+  - `opts` - Options (default: [])
+    - `:binding` - Apply to a joined table
+
+  ## Examples
+
+      # Simple raw condition
+      User
+      |> Query.raw("age + 5 > ?", [30])
+      |> Query.execute()
+
+      # JSONB operations
+      User
+      |> Query.raw("settings->>'theme' = ?", ["dark"])
+      |> Query.raw("metadata @> ?", [Jason.encode!(%{role: "admin"})])
+
+      # PostgreSQL specific features
+      Product
+      |> Query.raw("tsv @@ plainto_tsquery('english', ?)", [search_term])
+
+      # Array operations
+      User
+      |> Query.raw("? = ANY(roles)", ["admin"])
+
+      # On joined table
+      Product
+      |> Query.left_join(Category, as: :cat, on: [id: :category_id])
+      |> Query.raw("?.data->>'featured' = 'true'", [], binding: :cat)
+
+  ## Safety Note
+
+  Parameters are always safely interpolated - never concatenate user input
+  directly into the SQL string.
+  """
+  @spec raw(queryable(), String.t(), list() | map(), keyword()) :: Token.t()
+  def raw(source, sql, params \\ [], opts \\ [])
+      when is_binary(sql) and (is_list(params) or is_map(params)) do
+    source
+    |> ensure_token()
+    |> Token.add_operation({:raw_where, {sql, params, opts}})
+  end
+
+  # ============================================================================
+  # Debug Helpers
+  # ============================================================================
+
+  @doc """
+  Return the SQL string and parameters for a query.
+
+  Useful for debugging or logging queries.
+
+  ## Examples
+
+      {sql, params} = User
+        |> Query.filter(:status, "active")
+        |> Query.to_sql()
+
+      # sql => "SELECT ... FROM users WHERE status = $1"
+      # params => ["active"]
+  """
+  @spec to_sql(Token.t(), keyword()) :: {String.t(), list()}
+  def to_sql(%Token{} = token, opts \\ []) do
+    repo = opts[:repo] || Events.Repo
+    query = Builder.build(token)
+    Ecto.Adapters.SQL.to_sql(:all, repo, query)
+  end
+
+  @doc """
+  Return the EXPLAIN output for a query.
+
+  ## Options
+
+  - `:analyze` - Run EXPLAIN ANALYZE (actually executes query, default: false)
+  - `:format` - Output format: :text, :json, :yaml (default: :text)
+  - `:verbose` - Include verbose output (default: false)
+  - `:buffers` - Include buffer usage (requires :analyze, default: false)
+
+  ## Examples
+
+      # Basic explain
+      User
+      |> Query.filter(:status, "active")
+      |> Query.explain()
+
+      # With analyze (actually runs the query)
+      User
+      |> Query.filter(:status, "active")
+      |> Query.explain(analyze: true)
+
+      # JSON format for programmatic parsing
+      User
+      |> Query.filter(:status, "active")
+      |> Query.explain(format: :json, analyze: true)
+  """
+  @spec explain(Token.t(), keyword()) :: String.t() | list()
+  def explain(%Token{} = token, opts \\ []) do
+    repo = opts[:repo] || Events.Repo
+    query = Builder.build(token)
+
+    analyze = opts[:analyze] || false
+    format = opts[:format] || :text
+    verbose = opts[:verbose] || false
+    buffers = opts[:buffers] || false
+
+    explain_opts = []
+    explain_opts = if analyze, do: [{:analyze, true} | explain_opts], else: explain_opts
+    explain_opts = if verbose, do: [{:verbose, true} | explain_opts], else: explain_opts
+    explain_opts = if buffers, do: [{:buffers, true} | explain_opts], else: explain_opts
+    explain_opts = [{:format, format} | explain_opts]
+
+    repo.explain(:all, query, explain_opts)
   end
 
   @doc """
@@ -376,6 +782,9 @@ defmodule Events.Query do
 
   - `token` - The query token
   - `filter_list` - List of filter specifications (at least 2 required)
+  - `opts` - Options applied to all filters (merged with per-filter options)
+    - `:binding` - Named binding for all filters
+    - `:case_insensitive` - Apply case-insensitive matching
 
   ## Examples
 
@@ -386,22 +795,31 @@ defmodule Events.Query do
         {:verified, :eq, true}
       ])
 
-      # With options
+      # With global options applied to all filters
       Query.where_any(token, [
-        {:email, :eq, "john@example.com", [case_insensitive: true]},
-        {:username, :eq, "john", [case_insensitive: true]}
-      ])
+        {:email, :eq, "john@example.com"},
+        {:username, :eq, "john"}
+      ], case_insensitive: true)
+
+      # With binding for joined table
+      Query.where_any(token, [
+        {:status, :eq, "shipped"},
+        {:status, :eq, "delivered"}
+      ], binding: :order)
 
   ## SQL Equivalent
 
       WHERE (status = 'active' OR role = 'admin' OR verified = true)
   """
-  @spec where_any(Token.t(), [
-          {atom(), atom(), term()}
-          | {atom(), atom(), term(), keyword()}
-        ]) :: Token.t()
-  def where_any(token, filter_list) when is_list(filter_list) and length(filter_list) >= 2 do
-    normalized = Enum.map(filter_list, &normalize_filter_spec/1)
+  @spec where_any(
+          Token.t(),
+          [{atom(), atom(), term()} | {atom(), atom(), term(), keyword()}],
+          keyword()
+        ) :: Token.t()
+  def where_any(token, filter_list, opts \\ [])
+
+  def where_any(token, filter_list, opts) when is_list(filter_list) and length(filter_list) >= 2 do
+    normalized = normalize_filter_specs(filter_list, opts)
     Token.add_operation(token, {:filter_group, {:or, normalized}})
   end
 
@@ -415,6 +833,9 @@ defmodule Events.Query do
 
   - `token` - The query token
   - `filter_list` - List of filter specifications (at least 2 required)
+  - `opts` - Options applied to all filters (merged with per-filter options)
+    - `:binding` - Named binding for all filters
+    - `:case_insensitive` - Apply case-insensitive matching
 
   ## Examples
 
@@ -424,17 +845,189 @@ defmodule Events.Query do
         {:verified, :eq, true}
       ])
 
+      # With binding for joined table
+      Query.where_all(token, [
+        {:status, :eq, "paid"},
+        {:shipped_at, :not_nil, true}
+      ], binding: :order)
+
   ## SQL Equivalent
 
       WHERE (status = 'active' AND verified = true)
   """
-  @spec where_all(Token.t(), [
-          {atom(), atom(), term()}
-          | {atom(), atom(), term(), keyword()}
-        ]) :: Token.t()
-  def where_all(token, filter_list) when is_list(filter_list) and length(filter_list) >= 2 do
-    normalized = Enum.map(filter_list, &normalize_filter_spec/1)
+  @spec where_all(
+          Token.t(),
+          [{atom(), atom(), term()} | {atom(), atom(), term(), keyword()}],
+          keyword()
+        ) :: Token.t()
+  def where_all(token, filter_list, opts \\ [])
+
+  def where_all(token, filter_list, opts) when is_list(filter_list) and length(filter_list) >= 2 do
+    normalized = normalize_filter_specs(filter_list, opts)
     Token.add_operation(token, {:filter_group, {:and, normalized}})
+  end
+
+  @doc """
+  Add a NONE filter group - matches if NONE of the conditions are true.
+
+  This is the negation of `where_any/2`. Useful for exclusion lists.
+
+  ## Parameters
+
+  - `token` - The query token
+  - `filter_list` - List of filter specifications (at least 2 required)
+  - `opts` - Options applied to all filters (merged with per-filter options)
+    - `:binding` - Named binding for all filters
+    - `:case_insensitive` - Apply case-insensitive matching
+
+  ## Examples
+
+      # Match users who are NOT active AND NOT admins (neither of these)
+      Query.where_none(token, [
+        {:status, :eq, "active"},
+        {:role, :eq, "admin"}
+      ])
+
+      # Exclude multiple statuses
+      Query.where_none(token, [
+        {:status, :eq, "banned"},
+        {:status, :eq, "deleted"},
+        {:status, :eq, "suspended"}
+      ])
+
+      # With binding for joined table
+      Query.where_none(token, [
+        {:status, :eq, "cancelled"},
+        {:status, :eq, "refunded"}
+      ], binding: :order)
+
+  ## SQL Equivalent
+
+      WHERE NOT (status = 'active' OR role = 'admin')
+  """
+  @spec where_none(
+          Token.t(),
+          [{atom(), atom(), term()} | {atom(), atom(), term(), keyword()}],
+          keyword()
+        ) :: Token.t()
+  def where_none(token, filter_list, opts \\ [])
+
+  def where_none(token, filter_list, opts) when is_list(filter_list) and length(filter_list) >= 2 do
+    normalized = normalize_filter_specs(filter_list, opts)
+    Token.add_operation(token, {:filter_group, {:not_or, normalized}})
+  end
+
+  @doc """
+  Add a negated filter condition.
+
+  Inverts the operator to create the opposite condition.
+
+  ## Operator Inversions
+
+  | Original | Negated |
+  |----------|---------|
+  | `:eq` | `:neq` |
+  | `:neq` | `:eq` |
+  | `:gt` | `:lte` |
+  | `:gte` | `:lt` |
+  | `:lt` | `:gte` |
+  | `:lte` | `:gt` |
+  | `:in` | `:not_in` |
+  | `:not_in` | `:in` |
+  | `:is_nil` | `:not_nil` |
+  | `:not_nil` | `:is_nil` |
+  | `:like` | `:not_like` |
+  | `:ilike` | `:not_ilike` |
+
+  ## Examples
+
+      # status != "active"
+      Query.where_not(token, :status, :eq, "active")
+
+      # NOT (price > 100)  =>  price <= 100
+      Query.where_not(token, :price, :gt, 100)
+
+      # NOT (role IN ["admin", "mod"])  =>  role NOT IN [...]
+      Query.where_not(token, :role, :in, ["admin", "mod"])
+
+  ## SQL Equivalent
+
+      -- where_not(:status, :eq, "active")
+      WHERE status != 'active'
+
+      -- where_not(:price, :gt, 100)
+      WHERE price <= 100
+  """
+  @spec where_not(Token.t(), atom(), atom(), term(), keyword()) :: Token.t()
+  def where_not(token, field, op, value, opts \\ []) do
+    negated_op = negate_operator(op)
+    where(token, field, negated_op, value, opts)
+  end
+
+  # Operator negation mapping
+  defp negate_operator(:eq), do: :neq
+  defp negate_operator(:neq), do: :eq
+  defp negate_operator(:gt), do: :lte
+  defp negate_operator(:gte), do: :lt
+  defp negate_operator(:lt), do: :gte
+  defp negate_operator(:lte), do: :gt
+  defp negate_operator(:in), do: :not_in
+  defp negate_operator(:not_in), do: :in
+  defp negate_operator(:is_nil), do: :not_nil
+  defp negate_operator(:not_nil), do: :is_nil
+  defp negate_operator(:like), do: :not_like
+  defp negate_operator(:ilike), do: :not_ilike
+  defp negate_operator(:not_like), do: :like
+  defp negate_operator(:not_ilike), do: :ilike
+
+  defp negate_operator(op) do
+    raise ArgumentError, "Cannot negate operator: #{inspect(op)}"
+  end
+
+  @doc """
+  Compare two fields within the same row.
+
+  Useful for queries like "find records where updated_at > created_at" or
+  "find products where current_stock < min_stock".
+
+  ## Supported Operators
+
+  | Operator | Meaning |
+  |----------|---------|
+  | `:eq` | field1 = field2 |
+  | `:neq` | field1 != field2 |
+  | `:gt` | field1 > field2 |
+  | `:gte` | field1 >= field2 |
+  | `:lt` | field1 < field2 |
+  | `:lte` | field1 <= field2 |
+
+  ## Examples
+
+      # Records that were modified after creation
+      Query.where_field(token, :updated_at, :gt, :created_at)
+
+      # Products running low on stock
+      Query.where_field(token, :current_stock, :lt, :min_stock)
+
+      # Orders where total matches subtotal (no discounts)
+      Query.where_field(token, :total, :eq, :subtotal)
+
+      # With bindings for joined tables
+      Query.where_field(token, :user_id, :eq, :author_id, binding: :post)
+
+  ## SQL Equivalent
+
+      -- where_field(:updated_at, :gt, :created_at)
+      WHERE updated_at > created_at
+
+      -- where_field(:current_stock, :lt, :min_stock)
+      WHERE current_stock < min_stock
+  """
+  @spec where_field(Token.t(), atom(), atom(), atom(), keyword()) :: Token.t()
+  def where_field(token, field1, op, field2, opts \\ [])
+      when is_atom(field1) and is_atom(op) and is_atom(field2) do
+    ensure_token(token)
+    |> Token.add_operation({:field_compare, {field1, op, field2, opts}})
   end
 
   @doc """
@@ -644,6 +1237,248 @@ defmodule Events.Query do
   end
 
   @doc """
+  Filter field between two values (inclusive).
+
+  A shorthand for `filter(token, field, :between, {min, max})`.
+
+  ## Examples
+
+      # Price between 10 and 100
+      Query.between(token, :price, 10, 100)
+
+      # Age between 18 and 65
+      Query.between(token, :age, 18, 65)
+
+      # With binding for joined table
+      Query.between(token, :quantity, 1, 10, binding: :items)
+
+  ## SQL Equivalent
+
+      WHERE price BETWEEN 10 AND 100
+  """
+  @spec between(Token.t(), atom(), term(), term(), keyword()) :: Token.t()
+  def between(token, field, min, max, opts \\ []) do
+    filter(token, field, :between, {min, max}, opts)
+  end
+
+  @doc """
+  Filter field within any of multiple ranges (inclusive).
+
+  Creates an OR condition matching any of the provided ranges.
+
+  ## Examples
+
+      # Score in multiple grade ranges
+      Query.between_any(token, :score, [{0, 10}, {50, 75}, {90, 100}])
+
+      # Price tiers
+      Query.between_any(token, :price, [{10, 50}, {100, 200}], binding: :products)
+
+  ## SQL Equivalent
+
+      WHERE (score BETWEEN 0 AND 10 OR score BETWEEN 50 AND 75 OR score BETWEEN 90 AND 100)
+  """
+  @spec between_any(Token.t(), atom(), [{term(), term()}], keyword()) :: Token.t()
+  def between_any(token, field, ranges, opts \\ []) when is_list(ranges) do
+    filter(token, field, :between, ranges, opts)
+  end
+
+  @doc """
+  Filter field to be greater than or equal to a value.
+
+  A shorthand for `filter(token, field, :gte, value)`.
+
+  ## Examples
+
+      Query.at_least(token, :price, 100)
+      Query.at_least(token, :age, 18)
+
+  ## SQL Equivalent
+
+      WHERE price >= 100
+  """
+  @spec at_least(Token.t(), atom(), term(), keyword()) :: Token.t()
+  def at_least(token, field, value, opts \\ []) do
+    filter(token, field, :gte, value, opts)
+  end
+
+  @doc """
+  Filter field to be less than or equal to a value.
+
+  A shorthand for `filter(token, field, :lte, value)`.
+
+  ## Examples
+
+      Query.at_most(token, :price, 1000)
+      Query.at_most(token, :quantity, 50)
+
+  ## SQL Equivalent
+
+      WHERE price <= 1000
+  """
+  @spec at_most(Token.t(), atom(), term(), keyword()) :: Token.t()
+  def at_most(token, field, value, opts \\ []) do
+    filter(token, field, :lte, value, opts)
+  end
+
+  ## String Operations
+  ##
+  ## Convenient wrappers for common string matching patterns.
+  ## Generated using metaprogramming for consistency.
+
+  # String pattern function definitions: {name, pattern_type, op, negated_op, value_name, doc_example}
+  @string_pattern_ops [
+    {:starts_with, :prefix, :like, :not_like, "prefix",
+     {"name", "John", "WHERE name LIKE 'John%'"}},
+    {:ends_with, :suffix, :like, :not_like, "suffix",
+     {"email", "@example.com", "WHERE email LIKE '%@example.com'"}},
+    {:contains_string, :contains, :like, :not_like, "substring",
+     {"description", "important", "WHERE description LIKE '%important%'"}}
+  ]
+
+  for {name, pattern_type, op, negated_op, value_name, {field_ex, value_ex, sql_ex}} <-
+        @string_pattern_ops do
+    negated_name = :"not_#{name}"
+
+    @doc """
+    Filter where string field #{String.replace(to_string(name), "_", " ")}s a given #{value_name}.
+
+    ## Examples
+
+        Query.#{name}(token, :#{field_ex}, "#{value_ex}")
+        Query.#{name}(token, :#{field_ex}, "test", case_insensitive: true)
+
+    ## SQL Equivalent
+
+        #{sql_ex}
+    """
+    @spec unquote(name)(Token.t(), atom(), String.t(), keyword()) :: Token.t()
+    def unquote(name)(token, field, value, opts \\ []) when is_binary(value) do
+      pattern = string_pattern(value, unquote(pattern_type))
+      string_filter(token, field, pattern, unquote(op), opts)
+    end
+
+    @doc """
+    Filter where string field does NOT #{String.replace(to_string(name), "_", " ")} a given #{value_name}.
+
+    ## Examples
+
+        Query.#{negated_name}(token, :#{field_ex}, "#{value_ex}")
+
+    ## SQL Equivalent
+
+        #{String.replace(sql_ex, "LIKE", "NOT LIKE")}
+    """
+    @spec unquote(negated_name)(Token.t(), atom(), String.t(), keyword()) :: Token.t()
+    def unquote(negated_name)(token, field, value, opts \\ []) when is_binary(value) do
+      pattern = string_pattern(value, unquote(pattern_type))
+      string_filter(token, field, pattern, unquote(negated_op), opts)
+    end
+  end
+
+  defp string_pattern(value, :prefix), do: value <> "%"
+  defp string_pattern(value, :suffix), do: "%" <> value
+  defp string_pattern(value, :contains), do: "%" <> value <> "%"
+
+  defp string_filter(token, field, pattern, base_op, opts) do
+    op = if opts[:case_insensitive], do: case_insensitive_op(base_op), else: base_op
+    filter(token, field, op, pattern, Keyword.delete(opts, :case_insensitive))
+  end
+
+  defp case_insensitive_op(:like), do: :ilike
+  defp case_insensitive_op(:not_like), do: :not_ilike
+
+  ## Null/Blank Helpers
+  ##
+  ## Convenient wrappers for null and blank checking.
+
+  @doc """
+  Filter where field is NULL.
+
+  A shorthand for `filter(token, field, :is_nil, true)`.
+
+  ## Examples
+
+      Query.where_nil(token, :deleted_at)
+      Query.where_nil(token, :email, binding: :user)
+
+  ## SQL Equivalent
+
+      WHERE deleted_at IS NULL
+  """
+  @spec where_nil(Token.t(), atom(), keyword()) :: Token.t()
+  def where_nil(token, field, opts \\ []) do
+    filter(token, field, :is_nil, true, opts)
+  end
+
+  @doc """
+  Filter where field is NOT NULL.
+
+  A shorthand for `filter(token, field, :not_nil, true)`.
+
+  ## Examples
+
+      Query.where_not_nil(token, :email)
+      Query.where_not_nil(token, :verified_at)
+
+  ## SQL Equivalent
+
+      WHERE email IS NOT NULL
+  """
+  @spec where_not_nil(Token.t(), atom(), keyword()) :: Token.t()
+  def where_not_nil(token, field, opts \\ []) do
+    filter(token, field, :not_nil, true, opts)
+  end
+
+  @doc """
+  Filter where field is blank (NULL or empty string).
+
+  Useful for checking if a string field has no meaningful value.
+
+  ## Examples
+
+      Query.where_blank(token, :middle_name)
+      Query.where_blank(token, :bio)
+
+  ## SQL Equivalent
+
+      WHERE (middle_name IS NULL OR middle_name = '')
+  """
+  @spec where_blank(Token.t(), atom(), keyword()) :: Token.t()
+  def where_blank(token, field, opts \\ []) do
+    # Use OR group: IS NULL OR equals empty string
+    binding = opts[:binding]
+    base_opts = if binding, do: [binding: binding], else: []
+
+    where_any(token, [
+      {field, :is_nil, true, base_opts},
+      {field, :eq, "", base_opts}
+    ])
+  end
+
+  @doc """
+  Filter where field is present (NOT NULL and NOT empty string).
+
+  Useful for ensuring a string field has a meaningful value.
+
+  ## Examples
+
+      Query.where_present(token, :name)
+      Query.where_present(token, :email)
+
+  ## SQL Equivalent
+
+      WHERE name IS NOT NULL AND name != ''
+  """
+  @spec where_present(Token.t(), atom(), keyword()) :: Token.t()
+  def where_present(token, field, opts \\ []) do
+    # Use AND: NOT NULL AND not empty
+    token
+    |> filter(field, :not_nil, true, opts)
+    |> filter(field, :neq, "", opts)
+  end
+
+  @doc """
   Filter for records updated after a given time.
 
   Useful for sync operations or finding recently modified records.
@@ -737,9 +1572,231 @@ defmodule Events.Query do
     filter(token, field, :eq, status)
   end
 
+  ## Scopes
+  ##
+  ## Reusable query fragments that can be applied to any query.
+
+  @doc """
+  Apply a scope function to the query.
+
+  Scopes are reusable query fragments. They can be:
+  - Anonymous functions that take a token and return a token
+  - Named functions from a module
+
+  ## Examples
+
+      # With anonymous function
+      active_scope = fn q -> Query.filter(q, :status, :eq, "active") end
+      Query.scope(token, active_scope)
+
+      # With module function
+      defmodule UserScopes do
+        def active(token), do: Query.filter(token, :status, :eq, "active")
+        def verified(token), do: Query.filter(token, :verified_at, :not_nil, true)
+        def recent(token), do: Query.order(token, :created_at, :desc) |> Query.limit(10)
+      end
+
+      User
+      |> Query.scope(&UserScopes.active/1)
+      |> Query.scope(&UserScopes.verified/1)
+      |> Query.execute()
+
+      # Or using apply_scope/3
+      User
+      |> Query.apply_scope(UserScopes, :active)
+      |> Query.apply_scope(UserScopes, :verified)
+
+  ## Use in Preloads
+
+      # Apply scope to preloaded association
+      User
+      |> Query.preload(:posts, fn q ->
+        q
+        |> Query.scope(&PostScopes.published/1)
+        |> Query.order(:published_at, :desc)
+      end)
+
+  ## SQL Equivalent
+
+      -- Depends on scope functions applied
+  """
+  @spec scope(Token.t() | queryable(), (Token.t() -> Token.t())) :: Token.t()
+  def scope(source, scope_fn) when is_function(scope_fn, 1) do
+    token = ensure_token(source)
+    scope_fn.(token)
+  end
+
+  @doc """
+  Apply a named scope from a module.
+
+  The module must define a function with the given name that accepts
+  a token and returns a token.
+
+  ## Examples
+
+      defmodule ProductScopes do
+        def active(token), do: Query.filter(token, :active, :eq, true)
+        def in_stock(token), do: Query.filter(token, :stock, :gt, 0)
+        def on_sale(token), do: Query.filter(token, :sale_price, :not_nil, true)
+        def priced_under(token, max), do: Query.filter(token, :price, :lt, max)
+      end
+
+      Product
+      |> Query.apply_scope(ProductScopes, :active)
+      |> Query.apply_scope(ProductScopes, :in_stock)
+      |> Query.apply_scope(ProductScopes, :priced_under, [100])
+      |> Query.execute()
+
+  ## Use in Preloads
+
+      User
+      |> Query.preload(:orders, fn q ->
+        Query.apply_scope(q, OrderScopes, :completed)
+      end)
+
+  ## Use in Joins (via scope function in on clause)
+
+      User
+      |> Query.join(:posts, :left, as: :post)
+      |> Query.scope(&PostScopes.published/1)
+  """
+  @spec apply_scope(Token.t() | queryable(), module(), atom(), list()) :: Token.t()
+  def apply_scope(source, module, scope_name, args \\ [])
+      when is_atom(module) and is_atom(scope_name) and is_list(args) do
+    token = ensure_token(source)
+    apply(module, scope_name, [token | args])
+  end
+
+  @doc """
+  Chain multiple scopes together.
+
+  Applies a list of scope functions in order.
+
+  ## Examples
+
+      scopes = [
+        &UserScopes.active/1,
+        &UserScopes.verified/1,
+        &UserScopes.recent/1
+      ]
+
+      User
+      |> Query.scopes(scopes)
+      |> Query.execute()
+  """
+  @spec scopes(Token.t() | queryable(), [(Token.t() -> Token.t())]) :: Token.t()
+  def scopes(source, scope_fns) when is_list(scope_fns) do
+    Enum.reduce(scope_fns, ensure_token(source), fn scope_fn, token ->
+      scope_fn.(token)
+    end)
+  end
+
+  ## Composable Filter Builders
+  ##
+  ## Functions for building filter conditions as data structures
+  ## that can be combined before applying to a token.
+
+  @doc """
+  Build a filter condition tuple.
+
+  Returns a filter specification that can be used with `where_any/2`,
+  `where_all/2`, `where_none/2`, or `apply_filters/2`.
+
+  ## Examples
+
+      # Build individual conditions
+      active = Query.condition(:status, :eq, "active")
+      verified = Query.condition(:verified, :eq, true)
+
+      # Use with where_any
+      Query.where_any(token, [active, verified])
+
+      # With options
+      admin = Query.condition(:role, :eq, "admin", binding: :user)
+  """
+  @type filter_condition ::
+          {atom(), atom(), term()}
+          | {atom(), atom(), term(), keyword()}
+
+  @spec condition(atom(), atom(), term(), keyword()) :: filter_condition()
+  def condition(field, op, value, opts \\ []) when is_atom(field) and is_atom(op) do
+    if opts == [] do
+      {field, op, value}
+    else
+      {field, op, value, opts}
+    end
+  end
+
+  @doc """
+  Apply a list of filter conditions as an AND group.
+
+  Similar to `where_all/2` but with a clearer name for the compositional style.
+
+  ## Examples
+
+      conditions = [
+        Query.condition(:active, :eq, true),
+        Query.condition(:verified, :eq, true)
+      ]
+
+      Query.apply_all(token, conditions)
+  """
+  @spec apply_all(Token.t(), [filter_condition()], keyword()) :: Token.t()
+  def apply_all(token, conditions, opts \\ []) when length(conditions) >= 2 do
+    where_all(token, conditions, opts)
+  end
+
+  @doc """
+  Apply a list of filter conditions as an OR group.
+
+  Similar to `where_any/2` but with a clearer name for the compositional style.
+
+  ## Examples
+
+      conditions = [
+        Query.condition(:status, :eq, "active"),
+        Query.condition(:status, :eq, "pending")
+      ]
+
+      Query.apply_any(token, conditions)
+  """
+  @spec apply_any(Token.t(), [filter_condition()], keyword()) :: Token.t()
+  def apply_any(token, conditions, opts \\ []) when length(conditions) >= 2 do
+    where_any(token, conditions, opts)
+  end
+
+  @doc """
+  Apply a list of filter conditions, excluding all matches (NONE).
+
+  Similar to `where_none/2` but with a clearer name for the compositional style.
+
+  ## Examples
+
+      excluded = [
+        Query.condition(:status, :eq, "banned"),
+        Query.condition(:status, :eq, "deleted")
+      ]
+
+      Query.apply_none(token, excluded)
+  """
+  @spec apply_none(Token.t(), [filter_condition()], keyword()) :: Token.t()
+  def apply_none(token, conditions, opts \\ []) when length(conditions) >= 2 do
+    where_none(token, conditions, opts)
+  end
+
   # Normalize filter spec to 4-tuple format
   defp normalize_filter_spec({field, op, value}), do: {field, op, value, []}
   defp normalize_filter_spec({field, op, value, opts}), do: {field, op, value, opts}
+
+  # Normalize filter specs with global opts merged in
+  defp normalize_filter_specs(filter_list, global_opts) do
+    Enum.map(filter_list, fn spec ->
+      {field, op, value, filter_opts} = normalize_filter_spec(spec)
+      # Per-filter opts take precedence over global opts
+      merged_opts = Keyword.merge(global_opts, filter_opts)
+      {field, op, value, merged_opts}
+    end)
+  end
 
   @doc """
   Add pagination.
@@ -760,9 +1817,11 @@ defmodule Events.Query do
       # Cursor pagination
       Query.paginate(token, :cursor, cursor_fields: [:id], limit: 20, after: cursor)
   """
-  @spec paginate(Token.t(), :offset | :cursor, keyword()) :: Token.t()
-  def paginate(token, type, opts \\ []) do
-    Token.add_operation(token, {:paginate, {type, opts}})
+  @spec paginate(queryable(), :offset | :cursor, keyword()) :: Token.t()
+  def paginate(source, type, opts \\ []) do
+    source
+    |> ensure_token()
+    |> Token.add_operation({:paginate, {type, opts}})
   end
 
   @doc """
@@ -806,17 +1865,19 @@ defmodule Events.Query do
       |> Query.order_by(:created_at, :desc)
       |> Query.order_by(:id, :asc)
   """
-  @spec order_by(Token.t(), atom() | list(), :asc | :desc, keyword()) :: Token.t()
-  def order_by(token, field_or_list, direction \\ :asc, opts \\ [])
+  @spec order_by(queryable(), atom() | list(), :asc | :desc, keyword()) :: Token.t()
+  def order_by(source, field_or_list, direction \\ :asc, opts \\ [])
 
   # List form - delegate to order_bys
-  def order_by(token, order_list, _direction, _opts) when is_list(order_list) do
-    order_bys(token, order_list)
+  def order_by(source, order_list, _direction, _opts) when is_list(order_list) do
+    order_bys(source, order_list)
   end
 
   # Single field form
-  def order_by(token, field, direction, opts) when is_atom(field) do
-    Token.add_operation(token, {:order, {field, direction, opts}})
+  def order_by(source, field, direction, opts) when is_atom(field) do
+    source
+    |> ensure_token()
+    |> Token.add_operation({:order, {field, direction, opts}})
   end
 
   @doc """
@@ -826,9 +1887,9 @@ defmodule Events.Query do
 
   See `order_by/4` for documentation.
   """
-  @spec order(Token.t(), atom() | list(), :asc | :desc, keyword()) :: Token.t()
-  def order(token, field_or_list, direction \\ :asc, opts \\ []) do
-    order_by(token, field_or_list, direction, opts)
+  @spec order(queryable(), atom() | list(), :asc | :desc, keyword()) :: Token.t()
+  def order(source, field_or_list, direction \\ :asc, opts \\ []) do
+    order_by(source, field_or_list, direction, opts)
   end
 
   @doc """
@@ -979,9 +2040,85 @@ defmodule Events.Query do
       # Schema join with custom conditions
       Query.join(token, Post, :left, as: :posts, on: [author_id: :id])
   """
-  @spec join(Token.t(), atom() | module(), atom(), keyword()) :: Token.t()
-  def join(token, association_or_schema, type \\ :inner, opts \\ []) do
-    Token.add_operation(token, {:join, {association_or_schema, type, opts}})
+  @spec join(queryable(), atom() | module(), atom(), keyword()) :: Token.t()
+  def join(source, association_or_schema, type \\ :inner, opts \\ []) do
+    source
+    |> ensure_token()
+    |> Token.add_operation({:join, {association_or_schema, type, opts}})
+  end
+
+  @doc """
+  Add a LEFT JOIN to the query.
+
+  Convenience function for `join(source, assoc, :left, opts)`.
+
+  ## Examples
+
+      User |> Query.left_join(:posts)
+      User |> Query.left_join(:posts, as: :user_posts)
+      User |> Query.left_join(Category, as: :cat, on: [id: :category_id])
+  """
+  @spec left_join(queryable(), atom() | module(), keyword()) :: Token.t()
+  def left_join(source, association_or_schema, opts \\ []) do
+    join(source, association_or_schema, :left, opts)
+  end
+
+  @doc """
+  Add a RIGHT JOIN to the query.
+
+  Convenience function for `join(source, assoc, :right, opts)`.
+
+  ## Examples
+
+      User |> Query.right_join(:posts)
+      User |> Query.right_join(:posts, as: :posts)
+  """
+  @spec right_join(queryable(), atom() | module(), keyword()) :: Token.t()
+  def right_join(source, association_or_schema, opts \\ []) do
+    join(source, association_or_schema, :right, opts)
+  end
+
+  @doc """
+  Add an INNER JOIN to the query.
+
+  Convenience function for `join(source, assoc, :inner, opts)`.
+
+  ## Examples
+
+      User |> Query.inner_join(:posts)
+      User |> Query.inner_join(:posts, as: :posts)
+  """
+  @spec inner_join(queryable(), atom() | module(), keyword()) :: Token.t()
+  def inner_join(source, association_or_schema, opts \\ []) do
+    join(source, association_or_schema, :inner, opts)
+  end
+
+  @doc """
+  Add a FULL OUTER JOIN to the query.
+
+  Convenience function for `join(source, assoc, :full, opts)`.
+
+  ## Examples
+
+      User |> Query.full_join(:posts)
+  """
+  @spec full_join(queryable(), atom() | module(), keyword()) :: Token.t()
+  def full_join(source, association_or_schema, opts \\ []) do
+    join(source, association_or_schema, :full, opts)
+  end
+
+  @doc """
+  Add a CROSS JOIN to the query.
+
+  Convenience function for `join(source, assoc, :cross, opts)`.
+
+  ## Examples
+
+      User |> Query.cross_join(:roles)
+  """
+  @spec cross_join(queryable(), atom() | module(), keyword()) :: Token.t()
+  def cross_join(source, association_or_schema, opts \\ []) do
+    join(source, association_or_schema, :cross, opts)
   end
 
   @doc """
@@ -1046,13 +2183,17 @@ defmodule Events.Query do
         q |> Query.filter(:published, :eq, true)
       end)
   """
-  @spec preload(Token.t(), atom() | keyword() | list()) :: Token.t()
-  def preload(token, associations) when is_atom(associations) do
-    Token.add_operation(token, {:preload, associations})
+  @spec preload(queryable(), atom() | keyword() | list()) :: Token.t()
+  def preload(source, associations) when is_atom(associations) do
+    source
+    |> ensure_token()
+    |> Token.add_operation({:preload, associations})
   end
 
-  def preload(token, associations) when is_list(associations) do
-    Token.add_operation(token, {:preload, associations})
+  def preload(source, associations) when is_list(associations) do
+    source
+    |> ensure_token()
+    |> Token.add_operation({:preload, associations})
   end
 
   @doc """
@@ -1090,11 +2231,14 @@ defmodule Events.Query do
         end)
       end)
   """
-  @spec preload(Token.t(), atom(), (Token.t() -> Token.t())) :: Token.t()
-  def preload(token, association, builder_fn) when is_function(builder_fn, 1) do
+  @spec preload(queryable(), atom(), (Token.t() -> Token.t())) :: Token.t()
+  def preload(source, association, builder_fn) when is_function(builder_fn, 1) do
     nested_token = Token.new(:nested)
     nested_token = builder_fn.(nested_token)
-    Token.add_operation(token, {:preload, {association, nested_token}})
+
+    source
+    |> ensure_token()
+    |> Token.add_operation({:preload, {association, nested_token}})
   end
 
   @doc """
@@ -1136,9 +2280,11 @@ defmodule Events.Query do
       })
       |> Query.execute()
   """
-  @spec select(Token.t(), list() | map()) :: Token.t()
-  def select(%Token{} = token, fields) when is_list(fields) or is_map(fields) do
-    Token.add_operation(token, {:select, fields})
+  @spec select(queryable(), list() | map()) :: Token.t()
+  def select(source, fields) when is_list(fields) or is_map(fields) do
+    source
+    |> ensure_token()
+    |> Token.add_operation({:select, fields})
   end
 
   @doc """
@@ -1245,27 +2391,35 @@ defmodule Events.Query do
   end
 
   @doc "Add a having clause"
-  @spec having(Token.t(), keyword()) :: Token.t()
-  def having(token, conditions) do
-    Token.add_operation(token, {:having, conditions})
+  @spec having(queryable(), keyword()) :: Token.t()
+  def having(source, conditions) do
+    source
+    |> ensure_token()
+    |> Token.add_operation({:having, conditions})
   end
 
   @doc "Add a limit"
-  @spec limit(Token.t(), pos_integer()) :: Token.t()
-  def limit(token, value) do
-    Token.add_operation(token, {:limit, value})
+  @spec limit(queryable(), pos_integer()) :: Token.t()
+  def limit(source, value) do
+    source
+    |> ensure_token()
+    |> Token.add_operation({:limit, value})
   end
 
   @doc "Add an offset"
-  @spec offset(Token.t(), non_neg_integer()) :: Token.t()
-  def offset(token, value) do
-    Token.add_operation(token, {:offset, value})
+  @spec offset(queryable(), non_neg_integer()) :: Token.t()
+  def offset(source, value) do
+    source
+    |> ensure_token()
+    |> Token.add_operation({:offset, value})
   end
 
   @doc "Add distinct"
-  @spec distinct(Token.t(), boolean() | list()) :: Token.t()
-  def distinct(token, value) do
-    Token.add_operation(token, {:distinct, value})
+  @spec distinct(queryable(), boolean() | list()) :: Token.t()
+  def distinct(source, value) do
+    source
+    |> ensure_token()
+    |> Token.add_operation({:distinct, value})
   end
 
   @doc "Add a lock clause"
@@ -2173,136 +3327,5 @@ defmodule Events.Query do
       CREATE INDEX products_name_trgm_idx ON products USING gin (name gin_trgm_ops);
   """
   @spec search(Token.t(), String.t() | nil, [atom() | tuple()], keyword()) :: Token.t()
-  def search(token, term, fields, opts \\ [])
-  def search(%Token{} = token, nil, _fields, _opts), do: token
-  def search(%Token{} = token, "", _fields, _opts), do: token
-
-  def search(%Token{} = token, term, fields, opts) when is_binary(term) and is_list(fields) do
-    default_mode = Keyword.get(opts, :mode, :ilike)
-    default_threshold = Keyword.get(opts, :threshold, 0.3)
-    enable_ranking = Keyword.get(opts, :rank, false)
-
-    # Parse field specs and assign auto-ranks if not specified
-    # Returns: [{field, mode, opts, rank, take}, ...]
-    parsed_fields = parse_search_fields(fields, default_mode, default_threshold)
-
-    # Build search filters
-    search_filters =
-      Enum.map(parsed_fields, fn {field, mode, field_opts, _rank, _take} ->
-        build_search_filter_tuple(field, mode, term, field_opts)
-      end)
-
-    # Apply the OR filter
-    token = where_any(token, search_filters)
-
-    # Apply ranking if enabled
-    if enable_ranking do
-      apply_search_ranking(token, parsed_fields, term)
-    else
-      token
-    end
-  end
-
-  # Parse field specifications into normalized format with ranks and take limits
-  # Returns: {field, mode, opts, rank, take}
-  defp parse_search_fields(fields, default_mode, default_threshold) do
-    fields
-    |> Enum.with_index(1)
-    |> Enum.map(fn {field_spec, index} ->
-      parse_single_field(field_spec, default_mode, default_threshold, index)
-    end)
-  end
-
-  defp parse_single_field(field, default_mode, default_threshold, auto_rank) when is_atom(field) do
-    {field, default_mode, [threshold: default_threshold], auto_rank, nil}
-  end
-
-  defp parse_single_field({field, mode}, _default_mode, default_threshold, auto_rank) do
-    {field, mode, [threshold: default_threshold], auto_rank, nil}
-  end
-
-  defp parse_single_field({field, mode, opts}, _default_mode, default_threshold, auto_rank) do
-    rank = Keyword.get(opts, :rank, auto_rank)
-    threshold = Keyword.get(opts, :threshold, default_threshold)
-    take = Keyword.get(opts, :take)
-    {field, mode, Keyword.merge(opts, threshold: threshold), rank, take}
-  end
-
-  # Build filter tuple for a field (with binding support for joined tables)
-  defp build_search_filter_tuple(field, mode, term, field_opts) do
-    binding = Keyword.get(field_opts, :binding)
-    base_opts = if binding, do: [binding: binding], else: []
-
-    case mode do
-      :ilike ->
-        pattern = build_search_pattern(term, :contains)
-        build_filter_with_opts(field, :ilike, pattern, base_opts)
-
-      :like ->
-        pattern = build_search_pattern(term, :contains)
-        build_filter_with_opts(field, :like, pattern, base_opts)
-
-      :starts_with ->
-        pattern = build_search_pattern(term, :starts_with)
-        case_sensitive = Keyword.get(field_opts, :case_sensitive, false)
-        op = if case_sensitive, do: :like, else: :ilike
-        build_filter_with_opts(field, op, pattern, base_opts)
-
-      :ends_with ->
-        pattern = build_search_pattern(term, :ends_with)
-        case_sensitive = Keyword.get(field_opts, :case_sensitive, false)
-        op = if case_sensitive, do: :like, else: :ilike
-        build_filter_with_opts(field, op, pattern, base_opts)
-
-      :contains ->
-        pattern = build_search_pattern(term, :contains)
-        case_sensitive = Keyword.get(field_opts, :case_sensitive, false)
-        op = if case_sensitive, do: :like, else: :ilike
-        build_filter_with_opts(field, op, pattern, base_opts)
-
-      :exact ->
-        build_filter_with_opts(field, :eq, term, base_opts)
-
-      similarity_mode
-      when similarity_mode in [:similarity, :word_similarity, :strict_word_similarity] ->
-        threshold = Keyword.get(field_opts, :threshold, 0.3)
-        opts = Keyword.merge(base_opts, threshold: threshold)
-        {field, similarity_mode, term, opts}
-
-      unknown ->
-        raise ArgumentError, """
-        Unknown search mode: #{inspect(unknown)} for field #{inspect(field)}
-
-        Supported modes:
-          :ilike, :like, :exact, :starts_with, :ends_with, :contains,
-          :similarity, :word_similarity, :strict_word_similarity
-        """
-    end
-  end
-
-  # Build filter tuple with optional opts
-  defp build_filter_with_opts(field, op, value, []), do: {field, op, value}
-  defp build_filter_with_opts(field, op, value, opts), do: {field, op, value, opts}
-
-  # Apply search ranking via ORDER BY
-  # If any field has a :take limit, use the limited ranking operation
-  defp apply_search_ranking(token, parsed_fields, term) do
-    # Sort by rank to build CASE WHEN in priority order
-    sorted_fields = Enum.sort_by(parsed_fields, fn {_, _, _, rank, _take} -> rank end)
-
-    # Check if any field has a take limit
-    has_take_limits = Enum.any?(sorted_fields, fn {_, _, _, _rank, take} -> take != nil end)
-
-    if has_take_limits do
-      # Use limited ranking with ROW_NUMBER OVER PARTITION BY
-      Token.add_operation(token, {:search_rank_limited, {sorted_fields, term}})
-    else
-      # Simple ranking with ORDER BY
-      Token.add_operation(token, {:search_rank, {sorted_fields, term}})
-    end
-  end
-
-  defp build_search_pattern(term, :contains), do: "%#{term}%"
-  defp build_search_pattern(term, :starts_with), do: "#{term}%"
-  defp build_search_pattern(term, :ends_with), do: "%#{term}"
+  defdelegate search(token, term, fields, opts \\ []), to: Search
 end

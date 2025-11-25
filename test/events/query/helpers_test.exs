@@ -46,7 +46,7 @@ defmodule Events.Query.HelpersTest do
       assert %DateTime{} = now()
       # Should be very close to current time (within 1 second)
       diff = DateTime.diff(DateTime.utc_now(), now(), :second)
-      assert diff >= 0 and diff <= 1
+      assert abs(diff) <= 1
     end
 
     test "minutes_ago/1 returns DateTime N minutes ago" do

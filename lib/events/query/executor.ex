@@ -74,11 +74,7 @@ defmodule Events.Query.Executor do
       query_time = System.monotonic_time(:microsecond) - query_start
 
       # Compute total count if requested
-      total_count =
-        if include_total && has_pagination?(token) do
-          count_query = build_count_query(query)
-          repo.aggregate(count_query, :count, timeout: timeout)
-        end
+      total_count = maybe_compute_total(include_total, has_pagination?(token), query, repo, timeout)
 
       # Build result
       total_time = System.monotonic_time(:microsecond) - start_time
@@ -216,37 +212,36 @@ defmodule Events.Query.Executor do
   @doc false
   @spec ensure_safe_limits(Token.t(), keyword()) :: Token.t()
   defp ensure_safe_limits(%Token{} = token, opts) do
-    # Allow opt-out via unsafe: true option (for streaming, aggregations, etc.)
-    if opts[:unsafe] do
-      token
-    else
-      has_pagination = has_pagination?(token)
-      has_limit = has_explicit_limit?(token)
+    do_ensure_safe_limits(token, opts[:unsafe], opts)
+  end
 
-      cond do
-        # Already has pagination or explicit limit - safe
-        has_pagination or has_limit ->
-          token
+  # Unsafe mode - skip all limit checks
+  defp do_ensure_safe_limits(token, true, _opts), do: token
 
-        # No limiting at all - apply safe default
-        true ->
-          safe_limit = opts[:default_limit] || Token.default_limit()
-
-          require Logger
-
-          Logger.warning("""
-          Query executed without pagination or limit. Automatically limiting to #{safe_limit} records.
-
-          To fix this warning:
-          1. Add pagination: Query.paginate(token, :cursor, limit: 20)
-          2. Add explicit limit: Query.limit(token, 100)
-          3. Use streaming: Query.stream(token) for large datasets
-          4. Pass unsafe: true if you really need all records
-          """)
-
-          Token.add_operation(token, {:limit, safe_limit})
-      end
+  # Safe mode - check for pagination or limit
+  defp do_ensure_safe_limits(token, _unsafe, opts) do
+    case {has_pagination?(token), has_explicit_limit?(token)} do
+      {true, _} -> token
+      {_, true} -> token
+      {false, false} -> apply_safe_limit(token, opts)
     end
+  end
+
+  defp apply_safe_limit(token, opts) do
+    require Logger
+    safe_limit = opts[:default_limit] || Token.default_limit()
+
+    Logger.warning("""
+    Query executed without pagination or limit. Automatically limiting to #{safe_limit} records.
+
+    To fix this warning:
+    1. Add pagination: Query.paginate(token, :cursor, limit: 20)
+    2. Add explicit limit: Query.limit(token, 100)
+    3. Use streaming: Query.stream(token) for large datasets
+    4. Pass unsafe: true if you really need all records
+    """)
+
+    Token.add_operation(token, {:limit, safe_limit})
   end
 
   defp has_pagination?(%Token{operations: ops}) do
@@ -326,6 +321,14 @@ defmodule Events.Query.Executor do
     |> exclude(:select)
   end
 
+  defp maybe_compute_total(true, true, query, repo, timeout) do
+    query
+    |> build_count_query()
+    |> repo.aggregate(:count, timeout: timeout)
+  end
+
+  defp maybe_compute_total(_include_total, _has_pagination, _query, _repo, _timeout), do: nil
+
   defp get_sql(repo, query) do
     try do
       {sql, _params} = repo.to_sql(:all, query)
@@ -345,46 +348,54 @@ defmodule Events.Query.Executor do
   # Metadata includes filter context for debugging slow queries.
 
   defp emit_telemetry_start(token, opts) do
-    if opts[:telemetry] != false do
-      {filter_summary, filter_count} = extract_filter_context(token)
+    do_emit_telemetry_start(token, opts, opts[:telemetry])
+  end
 
-      :telemetry.execute(
-        [:events, :query, :start],
-        %{system_time: System.system_time()},
-        %{
-          source: token.source,
-          operation_count: length(token.operations),
-          filter_count: filter_count,
-          filters: filter_summary,
-          has_pagination: has_pagination?(token),
-          has_joins: has_joins?(token),
-          opts: opts
-        }
-      )
-    end
+  defp do_emit_telemetry_start(_token, _opts, false), do: :ok
+
+  defp do_emit_telemetry_start(token, opts, _enabled) do
+    {filter_summary, filter_count} = extract_filter_context(token)
+
+    :telemetry.execute(
+      [:events, :query, :start],
+      %{system_time: System.system_time()},
+      %{
+        source: token.source,
+        operation_count: length(token.operations),
+        filter_count: filter_count,
+        filters: filter_summary,
+        has_pagination: has_pagination?(token),
+        has_joins: has_joins?(token),
+        opts: opts
+      }
+    )
   end
 
   defp emit_telemetry_stop(token, result, opts) do
-    if opts[:telemetry] != false do
-      {filter_summary, filter_count} = extract_filter_context(token)
+    do_emit_telemetry_stop(token, result, opts, opts[:telemetry])
+  end
 
-      :telemetry.execute(
-        [:events, :query, :stop],
-        %{
-          duration: result.metadata.total_time_μs * 1000,
-          query_time: result.metadata.query_time_μs * 1000
-        },
-        %{
-          source: token.source,
-          operation_count: length(token.operations),
-          result_count: length(result.data || []),
-          filter_count: filter_count,
-          filters: filter_summary,
-          has_pagination: has_pagination?(token),
-          opts: opts
-        }
-      )
-    end
+  defp do_emit_telemetry_stop(_token, _result, _opts, false), do: :ok
+
+  defp do_emit_telemetry_stop(token, result, opts, _enabled) do
+    {filter_summary, filter_count} = extract_filter_context(token)
+
+    :telemetry.execute(
+      [:events, :query, :stop],
+      %{
+        duration: result.metadata.total_time_μs * 1000,
+        query_time: result.metadata.query_time_μs * 1000
+      },
+      %{
+        source: token.source,
+        operation_count: length(token.operations),
+        result_count: length(result.data || []),
+        filter_count: filter_count,
+        filters: filter_summary,
+        has_pagination: has_pagination?(token),
+        opts: opts
+      }
+    )
   end
 
   # Extract filter context for telemetry (field:operator format, no values for security)
@@ -402,18 +413,22 @@ defmodule Events.Query.Executor do
   end
 
   defp emit_telemetry_exception(token, exception, duration, opts) do
-    if opts[:telemetry] != false do
-      :telemetry.execute(
-        [:events, :query, :exception],
-        %{duration: duration * 1000},
-        %{
-          source: token.source,
-          operation_count: length(token.operations),
-          kind: :error,
-          reason: exception,
-          opts: opts
-        }
-      )
-    end
+    do_emit_telemetry_exception(token, exception, duration, opts, opts[:telemetry])
+  end
+
+  defp do_emit_telemetry_exception(_token, _exception, _duration, _opts, false), do: :ok
+
+  defp do_emit_telemetry_exception(token, exception, duration, opts, _enabled) do
+    :telemetry.execute(
+      [:events, :query, :exception],
+      %{duration: duration * 1000},
+      %{
+        source: token.source,
+        operation_count: length(token.operations),
+        kind: :error,
+        reason: exception,
+        opts: opts
+      }
+    )
   end
 end

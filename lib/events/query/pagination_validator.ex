@@ -86,17 +86,19 @@ defmodule Events.Query.PaginationValidator do
   end
 
   def infer(order_by) when is_list(order_by) do
-    normalized = normalize_specs(order_by)
-
-    # Check if :id is already present
-    has_id? = Enum.any?(normalized, fn {field, _dir} -> field == :id end)
-
-    if has_id? do
-      normalized
-    else
-      normalized ++ [{:id, :asc}]
-    end
+    order_by
+    |> normalize_specs()
+    |> maybe_append_id()
   end
+
+  defp maybe_append_id(specs) do
+    specs
+    |> Enum.any?(fn {field, _dir} -> field == :id end)
+    |> do_append_id(specs)
+  end
+
+  defp do_append_id(true, specs), do: specs
+  defp do_append_id(false, specs), do: specs ++ [{:id, :asc}]
 
   @doc """
   Validates and returns cursor_fields, inferring if needed.
@@ -206,17 +208,11 @@ defmodule Events.Query.PaginationValidator do
         {:error,
          "cursor_fields has extra fields not in order_by: #{inspect(extra)}. Only :id can be appended."}
 
-      # cursor has one extra field but it's not :id
+      # cursor has one extra field - check if it's :id
       cursor_count == order_count + 1 ->
-        extra_field = Enum.at(cursor_fields, order_count)
-
-        if extra_field != :id do
-          {:error,
-           "cursor_fields has extra field #{inspect(extra_field)}. Only :id can be appended to order_by fields."}
-        else
-          # Extra field is :id, check if first N fields match
-          check_first_n_match(order_specs, cursor_specs, order_count)
-        end
+        cursor_fields
+        |> Enum.at(order_count)
+        |> check_extra_field(order_specs, cursor_specs, order_count)
 
       # Different fields entirely
       MapSet.new(order_fields) != MapSet.new(cursor_fields) ->
@@ -248,23 +244,40 @@ defmodule Events.Query.PaginationValidator do
     end
   end
 
+  # Extra field must be :id to be valid
+  defp check_extra_field(:id, order_specs, cursor_specs, order_count) do
+    check_first_n_match(order_specs, cursor_specs, order_count)
+  end
+
+  defp check_extra_field(extra_field, _order_specs, _cursor_specs, _order_count) do
+    {:error,
+     "cursor_fields has extra field #{inspect(extra_field)}. Only :id can be appended to order_by fields."}
+  end
+
   defp check_first_n_match(order_specs, cursor_specs, n) do
     order_first_n = Enum.take(order_specs, n)
     cursor_first_n = Enum.take(cursor_specs, n)
 
-    if order_first_n != cursor_first_n do
-      order_fields = Enum.map(order_first_n, fn {f, _} -> f end)
-      cursor_fields = Enum.map(cursor_first_n, fn {f, _} -> f end)
+    compare_first_n(order_first_n, cursor_first_n)
+  end
 
-      if order_fields != cursor_fields do
-        {:error,
-         "cursor_fields field order must match order_by. Expected: #{inspect(order_fields)}, got: #{inspect(cursor_fields)}"}
-      else
-        check_direction_mismatch(order_first_n, cursor_first_n)
-      end
-    else
-      :ok
-    end
+  defp compare_first_n(order_first_n, cursor_first_n) when order_first_n == cursor_first_n, do: :ok
+
+  defp compare_first_n(order_first_n, cursor_first_n) do
+    order_fields = Enum.map(order_first_n, fn {f, _} -> f end)
+    cursor_fields = Enum.map(cursor_first_n, fn {f, _} -> f end)
+
+    compare_fields_then_directions(order_fields, cursor_fields, order_first_n, cursor_first_n)
+  end
+
+  defp compare_fields_then_directions(order_fields, cursor_fields, _order_specs, _cursor_specs)
+       when order_fields != cursor_fields do
+    {:error,
+     "cursor_fields field order must match order_by. Expected: #{inspect(order_fields)}, got: #{inspect(cursor_fields)}"}
+  end
+
+  defp compare_fields_then_directions(_order_fields, _cursor_fields, order_specs, cursor_specs) do
+    check_direction_mismatch(order_specs, cursor_specs)
   end
 
   defp check_direction_mismatch(order_specs, cursor_specs) do

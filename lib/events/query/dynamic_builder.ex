@@ -162,22 +162,16 @@ defmodule Events.Query.DynamicBuilder do
   end
 
   # Handle keyword lists with multiple entries
-  defp normalize_one_or_many(spec, type) when is_list(spec) do
-    if spec == [] do
-      []
-    else
-      case hd(spec) do
-        {key, _value} when is_atom(key) ->
-          # This is a keyword list
-          Enum.flat_map(spec, fn {key, value} ->
-            normalize_keyword_entry(key, value, type)
-          end)
+  defp normalize_one_or_many([], _type), do: []
 
-        _ ->
-          # This is a list of tuples - normalize each
-          Enum.map(spec, fn item -> normalize_one(item, type) end)
-      end
-    end
+  defp normalize_one_or_many([{key, _value} | _rest] = spec, type) when is_atom(key) do
+    # This is a keyword list
+    Enum.flat_map(spec, fn {k, v} -> normalize_keyword_entry(k, v, type) end)
+  end
+
+  defp normalize_one_or_many(spec, type) when is_list(spec) do
+    # This is a list of tuples - normalize each
+    Enum.map(spec, fn item -> normalize_one(item, type) end)
   end
 
   defp normalize_one_or_many(spec, type), do: [normalize_one(spec, type)]
@@ -343,9 +337,7 @@ defmodule Events.Query.DynamicBuilder do
     order_by_ops = extract_order_operations(token)
 
     # Validate cursor_fields if explicitly provided
-    if Map.has_key?(resolved_config, :cursor_fields) do
-      {:ok, _validated_fields} = validate_cursor_fields(order_by_ops, resolved_config.cursor_fields)
-    end
+    maybe_validate_cursor_fields(order_by_ops, resolved_config)
 
     Query.paginate(token, :cursor, Enum.to_list(resolved_config))
   end
@@ -359,6 +351,12 @@ defmodule Events.Query.DynamicBuilder do
 
     Query.paginate(token, type, Enum.to_list(resolved_config))
   end
+
+  defp maybe_validate_cursor_fields(order_by_ops, %{cursor_fields: cursor_fields}) do
+    {:ok, _validated_fields} = validate_cursor_fields(order_by_ops, cursor_fields)
+  end
+
+  defp maybe_validate_cursor_fields(_order_by_ops, _config), do: :ok
 
   # Extract order operations from token for validation
   defp extract_order_operations(token) do
@@ -444,89 +442,88 @@ defmodule Events.Query.DynamicBuilder do
   end
 
   defp build_search_filters(params, config) do
-    filters = []
+    []
+    |> add_search_filter(params[:search], config[:search_fields])
+    |> add_filterable_fields(params, config[:filterable_fields])
+  end
 
-    # Add search filter
-    filters =
-      if params[:search] && config[:search_fields] do
-        search_filters =
-          Enum.map(config[:search_fields], fn field ->
-            {:filter, field, :ilike, "%#{params[:search]}%", []}
-          end)
+  defp add_search_filter(filters, nil, _search_fields), do: filters
+  defp add_search_filter(filters, _search, nil), do: filters
 
-        # OR logic would need special handling - for now just use first field
-        filters ++ [List.first(search_filters)]
-      else
-        filters
+  defp add_search_filter(filters, search, search_fields) do
+    search_filter =
+      search_fields
+      |> List.first()
+      |> build_ilike_filter(search)
+
+    filters ++ [search_filter]
+  end
+
+  defp build_ilike_filter(field, search), do: {:filter, field, :ilike, "%#{search}%", []}
+
+  defp add_filterable_fields(filters, _params, nil), do: filters
+
+  defp add_filterable_fields(filters, params, filterable_fields) do
+    Enum.reduce(filterable_fields, filters, fn field, acc ->
+      case Map.get(params, field) do
+        nil -> acc
+        value -> acc ++ [{:filter, field, :eq, value, []}]
       end
-
-    # Add filterable fields
-    filters =
-      if config[:filterable_fields] do
-        Enum.reduce(config[:filterable_fields], filters, fn field, acc ->
-          case Map.get(params, field) do
-            nil -> acc
-            value -> acc ++ [{:filter, field, :eq, value, []}]
-          end
-        end)
-      else
-        filters
-      end
-
-    filters
+    end)
   end
 
   defp build_search_orders(params, config) do
-    cond do
-      params[:sort_by] && config[:sortable_fields] ->
-        field = String.to_existing_atom(params[:sort_by])
-        direction = if params[:sort_dir] == "asc", do: :asc, else: :desc
-
-        if field in config[:sortable_fields] do
-          [{:order, field, direction, []}]
-        else
-          default_order(config)
-        end
-
-      true ->
-        default_order(config)
-    end
+    do_build_search_orders(params[:sort_by], config[:sortable_fields], params, config)
   end
+
+  defp do_build_search_orders(nil, _sortable_fields, _params, config), do: default_order(config)
+  defp do_build_search_orders(_sort_by, nil, _params, config), do: default_order(config)
+
+  defp do_build_search_orders(sort_by, sortable_fields, params, config) do
+    field = String.to_existing_atom(sort_by)
+    direction = parse_sort_direction(params[:sort_dir])
+
+    build_sort_order(field in sortable_fields, field, direction, config)
+  end
+
+  defp parse_sort_direction("asc"), do: :asc
+  defp parse_sort_direction(_), do: :desc
+
+  defp build_sort_order(true, field, direction, _config), do: [{:order, field, direction, []}]
+  defp build_sort_order(false, _field, _direction, config), do: default_order(config)
 
   defp default_order(%{default_sort: {field, dir}}), do: [{:order, field, dir, []}]
   defp default_order(_), do: [{:order, :id, :asc, []}]
 
-  defp build_search_pagination(params, config) do
-    # Check if user explicitly requested offset pagination via page param
-    if params[:page] || config[:pagination_type] == :offset do
-      per_page = params[:per_page] || config[:default_per_page] || 20
-      page = params[:page] || 1
-      offset = (page - 1) * per_page
-      {:paginate, :offset, %{limit: per_page, offset: offset}, []}
-    else
-      # Default to cursor pagination
-      limit = params[:limit] || params[:per_page] || config[:default_per_page] || 20
-      cursor_fields = config[:cursor_fields] || [:id]
-
-      cursor_config = %{limit: limit, cursor_fields: cursor_fields}
-
-      cursor_config =
-        if params[:after_cursor] do
-          Map.put(cursor_config, :after, params[:after_cursor])
-        else
-          cursor_config
-        end
-
-      cursor_config =
-        if params[:before_cursor] do
-          Map.put(cursor_config, :before, params[:before_cursor])
-        else
-          cursor_config
-        end
-
-      {:paginate, :cursor, cursor_config, []}
-    end
+  # Pattern match for offset pagination (explicit page param or config)
+  defp build_search_pagination(%{page: page} = params, config) when not is_nil(page) do
+    build_offset_pagination(params, config)
   end
+
+  defp build_search_pagination(params, %{pagination_type: :offset} = config) do
+    build_offset_pagination(params, config)
+  end
+
+  # Default to cursor pagination
+  defp build_search_pagination(params, config) do
+    limit = params[:limit] || params[:per_page] || config[:default_per_page] || 20
+    cursor_fields = config[:cursor_fields] || [:id]
+
+    %{limit: limit, cursor_fields: cursor_fields}
+    |> maybe_add_cursor(:after, params[:after_cursor])
+    |> maybe_add_cursor(:before, params[:before_cursor])
+    |> then(&{:paginate, :cursor, &1, []})
+  end
+
+  defp build_offset_pagination(params, config) do
+    per_page = params[:per_page] || config[:default_per_page] || 20
+    page = params[:page] || 1
+    offset = (page - 1) * per_page
+    {:paginate, :offset, %{limit: per_page, offset: offset}, []}
+  end
+
+  defp maybe_add_cursor(config, _key, nil), do: config
+  defp maybe_add_cursor(config, key, value), do: Map.put(config, key, value)
 
   @doc """
   Returns the default pagination specification.
