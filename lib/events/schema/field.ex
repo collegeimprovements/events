@@ -44,6 +44,13 @@ defmodule Events.Schema.Field do
         :validate,
         :validate_if,
         :validate_unless,
+        # Behavioral
+        :immutable,
+        :sensitive,
+        :required_when,
+        # Documentation
+        :doc,
+        :example,
         # String
         :min_length,
         :max_length,
@@ -106,6 +113,16 @@ defmodule Events.Schema.Field do
         validation_keys
       end
 
-    Keyword.split(opts, validation_keys)
+    {validation_opts, ecto_opts} = Keyword.split(opts, validation_keys)
+
+    # Auto-add redact: true when sensitive: true
+    ecto_opts =
+      if Keyword.get(validation_opts, :sensitive, false) && !Keyword.has_key?(ecto_opts, :redact) do
+        Keyword.put(ecto_opts, :redact, true)
+      else
+        ecto_opts
+      end
+
+    {validation_opts, ecto_opts}
   end
 end

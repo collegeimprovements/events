@@ -11,7 +11,24 @@ defmodule Events.MixProject do
       aliases: aliases(),
       deps: deps(),
       compilers: [:phoenix_live_view] ++ Mix.compilers(),
-      listeners: [Phoenix.CodeReloader]
+      listeners: [Phoenix.CodeReloader],
+      # Xref checks for compile-time analysis
+      xref: [exclude: xref_excludes()]
+    ]
+  end
+
+  # Exclude known compile-time dependencies from xref warnings
+  defp xref_excludes do
+    [
+      # Ecto internal macros
+      {Ecto.Migration, :add, 2},
+      {Ecto.Migration, :add, 3},
+      {Ecto.Migration, :create, 1},
+      {Ecto.Migration, :create, 2},
+      {Ecto.Migration, :index, 2},
+      {Ecto.Migration, :index, 3},
+      {Ecto.Migration, :table, 1},
+      {Ecto.Migration, :table, 2}
     ]
   end
 
@@ -74,6 +91,8 @@ defmodule Events.MixProject do
       {:hammer, "~> 6.2"},
       {:hammer_backend_redis, "~> 6.2"},
       {:redix, "~> 1.5"},
+      # Authentication
+      {:bcrypt_elixir, "~> 3.0"},
       # Benchmarking
       {:benchee, "~> 1.3", only: :dev}
     ]
@@ -98,7 +117,15 @@ defmodule Events.MixProject do
         "esbuild events --minify",
         "phx.digest"
       ],
-      precommit: ["compile --warning-as-errors", "deps.unlock --unused", "format", "test"]
+      precommit: ["compile --warnings-as-errors", "deps.unlock --unused", "format", "test"],
+      # CI quality checks
+      ci: [
+        "compile --warnings-as-errors",
+        "xref graph --label compile-connected --fail-above 0",
+        "test --warnings-as-errors"
+      ],
+      # Check for circular dependencies and compile warnings
+      "xref.check": ["xref graph --label compile-connected --fail-above 50"]
     ]
   end
 end

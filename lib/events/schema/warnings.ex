@@ -21,6 +21,7 @@ defmodule Events.Schema.Warnings do
     |> check_performance_issues(field_name, field_type)
     |> check_best_practices(field_name, field_type)
     |> check_type_mismatches(field_name, field_type)
+    |> check_required_when_syntax(field_name)
 
     :ok
   end
@@ -120,14 +121,33 @@ defmodule Events.Schema.Warnings do
       """)
     end
 
+    # Sensitive fields that look like passwords should have trim: false
+    if opts[:sensitive] == true &&
+         String.contains?(to_string(field_name), ["password", "secret", "token", "key"]) &&
+         opts[:trim] != false do
+      warn("""
+      Field '#{field_name}' is marked sensitive and appears to be a secret/password.
+      Consider adding trim: false to preserve exact input.
+      """)
+    end
+
+    # Immutable fields shouldn't have cast: false (they need to be set initially)
+    if opts[:immutable] == true && opts[:cast] == false do
+      warn("""
+      Field '#{field_name}' is immutable but has cast: false.
+      Immutable fields need to be cast on creation. Consider allowing cast.
+      """)
+    end
+
     # Email fields should be normalized to lowercase
     if String.contains?(to_string(field_name), "email") && field_type == :string do
       normalizations = List.wrap(opts[:normalize])
+      mappers = List.wrap(opts[:mappers])
 
-      unless :downcase in normalizations do
+      unless :downcase in normalizations or :downcase in mappers do
         warn("""
         Field '#{field_name}' appears to be an email field but doesn't normalize to lowercase.
-        Consider adding normalize: :downcase or normalize: [:trim, :downcase].
+        Consider adding mappers: [:trim, :downcase] or normalize: :downcase.
         """)
       end
     end
@@ -192,6 +212,27 @@ defmodule Events.Schema.Warnings do
 
   defp extract_value({value, _opts}), do: value
   defp extract_value(value), do: value
+
+  # Check required_when DSL syntax
+  defp check_required_when_syntax(opts, field_name) do
+    case Keyword.get(opts, :required_when) do
+      nil ->
+        opts
+
+      condition ->
+        case Events.Schema.ConditionalRequired.validate_syntax(condition) do
+          :ok ->
+            opts
+
+          {:error, message} ->
+            warn("""
+            Field '#{field_name}' has invalid required_when syntax: #{message}
+            """)
+
+            opts
+        end
+    end
+  end
 
   defp warn(message) do
     # Use IO.warn for compile-time warnings that show in mix compile

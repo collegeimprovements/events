@@ -3830,7 +3830,8 @@ defmodule Events.Query.Examples do
     cursor = params[:after]
     status_list = params[:statuses] || ["pending", "processing", "shipped"]
     date_range = params[:date_range]
-    price_tiers = params[:price_tiers]  # e.g., [{0, 100}, {500, 1000}, {2000, 5000}]
+    # e.g., [{0, 100}, {500, 1000}, {2000, 5000}]
+    price_tiers = params[:price_tiers]
 
     # =========================================================================
     # BUILD BASE QUERY WITH ALL FILTER TYPES
@@ -3855,8 +3856,10 @@ defmodule Events.Query.Examples do
     # 3. COMPARISON FILTERS (gt, gte, lt, lte)
     # -------------------------------------------------------------------------
     |> Query.filter(:item_count, :gt, 0)
-    |> Query.at_least(:subtotal, Decimal.new("10.00"))  # Convenience wrapper for :gte
-    |> Query.at_most(:discount_percent, 50)  # Convenience wrapper for :lte
+    # Convenience wrapper for :gte
+    |> Query.at_least(:subtotal, Decimal.new("10.00"))
+    # Convenience wrapper for :lte
+    |> Query.at_most(:discount_percent, 50)
 
     # -------------------------------------------------------------------------
     # 4. RANGE FILTERS (between, between_any)
@@ -3938,12 +3941,14 @@ defmodule Events.Query.Examples do
     # -------------------------------------------------------------------------
     # 10. FULL-TEXT SEARCH WITH RANKING
     # -------------------------------------------------------------------------
-    |> Query.search(search_term, [
-      {:order_number, :exact, rank: 1},
-      {:customer_name, :ilike, rank: 2},
-      {:customer_email, :ilike, rank: 3},
-      {:notes, :similarity, threshold: 0.3, rank: 4}
-    ], mode: :ilike, rank: true)
+    |> Query.search(
+      search_term,
+      [
+        {:order_number, :exact, rank: 1},
+        {:customer_name, :ilike, rank: 2},
+        {:customer_email, :ilike, rank: 3},
+        {:notes, :similarity, threshold: 0.3, rank: 4}
+      ], mode: :ilike, rank: true)
 
     # -------------------------------------------------------------------------
     # 11. JOINS WITH BINDINGS
@@ -3961,10 +3966,12 @@ defmodule Events.Query.Examples do
     end)
     # where_any with global binding (NEW)
     |> Query.then_if(params[:agent_filter], fn token, _filter ->
-      Query.where_any(token, [
-        {:status, :eq, "available"},
-        {:status, :eq, "assigned"}
-      ], binding: :agent)
+      Query.where_any(
+        token,
+        [
+          {:status, :eq, "available"},
+          {:status, :eq, "assigned"}
+        ], binding: :agent)
     end)
 
     # -------------------------------------------------------------------------
@@ -4087,12 +4094,26 @@ defmodule Events.Query.Examples do
       |> maybe_add_condition(params[:high_value], Query.condition(:total, :gte, 1000))
       |> maybe_add_condition(params[:repeat_customer], Query.condition(:is_repeat, :eq, true))
       |> maybe_add_condition(params[:has_discount], Query.condition(:discount_amount, :gt, 0))
-      |> maybe_add_condition(params[:express_shipping], Query.condition(:shipping_method, :eq, "express"))
+      |> maybe_add_condition(
+        params[:express_shipping],
+        Query.condition(:shipping_method, :eq, "express")
+      )
 
     case length(conditions) do
-      0 -> token
-      1 -> Query.filter(token, elem(hd(conditions), 0), elem(hd(conditions), 1), elem(hd(conditions), 2))
-      _ -> Query.apply_any(token, conditions)  # At least one must match
+      0 ->
+        token
+
+      1 ->
+        Query.filter(
+          token,
+          elem(hd(conditions), 0),
+          elem(hd(conditions), 1),
+          elem(hd(conditions), 2)
+        )
+
+      # At least one must match
+      _ ->
+        Query.apply_any(token, conditions)
     end
   end
 
@@ -4104,7 +4125,10 @@ defmodule Events.Query.Examples do
   defp apply_order_sorting(token, "oldest"), do: Query.orders(token, asc: :created_at, asc: :id)
   defp apply_order_sorting(token, "total_high"), do: Query.orders(token, desc: :total, asc: :id)
   defp apply_order_sorting(token, "total_low"), do: Query.orders(token, asc: :total, asc: :id)
-  defp apply_order_sorting(token, "priority"), do: Query.orders(token, desc: :priority_score, asc: :created_at, asc: :id)
+
+  defp apply_order_sorting(token, "priority"),
+    do: Query.orders(token, desc: :priority_score, asc: :created_at, asc: :id)
+
   defp apply_order_sorting(token, _), do: Query.orders(token, desc: :created_at, asc: :id)
 
   # ---------------------------------------------------------------------------
@@ -4228,12 +4252,14 @@ defmodule Events.Query.Examples do
     # Apply conditional/dynamic parts using pipeline
     base
     # Search
-    |> Query.search(params[:search], [
-      {:order_number, :exact, rank: 1},
-      {:customer_name, :ilike, rank: 2},
-      {:customer_email, :ilike, rank: 3},
-      {:notes, :similarity, threshold: 0.3, rank: 4}
-    ], mode: :ilike, rank: true)
+    |> Query.search(
+      params[:search],
+      [
+        {:order_number, :exact, rank: 1},
+        {:customer_name, :ilike, rank: 2},
+        {:customer_email, :ilike, rank: 3},
+        {:notes, :similarity, threshold: 0.3, rank: 4}
+      ], mode: :ilike, rank: true)
     # Date range
     |> Query.then_if(params[:date_range], fn token, {start_date, end_date} ->
       Query.between(token, :created_at, start_date, end_date)

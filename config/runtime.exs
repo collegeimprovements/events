@@ -181,6 +181,13 @@ case env do
     # Enable dev routes for dashboard and mailbox
     config :events, dev_routes: true
 
+    # Schema validation (validates schemas against DB on startup)
+    # Logs warnings but doesn't fail in dev
+    config :events, :schema_validation,
+      enabled: true,
+      on_startup: true,
+      fail_on_error: false
+
     # Set a higher stacktrace during development
     config :phoenix, :stacktrace_depth, 20
 
@@ -199,6 +206,13 @@ case env do
   :test ->
     # Test mailer
     config :events, Events.Mailer, adapter: Swoosh.Adapters.Test
+
+    # Schema validation (validates schemas against DB on startup)
+    # Fails fast in tests if schemas don't match DB
+    config :events, :schema_validation,
+      enabled: true,
+      on_startup: true,
+      fail_on_error: true
 
     # Print only warnings and errors during test
     config :logger, level: :warning

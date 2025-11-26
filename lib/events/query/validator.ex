@@ -89,7 +89,8 @@ defmodule Events.Query.Validator do
        operation: :filter,
        reason: ":between requires a {min, max} tuple or list of tuples",
        value: value,
-       suggestion: "Use filter(:field, :between, {min, max}) or filter(:field, :between, [{min1, max1}, {min2, max2}])"
+       suggestion:
+         "Use filter(:field, :between, {min, max}) or filter(:field, :between, [{min1, max1}, {min2, max2}])"
      }}
   end
 

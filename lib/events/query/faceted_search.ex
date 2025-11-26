@@ -552,7 +552,11 @@ defmodule Events.Query.FacetedSearch do
   end
 
   # Build group query with join for related table labels
-  defp build_group_query(base_query, %{join: join, label_field: label_field, count_field: count_field})
+  defp build_group_query(base_query, %{
+         join: join,
+         label_field: label_field,
+         count_field: count_field
+       })
        when not is_nil(join) do
     from(q in base_query,
       left_join: j in assoc(q, ^join),
@@ -579,7 +583,9 @@ defmodule Events.Query.FacetedSearch do
     |> Query.filter_by(get_facet_filters(builder.filters, config))
   end
 
-  defp get_facet_filters(filters, %{exclude_from_self: true, field: field}), do: Map.delete(filters, field)
+  defp get_facet_filters(filters, %{exclude_from_self: true, field: field}),
+    do: Map.delete(filters, field)
+
   defp get_facet_filters(filters, _config), do: filters
 
   defp maybe_apply_search(token, nil), do: token

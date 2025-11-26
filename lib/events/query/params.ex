@@ -75,9 +75,12 @@ defmodule Events.Query.Params do
   @spec fetch(params(), atom() | String.t()) :: {:ok, term()} | :error
   def fetch(params, key) when is_atom(key) do
     case params do
-      %{^key => value} -> {:ok, value}
+      %{^key => value} ->
+        {:ok, value}
+
       _ ->
         string_key = to_string(key)
+
         case params do
           %{^string_key => value} -> {:ok, value}
           _ -> :error
@@ -87,9 +90,12 @@ defmodule Events.Query.Params do
 
   def fetch(params, key) when is_binary(key) do
     case params do
-      %{^key => value} -> {:ok, value}
+      %{^key => value} ->
+        {:ok, value}
+
       _ ->
         atom_key = String.to_existing_atom(key)
+
         case params do
           %{^atom_key => value} -> {:ok, value}
           _ -> :error

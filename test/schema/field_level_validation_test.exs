@@ -16,15 +16,15 @@ defmodule Events.Schema.FieldLevelValidationTest do
 
     def changeset(user, attrs) do
       user
-      |> cast(attrs, __cast_fields__())
-      |> validate_required(__required_fields__())
-      |> __apply_field_validations__()
+      |> cast(attrs, cast_fields())
+      |> validate_required(required_fields())
+      |> apply_validations()
     end
   end
 
   describe "enhanced field macro" do
-    test "__cast_fields__ returns fields with cast: true" do
-      cast_fields = TestUser.__cast_fields__()
+    test "cast_fields returns fields with cast: true" do
+      cast_fields = TestUser.cast_fields()
 
       assert :email in cast_fields
       assert :age in cast_fields
@@ -34,14 +34,14 @@ defmodule Events.Schema.FieldLevelValidationTest do
       refute :notes in cast_fields
     end
 
-    test "__required_fields__ returns fields with required: true" do
-      required_fields = TestUser.__required_fields__()
+    test "required_fields returns fields with required: true" do
+      required_fields = TestUser.required_fields()
 
       assert :email in required_fields
     end
 
-    test "__field_validations__ returns validation metadata" do
-      validations = TestUser.__field_validations__()
+    test "field_validations returns validation metadata" do
+      validations = TestUser.field_validations()
 
       assert length(validations) > 0
       assert Enum.any?(validations, fn {field, _type, _opts} -> field == :email end)

@@ -476,34 +476,41 @@ defmodule Events.Schema.ValidatorsExtended do
   end
 
   defp validate_json_structure(value, opts) do
-    errors = []
+    []
+    |> check_required_keys(value, opts[:required_keys])
+    |> check_forbidden_keys(value, opts[:forbidden_keys])
+    |> check_max_keys(value, opts[:max_keys])
+  end
 
-    # Check required keys
-    if required_keys = opts[:required_keys] do
-      missing = required_keys -- Map.keys(value)
+  defp check_required_keys(errors, _value, nil), do: errors
 
-      if missing != [] do
-        errors ++ [{:json, "missing required keys: #{Enum.join(missing, ", ")}"}]
-      end
+  defp check_required_keys(errors, value, required_keys) do
+    missing = required_keys -- Map.keys(value)
+
+    case missing do
+      [] -> errors
+      _ -> errors ++ [{:json, "missing required keys: #{Enum.join(missing, ", ")}"}]
     end
+  end
 
-    # Check forbidden keys
-    if forbidden_keys = opts[:forbidden_keys] do
-      present = forbidden_keys -- (forbidden_keys -- Map.keys(value))
+  defp check_forbidden_keys(errors, _value, nil), do: errors
 
-      if present != [] do
-        errors ++ [{:json, "contains forbidden keys: #{Enum.join(present, ", ")}"}]
-      end
+  defp check_forbidden_keys(errors, value, forbidden_keys) do
+    present = forbidden_keys -- (forbidden_keys -- Map.keys(value))
+
+    case present do
+      [] -> errors
+      _ -> errors ++ [{:json, "contains forbidden keys: #{Enum.join(present, ", ")}"}]
     end
+  end
 
-    # Check max keys
-    if max_keys = opts[:max_keys] do
-      if map_size(value) > max_keys do
-        errors ++ [{:json, "exceeds maximum of #{max_keys} keys"}]
-      end
+  defp check_max_keys(errors, _value, nil), do: errors
+
+  defp check_max_keys(errors, value, max_keys) do
+    case map_size(value) > max_keys do
+      false -> errors
+      true -> errors ++ [{:json, "exceeds maximum of #{max_keys} keys"}]
     end
-
-    errors
   end
 
   @doc """

@@ -522,7 +522,11 @@ defmodule Events.Query.ExecutionTest do
         Query.new(TestRecord)
         |> Query.order(:inserted_at, :asc)
         |> Query.order(:id, :asc)
-        |> Query.paginate(:cursor, cursor_fields: @cursor_fields, limit: 5, after: page1.pagination.end_cursor)
+        |> Query.paginate(:cursor,
+          cursor_fields: @cursor_fields,
+          limit: 5,
+          after: page1.pagination.end_cursor
+        )
 
       {:ok, page2} = Query.execute(token2)
 
@@ -551,7 +555,11 @@ defmodule Events.Query.ExecutionTest do
         Query.new(TestRecord)
         |> Query.order(:inserted_at, :asc)
         |> Query.order(:id, :asc)
-        |> Query.paginate(:cursor, cursor_fields: @cursor_fields, limit: 10, after: result.pagination.end_cursor)
+        |> Query.paginate(:cursor,
+          cursor_fields: @cursor_fields,
+          limit: 10,
+          after: result.pagination.end_cursor
+        )
 
       {:ok, result2} = Query.execute(token2)
 

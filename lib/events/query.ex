@@ -460,7 +460,8 @@ defmodule Events.Query do
       |> Query.on(:prod, :status, :in, ["active", "pending"])
   """
   @spec on(queryable(), atom(), atom(), atom(), term()) :: Token.t()
-  def on(source, binding, field, op, value) when is_atom(binding) and is_atom(field) and is_atom(op) do
+  def on(source, binding, field, op, value)
+      when is_atom(binding) and is_atom(field) and is_atom(op) do
     source
     |> ensure_token()
     |> Token.add_operation({:filter, {field, op, value, [binding: binding]}})

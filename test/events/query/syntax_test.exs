@@ -126,7 +126,7 @@ defmodule Events.Query.SyntaxTest do
     test "== operator translates to :eq" do
       token =
         query User do
-          where :status == "active"
+          where(:status == "active")
         end
 
       assert {:filter, {:status, :eq, "active", []}} in token.operations
@@ -135,7 +135,7 @@ defmodule Events.Query.SyntaxTest do
     test "!= operator translates to :neq" do
       token =
         query User do
-          where :status != "inactive"
+          where(:status != "inactive")
         end
 
       assert {:filter, {:status, :neq, "inactive", []}} in token.operations
@@ -144,7 +144,7 @@ defmodule Events.Query.SyntaxTest do
     test "!= nil translates to :not_nil" do
       token =
         query User do
-          where :email != nil
+          where(:email != nil)
         end
 
       assert {:filter, {:email, :not_nil, true, []}} in token.operations
@@ -153,7 +153,7 @@ defmodule Events.Query.SyntaxTest do
     test ">= operator translates to :gte" do
       token =
         query User do
-          where :age >= 18
+          where(:age >= 18)
         end
 
       assert {:filter, {:age, :gte, 18, []}} in token.operations
@@ -162,7 +162,7 @@ defmodule Events.Query.SyntaxTest do
     test "<= operator translates to :lte" do
       token =
         query User do
-          where :age <= 65
+          where(:age <= 65)
         end
 
       assert {:filter, {:age, :lte, 65, []}} in token.operations
@@ -171,7 +171,7 @@ defmodule Events.Query.SyntaxTest do
     test "> operator translates to :gt" do
       token =
         query User do
-          where :age > 17
+          where(:age > 17)
         end
 
       assert {:filter, {:age, :gt, 17, []}} in token.operations
@@ -180,7 +180,7 @@ defmodule Events.Query.SyntaxTest do
     test "< operator translates to :lt" do
       token =
         query User do
-          where :age < 100
+          where(:age < 100)
         end
 
       assert {:filter, {:age, :lt, 100, []}} in token.operations
@@ -189,7 +189,7 @@ defmodule Events.Query.SyntaxTest do
     test "in operator translates to :in" do
       token =
         query User do
-          where :role in ["admin", "moderator"]
+          where(:role in ["admin", "moderator"])
         end
 
       assert {:filter, {:role, :in, ["admin", "moderator"], []}} in token.operations
@@ -198,7 +198,7 @@ defmodule Events.Query.SyntaxTest do
     test "=~ operator translates to :ilike" do
       token =
         query User do
-          where :name =~ "%john%"
+          where(:name =~ "%john%")
         end
 
       assert {:filter, {:name, :ilike, "%john%", []}} in token.operations
@@ -207,7 +207,7 @@ defmodule Events.Query.SyntaxTest do
     test "keyword shorthand in DSL where" do
       token =
         query User do
-          where status: "active", verified: true
+          where(status: "active", verified: true)
         end
 
       assert {:filter, {:status, :eq, "active", []}} in token.operations
@@ -217,9 +217,9 @@ defmodule Events.Query.SyntaxTest do
     test "multiple where clauses" do
       token =
         query User do
-          where :status == "active"
-          where :age >= 18
-          where :verified == true
+          where(:status == "active")
+          where(:age >= 18)
+          where(:verified == true)
         end
 
       assert length(token.operations) == 3
@@ -228,9 +228,9 @@ defmodule Events.Query.SyntaxTest do
     test "mixed filter and where in same query" do
       token =
         query User do
-          filter :status, :eq, "active"
-          where :age >= 18
-          where :role in ["admin", "moderator"]
+          filter(:status, :eq, "active")
+          where(:age >= 18)
+          where(:role in ["admin", "moderator"])
         end
 
       assert length(token.operations) == 3
@@ -314,8 +314,8 @@ defmodule Events.Query.SyntaxTest do
     test "on macro filters on joined table" do
       token =
         query User do
-          join :posts, :left, as: :posts
-          on :posts, :published == true
+          join(:posts, :left, as: :posts)
+          on(:posts, :published == true)
         end
 
       assert {:filter, {:published, :eq, true, [binding: :posts]}} in token.operations
@@ -328,11 +328,11 @@ defmodule Events.Query.SyntaxTest do
       # WHERE c.active = true AND c.featured = true
       token =
         query User do
-          join Category, :left, as: :cat, on: [id: :category_id, tenant_id: :tenant_id]
+          join(Category, :left, as: :cat, on: [id: :category_id, tenant_id: :tenant_id])
 
           # WHERE filters on joined table
-          on :cat, :active == true
-          on :cat, :featured == true
+          on(:cat, :active == true)
+          on(:cat, :featured == true)
         end
 
       # Verify join has ON conditions
@@ -347,15 +347,15 @@ defmodule Events.Query.SyntaxTest do
       token =
         query User do
           # Multiple joins with their ON conditions
-          join Category, :left, as: :cat, on: [id: :category_id, tenant_id: :tenant_id]
-          join Brand, :left, as: :brand, on: [id: :brand_id, region: :region]
+          join(Category, :left, as: :cat, on: [id: :category_id, tenant_id: :tenant_id])
+          join(Brand, :left, as: :brand, on: [id: :brand_id, region: :region])
 
           # Root table filter
-          where :active == true
+          where(:active == true)
 
           # Joined table filters
-          on :cat, :featured == true
-          on :brand, :verified == true
+          on(:cat, :featured == true)
+          on(:brand, :verified == true)
         end
 
       joins = Enum.filter(token.operations, fn {op, _} -> op == :join end)
@@ -368,9 +368,9 @@ defmodule Events.Query.SyntaxTest do
     test "on macro with comparison operators" do
       token =
         query User do
-          join :posts, :left, as: :posts
-          on :posts, :views >= 100
-          on :posts, :category in ["tech", "science"]
+          join(:posts, :left, as: :posts)
+          on(:posts, :views >= 100)
+          on(:posts, :category in ["tech", "science"])
         end
 
       assert {:filter, {:views, :gte, 100, [binding: :posts]}} in token.operations
@@ -380,14 +380,14 @@ defmodule Events.Query.SyntaxTest do
     test "mixed where and on in same query" do
       token =
         query User do
-          join :posts, :left, as: :posts
+          join(:posts, :left, as: :posts)
 
           # Root table filter
-          where :active == true
+          where(:active == true)
 
           # Joined table filter
-          on :posts, :published == true
-          on :posts, :views >= 50
+          on(:posts, :published == true)
+          on(:posts, :views >= 50)
         end
 
       filters = Enum.filter(token.operations, fn {op, _} -> op == :filter end)
@@ -415,10 +415,11 @@ defmodule Events.Query.SyntaxTest do
         end)
 
       # Should have a preload with a nested token
-      preload_op = Enum.find(token.operations, fn
-        {:preload, {:posts, %Token{}}} -> true
-        _ -> false
-      end)
+      preload_op =
+        Enum.find(token.operations, fn
+          {:preload, {:posts, %Token{}}} -> true
+          _ -> false
+        end)
 
       assert preload_op != nil
       {:preload, {:posts, nested_token}} = preload_op
@@ -456,16 +457,17 @@ defmodule Events.Query.SyntaxTest do
       token =
         query User do
           preload :posts do
-            where :published == true
-            order :created_at, :desc
-            limit 5
+            where(:published == true)
+            order(:created_at, :desc)
+            limit(5)
           end
         end
 
-      preload_op = Enum.find(token.operations, fn
-        {:preload, {:posts, %Token{}}} -> true
-        _ -> false
-      end)
+      preload_op =
+        Enum.find(token.operations, fn
+          {:preload, {:posts, %Token{}}} -> true
+          _ -> false
+        end)
 
       assert preload_op != nil
       {:preload, {:posts, nested_token}} = preload_op
@@ -479,18 +481,19 @@ defmodule Events.Query.SyntaxTest do
       token =
         query User do
           preload :posts do
-            where :published == true
+            where(:published == true)
           end
 
           preload :comments do
-            where :approved == true
+            where(:approved == true)
           end
         end
 
-      preloads = Enum.filter(token.operations, fn
-        {:preload, {_, %Token{}}} -> true
-        _ -> false
-      end)
+      preloads =
+        Enum.filter(token.operations, fn
+          {:preload, {_, %Token{}}} -> true
+          _ -> false
+        end)
 
       assert length(preloads) == 2
     end
@@ -518,10 +521,13 @@ defmodule Events.Query.SyntaxTest do
         User
         |> Query.join(Category, :left,
           as: :cat,
-          on: [id: :category_id, tenant_id: :tenant_id]  # JOIN ON conditions
+          # JOIN ON conditions
+          on: [id: :category_id, tenant_id: :tenant_id]
         )
-        |> Query.on(:cat, :active, true)                   # WHERE filter on joined table
-        |> Query.on(:cat, :name, "Electronics")            # WHERE filter on joined table
+        # WHERE filter on joined table
+        |> Query.on(:cat, :active, true)
+        # WHERE filter on joined table
+        |> Query.on(:cat, :name, "Electronics")
 
       joins = Enum.filter(token.operations, fn {op, _} -> op == :join end)
       filters = Enum.filter(token.operations, fn {op, _} -> op == :filter end)
@@ -545,9 +551,12 @@ defmodule Events.Query.SyntaxTest do
           as: :brand,
           on: [id: :brand_id, region: :region]
         )
-        |> Query.filter(:active, true)          # Root table
-        |> Query.on(:cat, :featured, true)      # Category table
-        |> Query.on(:brand, :verified, true)    # Brand table
+        # Root table
+        |> Query.filter(:active, true)
+        # Category table
+        |> Query.on(:cat, :featured, true)
+        # Brand table
+        |> Query.on(:brand, :verified, true)
 
       joins = Enum.filter(token.operations, fn {op, _} -> op == :join end)
       filters = Enum.filter(token.operations, fn {op, _} -> op == :filter end)
@@ -564,41 +573,44 @@ defmodule Events.Query.SyntaxTest do
       token =
         query User do
           # Joins
-          join :orders, :left, as: :orders
-          join :products, :left, as: :products
+          join(:orders, :left, as: :orders)
+          join(:products, :left, as: :products)
 
           # Root filters
-          where :status == "active"
-          where :verified == true
+          where(:status == "active")
+          where(:verified == true)
 
           # Join filters
-          on :orders, :status == "completed"
-          on :products, :category in ["electronics", "books"]
+          on(:orders, :status == "completed")
+          on(:products, :category in ["electronics", "books"])
 
           # Ordering
-          order :name, :asc
+          order(:name, :asc)
 
           # Pagination
-          paginate :cursor, limit: 20
+          paginate(:cursor, limit: 20)
 
           # Preload with filters
           preload :orders do
-            where :status == "completed"
-            order :created_at, :desc
-            limit 10
+            where(:status == "completed")
+            order(:created_at, :desc)
+            limit(10)
           end
         end
 
       # Verify structure
       joins = Enum.filter(token.operations, fn {op, _} -> op == :join end)
       filters = Enum.filter(token.operations, fn {op, _} -> op == :filter end)
-      preloads = Enum.filter(token.operations, fn
-        {:preload, _} -> true
-        _ -> false
-      end)
+
+      preloads =
+        Enum.filter(token.operations, fn
+          {:preload, _} -> true
+          _ -> false
+        end)
 
       assert length(joins) == 2
-      assert length(filters) == 4  # 2 root + 2 join filters
+      # 2 root + 2 join filters
+      assert length(filters) == 4
       assert length(preloads) == 1
     end
 
@@ -670,8 +682,8 @@ defmodule Events.Query.SyntaxTest do
     test "left_join macro" do
       token =
         query User do
-          left_join :posts
-          left_join :comments, as: :comments
+          left_join(:posts)
+          left_join(:comments, as: :comments)
         end
 
       joins = Enum.filter(token.operations, fn {op, _} -> op == :join end)
@@ -683,7 +695,7 @@ defmodule Events.Query.SyntaxTest do
     test "left_join with schema and ON conditions" do
       token =
         query User do
-          left_join Category, as: :cat, on: [id: :category_id, tenant_id: :tenant_id]
+          left_join(Category, as: :cat, on: [id: :category_id, tenant_id: :tenant_id])
         end
 
       assert {:join, {Category, :left, [as: :cat, on: [id: :category_id, tenant_id: :tenant_id]]}} in token.operations
@@ -692,7 +704,7 @@ defmodule Events.Query.SyntaxTest do
     test "inner_join macro" do
       token =
         query User do
-          inner_join :posts, as: :posts
+          inner_join(:posts, as: :posts)
         end
 
       assert {:join, {:posts, :inner, [as: :posts]}} in token.operations
@@ -705,8 +717,8 @@ defmodule Events.Query.SyntaxTest do
     test "where with binding tuple == operator" do
       token =
         query User do
-          left_join Category, as: :cat, on: [id: :category_id]
-          where {:cat, :name} == "Electronics"
+          left_join(Category, as: :cat, on: [id: :category_id])
+          where({:cat, :name} == "Electronics")
         end
 
       assert {:filter, {:name, :eq, "Electronics", [binding: :cat]}} in token.operations
@@ -715,8 +727,8 @@ defmodule Events.Query.SyntaxTest do
     test "where with binding tuple != operator" do
       token =
         query User do
-          left_join Category, as: :cat, on: [id: :category_id]
-          where {:cat, :active} != false
+          left_join(Category, as: :cat, on: [id: :category_id])
+          where({:cat, :active} != false)
         end
 
       assert {:filter, {:active, :neq, false, [binding: :cat]}} in token.operations
@@ -725,8 +737,8 @@ defmodule Events.Query.SyntaxTest do
     test "where with binding tuple >= operator" do
       token =
         query User do
-          left_join Category, as: :cat, on: [id: :category_id]
-          where {:cat, :priority} >= 5
+          left_join(Category, as: :cat, on: [id: :category_id])
+          where({:cat, :priority} >= 5)
         end
 
       assert {:filter, {:priority, :gte, 5, [binding: :cat]}} in token.operations
@@ -735,8 +747,8 @@ defmodule Events.Query.SyntaxTest do
     test "where with binding tuple in operator" do
       token =
         query User do
-          left_join Category, as: :cat, on: [id: :category_id]
-          where {:cat, :type} in ["A", "B", "C"]
+          left_join(Category, as: :cat, on: [id: :category_id])
+          where({:cat, :type} in ["A", "B", "C"])
         end
 
       assert {:filter, {:type, :in, ["A", "B", "C"], [binding: :cat]}} in token.operations
@@ -745,8 +757,8 @@ defmodule Events.Query.SyntaxTest do
     test "where with binding tuple =~ operator" do
       token =
         query User do
-          left_join Category, as: :cat, on: [id: :category_id]
-          where {:cat, :name} =~ "%tech%"
+          left_join(Category, as: :cat, on: [id: :category_id])
+          where({:cat, :name} =~ "%tech%")
         end
 
       assert {:filter, {:name, :ilike, "%tech%", [binding: :cat]}} in token.operations
@@ -755,17 +767,17 @@ defmodule Events.Query.SyntaxTest do
     test "complex query with binding tuples" do
       token =
         query User do
-          left_join Category, as: :cat, on: [id: :category_id]
-          left_join Brand, as: :brand, on: [id: :brand_id]
+          left_join(Category, as: :cat, on: [id: :category_id])
+          left_join(Brand, as: :brand, on: [id: :brand_id])
 
           # Root table filters
-          where :active == true
+          where(:active == true)
 
           # Joined table filters using binding tuples
-          where {:cat, :name} == "Electronics"
-          where {:cat, :featured} == true
-          where {:brand, :verified} == true
-          where {:brand, :rating} >= 4
+          where({:cat, :name} == "Electronics")
+          where({:cat, :featured} == true)
+          where({:brand, :verified} == true)
+          where({:brand, :rating} >= 4)
         end
 
       filters = Enum.filter(token.operations, fn {op, _} -> op == :filter end)
@@ -785,7 +797,7 @@ defmodule Events.Query.SyntaxTest do
     test "where with case insensitive option for :eq" do
       token =
         query User do
-          where :email == "JOHN@EXAMPLE.COM", case: :insensitive
+          where(:email == "JOHN@EXAMPLE.COM", case: :insensitive)
         end
 
       assert {:filter, {:email, :eq, "JOHN@EXAMPLE.COM", [case_insensitive: true]}} in token.operations
@@ -794,7 +806,7 @@ defmodule Events.Query.SyntaxTest do
     test "where with case insensitive option for :in" do
       token =
         query User do
-          where :role in ["Admin", "Moderator"], case: :insensitive
+          where(:role in ["Admin", "Moderator"], case: :insensitive)
         end
 
       assert {:filter, {:role, :in, ["Admin", "Moderator"], [case_insensitive: true]}} in token.operations
@@ -811,8 +823,8 @@ defmodule Events.Query.SyntaxTest do
     test "where with binding tuple and case insensitive for :eq" do
       token =
         query User do
-          left_join Category, as: :cat, on: [id: :category_id]
-          where {:cat, :name} == "Electronics", case: :insensitive
+          left_join(Category, as: :cat, on: [id: :category_id])
+          where({:cat, :name} == "Electronics", case: :insensitive)
         end
 
       assert {:filter, {:name, :eq, "Electronics", [binding: :cat, case_insensitive: true]}} in token.operations
@@ -821,8 +833,8 @@ defmodule Events.Query.SyntaxTest do
     test "where with binding tuple and case insensitive for :in" do
       token =
         query User do
-          left_join Category, as: :cat, on: [id: :category_id]
-          where {:cat, :type} in ["A", "B", "C"], case: :insensitive
+          left_join(Category, as: :cat, on: [id: :category_id])
+          where({:cat, :type} in ["A", "B", "C"], case: :insensitive)
         end
 
       assert {:filter, {:type, :in, ["A", "B", "C"], [binding: :cat, case_insensitive: true]}} in token.operations
@@ -860,7 +872,7 @@ defmodule Events.Query.SyntaxTest do
     test "DSL cast with where" do
       token =
         query User do
-          where :age == "25", cast: :integer
+          where(:age == "25", cast: :integer)
         end
 
       assert {:filter, {:age, :eq, 25, []}} in token.operations
@@ -869,7 +881,7 @@ defmodule Events.Query.SyntaxTest do
     test "DSL cast with in operator" do
       token =
         query User do
-          where :age in ["18", "21", "25"], cast: :integer
+          where(:age in ["18", "21", "25"], cast: :integer)
         end
 
       assert {:filter, {:age, :in, [18, 21, 25], []}} in token.operations
@@ -878,8 +890,8 @@ defmodule Events.Query.SyntaxTest do
     test "DSL cast with binding tuple" do
       token =
         query User do
-          left_join Category, as: :cat, on: [id: :category_id]
-          where {:cat, :priority} >= "5", cast: :integer
+          left_join(Category, as: :cat, on: [id: :category_id])
+          where({:cat, :priority} >= "5", cast: :integer)
         end
 
       assert {:filter, {:priority, :gte, 5, [binding: :cat]}} in token.operations
@@ -890,7 +902,7 @@ defmodule Events.Query.SyntaxTest do
       # case_insensitive only makes sense for strings, so combining with cast is unusual
       token =
         query User do
-          where :status == "ACTIVE", case: :insensitive
+          where(:status == "ACTIVE", case: :insensitive)
         end
 
       assert {:filter, {:status, :eq, "ACTIVE", [case_insensitive: true]}} in token.operations

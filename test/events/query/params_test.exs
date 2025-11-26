@@ -223,7 +223,10 @@ defmodule Events.Query.ParamsTest do
 
       token =
         Query.new(User)
-        |> Query.paginate(:cursor, limit: Params.get(params, :limit), after: Params.get(params, :after))
+        |> Query.paginate(:cursor,
+          limit: Params.get(params, :limit),
+          after: Params.get(params, :after)
+        )
 
       # Should create pagination with nil values (which use defaults)
       assert [{:paginate, {:cursor, [limit: nil, after: nil]}}] = token.operations

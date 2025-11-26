@@ -107,9 +107,14 @@ defmodule Events.Schema.Introspection do
       field: name,
       type: normalize_type(type),
       required: Keyword.get(opts, :required, false),
+      required_when: Keyword.get(opts, :required_when),
       nullable: Keyword.get(opts, :null, !Keyword.get(opts, :required, false)),
       default: Keyword.get(opts, :default),
       cast: Keyword.get(opts, :cast, true),
+      immutable: Keyword.get(opts, :immutable, false),
+      sensitive: Keyword.get(opts, :sensitive, false),
+      doc: Keyword.get(opts, :doc),
+      example: Keyword.get(opts, :example),
       validations: extract_validations(opts),
       normalizations: extract_normalizations(opts)
     }
@@ -192,6 +197,41 @@ defmodule Events.Schema.Introspection do
     """
 
     doc =
+      if spec.required_when do
+        doc <> "  Required when: #{inspect(spec.required_when)}\n"
+      else
+        doc
+      end
+
+    doc =
+      if spec.immutable do
+        doc <> "  Immutable: true\n"
+      else
+        doc
+      end
+
+    doc =
+      if spec.sensitive do
+        doc <> "  Sensitive: true (redacted in logs)\n"
+      else
+        doc
+      end
+
+    doc =
+      if spec.doc do
+        doc <> "  Description: #{spec.doc}\n"
+      else
+        doc
+      end
+
+    doc =
+      if spec.example do
+        doc <> "  Example: #{inspect(spec.example)}\n"
+      else
+        doc
+      end
+
+    doc =
       if spec.default do
         doc <> "  Default: #{inspect(spec.default)}\n"
       else
@@ -231,6 +271,9 @@ defmodule Events.Schema.Introspection do
     |> add_json_format(spec.validations)
     |> add_json_enum(spec.validations)
     |> add_json_default(spec.default)
+    |> add_json_doc(spec.doc, spec.example)
+    |> add_json_readonly(spec.immutable)
+    |> add_json_write_only(spec.sensitive)
   end
 
   defp type_to_json_type(:string), do: "string"
@@ -277,10 +320,27 @@ defmodule Events.Schema.Introspection do
   defp add_json_default(schema, nil), do: schema
   defp add_json_default(schema, default), do: Map.put(schema, :default, default)
 
+  defp add_json_doc(schema, nil, nil), do: schema
+
+  defp add_json_doc(schema, doc, example) do
+    schema
+    |> maybe_put(:description, doc)
+    |> maybe_put(:examples, if(example, do: [example], else: nil))
+  end
+
+  defp add_json_readonly(schema, false), do: schema
+  defp add_json_readonly(schema, true), do: Map.put(schema, :readOnly, true)
+
+  defp add_json_write_only(schema, false), do: schema
+  defp add_json_write_only(schema, true), do: Map.put(schema, :writeOnly, true)
+
   defp add_if_present(schema, source, source_key, target_key) do
     case Map.get(source, source_key) do
       nil -> schema
       value -> Map.put(schema, target_key, value)
     end
   end
+
+  defp maybe_put(schema, _key, nil), do: schema
+  defp maybe_put(schema, key, value), do: Map.put(schema, key, value)
 end

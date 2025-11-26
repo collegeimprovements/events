@@ -295,7 +295,8 @@ defmodule Events.Query.Builder do
 
     ranges
     |> Enum.reduce(nil, fn {min, max}, acc ->
-      range_condition = dynamic([{^binding, q}], field(q, ^field) >= ^min and field(q, ^field) <= ^max)
+      range_condition =
+        dynamic([{^binding, q}], field(q, ^field) >= ^min and field(q, ^field) <= ^max)
 
       if acc do
         dynamic(^acc or ^range_condition)
@@ -346,10 +347,12 @@ defmodule Events.Query.Builder do
 
   defp build_in_dynamic(field, values, binding, true) do
     # Case insensitive: lowercase field and all string values
-    lower_values = Enum.map(values, fn
-      v when is_binary(v) -> String.downcase(v)
-      v -> v
-    end)
+    lower_values =
+      Enum.map(values, fn
+        v when is_binary(v) -> String.downcase(v)
+        v -> v
+      end)
+
     dynamic([{^binding, q}], fragment("lower(?)", field(q, ^field)) in ^lower_values)
   end
 
@@ -358,10 +361,12 @@ defmodule Events.Query.Builder do
   end
 
   defp build_not_in_dynamic(field, values, binding, true) do
-    lower_values = Enum.map(values, fn
-      v when is_binary(v) -> String.downcase(v)
-      v -> v
-    end)
+    lower_values =
+      Enum.map(values, fn
+        v when is_binary(v) -> String.downcase(v)
+        v -> v
+      end)
+
     dynamic([{^binding, q}], fragment("lower(?)", field(q, ^field)) not in ^lower_values)
   end
 
@@ -823,13 +828,21 @@ defmodule Events.Query.Builder do
   # Word similarity (better for phrases)
   defp do_build_rank_condition(field, :word_similarity, term, binding, opts) do
     threshold = Keyword.get(opts, :threshold, 0.3)
-    dynamic([{^binding, q}], fragment("word_similarity(?, ?) > ?", ^term, field(q, ^field), ^threshold))
+
+    dynamic(
+      [{^binding, q}],
+      fragment("word_similarity(?, ?) > ?", ^term, field(q, ^field), ^threshold)
+    )
   end
 
   # Strict word similarity
   defp do_build_rank_condition(field, :strict_word_similarity, term, binding, opts) do
     threshold = Keyword.get(opts, :threshold, 0.3)
-    dynamic([{^binding, q}], fragment("strict_word_similarity(?, ?) > ?", ^term, field(q, ^field), ^threshold))
+
+    dynamic(
+      [{^binding, q}],
+      fragment("strict_word_similarity(?, ?) > ?", ^term, field(q, ^field), ^threshold)
+    )
   end
 
   # Helper: builds like/ilike based on case_sensitive option

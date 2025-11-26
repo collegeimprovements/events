@@ -139,7 +139,8 @@ defmodule Events.Query.DSL do
   end
 
   # Comparison operators with options: where :field op value, case: :insensitive
-  defmacro where({op, _, [lhs, rhs]}, user_opts) when op in @comparison_ops and is_list(user_opts) do
+  defmacro where({op, _, [lhs, rhs]}, user_opts)
+           when op in @comparison_ops and is_list(user_opts) do
     {field, binding} = parse_field(lhs)
     {internal_op, value} = translate_operator(op, rhs)
     opts = build_opts(binding, user_opts)
@@ -164,14 +165,25 @@ defmodule Events.Query.DSL do
   defmacro filter(field, op, value) do
     quote do
       var!(query_token, Events.Query.DSL) =
-        Events.Query.filter(var!(query_token, Events.Query.DSL), unquote(field), unquote(op), unquote(value))
+        Events.Query.filter(
+          var!(query_token, Events.Query.DSL),
+          unquote(field),
+          unquote(op),
+          unquote(value)
+        )
     end
   end
 
   defmacro filter(field, op, value, opts) do
     quote do
       var!(query_token, Events.Query.DSL) =
-        Events.Query.filter(var!(query_token, Events.Query.DSL), unquote(field), unquote(op), unquote(value), unquote(opts))
+        Events.Query.filter(
+          var!(query_token, Events.Query.DSL),
+          unquote(field),
+          unquote(op),
+          unquote(value),
+          unquote(opts)
+        )
     end
   end
 
@@ -211,7 +223,8 @@ defmodule Events.Query.DSL do
   end
 
   # on :binding, :field op value, opts
-  defmacro on(binding, {op, _, [field, value]}, user_opts) when is_atom(binding) and op in @comparison_ops do
+  defmacro on(binding, {op, _, [field, value]}, user_opts)
+           when is_atom(binding) and op in @comparison_ops do
     {internal_op, actual_value} = translate_operator(op, value)
     opts = build_opts(binding, user_opts)
 
@@ -271,7 +284,8 @@ defmodule Events.Query.DSL do
   end
 
   # maybe :field op value, opts
-  defmacro maybe({op, _, [lhs, rhs]}, user_opts) when op in @comparison_ops and is_list(user_opts) do
+  defmacro maybe({op, _, [lhs, rhs]}, user_opts)
+           when op in @comparison_ops and is_list(user_opts) do
     {field, binding} = parse_field(lhs)
     {internal_op, value} = translate_operator(op, rhs)
     opts = build_opts(binding, user_opts)
@@ -310,7 +324,12 @@ defmodule Events.Query.DSL do
   defmacro join(assoc, type, opts \\ []) do
     quote do
       var!(query_token, Events.Query.DSL) =
-        Events.Query.join(var!(query_token, Events.Query.DSL), unquote(assoc), unquote(type), unquote(opts))
+        Events.Query.join(
+          var!(query_token, Events.Query.DSL),
+          unquote(assoc),
+          unquote(type),
+          unquote(opts)
+        )
     end
   end
 
@@ -369,7 +388,12 @@ defmodule Events.Query.DSL do
   defmacro order(field, direction, opts) do
     quote do
       var!(query_token, Events.Query.DSL) =
-        Events.Query.order(var!(query_token, Events.Query.DSL), unquote(field), unquote(direction), unquote(opts))
+        Events.Query.order(
+          var!(query_token, Events.Query.DSL),
+          unquote(field),
+          unquote(direction),
+          unquote(opts)
+        )
     end
   end
 
@@ -566,14 +590,25 @@ defmodule Events.Query.DSL do
   defmacro where_not(field, op, value) do
     quote do
       var!(query_token, Events.Query.DSL) =
-        Events.Query.where_not(var!(query_token, Events.Query.DSL), unquote(field), unquote(op), unquote(value))
+        Events.Query.where_not(
+          var!(query_token, Events.Query.DSL),
+          unquote(field),
+          unquote(op),
+          unquote(value)
+        )
     end
   end
 
   defmacro where_not(field, op, value, opts) do
     quote do
       var!(query_token, Events.Query.DSL) =
-        Events.Query.where_not(var!(query_token, Events.Query.DSL), unquote(field), unquote(op), unquote(value), unquote(opts))
+        Events.Query.where_not(
+          var!(query_token, Events.Query.DSL),
+          unquote(field),
+          unquote(op),
+          unquote(value),
+          unquote(opts)
+        )
     end
   end
 
@@ -581,14 +616,25 @@ defmodule Events.Query.DSL do
   defmacro where_field(field1, op, field2) do
     quote do
       var!(query_token, Events.Query.DSL) =
-        Events.Query.where_field(var!(query_token, Events.Query.DSL), unquote(field1), unquote(op), unquote(field2))
+        Events.Query.where_field(
+          var!(query_token, Events.Query.DSL),
+          unquote(field1),
+          unquote(op),
+          unquote(field2)
+        )
     end
   end
 
   defmacro where_field(field1, op, field2, opts) do
     quote do
       var!(query_token, Events.Query.DSL) =
-        Events.Query.where_field(var!(query_token, Events.Query.DSL), unquote(field1), unquote(op), unquote(field2), unquote(opts))
+        Events.Query.where_field(
+          var!(query_token, Events.Query.DSL),
+          unquote(field1),
+          unquote(op),
+          unquote(field2),
+          unquote(opts)
+        )
     end
   end
 
@@ -596,14 +642,25 @@ defmodule Events.Query.DSL do
   defmacro between(field, min, max) do
     quote do
       var!(query_token, Events.Query.DSL) =
-        Events.Query.between(var!(query_token, Events.Query.DSL), unquote(field), unquote(min), unquote(max))
+        Events.Query.between(
+          var!(query_token, Events.Query.DSL),
+          unquote(field),
+          unquote(min),
+          unquote(max)
+        )
     end
   end
 
   defmacro between(field, min, max, opts) do
     quote do
       var!(query_token, Events.Query.DSL) =
-        Events.Query.between(var!(query_token, Events.Query.DSL), unquote(field), unquote(min), unquote(max), unquote(opts))
+        Events.Query.between(
+          var!(query_token, Events.Query.DSL),
+          unquote(field),
+          unquote(min),
+          unquote(max),
+          unquote(opts)
+        )
     end
   end
 
@@ -618,7 +675,12 @@ defmodule Events.Query.DSL do
   defmacro at_least(field, value, opts) do
     quote do
       var!(query_token, Events.Query.DSL) =
-        Events.Query.at_least(var!(query_token, Events.Query.DSL), unquote(field), unquote(value), unquote(opts))
+        Events.Query.at_least(
+          var!(query_token, Events.Query.DSL),
+          unquote(field),
+          unquote(value),
+          unquote(opts)
+        )
     end
   end
 
@@ -633,7 +695,12 @@ defmodule Events.Query.DSL do
   defmacro at_most(field, value, opts) do
     quote do
       var!(query_token, Events.Query.DSL) =
-        Events.Query.at_most(var!(query_token, Events.Query.DSL), unquote(field), unquote(value), unquote(opts))
+        Events.Query.at_most(
+          var!(query_token, Events.Query.DSL),
+          unquote(field),
+          unquote(value),
+          unquote(opts)
+        )
     end
   end
 
@@ -645,14 +712,23 @@ defmodule Events.Query.DSL do
   defmacro starts_with(field, prefix) do
     quote do
       var!(query_token, Events.Query.DSL) =
-        Events.Query.starts_with(var!(query_token, Events.Query.DSL), unquote(field), unquote(prefix))
+        Events.Query.starts_with(
+          var!(query_token, Events.Query.DSL),
+          unquote(field),
+          unquote(prefix)
+        )
     end
   end
 
   defmacro starts_with(field, prefix, opts) do
     quote do
       var!(query_token, Events.Query.DSL) =
-        Events.Query.starts_with(var!(query_token, Events.Query.DSL), unquote(field), unquote(prefix), unquote(opts))
+        Events.Query.starts_with(
+          var!(query_token, Events.Query.DSL),
+          unquote(field),
+          unquote(prefix),
+          unquote(opts)
+        )
     end
   end
 
@@ -667,7 +743,12 @@ defmodule Events.Query.DSL do
   defmacro ends_with(field, suffix, opts) do
     quote do
       var!(query_token, Events.Query.DSL) =
-        Events.Query.ends_with(var!(query_token, Events.Query.DSL), unquote(field), unquote(suffix), unquote(opts))
+        Events.Query.ends_with(
+          var!(query_token, Events.Query.DSL),
+          unquote(field),
+          unquote(suffix),
+          unquote(opts)
+        )
     end
   end
 
@@ -675,14 +756,23 @@ defmodule Events.Query.DSL do
   defmacro contains_string(field, substring) do
     quote do
       var!(query_token, Events.Query.DSL) =
-        Events.Query.contains_string(var!(query_token, Events.Query.DSL), unquote(field), unquote(substring))
+        Events.Query.contains_string(
+          var!(query_token, Events.Query.DSL),
+          unquote(field),
+          unquote(substring)
+        )
     end
   end
 
   defmacro contains_string(field, substring, opts) do
     quote do
       var!(query_token, Events.Query.DSL) =
-        Events.Query.contains_string(var!(query_token, Events.Query.DSL), unquote(field), unquote(substring), unquote(opts))
+        Events.Query.contains_string(
+          var!(query_token, Events.Query.DSL),
+          unquote(field),
+          unquote(substring),
+          unquote(opts)
+        )
     end
   end
 
@@ -716,7 +806,11 @@ defmodule Events.Query.DSL do
   defmacro not_null(field, opts) do
     quote do
       var!(query_token, Events.Query.DSL) =
-        Events.Query.where_not_nil(var!(query_token, Events.Query.DSL), unquote(field), unquote(opts))
+        Events.Query.where_not_nil(
+          var!(query_token, Events.Query.DSL),
+          unquote(field),
+          unquote(opts)
+        )
     end
   end
 
@@ -746,7 +840,11 @@ defmodule Events.Query.DSL do
   defmacro present(field, opts) do
     quote do
       var!(query_token, Events.Query.DSL) =
-        Events.Query.where_present(var!(query_token, Events.Query.DSL), unquote(field), unquote(opts))
+        Events.Query.where_present(
+          var!(query_token, Events.Query.DSL),
+          unquote(field),
+          unquote(opts)
+        )
     end
   end
 
@@ -766,14 +864,23 @@ defmodule Events.Query.DSL do
   defmacro apply_scope(module, scope_name) do
     quote do
       var!(query_token, Events.Query.DSL) =
-        Events.Query.apply_scope(var!(query_token, Events.Query.DSL), unquote(module), unquote(scope_name))
+        Events.Query.apply_scope(
+          var!(query_token, Events.Query.DSL),
+          unquote(module),
+          unquote(scope_name)
+        )
     end
   end
 
   defmacro apply_scope(module, scope_name, args) do
     quote do
       var!(query_token, Events.Query.DSL) =
-        Events.Query.apply_scope(var!(query_token, Events.Query.DSL), unquote(module), unquote(scope_name), unquote(args))
+        Events.Query.apply_scope(
+          var!(query_token, Events.Query.DSL),
+          unquote(module),
+          unquote(scope_name),
+          unquote(args)
+        )
     end
   end
 

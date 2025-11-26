@@ -257,7 +257,8 @@ defmodule Events.Query.Token do
     if op in @field_compare_ops do
       :ok
     else
-      {:error, "Invalid field comparison operator: #{inspect(op)}. Valid: #{inspect(@field_compare_ops)}"}
+      {:error,
+       "Invalid field comparison operator: #{inspect(op)}. Valid: #{inspect(@field_compare_ops)}"}
     end
   end
 

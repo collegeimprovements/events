@@ -132,7 +132,9 @@ defmodule Events.SchemaFieldOverrideTest do
     use Ecto.Schema
 
     schema "virtual_test" do
-      import Ecto.Schema, except: [field: 3]
+      # Exclude Ecto's field and import our custom one
+      import Kernel, except: []
+      import Ecto.Schema, only: []
       import Events.SchemaFieldOverrideTest.CustomField
 
       field(:real_field, :string, min: 1)

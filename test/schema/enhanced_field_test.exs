@@ -14,9 +14,9 @@ defmodule Events.Schema.EnhancedFieldTest do
 
     def changeset(user, attrs) do
       user
-      |> Ecto.Changeset.cast(attrs, __cast_fields__())
-      |> Ecto.Changeset.validate_required(__required_fields__())
-      |> __apply_field_validations__()
+      |> Ecto.Changeset.cast(attrs, cast_fields())
+      |> Ecto.Changeset.validate_required(required_fields())
+      |> apply_validations()
     end
   end
 
@@ -31,9 +31,9 @@ defmodule Events.Schema.EnhancedFieldTest do
     end
   end
 
-  describe "__cast_fields__/0" do
+  describe "cast_fields/0" do
     test "returns fields with cast: true" do
-      cast_fields = TestUser.__cast_fields__()
+      cast_fields = TestUser.cast_fields()
 
       assert :name in cast_fields
       assert :email in cast_fields
@@ -43,9 +43,9 @@ defmodule Events.Schema.EnhancedFieldTest do
     end
   end
 
-  describe "__required_fields__/0" do
+  describe "required_fields/0" do
     test "returns fields with required: true" do
-      required_fields = TestUser.__required_fields__()
+      required_fields = TestUser.required_fields()
 
       assert :name in required_fields
       assert :email in required_fields
@@ -55,9 +55,9 @@ defmodule Events.Schema.EnhancedFieldTest do
     end
   end
 
-  describe "__field_validations__/0" do
+  describe "field_validations/0" do
     test "returns all field validation metadata" do
-      validations = TestUser.__field_validations__()
+      validations = TestUser.field_validations()
 
       assert is_list(validations)
       assert length(validations) > 0
@@ -149,7 +149,7 @@ defmodule Events.Schema.EnhancedFieldTest do
       changeset =
         Ecto.Changeset.cast(post, %{title: "Hello World", slug: "Hello World!"}, [:title, :slug])
 
-      changeset = TestPost.__apply_field_validations__(changeset)
+      changeset = TestPost.apply_validations(changeset)
 
       slug = Ecto.Changeset.get_change(changeset, :slug)
 
@@ -161,7 +161,7 @@ defmodule Events.Schema.EnhancedFieldTest do
     test "validates inclusion in allowed values" do
       post = %TestPost{}
       changeset = Ecto.Changeset.cast(post, %{title: "Test", status: "invalid"}, [:title, :status])
-      changeset = TestPost.__apply_field_validations__(changeset)
+      changeset = TestPost.apply_validations(changeset)
 
       refute changeset.valid?
       assert %{status: [_]} = errors_on(changeset)
@@ -173,7 +173,7 @@ defmodule Events.Schema.EnhancedFieldTest do
       changeset =
         Ecto.Changeset.cast(post, %{title: "Test", status: "published"}, [:title, :status])
 
-      changeset = TestPost.__apply_field_validations__(changeset)
+      changeset = TestPost.apply_validations(changeset)
 
       assert changeset.valid?
     end
@@ -184,15 +184,15 @@ defmodule Events.Schema.EnhancedFieldTest do
       post = %TestPost{}
 
       changeset_zero = Ecto.Changeset.cast(post, %{views: 0}, [:views])
-      changeset_zero = TestPost.__apply_field_validations__(changeset_zero)
+      changeset_zero = TestPost.apply_validations(changeset_zero)
       assert changeset_zero.valid?
 
       changeset_positive = Ecto.Changeset.cast(post, %{views: 100}, [:views])
-      changeset_positive = TestPost.__apply_field_validations__(changeset_positive)
+      changeset_positive = TestPost.apply_validations(changeset_positive)
       assert changeset_positive.valid?
 
       changeset_negative = Ecto.Changeset.cast(post, %{views: -1}, [:views])
-      changeset_negative = TestPost.__apply_field_validations__(changeset_negative)
+      changeset_negative = TestPost.apply_validations(changeset_negative)
       refute changeset_negative.valid?
     end
   end

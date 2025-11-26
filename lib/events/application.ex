@@ -23,7 +23,23 @@ defmodule Events.Application do
     # See https://hexdocs.pm/elixir/Supervisor.html
     # for other strategies and supported options
     opts = [strategy: :one_for_one, name: Events.Supervisor]
-    Supervisor.start_link(children, opts)
+    result = Supervisor.start_link(children, opts)
+
+    # Validate schemas against database after repo is started
+    # Configured via :events, :schema_validation in config
+    maybe_validate_schemas()
+
+    result
+  end
+
+  defp maybe_validate_schemas do
+    config = Application.get_env(:events, :schema_validation, [])
+
+    if Keyword.get(config, :on_startup, false) do
+      Events.Schema.DatabaseValidator.validate_on_startup()
+    else
+      :ok
+    end
   end
 
   # Tell Phoenix to update the endpoint configuration

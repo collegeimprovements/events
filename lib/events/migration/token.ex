@@ -3,39 +3,56 @@ defmodule Events.Migration.Token do
   The core token that flows through migration pipelines.
 
   A token represents a migration operation (table, index, etc.) and accumulates
-  changes as it flows through the pipeline.
+  changes as it flows through the pipeline. Tokens are immutable - each operation
+  returns a new token.
+
+  ## Token Types
+
+  - `:table` - Creates a new table with fields, indexes, and constraints
+  - `:index` - Creates a standalone index
+  - `:constraint` - Creates a standalone constraint
+  - `:alter` - Alters an existing table
+
+  ## Pipeline Pattern
+
+  Tokens flow through a pipeline of transformations:
+
+      create_table(:users)
+      |> with_uuid_primary_key()
+      |> with_timestamps()
+      |> with_soft_delete()
+      |> execute()
+
+  ## Validation
+
+  Before execution, tokens are validated to ensure they have all required fields.
+  Use `validate/1` or `validate!/1` to check a token manually.
   """
 
-  defstruct [
-    # :table, :index, :constraint, etc.
-    :type,
-    # Table or index name
-    :name,
-    # List of field definitions
-    :fields,
-    # List of index definitions
-    :indexes,
-    # List of constraints
-    :constraints,
-    # Additional options
-    :options,
-    # Metadata for tracking
-    :meta
-  ]
-
-  @type field :: {atom(), atom(), keyword()}
-  @type index :: {atom(), list(atom()), keyword()}
-  @type constraint :: {atom(), atom(), keyword()}
+  @type token_type :: :table | :index | :constraint | :alter
+  @type field_type :: atom() | {:array, atom()} | {:references, atom(), keyword()}
+  @type field :: {atom(), field_type(), keyword()}
+  @type index_spec :: {atom(), [atom()], keyword()}
+  @type constraint_spec :: {atom(), atom(), keyword()}
 
   @type t :: %__MODULE__{
-          type: atom(),
+          type: token_type(),
           name: atom() | String.t(),
-          fields: list(field()),
-          indexes: list(index()),
-          constraints: list(constraint()),
+          fields: [field()],
+          indexes: [index_spec()],
+          constraints: [constraint_spec()],
           options: keyword(),
           meta: map()
         }
+
+  @enforce_keys [:type, :name]
+  defstruct type: nil,
+            name: nil,
+            fields: [],
+            indexes: [],
+            constraints: [],
+            options: [],
+            meta: %{}
 
   @doc """
   Creates a new migration token.
@@ -122,39 +139,94 @@ defmodule Events.Migration.Token do
 
   @doc """
   Validates the token before execution.
+
+  Returns `{:ok, token}` if valid, `{:error, message}` otherwise.
   """
   @spec validate(t()) :: {:ok, t()} | {:error, String.t()}
-  def validate(%__MODULE__{type: :table, name: name, fields: fields} = token)
-      when is_atom(name) or is_binary(name) do
-    cond do
-      length(fields) == 0 ->
-        {:error, "Table #{name} has no fields defined"}
+  def validate(%__MODULE__{type: :table, name: name, fields: []} = _token) do
+    {:error, "Table #{name} has no fields defined"}
+  end
 
-      not has_primary_key?(token) ->
-        {:error, "Table #{name} has no primary key defined"}
-
-      true ->
-        {:ok, token}
+  def validate(%__MODULE__{type: :table, name: name} = token) do
+    case has_primary_key?(token) do
+      true -> {:ok, token}
+      false -> {:error, "Table #{name} has no primary key defined"}
     end
   end
 
-  def validate(%__MODULE__{type: :index, name: name} = token) do
-    columns = Keyword.get(token.options, :columns, [])
-
-    if length(columns) == 0 do
-      {:error, "Index #{name} has no columns defined"}
-    else
-      {:ok, token}
+  def validate(%__MODULE__{type: :index, name: name, options: opts} = token) do
+    case Keyword.get(opts, :columns, []) do
+      [] -> {:error, "Index #{name} has no columns defined"}
+      _columns -> {:ok, token}
     end
   end
 
-  def validate(token), do: {:ok, token}
+  def validate(%__MODULE__{} = token), do: {:ok, token}
 
-  defp has_primary_key?(token) do
-    token.fields
-    |> Enum.any?(fn {_name, _type, opts} ->
-      Keyword.get(opts, :primary_key, false)
-    end) ||
-      Keyword.get(token.options, :primary_key, true) != false
+  @doc """
+  Validates the token, raising on error.
+
+  Same as `validate/1` but raises `ArgumentError` on failure.
+  """
+  @spec validate!(t()) :: t()
+  def validate!(%__MODULE__{} = token) do
+    case validate(token) do
+      {:ok, valid_token} -> valid_token
+      {:error, message} -> raise ArgumentError, message
+    end
+  end
+
+  # ============================================
+  # Query Functions
+  # ============================================
+
+  @doc """
+  Returns true if the token has a primary key defined.
+  """
+  @spec has_primary_key?(t()) :: boolean()
+  def has_primary_key?(%__MODULE__{fields: fields, options: opts}) do
+    field_has_pk? = Enum.any?(fields, &field_is_primary_key?/1)
+    opts_has_pk? = Keyword.get(opts, :primary_key, true) != false
+    field_has_pk? or opts_has_pk?
+  end
+
+  @doc """
+  Returns the field names defined in the token.
+  """
+  @spec field_names(t()) :: [atom()]
+  def field_names(%__MODULE__{fields: fields}) do
+    Enum.map(fields, fn {name, _type, _opts} -> name end)
+  end
+
+  @doc """
+  Returns the index names defined in the token.
+  """
+  @spec index_names(t()) :: [atom()]
+  def index_names(%__MODULE__{indexes: indexes}) do
+    Enum.map(indexes, fn {name, _columns, _opts} -> name end)
+  end
+
+  @doc """
+  Checks if a field exists in the token.
+  """
+  @spec has_field?(t(), atom()) :: boolean()
+  def has_field?(%__MODULE__{fields: fields}, field_name) do
+    Enum.any?(fields, fn {name, _type, _opts} -> name == field_name end)
+  end
+
+  @doc """
+  Gets a field definition by name.
+  """
+  @spec get_field(t(), atom()) :: field() | nil
+  def get_field(%__MODULE__{fields: fields}, field_name) do
+    Enum.find(fields, fn {name, _type, _opts} -> name == field_name end)
+  end
+
+  # ============================================
+  # Private Helpers
+  # ============================================
+
+  defp field_is_primary_key?({_name, _type, opts}) do
+    Keyword.get(opts, :primary_key, false)
   end
 end
