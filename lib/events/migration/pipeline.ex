@@ -301,8 +301,8 @@ defmodule Events.Migration.Pipeline do
   Adds soft delete fields.
 
   ## Options
+  - `:track_urm` - Include deleted_by_urm_id (default: true)
   - `:track_user` - Include deleted_by_user_id (default: false)
-  - `:track_role_mapping` - Include deleted_by_user_role_mapping_id (default: true)
   - `:track_reason` - Include deletion_reason (default: false)
 
   ## Examples
@@ -310,26 +310,35 @@ defmodule Events.Migration.Pipeline do
       create_table(:users)
       |> with_soft_delete()
       |> with_soft_delete(track_user: true, track_reason: true)
-      |> with_soft_delete(track_role_mapping: false)
+      |> with_soft_delete(track_urm: false)
   """
   def with_soft_delete(%Token{} = token, opts \\ []) do
+    # Handle deprecated option name
+    opts =
+      if Keyword.has_key?(opts, :track_role_mapping) do
+        IO.warn("track_role_mapping is deprecated, use track_urm instead")
+        Keyword.put(opts, :track_urm, Keyword.get(opts, :track_role_mapping))
+      else
+        opts
+      end
+
+    track_urm = Keyword.get(opts, :track_urm, true)
     track_user = Keyword.get(opts, :track_user, false)
-    track_role_mapping = Keyword.get(opts, :track_role_mapping, true)
     track_reason = Keyword.get(opts, :track_reason, false)
 
     token
     |> Token.add_field(:deleted_at, :utc_datetime_usec)
-    |> maybe_add_role_mapping(track_role_mapping)
+    |> maybe_add_urm_tracking(track_urm)
     |> maybe_add_deletion_user(track_user)
     |> maybe_add_deletion_reason(track_reason)
     |> Token.add_index(:deleted_at_index, [:deleted_at])
     |> Token.add_index(:active_records_index, [:id], where: "deleted_at IS NULL")
   end
 
-  defp maybe_add_role_mapping(token, false), do: token
+  defp maybe_add_urm_tracking(token, false), do: token
 
-  defp maybe_add_role_mapping(token, true) do
-    Token.add_field(token, :deleted_by_user_role_mapping_id, :binary_id)
+  defp maybe_add_urm_tracking(token, true) do
+    Token.add_field(token, :deleted_by_urm_id, :binary_id)
   end
 
   defp maybe_add_deletion_user(token, false), do: token

@@ -91,10 +91,15 @@ defmodule Events.Decorator.Validation do
                        required: false,
                        doc: "Invariant that must hold throughout execution"
                      ],
-                     on_violation: [
+                     on_error: [
                        type: {:in, [:raise, :warn, :return_error]},
                        default: :raise,
                        doc: "What to do on contract violation"
+                     ],
+                     on_violation: [
+                       type: {:in, [:raise, :warn, :return_error]},
+                       required: false,
+                       doc: "Deprecated: use on_error instead"
                      ]
                    )
 
@@ -392,7 +397,7 @@ defmodule Events.Decorator.Validation do
           result.balance == account.balance - amount
         end,
         invariant: fn account -> account.balance >= 0 end,
-        on_violation: :raise
+        on_error: :raise
       )
       def withdraw(account, amount) do
         %{account | balance: account.balance - amount}
@@ -401,10 +406,18 @@ defmodule Events.Decorator.Validation do
   def contract(opts, body, context) do
     validated_opts = NimbleOptions.validate!(opts, @contract_schema)
 
+    # Handle deprecated on_violation option
+    on_error =
+      if validated_opts[:on_violation] do
+        IO.warn("on_violation is deprecated, use on_error instead")
+        validated_opts[:on_violation]
+      else
+        validated_opts[:on_error]
+      end
+
     pre = List.wrap(validated_opts[:pre] || [])
     post = List.wrap(validated_opts[:post] || [])
     invariant = validated_opts[:invariant]
-    on_violation = validated_opts[:on_violation]
 
     quote do
       # Check preconditions
@@ -413,7 +426,7 @@ defmodule Events.Decorator.Validation do
           unquote(__MODULE__).handle_contract_violation(
             :precondition,
             unquote(context),
-            unquote(on_violation)
+            unquote(on_error)
           )
         end
       end
@@ -426,7 +439,7 @@ defmodule Events.Decorator.Validation do
           unquote(__MODULE__).handle_contract_violation(
             :invariant_before,
             unquote(context),
-            unquote(on_violation)
+            unquote(on_error)
           )
         end
       end
@@ -440,7 +453,7 @@ defmodule Events.Decorator.Validation do
           unquote(__MODULE__).handle_contract_violation(
             :postcondition,
             unquote(context),
-            unquote(on_violation)
+            unquote(on_error)
           )
         end
       end
@@ -457,7 +470,7 @@ defmodule Events.Decorator.Validation do
           unquote(__MODULE__).handle_contract_violation(
             :invariant_after,
             unquote(context),
-            unquote(on_violation)
+            unquote(on_error)
           )
         end
       end

@@ -3,13 +3,26 @@ defmodule Events.Schema.Validators.Array do
   Array-specific validations for enhanced schema fields.
 
   Provides length, subset, and item-level validations for array fields.
+
+  Implements `Events.Schema.Behaviours.Validator` behavior.
   """
 
+  @behaviour Events.Schema.Behaviours.Validator
+
   alias Events.Schema.Helpers.Messages
+
+  @impl true
+  def field_types, do: [:array]
+
+  @impl true
+  def supported_options do
+    [:min_length, :max_length, :length, :in, :item_format, :item_min, :item_max, :unique_items]
+  end
 
   @doc """
   Apply all array validations to a changeset.
   """
+  @impl true
   def validate(changeset, field_name, opts) do
     changeset
     |> apply_array_length_validation(field_name, opts)

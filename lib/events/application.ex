@@ -13,7 +13,7 @@ defmodule Events.Application do
       Events.Cache,
       Events.KillSwitch,
       {DNSCluster, query: Application.get_env(:events, :dns_cluster_query) || :ignore},
-      {Phoenix.PubSub, name: Events.PubSub},
+      Events.PubSub,
       # Start a worker by calling: Events.Worker.start_link(arg)
       # {Events.Worker, arg},
       # Start to serve requests, typically the last entry
@@ -36,10 +36,37 @@ defmodule Events.Application do
     config = Application.get_env(:events, :schema_validation, [])
 
     if Keyword.get(config, :on_startup, false) do
-      Events.Schema.DatabaseValidator.validate_on_startup()
+      # Wait for Repo to be fully registered before validation
+      case wait_for_repo(50, 100) do
+        :ok ->
+          Events.Schema.DatabaseValidator.validate_on_startup()
+
+        :timeout ->
+          require Logger
+          Logger.warning("Schema validation skipped: Repo not available")
+          :ok
+      end
     else
       :ok
     end
+  end
+
+  # Wait for the Repo to be registered with Ecto.Repo.Registry
+  defp wait_for_repo(0, _interval), do: :timeout
+
+  defp wait_for_repo(attempts, interval) do
+    case Ecto.Repo.Registry.lookup(Events.Repo) do
+      {_adapter_meta, _pid} ->
+        :ok
+
+      nil ->
+        Process.sleep(interval)
+        wait_for_repo(attempts - 1, interval)
+    end
+  rescue
+    _ ->
+      Process.sleep(interval)
+      wait_for_repo(attempts - 1, interval)
   end
 
   # Tell Phoenix to update the endpoint configuration

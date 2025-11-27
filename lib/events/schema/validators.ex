@@ -7,6 +7,7 @@ defmodule Events.Schema.Validators do
   """
 
   import Ecto.Changeset
+  alias Events.Schema.Utils.Comparison
 
   # ============================================
   # Main Apply Function
@@ -458,20 +459,13 @@ defmodule Events.Schema.Validators do
     validate_change(changeset, field1, fn _, value1 ->
       value2 = get_field(changeset, field2)
 
-      if compare_values(value1, operator, value2) do
+      if Comparison.compare_values(value1, operator, value2) do
         []
       else
         [{field1, "must be #{operator} #{field2}"}]
       end
     end)
   end
-
-  defp compare_values(v1, :==, v2), do: v1 == v2
-  defp compare_values(v1, :!=, v2), do: v1 != v2
-  defp compare_values(v1, :<, v2), do: v1 < v2
-  defp compare_values(v1, :<=, v2), do: v1 <= v2
-  defp compare_values(v1, :>, v2), do: v1 > v2
-  defp compare_values(v1, :>=, v2), do: v1 >= v2
 
   defp validate_exclusive_fields(changeset, fields, at_least_one) do
     present_fields = Enum.filter(fields, &get_field(changeset, &1))

@@ -21,6 +21,13 @@ defmodule EventsWeb.Router do
     get "/", PageController, :home
   end
 
+  # Health check endpoints (no authentication, no rate limiting)
+  scope "/health", EventsWeb do
+    get "/", HealthController, :index
+    get "/ready", HealthController, :ready
+    get "/cluster", HealthController, :cluster
+  end
+
   # Other scopes may use custom stacks.
   # scope "/api", EventsWeb do
   #   pipe_through :api

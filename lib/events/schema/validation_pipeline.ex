@@ -3,22 +3,23 @@ defmodule Events.Schema.ValidationPipeline do
   Main validation pipeline for enhanced schema fields.
 
   Orchestrates all field-level validations through a clean, composable pipeline.
-  Delegates to specialized validator modules based on field type.
+  Uses `Events.Schema.ValidatorRegistry` to look up validators for field types,
+  enabling extensibility through custom validator registration.
+
+  ## Extensibility
+
+  Register custom validators at application startup:
+
+      Events.Schema.ValidatorRegistry.register(:money, MyApp.MoneyValidator)
+
+  The pipeline will automatically use your validator for `:money` fields.
   """
 
   import Ecto.Changeset
 
   alias Events.Schema.Helpers.{Conditional, Normalizer}
-
-  alias Events.Schema.Validators.{
-    Array,
-    Boolean,
-    Constraints,
-    DateTime,
-    Map,
-    Number,
-    String
-  }
+  alias Events.Schema.ValidatorRegistry
+  alias Events.Schema.Validators.Constraints
 
   @doc """
   Apply all validations for a single field based on its type and options.
@@ -58,44 +59,18 @@ defmodule Events.Schema.ValidationPipeline do
     end
   end
 
-  # Type-specific validations
+  # Type-specific validations using ValidatorRegistry
 
-  defp apply_type_validations(changeset, field_name, field_type, opts)
-       when field_type in [:string, :citext] do
-    String.validate(changeset, field_name, opts)
+  defp apply_type_validations(changeset, field_name, field_type, opts) do
+    case ValidatorRegistry.get(field_type) do
+      nil ->
+        # No validator registered for this type
+        changeset
+
+      validator_module ->
+        validator_module.validate(changeset, field_name, opts)
+    end
   end
-
-  defp apply_type_validations(changeset, field_name, field_type, opts)
-       when field_type in [:integer, :float, :decimal] do
-    Number.validate(changeset, field_name, opts)
-  end
-
-  defp apply_type_validations(changeset, field_name, :boolean, opts) do
-    Boolean.validate(changeset, field_name, opts)
-  end
-
-  defp apply_type_validations(changeset, field_name, {:array, _inner_type}, opts) do
-    Array.validate(changeset, field_name, opts)
-  end
-
-  defp apply_type_validations(changeset, field_name, field_type, opts)
-       when field_type in [
-              :date,
-              :time,
-              :naive_datetime,
-              :naive_datetime_usec,
-              :utc_datetime,
-              :utc_datetime_usec
-            ] do
-    DateTime.validate(changeset, field_name, opts)
-  end
-
-  defp apply_type_validations(changeset, field_name, field_type, opts)
-       when field_type in [:map, {:map, :any}] do
-    Map.validate(changeset, field_name, opts)
-  end
-
-  defp apply_type_validations(changeset, _field_name, _field_type, _opts), do: changeset
 
   # Normalization
 

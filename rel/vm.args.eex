@@ -1,0 +1,36 @@
+## Erlang VM arguments for production release
+## Used for Docker Swarm clustering
+
+## Name of the node - set dynamically in env.sh.eex
+-name <%= @release.name %>@127.0.0.1
+
+## Cookie for distributed erlang - set dynamically in env.sh.eex
+-setcookie ${RELEASE_COOKIE}
+
+## Heartbeat management; auto-restarts VM if it dies or becomes unresponsive
+-heart
+
+## Enable SMP (symmetric multi-processing)
+-smp auto
+
+## Increase number of concurrent ports/sockets
+-env ERL_MAX_PORTS 65536
+
+## Tweak GC to run more often (better for web apps)
++sbwt very_short
++swt very_low
+
+## Increase async thread pool size for file IO
++A 128
+
+## Set scheduler to use all available cores
++S <%= System.schedulers_online() %>:<%= System.schedulers_online() %>
+
+## Enable kernel poll (epoll on Linux) for better performance
++K true
+
+## Disable busy waiting for schedulers
++sbwt none
+
+## Distribution buffer configuration
++zdbbl 32768

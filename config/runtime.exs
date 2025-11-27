@@ -227,7 +227,8 @@ case env do
     config :swoosh, :api_client, false
 
   :prod ->
-    # DNS cluster configuration
+    # DNS cluster configuration for multi-node deployment
+    # Set DNS_CLUSTER_QUERY to your service discovery DNS name
     config :events, :dns_cluster_query, ConfigHelper.get_env("DNS_CLUSTER_QUERY")
 
     # Production mailer configuration

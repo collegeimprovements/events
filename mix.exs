@@ -91,10 +91,13 @@ defmodule Events.MixProject do
       {:hammer, "~> 6.2"},
       {:hammer_backend_redis, "~> 6.2"},
       {:redix, "~> 1.5"},
+      {:phoenix_pubsub_redis, "~> 3.0"},
       # Authentication
       {:bcrypt_elixir, "~> 3.0"},
       # Benchmarking
-      {:benchee, "~> 1.3", only: :dev}
+      {:benchee, "~> 1.3", only: :dev},
+      # Static analysis
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false}
     ]
   end
 
@@ -117,15 +120,18 @@ defmodule Events.MixProject do
         "esbuild events --minify",
         "phx.digest"
       ],
-      precommit: ["compile --warnings-as-errors", "deps.unlock --unused", "format", "test"],
+      precommit: ["compile --warnings-as-errors", "deps.unlock --unused", "format", "credo", "test"],
       # CI quality checks
       ci: [
         "compile --warnings-as-errors",
         "xref graph --label compile-connected --fail-above 0",
+        "credo --strict",
         "test --warnings-as-errors"
       ],
       # Check for circular dependencies and compile warnings
-      "xref.check": ["xref graph --label compile-connected --fail-above 50"]
+      "xref.check": ["xref graph --label compile-connected --fail-above 50"],
+      # Static analysis
+      lint: ["format --check-formatted", "credo --strict"]
     ]
   end
 end

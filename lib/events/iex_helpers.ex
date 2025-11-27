@@ -276,7 +276,8 @@ defmodule Events.IExHelpers do
       soft_delete_fields(track_reason: true)    # Also adds deletion_reason
 
     #{subsection("Audit Fields")}
-      audit_fields()                         # created_by, updated_by
+      audit_fields()                         # created_by_urm_id, updated_by_urm_id
+      audit_fields(track_urm: false)         # No URM fields
       audit_fields(track_user: true)         # Adds user IDs
       audit_fields(track_ip: true)           # Adds IP tracking
       audit_fields(track_changes: true)      # Adds change history

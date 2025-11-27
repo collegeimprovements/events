@@ -4,13 +4,44 @@ defmodule Events.Schema.Validators.Number do
 
   Provides range, comparison, and inclusion validations for numeric fields
   (integer, float, decimal).
+
+  Implements `Events.Schema.Behaviours.Validator` behavior.
   """
 
+  @behaviour Events.Schema.Behaviours.Validator
+
   alias Events.Schema.Helpers.Messages
+
+  @impl true
+  def field_types, do: [:integer, :float, :decimal]
+
+  @impl true
+  def supported_options do
+    [
+      :min,
+      :max,
+      :positive,
+      :non_negative,
+      :negative,
+      :non_positive,
+      :greater_than,
+      :gt,
+      :greater_than_or_equal_to,
+      :gte,
+      :less_than,
+      :lt,
+      :less_than_or_equal_to,
+      :lte,
+      :equal_to,
+      :eq,
+      :in
+    ]
+  end
 
   @doc """
   Apply all number validations to a changeset.
   """
+  @impl true
   def validate(changeset, field_name, opts) do
     changeset
     |> apply_number_range_validation(field_name, opts)

@@ -123,55 +123,92 @@ defmodule Events.Schema.FieldMacros do
   Adds audit tracking fields to a schema.
 
   ## Options
-  - `:only` - List of fields to include
-  - `:except` - List of fields to exclude
-  - `:track_user` - Include user ID tracking (default: true)
+  - `:track_urm` - Include URM tracking fields (default: true)
+  - `:track_user` - Include direct user ID tracking (default: false)
   - `:track_ip` - Include IP address tracking (default: false)
   - `:track_session` - Include session tracking (default: false)
   - `:track_changes` - Include change history (default: false)
 
+  At least one tracking option must be enabled.
+
+  ## Generated Fields
+  - `:created_by_urm_id` - Creator via user role mapping (when track_urm: true)
+  - `:updated_by_urm_id` - Updater via user role mapping (when track_urm: true)
+  - `:created_by_user_id` - Creator user ID (when track_user: true)
+  - `:updated_by_user_id` - Updater user ID (when track_user: true)
+
   ## Examples
 
       schema "products" do
-        audit_fields()
-        audit_fields(track_ip: true, track_changes: true)
+        audit_fields()                              # URM tracking (default)
+        audit_fields(track_urm: false, track_user: true)  # User tracking only
+        audit_fields(track_user: true, track_ip: true)    # Both URM and user + IP
       end
   """
   defmacro audit_fields(opts \\ []) do
     quote bind_quoted: [opts: opts] do
+      alias Events.FieldNames
+
       defaults = [
-        track_user: true,
+        track_urm: true,
+        track_user: false,
         track_ip: false,
         track_session: false,
-        track_changes: false,
-        fields: [:created_by, :updated_by]
+        track_changes: false
       ]
 
       config = Keyword.merge(defaults, opts)
-      fields = Events.Schema.FieldMacros.__filter_fields__(config[:fields], config)
 
-      Enum.each(fields, fn field_name ->
-        field field_name, :string
-      end)
+      # Validate that at least one tracking option is enabled
+      has_any_tracking =
+        config[:track_urm] or config[:track_user] or config[:track_ip] or
+          config[:track_session] or config[:track_changes]
 
+      unless has_any_tracking do
+        raise ArgumentError, """
+        audit_fields() requires at least one tracking option to be enabled.
+
+        You have disabled all tracking options:
+          track_urm: false, track_user: false, track_ip: false,
+          track_session: false, track_changes: false
+
+        Either enable at least one option or remove the audit_fields() call entirely.
+
+        Examples:
+          audit_fields()                              # URM tracking (default)
+          audit_fields(track_urm: false, track_user: true)  # User tracking only
+          audit_fields(track_ip: true)                # URM + IP tracking
+        """
+      end
+
+      # URM tracking (default: true)
+      if config[:track_urm] do
+        field FieldNames.created_by_urm_id(), Ecto.UUID
+        field FieldNames.updated_by_urm_id(), Ecto.UUID
+      end
+
+      # Optional: direct user ID tracking
       if config[:track_user] do
-        field :created_by_user_id, Ecto.UUID
-        field :updated_by_user_id, Ecto.UUID
+        field FieldNames.created_by_user_id(), Ecto.UUID
+        field FieldNames.updated_by_user_id(), Ecto.UUID
       end
 
+      # Optional: IP tracking
       if config[:track_ip] do
-        field :created_from_ip, :string
-        field :updated_from_ip, :string
+        field FieldNames.created_from_ip(), :string
+        field FieldNames.updated_from_ip(), :string
       end
 
+      # Optional: session tracking
       if config[:track_session] do
-        field :created_session_id, :string
-        field :updated_session_id, :string
+        field FieldNames.created_session_id(), :string
+        field FieldNames.updated_session_id(), :string
       end
 
+      # Optional: change history tracking
       if config[:track_changes] do
-        field :change_history, {:array, :map}, default: []
-        field :version, :integer, default: 1
+        field FieldNames.change_history(), {:array, :map}, default: []
+        field FieldNames.version(), :integer, default: 1
       end
     end
   end
@@ -231,9 +268,12 @@ defmodule Events.Schema.FieldMacros do
   @doc """
   Adds soft delete fields to a schema.
 
+  ## Base Fields
+  - `:deleted_at` - Soft delete timestamp (always added)
+
   ## Options
+  - `:track_urm` - Include deleted_by_urm_id field (default: true)
   - `:track_user` - Include deleted_by_user_id field (default: false)
-  - `:track_role_mapping` - Include deleted_by_user_role_mapping_id field (default: true)
   - `:track_reason` - Include deletion_reason field (default: false)
 
   ## Examples
@@ -241,23 +281,42 @@ defmodule Events.Schema.FieldMacros do
       schema "users" do
         soft_delete_fields()
         soft_delete_fields(track_user: true, track_reason: true)
-        soft_delete_fields(track_role_mapping: false)
+        soft_delete_fields(track_urm: false)
       end
   """
   defmacro soft_delete_fields(opts \\ []) do
     quote bind_quoted: [opts: opts] do
-      field :deleted_at, :utc_datetime_usec
+      alias Events.FieldNames
 
-      if Keyword.get(opts, :track_role_mapping, true) do
-        field :deleted_by_user_role_mapping_id, Ecto.UUID
+      # Handle deprecated option name
+      opts =
+        if Keyword.has_key?(opts, :track_role_mapping) do
+          IO.warn(
+            "track_role_mapping is deprecated, use track_urm instead",
+            Macro.Env.stacktrace(__ENV__)
+          )
+
+          Keyword.put(opts, :track_urm, Keyword.get(opts, :track_role_mapping))
+        else
+          opts
+        end
+
+      # Always add deleted_at
+      field FieldNames.deleted_at(), :utc_datetime_usec
+
+      # Default: track who deleted via URM
+      if Keyword.get(opts, :track_urm, true) do
+        field FieldNames.deleted_by_urm_id(), Ecto.UUID
       end
 
+      # Optional: track direct user ID
       if Keyword.get(opts, :track_user, false) do
-        field :deleted_by_user_id, Ecto.UUID
+        field FieldNames.deleted_by_user_id(), Ecto.UUID
       end
 
+      # Optional: track deletion reason
       if Keyword.get(opts, :track_reason, false) do
-        field :deletion_reason, :string
+        field FieldNames.deletion_reason(), :text
       end
     end
   end

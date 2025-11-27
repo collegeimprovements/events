@@ -3,9 +3,16 @@ defmodule Events.Migration.PipelineExtended do
   Extended pipeline functions for migrations with all field types.
 
   Provides comprehensive field helpers for building migrations.
+
+  > #### Prefer FieldBuilders {: .info}
+  >
+  > For new code, consider using the behavior-based FieldBuilders in
+  > `Events.Migration.FieldBuilders.*` which provide better consistency
+  > and reference `Events.Migration.FieldDefinitions` for type definitions.
   """
 
   alias Events.Migration.Token
+  alias Events.Migration.FieldDefinitions
 
   # ============================================
   # Type Fields
@@ -51,19 +58,19 @@ defmodule Events.Migration.PipelineExtended do
   ## Examples
 
       # Default statuses
-      |> with_status_field()
+      |> with_status_fields()
 
       # Custom statuses
-      |> with_status_field(
+      |> with_status_fields(
           values: ["pending", "processing", "completed", "failed"],
           default: "pending",
           required: true
         )
 
       # With index
-      |> with_status_field(indexed: true, partial: "deleted_at IS NULL")
+      |> with_status_fields(indexed: true, partial: "deleted_at IS NULL")
   """
-  def with_status_field(%Token{} = token, opts \\ []) do
+  def with_status_fields(%Token{} = token, opts \\ []) do
     values = Keyword.get(opts, :values, ["draft", "active", "inactive", "archived"])
     default = Keyword.get(opts, :default, "draft")
     required = Keyword.get(opts, :required, true)
@@ -121,17 +128,22 @@ defmodule Events.Migration.PipelineExtended do
   end
 
   defp add_base_audit_fields(token) do
+    # Use FieldDefinitions for consistent types
+    id_type = FieldDefinitions.id_type()
+
     token
-    |> Token.add_field(:created_by, :string, null: true)
-    |> Token.add_field(:updated_by, :string, null: true)
+    |> Token.add_field(:created_by_urm_id, id_type, null: true)
+    |> Token.add_field(:updated_by_urm_id, id_type, null: true)
   end
 
   defp maybe_add_user_audit_fields(token, false), do: token
 
   defp maybe_add_user_audit_fields(token, true) do
+    id_type = FieldDefinitions.id_type()
+
     token
-    |> Token.add_field(:created_by_user_id, :binary_id, null: true)
-    |> Token.add_field(:updated_by_user_id, :binary_id, null: true)
+    |> Token.add_field(:created_by_user_id, id_type, null: true)
+    |> Token.add_field(:updated_by_user_id, id_type, null: true)
     |> Token.add_index(:created_by_user_index, [:created_by_user_id])
     |> Token.add_index(:updated_by_user_index, [:updated_by_user_id])
   end
@@ -139,17 +151,21 @@ defmodule Events.Migration.PipelineExtended do
   defp maybe_add_role_audit_fields(token, false), do: token
 
   defp maybe_add_role_audit_fields(token, true) do
+    id_type = FieldDefinitions.id_type()
+
     token
-    |> Token.add_field(:created_by_role_id, :binary_id, null: true)
-    |> Token.add_field(:updated_by_role_id, :binary_id, null: true)
+    |> Token.add_field(:created_by_role_id, id_type, null: true)
+    |> Token.add_field(:updated_by_role_id, id_type, null: true)
   end
 
   defp maybe_add_ip_tracking(token, false), do: token
 
   defp maybe_add_ip_tracking(token, true) do
+    ip_type = FieldDefinitions.ip_type()
+
     token
-    |> Token.add_field(:created_from_ip, :inet, null: true)
-    |> Token.add_field(:updated_from_ip, :inet, null: true)
+    |> Token.add_field(:created_from_ip, ip_type, null: true)
+    |> Token.add_field(:updated_from_ip, ip_type, null: true)
   end
 
   defp maybe_add_user_agent_tracking(token, false), do: token
@@ -318,15 +334,15 @@ defmodule Events.Migration.PipelineExtended do
   ## Examples
 
       # Basic slug
-      |> with_slug_field()
+      |> with_slug_fields()
 
       # Without unique constraint
-      |> with_slug_field(unique: false)
+      |> with_slug_fields(unique: false)
 
       # Custom name and type
-      |> with_slug_field(name: :permalink, type: :citext)
+      |> with_slug_fields(name: :permalink, type: :citext)
   """
-  def with_slug_field(%Token{} = token, opts \\ []) do
+  def with_slug_fields(%Token{} = token, opts \\ []) do
     name = Keyword.get(opts, :name, :slug)
     type = Keyword.get(opts, :type, :string)
     unique = Keyword.get(opts, :unique, true)
@@ -435,4 +451,16 @@ defmodule Events.Migration.PipelineExtended do
   defp maybe_add_unique_constraint(token, field, true) do
     Token.add_index(token, :"#{token.name}_#{field}_unique", [field], unique: true)
   end
+
+  # ============================================
+  # Backward Compatibility Aliases
+  # ============================================
+
+  @doc false
+  @deprecated "Use with_status_fields/2 instead"
+  def with_status_field(token, opts \\ []), do: with_status_fields(token, opts)
+
+  @doc false
+  @deprecated "Use with_slug_fields/2 instead"
+  def with_slug_field(token, opts \\ []), do: with_slug_fields(token, opts)
 end

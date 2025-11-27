@@ -22,10 +22,15 @@ defmodule Events.Decorator.Security do
                             doc:
                               "Function to check if user has required role (user, roles) -> boolean"
                           ],
-                          on_unauthorized: [
+                          on_error: [
                             type: {:in, [:raise, :return_error, :return_nil]},
                             default: :raise,
                             doc: "What to do when unauthorized"
+                          ],
+                          on_unauthorized: [
+                            type: {:in, [:raise, :return_error, :return_nil]},
+                            required: false,
+                            doc: "Deprecated: use on_error instead"
                           ]
                         )
 
@@ -50,10 +55,15 @@ defmodule Events.Decorator.Security do
                          required: false,
                          doc: "Custom function to generate rate limit key"
                        ],
-                       on_limit: [
+                       on_error: [
                          type: {:in, [:raise, :return_error, :sleep]},
                          default: :raise,
                          doc: "What to do when rate limited"
+                       ],
+                       on_limit: [
+                         type: {:in, [:raise, :return_error, :sleep]},
+                         required: false,
+                         doc: "Deprecated: use on_error instead"
                        ],
                        backend: [
                          type: :atom,
@@ -117,7 +127,7 @@ defmodule Events.Decorator.Security do
 
       @decorate role_required(
         roles: [:admin, :moderator],
-        on_unauthorized: :return_error
+        on_error: :return_error
       )
       def ban_user(context, user_id) do
         # context.current_user is checked for roles
@@ -138,9 +148,17 @@ defmodule Events.Decorator.Security do
   def role_required(opts, body, _context) do
     validated_opts = NimbleOptions.validate!(opts, @role_required_schema)
 
+    # Handle deprecated on_unauthorized option
+    on_error =
+      if validated_opts[:on_unauthorized] do
+        IO.warn("on_unauthorized is deprecated, use on_error instead")
+        validated_opts[:on_unauthorized]
+      else
+        validated_opts[:on_error]
+      end
+
     roles = validated_opts[:roles]
     check_fn = validated_opts[:check_fn]
-    on_unauthorized = validated_opts[:on_unauthorized]
 
     quote do
       user_or_context =
@@ -161,7 +179,7 @@ defmodule Events.Decorator.Security do
       if check_fn.(user, unquote(roles)) do
         unquote(body)
       else
-        case unquote(on_unauthorized) do
+        case unquote(on_error) do
           :raise ->
             raise Events.UnauthorizedError,
               message: "User lacks required roles: #{Kernel.inspect(unquote(roles))}"
@@ -197,7 +215,7 @@ defmodule Events.Decorator.Security do
         max: 10,
         window: :hour,
         by: :user_id,
-        on_limit: :return_error
+        on_error: :return_error
       )
       def expensive_operation(user_id, data) do
         # Limited to 10 calls per hour per user
@@ -217,11 +235,19 @@ defmodule Events.Decorator.Security do
   def rate_limit(opts, body, context) do
     validated_opts = NimbleOptions.validate!(opts, @rate_limit_schema)
 
+    # Handle deprecated on_limit option
+    on_error =
+      if validated_opts[:on_limit] do
+        IO.warn("on_limit is deprecated, use on_error instead")
+        validated_opts[:on_limit]
+      else
+        validated_opts[:on_error]
+      end
+
     max = validated_opts[:max]
     window = validated_opts[:window]
     by = validated_opts[:by]
     key_fn = validated_opts[:key_fn]
-    on_limit = validated_opts[:on_limit]
     backend = validated_opts[:backend]
 
     quote do
@@ -240,7 +266,7 @@ defmodule Events.Decorator.Security do
           unquote(body)
 
         {:error, :rate_limited} ->
-          case unquote(on_limit) do
+          case unquote(on_error) do
             :raise ->
               raise Events.RateLimitError,
                 message: "Rate limit exceeded: #{unquote(max)} per #{unquote(window)}"

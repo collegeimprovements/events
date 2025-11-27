@@ -187,9 +187,11 @@ health-s3:
     echo "Checking bucket access..."
     if command -v mix &> /dev/null; then
         mix run -e "
-        context = Events.Services.Aws.Context.from_env()
-        case Events.Services.Aws.S3.list_objects(context, max_keys: 1) do
-          {:ok, _} -> IO.puts(\"✓ Bucket '#{context.bucket}': ACCESSIBLE\")
+        bucket = System.get_env(\"S3_BUCKET\") || raise \"S3_BUCKET not set\"
+        config = Events.Services.S3.Config.from_env()
+        uri = \"s3://#{bucket}/\"
+        case Events.Services.S3.list(uri, config, limit: 1) do
+          {:ok, _} -> IO.puts(\"✓ Bucket '#{bucket}': ACCESSIBLE\")
           {:error, {:s3_error, status, _}} -> IO.puts(\"✗ Bucket access failed: HTTP #{status}\"); System.halt(1)
           {:error, reason} -> IO.puts(\"✗ Bucket access failed: #{inspect(reason)}\"); System.halt(1)
         end
@@ -201,9 +203,11 @@ health-s3:
             -w /app \
             {{IMAGE_NAME}} \
             mix run -e "
-            context = Events.Services.Aws.Context.from_env()
-            case Events.Services.Aws.S3.list_objects(context, max_keys: 1) do
-              {:ok, _} -> IO.puts(\"✓ Bucket '#{context.bucket}': ACCESSIBLE\")
+            bucket = System.get_env(\"S3_BUCKET\") || raise \"S3_BUCKET not set\"
+            config = Events.Services.S3.Config.from_env()
+            uri = \"s3://#{bucket}/\"
+            case Events.Services.S3.list(uri, config, limit: 1) do
+              {:ok, _} -> IO.puts(\"✓ Bucket '#{bucket}': ACCESSIBLE\")
               {:error, {:s3_error, status, _}} -> IO.puts(\"✗ Bucket access failed: HTTP #{status}\"); System.halt(1)
               {:error, reason} -> IO.puts(\"✗ Bucket access failed: #{inspect(reason)}\"); System.halt(1)
             end

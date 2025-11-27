@@ -4,6 +4,12 @@ defmodule Events.Migration.DSL do
 
   Provides a declarative syntax for defining migrations that
   reads like natural language.
+
+  > #### Prefer FieldBuilders {: .info}
+  >
+  > For new code, consider using the behavior-based FieldBuilders in
+  > `Events.Migration.FieldBuilders.*` which provide better consistency
+  > and reference `Events.Migration.FieldDefinitions` for type definitions.
   """
 
   alias Events.Migration.{Token, Pipeline}

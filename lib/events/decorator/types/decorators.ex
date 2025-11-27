@@ -42,11 +42,20 @@ defmodule Events.Decorator.Types do
       # List types
       @decorate returns_list(User.t())
       def list_users, do: Repo.all(User)
+
+  ## Module Organization
+
+  This module is organized into focused submodules:
+  - `Events.Decorator.Types.TypeChecker` - Type checking utilities
+  - `Events.Decorator.Types.Validators` - Validation functions
+  - `Events.Decorator.Types.ResultNormalizer` - Result normalization
+  - `Events.Decorator.Types.PipelineResult` - Pipeline-compatible wrapper
+  - `Events.Decorator.Types.TypeError` - Type mismatch exception
+  - `Events.Decorator.Types.UnwrapError` - Unwrap error exception
   """
 
   use Events.Decorator.Define
   alias Events.Decorator.SchemaFragments
-  require Logger
 
   ## Schemas
 
@@ -269,7 +278,7 @@ defmodule Events.Decorator.Types do
       quote do
         result = unquote(body)
 
-        Events.Decorator.Types.validate_result_type(
+        Events.Decorator.Types.Validators.validate_result_type(
           result,
           unquote(ok_type),
           unquote(error_type),
@@ -329,7 +338,7 @@ defmodule Events.Decorator.Types do
         quote do
           result = unquote(body)
 
-          Events.Decorator.Types.validate_maybe_type(
+          Events.Decorator.Types.Validators.validate_maybe_type(
             result,
             unquote(type_spec),
             unquote(strict),
@@ -397,14 +406,14 @@ defmodule Events.Decorator.Types do
       result =
         case unquote(on_error) do
           :unwrap ->
-            Events.Decorator.Types.unwrap_result(result, unquote(context))
+            Events.Decorator.Types.ResultNormalizer.unwrap_result(result, unquote(context))
 
           :raise ->
             result
         end
 
       if unquote(validate) do
-        Events.Decorator.Types.validate_bang_type(
+        Events.Decorator.Types.Validators.validate_bang_type(
           result,
           unquote(type_spec),
           unquote(strict),
@@ -454,7 +463,7 @@ defmodule Events.Decorator.Types do
       quote do
         result = unquote(body)
 
-        Events.Decorator.Types.validate_struct_type(
+        Events.Decorator.Types.Validators.validate_struct_type(
           result,
           unquote(struct_module),
           unquote(nullable),
@@ -508,7 +517,7 @@ defmodule Events.Decorator.Types do
       quote do
         result = unquote(body)
 
-        Events.Decorator.Types.validate_list_type(
+        Events.Decorator.Types.Validators.validate_list_type(
           result,
           unquote(element_type),
           unquote(min_length),
@@ -562,7 +571,7 @@ defmodule Events.Decorator.Types do
       quote do
         result = unquote(body)
 
-        Events.Decorator.Types.validate_union_type(
+        Events.Decorator.Types.Validators.validate_union_type(
           result,
           unquote(types),
           unquote(strict),
@@ -615,7 +624,7 @@ defmodule Events.Decorator.Types do
     result_validation =
       if validate do
         quote do
-          Events.Decorator.Types.validate_result_type(
+          Events.Decorator.Types.Validators.validate_result_type(
             result,
             unquote(ok_type),
             unquote(error_type),
@@ -765,7 +774,7 @@ defmodule Events.Decorator.Types do
 
     normalization_code =
       quote do
-        Events.Decorator.Types.normalize_to_result(
+        Events.Decorator.Types.ResultNormalizer.normalize_to_result(
           result,
           unquote(error_patterns),
           unquote(nil_is_error),
@@ -829,343 +838,4 @@ defmodule Events.Decorator.Types do
       end
     end
   end
-
-  ## Validation Functions
-
-  @doc false
-  def validate_result_type(result, ok_type, error_type, strict, context) do
-    case result do
-      {:ok, value} ->
-        unless check_type(value, ok_type) do
-          handle_type_mismatch(
-            "Expected {:ok, #{type_name(ok_type)}}, got {:ok, #{type_name(value)}}",
-            strict,
-            context
-          )
-        end
-
-      {:error, reason} ->
-        unless check_type(reason, error_type) do
-          handle_type_mismatch(
-            "Expected {:error, #{type_name(error_type)}}, got {:error, #{type_name(reason)}}",
-            strict,
-            context
-          )
-        end
-
-      other ->
-        handle_type_mismatch(
-          "Expected {:ok, _} | {:error, _}, got #{type_name(other)}",
-          strict,
-          context
-        )
-    end
-  end
-
-  @doc false
-  def validate_maybe_type(result, type_spec, strict, context) do
-    case result do
-      nil ->
-        :ok
-
-      value ->
-        unless check_type(value, type_spec) do
-          handle_type_mismatch(
-            "Expected #{type_name(type_spec)} | nil, got #{type_name(value)}",
-            strict,
-            context
-          )
-        end
-    end
-  end
-
-  @doc false
-  def validate_bang_type(result, type_spec, strict, context) do
-    unless check_type(result, type_spec) do
-      handle_type_mismatch(
-        "Expected #{type_name(type_spec)}, got #{type_name(result)}",
-        strict,
-        context
-      )
-    end
-  end
-
-  @doc false
-  def validate_struct_type(result, struct_module, nullable, strict, context) do
-    cond do
-      is_nil(result) and nullable ->
-        :ok
-
-      is_nil(result) and not nullable ->
-        handle_type_mismatch(
-          "Expected %#{Kernel.inspect(struct_module)}{}, got nil",
-          strict,
-          context
-        )
-
-      is_struct(result, struct_module) ->
-        :ok
-
-      true ->
-        handle_type_mismatch(
-          "Expected %#{Kernel.inspect(struct_module)}{}, got #{type_name(result)}",
-          strict,
-          context
-        )
-    end
-  end
-
-  @doc false
-  def validate_list_type(result, element_type, min_length, max_length, strict, context) do
-    if not is_list(result) do
-      handle_type_mismatch(
-        "Expected list, got #{type_name(result)}",
-        strict,
-        context
-      )
-    else
-      # Check length constraints
-      length = length(result)
-
-      if min_length && length < min_length do
-        handle_type_mismatch(
-          "List length #{length} is less than minimum #{min_length}",
-          strict,
-          context
-        )
-      end
-
-      if max_length && length > max_length do
-        handle_type_mismatch(
-          "List length #{length} exceeds maximum #{max_length}",
-          strict,
-          context
-        )
-      end
-
-      # Check element types
-      Enum.each(result, fn element ->
-        unless check_type(element, element_type) do
-          handle_type_mismatch(
-            "List element #{type_name(element)} doesn't match expected type #{type_name(element_type)}",
-            strict,
-            context
-          )
-        end
-      end)
-    end
-
-    :ok
-  end
-
-  @doc false
-  def validate_union_type(result, types, strict, context) do
-    matches = Enum.any?(types, fn type -> check_type(result, type) end)
-
-    unless matches do
-      type_names = Enum.map_join(types, " | ", &type_name/1)
-
-      handle_type_mismatch(
-        "Expected one of [#{type_names}], got #{type_name(result)}",
-        strict,
-        context
-      )
-    end
-  end
-
-  @doc false
-  def unwrap_result({:ok, value}, _context), do: value
-
-  def unwrap_result({:error, reason}, context) do
-    raise Events.Decorator.Types.UnwrapError,
-      message: "Cannot unwrap {:error, _} in #{Events.Context.full_name(context)}",
-      reason: reason
-  end
-
-  def unwrap_result(value, _context), do: value
-
-  @doc false
-  def normalize_to_result(
-        result,
-        error_patterns,
-        nil_is_error,
-        false_is_error,
-        error_mapper,
-        success_mapper
-      ) do
-    case result do
-      # Already a result tuple - apply mappers if present
-      {:ok, value} ->
-        if success_mapper do
-          {:ok, success_mapper.(value)}
-        else
-          {:ok, value}
-        end
-
-      {:error, reason} ->
-        if error_mapper do
-          {:error, error_mapper.(reason)}
-        else
-          {:error, reason}
-        end
-
-      # nil handling
-      nil ->
-        if nil_is_error do
-          error_value = if error_mapper, do: error_mapper.(:nil_value), else: :nil_value
-          {:error, error_value}
-        else
-          success_value = if success_mapper, do: success_mapper.(nil), else: nil
-          {:ok, success_value}
-        end
-
-      # false handling
-      false ->
-        if false_is_error do
-          error_value = if error_mapper, do: error_mapper.(:false_value), else: :false_value
-          {:error, error_value}
-        else
-          success_value = if success_mapper, do: success_mapper.(false), else: false
-          {:ok, success_value}
-        end
-
-      # Check if result matches error patterns
-      value when is_atom(value) or is_binary(value) ->
-        if value in error_patterns do
-          error_value = if error_mapper, do: error_mapper.(value), else: value
-          {:error, error_value}
-        else
-          success_value = if success_mapper, do: success_mapper.(value), else: value
-          {:ok, success_value}
-        end
-
-      # All other values are considered success
-      value ->
-        success_value = if success_mapper, do: success_mapper.(value), else: value
-        {:ok, success_value}
-    end
-  end
-
-  ## Type Checking Helpers
-
-  defp check_type(_value, nil), do: true
-  defp check_type(nil, _type), do: true
-  defp check_type(_value, :any), do: true
-  defp check_type(value, :atom) when is_atom(value), do: true
-  defp check_type(value, :string) when is_binary(value), do: true
-  defp check_type(value, :integer) when is_integer(value), do: true
-  defp check_type(value, :float) when is_float(value), do: true
-  defp check_type(value, :boolean) when is_boolean(value), do: true
-  defp check_type(value, :list) when is_list(value), do: true
-  defp check_type(value, :map) when is_map(value), do: true
-  defp check_type(value, :tuple) when is_tuple(value), do: true
-
-  # Struct checking
-  defp check_type(value, module) when is_atom(module) do
-    is_struct(value, module)
-  end
-
-  # Pattern matching
-  defp check_type(value, pattern) when is_map(pattern) do
-    is_struct(value) && value.__struct__ == pattern.__struct__
-  end
-
-  defp check_type(_value, _type), do: true
-
-  defp type_name(nil), do: "nil"
-  defp type_name(value) when is_atom(value), do: Kernel.inspect(value)
-  defp type_name(value) when is_binary(value), do: "String.t()"
-  defp type_name(value) when is_integer(value), do: "integer()"
-  defp type_name(value) when is_float(value), do: "float()"
-  defp type_name(value) when is_boolean(value), do: "boolean()"
-  defp type_name(value) when is_list(value), do: "list()"
-  defp type_name(value) when is_map(value) and not is_struct(value), do: "map()"
-  defp type_name(%{__struct__: module}), do: "%#{Kernel.inspect(module)}{}"
-  defp type_name({:ok, _}), do: "{:ok, _}"
-  defp type_name({:error, _}), do: "{:error, _}"
-  defp type_name(value), do: Kernel.inspect(value)
-
-  defp handle_type_mismatch(message, true, context) do
-    raise Events.Decorator.Types.TypeError,
-      message: "Type mismatch in #{Events.Context.full_name(context)}: #{message}"
-  end
-
-  defp handle_type_mismatch(message, false, context) do
-    Logger.warning("Type mismatch in #{Events.Context.full_name(context)}: #{message}")
-  end
-end
-
-defmodule Events.Decorator.Types.TypeError do
-  defexception [:message]
-end
-
-defmodule Events.Decorator.Types.UnwrapError do
-  defexception [:message, :reason]
-end
-
-defmodule Events.Decorator.Types.PipelineResult do
-  @moduledoc """
-  Pipeline-compatible result wrapper with chainable helpers.
-
-  Provides functional programming utilities for working with result types.
-  """
-
-  defstruct [:value]
-
-  def new(value), do: %__MODULE__{value: value}
-
-  @doc """
-  Chains operations that return results.
-
-  Only executes if previous result was {:ok, value}.
-
-  ## Examples
-
-      create_user(attrs)
-      |> and_then(&send_welcome_email/1)
-      |> and_then(&create_settings/1)
-  """
-  def and_then(%__MODULE__{value: {:ok, value}}, fun) do
-    case fun.(value) do
-      {:ok, _} = result -> new(result)
-      {:error, _} = error -> new(error)
-      %__MODULE__{} = wrapped -> wrapped
-      other -> new({:ok, other})
-    end
-  end
-
-  def and_then(%__MODULE__{value: {:error, _}} = result, _fun), do: result
-
-  @doc """
-  Maps the success value.
-
-  ## Examples
-
-      get_user(id)
-      |> map_ok(&UserView.render/1)
-  """
-  def map_ok(%__MODULE__{value: {:ok, value}}, fun) do
-    new({:ok, fun.(value)})
-  end
-
-  def map_ok(%__MODULE__{} = result, _fun), do: result
-
-  @doc """
-  Maps the error value.
-
-  ## Examples
-
-      create_user(attrs)
-      |> map_error(&format_changeset_errors/1)
-  """
-  def map_error(%__MODULE__{value: {:error, reason}}, fun) do
-    new({:error, fun.(reason)})
-  end
-
-  def map_error(%__MODULE__{} = result, _fun), do: result
-
-  @doc """
-  Unwraps the wrapped value.
-  """
-  def unwrap(%__MODULE__{value: value}), do: value
 end

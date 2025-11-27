@@ -3948,7 +3948,10 @@ defmodule Events.Query.Examples do
         {:customer_name, :ilike, rank: 2},
         {:customer_email, :ilike, rank: 3},
         {:notes, :similarity, threshold: 0.3, rank: 4}
-      ], mode: :ilike, rank: true)
+      ],
+      mode: :ilike,
+      rank: true
+    )
 
     # -------------------------------------------------------------------------
     # 11. JOINS WITH BINDINGS
@@ -3971,7 +3974,9 @@ defmodule Events.Query.Examples do
         [
           {:status, :eq, "available"},
           {:status, :eq, "assigned"}
-        ], binding: :agent)
+        ],
+        binding: :agent
+      )
     end)
 
     # -------------------------------------------------------------------------
@@ -4259,7 +4264,10 @@ defmodule Events.Query.Examples do
         {:customer_name, :ilike, rank: 2},
         {:customer_email, :ilike, rank: 3},
         {:notes, :similarity, threshold: 0.3, rank: 4}
-      ], mode: :ilike, rank: true)
+      ],
+      mode: :ilike,
+      rank: true
+    )
     # Date range
     |> Query.then_if(params[:date_range], fn token, {start_date, end_date} ->
       Query.between(token, :created_at, start_date, end_date)

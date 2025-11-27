@@ -3,11 +3,22 @@ defmodule Events.Schema.Validators.Map do
   Map-specific validations for enhanced schema fields.
 
   Provides key and size validations for map fields.
+
+  Implements `Events.Schema.Behaviours.Validator` behavior.
   """
+
+  @behaviour Events.Schema.Behaviours.Validator
+
+  @impl true
+  def field_types, do: [:map]
+
+  @impl true
+  def supported_options, do: [:required_keys, :forbidden_keys, :min_keys, :max_keys]
 
   @doc """
   Apply all map validations to a changeset.
   """
+  @impl true
   def validate(changeset, field_name, opts) do
     changeset
     |> validate_keys(field_name, opts)

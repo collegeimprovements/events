@@ -620,11 +620,11 @@ defmodule Events.Schema do
   ## Fields Added
 
     * `:deleted_at` - Timestamp when the record was soft deleted (nil if not deleted)
-    * `:deleted_by_urm_id` - Optional: who deleted it (only if `track_deleted_by: true`)
+    * `:deleted_by_urm_id` - Optional: who deleted it (only if `track_urm: true`)
 
   ## Options
 
-    * `:track_deleted_by` - Add `deleted_by_urm_id` field (default: `false`)
+    * `:track_urm` - Add `deleted_by_urm_id` field (default: `false`)
     * `:deleted_at` - Options for the deleted_at field
     * `:deleted_by_urm_id` - Options for the deleted_by_urm_id field
 
@@ -634,7 +634,7 @@ defmodule Events.Schema do
       soft_delete_field()
 
       # With deletion tracking
-      soft_delete_field(track_deleted_by: true)
+      soft_delete_field(track_urm: true)
 
   ## Generated Helpers
 
@@ -665,21 +665,34 @@ defmodule Events.Schema do
   """
   defmacro soft_delete_field(opts \\ []) do
     quote bind_quoted: [opts: opts] do
-      track_deleted_by = Keyword.get(opts, :track_deleted_by, false)
+      # Handle deprecated option name
+      opts =
+        if Keyword.has_key?(opts, :track_deleted_by) do
+          IO.warn(
+            "track_deleted_by is deprecated, use track_urm instead",
+            Macro.Env.stacktrace(__ENV__)
+          )
+
+          Keyword.put(opts, :track_urm, Keyword.get(opts, :track_deleted_by))
+        else
+          opts
+        end
+
+      track_urm = Keyword.get(opts, :track_urm, false)
 
       # Add deleted_at field
       deleted_at_opts = Keyword.get(opts, :deleted_at, [])
       Events.Schema.__define_field__(__MODULE__, :deleted_at, :utc_datetime_usec, deleted_at_opts)
 
       # Optionally add deleted_by_urm_id
-      if track_deleted_by do
+      if track_urm do
         deleted_by_opts = Keyword.get(opts, :deleted_by_urm_id, [])
         Events.Schema.__define_field__(__MODULE__, :deleted_by_urm_id, :binary_id, deleted_by_opts)
       end
 
       # Store soft delete config for helper generation
       Module.put_attribute(__MODULE__, :soft_delete_enabled, true)
-      Module.put_attribute(__MODULE__, :soft_delete_track_by, track_deleted_by)
+      Module.put_attribute(__MODULE__, :soft_delete_track_by, track_urm)
     end
   end
 

@@ -149,28 +149,32 @@ Functional helpers for result tuples inspired by Rust's Result type.
 
 ### 3. Services
 
-#### Events.Services.Aws.Context (✅ Complete)
-AWS configuration context. Holds credentials, region, bucket, endpoint.
+#### Events.Services.S3 (✅ Complete)
+Unified S3 API with pipeline support and first-class `s3://` URI handling.
 
-**Construction**:
-- `new/1` - From keyword list
-- `from_config/0` - From application config
-- `from_env/0` - From environment variables
+**Two API Styles**:
+- **Direct API**: `S3.get("s3://bucket/file.txt", config)`
+- **Pipeline API**: `S3.new(config) |> S3.bucket("my-bucket") |> S3.get("file.txt")`
 
-#### Events.Services.Aws.S3 (✅ Complete)
-S3 storage service behaviour and public API.
+**Core Operations**:
+- `put/3`, `get/2`, `delete/2`, `exists?/2`, `head/2`
+- `list/2`, `list_all/2` - With pagination support
+- `presign/3`, `presign_get/3`, `presign_put/3` - Generate signed URLs
+- `copy/3` - Copy objects
 
-**Operations**:
-- `upload/4`, `get_object/2`, `delete_object/2`
-- `list_objects/2` - With pagination support
-- `presigned_url/4` - Generate signed URLs for upload/download
-- `copy_object/3`, `head_object/2`
-- `upload_file/4`, `download_to_file/3` - Filesystem helpers
+**Batch Operations** (with glob pattern support):
+- `put_all/3`, `get_all/3`, `delete_all/3`, `copy_all/3`, `presign_all/3`
 
-**Adapters** (⏳ To Implement):
-- **ExAwsAdapter**: Production implementation using ExAws
-- **MockAdapter**: In-memory mock for testing
-- **LocalAdapter**: Local filesystem for development
+**Configuration**:
+- `S3.Config.new/1` - From keyword list
+- `S3.Config.from_env/0` - From environment variables (with proxy support)
+
+**Supporting Modules**:
+- `S3.Config` - Configuration with proxy support
+- `S3.Client` - Low-level HTTP operations via Req/ReqS3
+- `S3.URI` - Parse/build `s3://bucket/key` URIs
+- `S3.Request` - Pipeline request builder
+- `S3.FileNameNormalizer` - Safe key generation
 
 #### Events.Services.Profiling.Profiler (⏳ To Implement)
 Function profiling service behaviour.

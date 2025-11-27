@@ -2,21 +2,21 @@ defmodule Events.Migration.FieldBuilders.AuditFields do
   @moduledoc """
   Builds audit tracking fields for migrations.
 
-  Audit fields track who created and modified records.
+  Audit fields track who created and modified records via User Role Mapping IDs.
 
   ## Options
 
   - `:only` - List of fields to include
   - `:except` - List of fields to exclude
-  - `:track_user` - Include user ID tracking (default: `true`)
+  - `:track_user` - Include direct user ID tracking (default: `false`)
   - `:track_ip` - Include IP address tracking (default: `false`)
   - `:track_session` - Include session tracking (default: `false`)
   - `:track_changes` - Include change history (default: `false`)
 
-  ## Base Fields
+  ## Base Fields (always added)
 
-  - `:created_by` - Creator identifier (string)
-  - `:updated_by` - Last updater identifier (string)
+  - `:created_by_urm_id` - Creator via user role mapping (binary_id)
+  - `:updated_by_urm_id` - Last updater via user role mapping (binary_id)
 
   ## User Tracking Fields (when `track_user: true`)
 
@@ -50,17 +50,16 @@ defmodule Events.Migration.FieldBuilders.AuditFields do
 
   alias Events.Migration.Token
   alias Events.Migration.Behaviours.FieldBuilder
-
-  @base_fields [:created_by, :updated_by]
+  alias Events.FieldNames
 
   @impl true
   def default_config do
     %{
-      track_user: true,
+      track_user: false,
       track_ip: false,
       track_session: false,
       track_changes: false,
-      fields: @base_fields
+      fields: FieldNames.audit_fields()
     }
   end
 
@@ -87,7 +86,7 @@ defmodule Events.Migration.FieldBuilders.AuditFields do
   defp add_base_fields(token, config) do
     config.fields
     |> Enum.reduce(token, fn field_name, acc ->
-      Token.add_field(acc, field_name, :string,
+      Token.add_field(acc, field_name, :binary_id,
         null: true,
         comment: "Audit: #{field_name}"
       )

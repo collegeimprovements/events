@@ -3,13 +3,24 @@ defmodule Events.Schema.Validators.DateTime do
   Date/time-specific validations for enhanced schema fields.
 
   Provides past/future and before/after validations with support for relative times.
+
+  Implements `Events.Schema.Behaviours.Validator` behavior.
   """
 
-  @utc_timezone "Etc/UTC"
+  @behaviour Events.Schema.Behaviours.Validator
+
+  alias Events.Schema.Utils.Comparison
+
+  @impl true
+  def field_types, do: [:utc_datetime, :utc_datetime_usec, :naive_datetime, :date, :time]
+
+  @impl true
+  def supported_options, do: [:past, :future, :after, :before]
 
   @doc """
   Apply all datetime validations to a changeset.
   """
+  @impl true
   def validate(changeset, field_name, opts) do
     changeset
     |> validate_past_future(field_name, opts)
@@ -24,13 +35,11 @@ defmodule Events.Schema.Validators.DateTime do
         changeset
 
       value ->
-        now = DateTime.utc_now()
-
         cond do
-          opts[:past] && compare_datetime(value, now) != :lt ->
+          opts[:past] && !Comparison.datetime_past?(value) ->
             Ecto.Changeset.add_error(changeset, field_name, "must be in the past")
 
-          opts[:future] && compare_datetime(value, now) != :gt ->
+          opts[:future] && !Comparison.datetime_future?(value) ->
             Ecto.Changeset.add_error(changeset, field_name, "must be in the future")
 
           true ->
@@ -58,7 +67,7 @@ defmodule Events.Schema.Validators.DateTime do
   defp validate_after(changeset, field_name, value, after_value) do
     compare_value = resolve_datetime_value(after_value)
 
-    if compare_datetime(value, compare_value) != :gt do
+    if !Comparison.datetime_after?(value, compare_value) do
       Ecto.Changeset.add_error(changeset, field_name, "must be after #{inspect(compare_value)}")
     else
       changeset
@@ -70,7 +79,7 @@ defmodule Events.Schema.Validators.DateTime do
   defp validate_before(changeset, field_name, value, before_value) do
     compare_value = resolve_datetime_value(before_value)
 
-    if compare_datetime(value, compare_value) != :lt do
+    if !Comparison.datetime_before?(value, compare_value) do
       Ecto.Changeset.add_error(changeset, field_name, "must be before #{inspect(compare_value)}")
     else
       changeset
@@ -118,63 +127,4 @@ defmodule Events.Schema.Validators.DateTime do
 
   defp maybe_add_days(dt, nil), do: dt
   defp maybe_add_days(dt, days), do: DateTime.add(dt, days * 86400, :second)
-
-  # Datetime comparison
-
-  defp compare_datetime(%Date{} = d1, %Date{} = d2) do
-    case Date.compare(d1, d2) do
-      :lt -> :lt
-      :eq -> :eq
-      :gt -> :gt
-    end
-  end
-
-  defp compare_datetime(%DateTime{} = dt1, %DateTime{} = dt2) do
-    case DateTime.compare(dt1, dt2) do
-      :lt -> :lt
-      :eq -> :eq
-      :gt -> :gt
-    end
-  end
-
-  # Support for NaiveDateTime comparison (converts to DateTime for comparison only)
-  # NOTE: We discourage using NaiveDateTime - prefer DateTime or Date
-  defp compare_datetime(%NaiveDateTime{} = ndt1, %NaiveDateTime{} = ndt2) do
-    compare_datetime(naive_to_datetime(ndt1), naive_to_datetime(ndt2))
-  end
-
-  defp compare_datetime(%NaiveDateTime{} = ndt, %DateTime{} = dt) do
-    compare_datetime(naive_to_datetime(ndt), dt)
-  end
-
-  defp compare_datetime(%DateTime{} = dt, %NaiveDateTime{} = ndt) do
-    compare_datetime(dt, naive_to_datetime(ndt))
-  end
-
-  # Convert between types for comparison
-  defp compare_datetime(%Date{} = d, %DateTime{} = dt) do
-    date_from_dt = DateTime.to_date(dt)
-    compare_datetime(d, date_from_dt)
-  end
-
-  # Support for NaiveDateTime (converts to DateTime for comparison only)
-  defp compare_datetime(%Date{} = d, %NaiveDateTime{} = ndt) do
-    compare_datetime(d, naive_to_datetime(ndt))
-  end
-
-  defp compare_datetime(%DateTime{} = dt, %Date{} = d) do
-    date_from_dt = DateTime.to_date(dt)
-    compare_datetime(date_from_dt, d)
-  end
-
-  # Support for NaiveDateTime (converts to DateTime for comparison only)
-  defp compare_datetime(%NaiveDateTime{} = ndt, %Date{} = d) do
-    compare_datetime(naive_to_datetime(ndt), d)
-  end
-
-  defp compare_datetime(_, _), do: :eq
-
-  defp naive_to_datetime(%NaiveDateTime{} = ndt) do
-    DateTime.from_naive!(ndt, @utc_timezone)
-  end
 end

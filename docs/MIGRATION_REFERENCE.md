@@ -24,20 +24,89 @@ The Events migration system provides a clean, modular DSL for PostgreSQL migrati
 The migration system is organized into focused modules:
 
 ```
-lib/events/repo/
-├── migration.ex              # Main module with use macro
-├── migration/
-│   ├── table_builder.ex      # Table creation with UUIDv7
-│   ├── field_sets.ex         # Common field combinations
-│   ├── field_macros.ex       # Specialized field types
-│   ├── indexes.ex            # Index creation helpers
-│   ├── helpers.ex            # Utility functions
-│   └── examples.ex           # Comprehensive examples
+lib/events/migration/
+├── token.ex                  # Core token data structure
+├── token_validator.ex        # Token validation logic
+├── pipeline.ex               # Pipeline functions (with_* pattern)
+├── pipeline_extended.ex      # Extended pipeline functions
+├── field_macros.ex           # Field macros for pipelines
+├── field_definitions.ex      # Single source of truth for field types
+├── dsl.ex                    # DSL functions
+├── dsl_enhanced.ex           # Enhanced DSL with Ecto macros
+├── executor.ex               # Migration execution
+├── helpers.ex                # Utility functions
+├── fields.ex                 # Field operations
+└── field_builders/           # Behavior-based field builders
+    ├── audit_fields.ex       # Audit field builder
+    ├── soft_delete.ex        # Soft delete field builder
+    ├── timestamps.ex         # Timestamp field builder
+    ├── status_fields.ex      # Status field builder
+    └── type_fields.ex        # Type field builder
 ```
+
+### Module Overview
+
+| Module | Purpose |
+|--------|---------|
+| `Token` | Core data structure representing a migration token |
+| `TokenValidator` | Validates tokens before execution |
+| `Pipeline` | Functional composition with `with_*` pattern |
+| `FieldMacros` | Reusable field macros for tokens |
+| `FieldDefinitions` | Single source of truth for field types |
+| `DSLEnhanced` | Ecto.Migration macro wrappers |
+| `FieldBuilders.*` | Behavior-based field generation |
 
 ## Quick Start
 
-### Basic Usage
+### Pipeline API (Recommended)
+
+The pipeline API provides functional composition with the `with_*` pattern:
+
+```elixir
+alias Events.Migration.{Token, Pipeline}
+
+# Create a table using pipelines
+token =
+  Token.new(:table, :users)
+  |> Pipeline.with_uuid_primary_key()
+  |> Pipeline.with_identity(:email)
+  |> Pipeline.with_authentication()
+  |> Pipeline.with_soft_delete()
+  |> Pipeline.with_timestamps()
+
+# Validate and execute
+token
+|> Pipeline.validate!()
+|> Events.Migration.Executor.execute()
+```
+
+### DSL Enhanced (Ecto Macro Based)
+
+For use within Ecto migrations:
+
+```elixir
+defmodule MyApp.Repo.Migrations.CreateUsers do
+  use Ecto.Migration
+  import Events.Migration.DSLEnhanced
+
+  def change do
+    create table(:users, primary_key: false) do
+      uuid_primary_key()
+      type_fields(only: [:type, :category])
+      status_fields(only: [:status])
+      audit_fields(track_user: true)
+      soft_delete_fields()
+      timestamps(type: :utc_datetime_usec)
+    end
+
+    # Create indexes
+    type_field_indexes(:users, only: [:type, :category])
+    status_field_indexes(:users, only: [:status])
+  end
+end
+```
+
+### Basic Usage (Traditional)
 
 ```elixir
 defmodule MyApp.Repo.Migrations.CreateUsers do

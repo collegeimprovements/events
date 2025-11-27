@@ -1,0 +1,158 @@
+# Docker Swarm Stack for Events Application
+#
+# Deploy with: docker stack deploy -c docker-compose.yml events
+#
+# Prerequisites:
+#   1. Initialize swarm on manager: docker swarm init
+#   2. Join workers: docker swarm join --token <token> <manager-ip>:2377
+#   3. Create secrets:
+#      echo "your-secret-key" | docker secret create events_secret_key_base -
+#      echo "ecto://user:pass@db:5432/events_prod" | docker secret create events_database_url -
+#
+# DNS Cluster:
+#   The app uses DNS_CLUSTER_QUERY=tasks.events_app to discover other replicas.
+#   Docker Swarm's internal DNS returns all task IPs for this query.
+
+version: "3.8"
+
+services:
+  app:
+    image: events:latest
+    deploy:
+      replicas: 2
+      update_config:
+        parallelism: 1
+        delay: 30s
+        order: start-first
+        failure_action: rollback
+      rollback_config:
+        parallelism: 1
+        delay: 10s
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+      placement:
+        max_replicas_per_node: 1
+        constraints:
+          - node.role == worker
+      resources:
+        limits:
+          cpus: "2"
+          memory: 2G
+        reservations:
+          cpus: "0.5"
+          memory: 512M
+    environment:
+      # Phoenix
+      PHX_HOST: ${PHX_HOST:-example.com}
+      PHX_SERVER: "true"
+      PORT: "4000"
+
+      # Database (use secret in production)
+      DATABASE_URL_FILE: /run/secrets/events_database_url
+      DB_POOL_SIZE: "10"
+      DB_SSL: "true"
+
+      # Secret key (use secret in production)
+      SECRET_KEY_BASE_FILE: /run/secrets/events_secret_key_base
+
+      # Redis (for cache, rate limiting, pubsub)
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+
+      # Erlang Clustering via DNS
+      # Docker Swarm DNS returns all task IPs for "tasks.<service_name>"
+      DNS_CLUSTER_QUERY: tasks.events_app
+
+      # Release configuration
+      RELEASE_DISTRIBUTION: name
+      RELEASE_NODE: events@${HOSTNAME}
+
+      # Erlang VM flags for clustering
+      ERL_AFLAGS: "-proto_dist inet6_tcp"
+    secrets:
+      - events_secret_key_base
+      - events_database_url
+    networks:
+      - events_network
+    ports:
+      - target: 4000
+        published: 4000
+        protocol: tcp
+        mode: ingress
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  redis:
+    image: redis:7-alpine
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+    volumes:
+      - redis_data:/data
+    networks:
+      - events_network
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  db:
+    image: postgres:17-alpine
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1G
+    environment:
+      POSTGRES_USER: events
+      POSTGRES_PASSWORD_FILE: /run/secrets/events_db_password
+      POSTGRES_DB: events_prod
+    secrets:
+      - events_db_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - events_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U events -d events_prod"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  events_network:
+    driver: overlay
+    attachable: true
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+secrets:
+  events_secret_key_base:
+    external: true
+  events_database_url:
+    external: true
+  events_db_password:
+    external: true

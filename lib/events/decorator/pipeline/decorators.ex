@@ -359,13 +359,16 @@ defmodule Events.Decorator.Pipeline do
     compose_decorators(rest, decorated_body, context)
   end
 
-  defp apply_decorator({decorator_name, _opts}, body, _context) when is_atom(decorator_name) do
-    # This is a simplified implementation
-    # In reality, we'd need to properly invoke the decorator module
-    quote do
-      # Placeholder for actual decorator application
-      # Would need to call the actual decorator function
-      unquote(body)
+  defp apply_decorator({decorator_name, opts}, body, context) when is_atom(decorator_name) do
+    case Events.Decorator.Registry.get(decorator_name) do
+      nil ->
+        raise ArgumentError,
+              "Unknown decorator #{inspect(decorator_name)} in compose/1. " <>
+                "Register it with Events.Decorator.Registry.register/3 or check spelling."
+
+      {module, function} ->
+        # Apply the decorator function at compile time
+        apply(module, function, [opts, body, context])
     end
   end
 

@@ -8,6 +8,7 @@ defmodule Events.Schema.ValidatorsExtended do
 
   import Ecto.Changeset
   alias Events.Schema.Validators
+  alias Events.Schema.Utils.Comparison
 
   # ============================================
   # Enhanced Validators with Options
@@ -651,20 +652,13 @@ defmodule Events.Schema.ValidatorsExtended do
     validate_change(changeset, field1, fn _, value1 ->
       value2 = get_field(changeset, field2)
 
-      if compare_values(value1, operator, value2) do
+      if Comparison.compare_values(value1, operator, value2) do
         []
       else
         [{field1, "must be #{operator} #{field2}"}]
       end
     end)
   end
-
-  defp compare_values(v1, :==, v2), do: v1 == v2
-  defp compare_values(v1, :!=, v2), do: v1 != v2
-  defp compare_values(v1, :<, v2), do: v1 < v2
-  defp compare_values(v1, :<=, v2), do: v1 <= v2
-  defp compare_values(v1, :>, v2), do: v1 > v2
-  defp compare_values(v1, :>=, v2), do: v1 >= v2
 
   @doc """
   Validates exclusive fields.

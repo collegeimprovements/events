@@ -222,11 +222,181 @@ defmodule Events.Migration.Token do
     Enum.find(fields, fn {name, _type, _opts} -> name == field_name end)
   end
 
+  @doc """
+  Checks if an index exists in the token.
+  """
+  @spec has_index?(t(), atom()) :: boolean()
+  def has_index?(%__MODULE__{indexes: indexes}, index_name) do
+    Enum.any?(indexes, fn {name, _columns, _opts} -> name == index_name end)
+  end
+
+  @doc """
+  Gets an index definition by name.
+  """
+  @spec get_index(t(), atom()) :: index_spec() | nil
+  def get_index(%__MODULE__{indexes: indexes}, index_name) do
+    Enum.find(indexes, fn {name, _columns, _opts} -> name == index_name end)
+  end
+
+  @doc """
+  Returns the constraint names defined in the token.
+  """
+  @spec constraint_names(t()) :: [atom()]
+  def constraint_names(%__MODULE__{constraints: constraints}) do
+    Enum.map(constraints, fn {name, _type, _opts} -> name end)
+  end
+
+  @doc """
+  Checks if a constraint exists in the token.
+  """
+  @spec has_constraint?(t(), atom()) :: boolean()
+  def has_constraint?(%__MODULE__{constraints: constraints}, constraint_name) do
+    Enum.any?(constraints, fn {name, _type, _opts} -> name == constraint_name end)
+  end
+
+  @doc """
+  Gets a constraint definition by name.
+  """
+  @spec get_constraint(t(), atom()) :: constraint_spec() | nil
+  def get_constraint(%__MODULE__{constraints: constraints}, constraint_name) do
+    Enum.find(constraints, fn {name, _type, _opts} -> name == constraint_name end)
+  end
+
+  @doc """
+  Returns all foreign key fields in the token.
+  """
+  @spec foreign_keys(t()) :: [field()]
+  def foreign_keys(%__MODULE__{fields: fields}) do
+    Enum.filter(fields, fn
+      {_name, {:references, _table, _opts}, _field_opts} -> true
+      _ -> false
+    end)
+  end
+
+  @doc """
+  Returns the referenced table names from foreign keys.
+  """
+  @spec referenced_tables(t()) :: [atom()]
+  def referenced_tables(%__MODULE__{} = token) do
+    token
+    |> foreign_keys()
+    |> Enum.map(fn {_name, {:references, table, _opts}, _field_opts} -> table end)
+    |> Enum.uniq()
+  end
+
+  @doc """
+  Returns fields that have unique constraints (via index or field option).
+  """
+  @spec unique_fields(t()) :: [atom()]
+  def unique_fields(%__MODULE__{fields: fields, indexes: indexes}) do
+    # Fields with unique: true option
+    unique_from_fields =
+      fields
+      |> Enum.filter(fn {_name, _type, opts} -> Keyword.get(opts, :unique, false) end)
+      |> Enum.map(fn {name, _type, _opts} -> name end)
+
+    # Single-column unique indexes
+    unique_from_indexes =
+      indexes
+      |> Enum.filter(fn {_name, columns, opts} ->
+        Keyword.get(opts, :unique, false) and length(columns) == 1
+      end)
+      |> Enum.flat_map(fn {_name, columns, _opts} -> columns end)
+
+    Enum.uniq(unique_from_fields ++ unique_from_indexes)
+  end
+
+  @doc """
+  Returns fields that are required (not null).
+  """
+  @spec required_fields(t()) :: [atom()]
+  def required_fields(%__MODULE__{fields: fields}) do
+    fields
+    |> Enum.filter(fn {_name, _type, opts} -> Keyword.get(opts, :null) == false end)
+    |> Enum.map(fn {name, _type, _opts} -> name end)
+  end
+
+  @doc """
+  Returns fields with default values.
+  """
+  @spec fields_with_defaults(t()) :: [{atom(), any()}]
+  def fields_with_defaults(%__MODULE__{fields: fields}) do
+    fields
+    |> Enum.filter(fn {_name, _type, opts} -> Keyword.has_key?(opts, :default) end)
+    |> Enum.map(fn {name, _type, opts} -> {name, Keyword.get(opts, :default)} end)
+  end
+
+  @doc """
+  Returns a summary map of the token for debugging/inspection.
+  """
+  @spec summary(t()) :: map()
+  def summary(%__MODULE__{} = token) do
+    %{
+      type: token.type,
+      name: token.name,
+      field_count: length(token.fields),
+      fields: field_names(token),
+      index_count: length(token.indexes),
+      indexes: index_names(token),
+      constraint_count: length(token.constraints),
+      constraints: constraint_names(token),
+      has_primary_key: has_primary_key?(token),
+      foreign_keys: referenced_tables(token),
+      unique_fields: unique_fields(token),
+      required_fields: required_fields(token)
+    }
+  end
+
+  @doc """
+  Generates Elixir schema field definitions from the token.
+
+  Useful for documentation or schema generation.
+
+  ## Examples
+
+      Token.to_schema_fields(token)
+      # => ["field :email, :string", "field :age, :integer"]
+  """
+  @spec to_schema_fields(t()) :: [String.t()]
+  def to_schema_fields(%__MODULE__{fields: fields}) do
+    Enum.map(fields, fn {name, type, opts} ->
+      type_str = format_type(type)
+      opts_str = format_schema_opts(opts)
+
+      if opts_str == "" do
+        "field :#{name}, #{type_str}"
+      else
+        "field :#{name}, #{type_str}, #{opts_str}"
+      end
+    end)
+  end
+
   # ============================================
   # Private Helpers
   # ============================================
 
   defp field_is_primary_key?({_name, _type, opts}) do
     Keyword.get(opts, :primary_key, false)
+  end
+
+  defp format_type({:array, inner}), do: "{:array, :#{inner}}"
+  defp format_type({:references, table, _opts}), do: "references(:#{table})"
+  defp format_type(type), do: ":#{type}"
+
+  defp format_schema_opts(opts) do
+    schema_relevant = [:null, :default, :primary_key]
+
+    opts
+    |> Keyword.take(schema_relevant)
+    |> Enum.map(fn
+      {:null, false} -> "null: false"
+      {:null, true} -> "null: true"
+      {:default, val} when is_binary(val) -> "default: #{inspect(val)}"
+      {:default, val} -> "default: #{inspect(val)}"
+      {:primary_key, true} -> "primary_key: true"
+      _ -> nil
+    end)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join(", ")
   end
 end

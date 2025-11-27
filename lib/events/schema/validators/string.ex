@@ -3,14 +3,27 @@ defmodule Events.Schema.Validators.String do
   String-specific validations for enhanced schema fields.
 
   Provides length, format, inclusion, and exclusion validations for string fields.
+
+  Implements `Events.Schema.Behaviours.Validator` behavior.
   """
+
+  @behaviour Events.Schema.Behaviours.Validator
 
   alias Events.Schema.Helpers.Messages
   alias Events.Schema.Types
 
+  @impl true
+  def field_types, do: [:string, :citext]
+
+  @impl true
+  def supported_options do
+    [:min_length, :max_length, :length, :format, :in, :not_in]
+  end
+
   @doc """
   Apply all string validations to a changeset.
   """
+  @impl true
   @spec validate(Types.changeset(), Types.field_name(), Types.opts()) :: Types.changeset()
   def validate(changeset, field_name, opts) do
     changeset

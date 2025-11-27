@@ -10,7 +10,7 @@ defmodule Events.KillSwitch.S3 do
 
       # Simple check
       if KillSwitch.S3.enabled?() do
-        S3.upload(bucket, key, content)
+        S3.put("s3://bucket/key", content, config)
       end
 
       # With automatic fallback
@@ -20,7 +20,7 @@ defmodule Events.KillSwitch.S3 do
 
       # Pattern matching
       case KillSwitch.S3.check() do
-        :enabled -> S3.list(bucket)
+        :enabled -> S3.list("s3://bucket/", config)
         {:disabled, reason} -> {:error, {:s3_disabled, reason}}
       end
 
@@ -34,7 +34,7 @@ defmodule Events.KillSwitch.S3 do
   """
 
   alias Events.KillSwitch
-  alias Events.Services.Aws.SimpleS3
+  alias Events.Services.S3
 
   @service :s3
 
@@ -66,28 +66,32 @@ defmodule Events.KillSwitch.S3 do
   ## Options
 
   - `:fallback` - Function to call if S3 is disabled
-  - Plus all SimpleS3.list/2 options
+  - `:prefix` - Key prefix to filter by
+  - `:limit` - Maximum objects to return
 
   ## Examples
 
       # With fallback
       KillSwitch.S3.list("my-bucket",
         prefix: "uploads/",
-        fallback: fn -> {:ok, %{files: [], next_token: nil}} end
+        fallback: fn -> {:ok, %{files: [], next: nil}} end
       )
 
       # Without fallback (returns error if disabled)
       KillSwitch.S3.list("my-bucket", prefix: "uploads/")
   """
   @spec list(String.t(), keyword()) ::
-          {:ok, %{files: [map()], next_token: String.t() | nil}} | {:error, term()}
+          {:ok, %{files: [map()], next: String.t() | nil}} | {:error, term()}
   def list(bucket, opts \\ [])
 
   def list(bucket, opts) when is_binary(bucket) do
     {fallback, s3_opts} = Keyword.pop(opts, :fallback)
+    prefix = Keyword.get(s3_opts, :prefix, "")
+    uri = S3.uri(bucket, prefix)
+    config = s3_config()
 
     execute_with_fallback(
-      fn -> SimpleS3.list(bucket, s3_opts) end,
+      fn -> S3.list(uri, config, s3_opts) end,
       fallback
     )
   end
@@ -98,12 +102,12 @@ defmodule Events.KillSwitch.S3 do
   ## Options
 
   - `:fallback` - Function to call if S3 is disabled
-  - Plus all SimpleS3.upload/4 options
+  - `:content_type` - MIME type of content
 
   ## Examples
 
       KillSwitch.S3.upload("my-bucket", "photo.jpg", content,
-        type: "image/jpeg",
+        content_type: "image/jpeg",
         fallback: fn -> DbStorage.save("photo.jpg", content) end
       )
   """
@@ -113,9 +117,11 @@ defmodule Events.KillSwitch.S3 do
   def upload(bucket, path, content, opts)
       when is_binary(bucket) and is_binary(path) do
     {fallback, s3_opts} = Keyword.pop(opts, :fallback)
+    uri = S3.uri(bucket, path)
+    config = s3_config()
 
     execute_with_fallback(
-      fn -> SimpleS3.upload(bucket, path, content, s3_opts) end,
+      fn -> S3.put(uri, content, config, s3_opts) end,
       fallback
     )
   end
@@ -138,9 +144,11 @@ defmodule Events.KillSwitch.S3 do
 
   def download(bucket, path, opts) when is_binary(bucket) and is_binary(path) do
     fallback = Keyword.get(opts, :fallback)
+    uri = S3.uri(bucket, path)
+    config = s3_config()
 
     execute_with_fallback(
-      fn -> SimpleS3.download(bucket, path) end,
+      fn -> S3.get(uri, config) end,
       fallback
     )
   end
@@ -163,9 +171,11 @@ defmodule Events.KillSwitch.S3 do
 
   def delete(bucket, path, opts) when is_binary(bucket) and is_binary(path) do
     fallback = Keyword.get(opts, :fallback)
+    uri = S3.uri(bucket, path)
+    config = s3_config()
 
     execute_with_fallback(
-      fn -> SimpleS3.delete(bucket, path) end,
+      fn -> S3.delete(uri, config) end,
       fallback
     )
   end
@@ -188,9 +198,11 @@ defmodule Events.KillSwitch.S3 do
 
   def exists?(bucket, path, opts) when is_binary(bucket) and is_binary(path) do
     fallback = Keyword.get(opts, :fallback, fn -> false end)
+    uri = S3.uri(bucket, path)
+    config = s3_config()
 
     execute_with_fallback(
-      fn -> SimpleS3.exists?(bucket, path) end,
+      fn -> S3.exists?(uri, config) end,
       fallback
     )
   end
@@ -201,12 +213,12 @@ defmodule Events.KillSwitch.S3 do
   ## Options
 
   - `:fallback` - Function to call if S3 is disabled
-  - Plus all SimpleS3.url_for_upload/3 options
+  - `:expires_in` - Expiration in seconds or tuple like `{5, :minutes}`
 
   ## Examples
 
       KillSwitch.S3.url_for_upload("my-bucket", "photo.jpg",
-        expires: 300,
+        expires_in: {5, :minutes},
         fallback: fn -> {:ok, "/api/upload/photo.jpg"} end
       )
   """
@@ -215,9 +227,11 @@ defmodule Events.KillSwitch.S3 do
 
   def url_for_upload(bucket, path, opts) when is_binary(bucket) and is_binary(path) do
     {fallback, s3_opts} = Keyword.pop(opts, :fallback)
+    uri = S3.uri(bucket, path)
+    config = s3_config()
 
     execute_with_fallback(
-      fn -> SimpleS3.url_for_upload(bucket, path, s3_opts) end,
+      fn -> S3.presign(uri, config, Keyword.put(s3_opts, :method, :put)) end,
       fallback
     )
   end
@@ -228,12 +242,12 @@ defmodule Events.KillSwitch.S3 do
   ## Options
 
   - `:fallback` - Function to call if S3 is disabled
-  - Plus all SimpleS3.url_for_download/3 options
+  - `:expires_in` - Expiration in seconds or tuple like `{1, :hour}`
 
   ## Examples
 
       KillSwitch.S3.url_for_download("my-bucket", "photo.jpg",
-        expires: 3600,
+        expires_in: {1, :hour},
         fallback: fn -> {:ok, "/api/download/photo.jpg"} end
       )
   """
@@ -243,14 +257,20 @@ defmodule Events.KillSwitch.S3 do
 
   def url_for_download(bucket, path, opts) when is_binary(bucket) and is_binary(path) do
     {fallback, s3_opts} = Keyword.pop(opts, :fallback)
+    uri = S3.uri(bucket, path)
+    config = s3_config()
 
     execute_with_fallback(
-      fn -> SimpleS3.url_for_download(bucket, path, s3_opts) end,
+      fn -> S3.presign(uri, config, Keyword.put(s3_opts, :method, :get)) end,
       fallback
     )
   end
 
   ## Private Helpers
+
+  defp s3_config do
+    S3.Config.from_env()
+  end
 
   defp execute_with_fallback(func, nil) do
     KillSwitch.execute(@service, func)

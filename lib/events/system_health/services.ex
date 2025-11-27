@@ -219,11 +219,11 @@ defmodule Events.SystemHealth.Services do
     |> then(&{:error, "Unsupported Redis backend #{&1}"})
   end
 
-  defp perform_s3_list({:ok, context}) do
-    context
-    |> Events.Services.Aws.S3.list_objects(max_keys: 1)
-    |> case do
-      {:ok, _result} -> {:ok, context.bucket}
+  defp perform_s3_list({:ok, config, bucket}) do
+    uri = "s3://#{bucket}/"
+
+    case Events.Services.S3.list(uri, config, limit: 1) do
+      {:ok, _result} -> {:ok, bucket}
       {:error, {:s3_error, status, _body}} -> {:error, "S3 error (HTTP #{status})"}
       {:error, reason} -> {:error, inspect(reason)}
     end
@@ -350,35 +350,32 @@ defmodule Events.SystemHealth.Services do
   defp detect_adapter_type(_), do: "Phoenix"
 
   defp safe_get_s3_adapter do
-    Events.Services.Aws.S3.adapter()
-    |> Module.split()
-    |> parse_s3_adapter()
-  rescue
-    _ -> "ReqS3"
+    "ReqS3"
   end
-
-  defp parse_s3_adapter([_, _, _, "S3", "Adapter"]), do: "ReqS3"
-  defp parse_s3_adapter(parts), do: List.last(parts) || "ReqS3"
 
   defp s3_context do
-    Events.Services.Aws.Context.from_env()
-    |> Events.Services.Aws.Context.validate()
-    |> validate_s3_bucket()
+    # Check required env vars
+    access_key = System.get_env("AWS_ACCESS_KEY_ID")
+    secret_key = System.get_env("AWS_SECRET_ACCESS_KEY")
+    bucket = System.get_env("S3_BUCKET")
+
+    cond do
+      is_nil(access_key) ->
+        {:error, "AWS_ACCESS_KEY_ID not set"}
+
+      is_nil(secret_key) ->
+        {:error, "AWS_SECRET_ACCESS_KEY not set"}
+
+      is_nil(bucket) ->
+        {:error, "S3 bucket not configured"}
+
+      true ->
+        config = Events.Services.S3.Config.from_env()
+        {:ok, config, bucket}
+    end
   rescue
-    KeyError -> {:error, "AWS credentials not configured"}
     e -> {:error, Exception.message(e)}
   end
-
-  defp validate_s3_bucket({:ok, %{bucket: nil}}), do: {:error, "S3 bucket not configured"}
-  defp validate_s3_bucket({:ok, context}), do: {:ok, context}
-
-  defp validate_s3_bucket({:error, :missing_access_key_id}),
-    do: {:error, "AWS_ACCESS_KEY_ID not set"}
-
-  defp validate_s3_bucket({:error, :missing_secret_access_key}),
-    do: {:error, "AWS_SECRET_ACCESS_KEY not set"}
-
-  defp validate_s3_bucket({:error, reason}), do: {:error, "Invalid config: #{inspect(reason)}"}
 
   defp format_error(reason) when is_binary(reason) do
     String.slice(reason, 0, 50)

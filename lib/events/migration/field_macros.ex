@@ -19,9 +19,16 @@ defmodule Events.Migration.FieldMacros do
       |> with_status_fields(only: [:status], type: :string)
       |> with_timestamps(only: [:inserted_at])
       |> execute()
+
+  ## Note
+
+  This module uses `Events.Migration.FieldDefinitions` as the single source
+  of truth for field types. For new projects, consider using the behavior-based
+  FieldBuilders instead (e.g., `Events.Migration.FieldBuilders.AuditFields`).
   """
 
   alias Events.Migration.Token
+  alias Events.Migration.FieldDefinitions
 
   # ============================================
   # Type Fields (citext by default)
@@ -237,57 +244,82 @@ defmodule Events.Migration.FieldMacros do
   Adds audit tracking fields.
 
   ## Options
-  - `:only` - List of fields to include
-  - `:except` - List of fields to exclude
-  - `:track_user` - Include user ID tracking (default: true)
+  - `:track_urm` - Include URM tracking (created_by_urm_id, updated_by_urm_id) (default: true)
+  - `:track_user` - Include user ID tracking (default: false)
   - `:track_ip` - Include IP address tracking (default: false)
   - `:track_session` - Include session tracking (default: false)
   - `:track_changes` - Include change history (default: false)
 
-  ## Available Fields
-  - `:created_by` - Creator identifier
-  - `:updated_by` - Last updater identifier
+  ## Generated Fields
+  - `:created_by_urm_id` - Creator URM identifier (when track_urm: true)
+  - `:updated_by_urm_id` - Last updater URM identifier (when track_urm: true)
   - `:created_by_user_id` - Creator user ID (when track_user: true)
   - `:updated_by_user_id` - Last updater user ID (when track_user: true)
 
   ## Examples
 
-      # Basic audit
+      # Basic audit with URM tracking (default)
       with_audit_fields()
 
-      # With IP tracking
-      with_audit_fields(track_ip: true)
+      # User tracking only (no URM)
+      with_audit_fields(track_urm: false, track_user: true)
 
       # Full audit trail
       with_audit_fields(track_user: true, track_ip: true, track_changes: true)
   """
   def with_audit_fields(%Token{} = token, opts \\ []) do
     defaults = [
-      track_user: true,
+      track_urm: true,
+      track_user: false,
       track_ip: false,
       track_session: false,
-      track_changes: false,
-      fields: [:created_by, :updated_by]
+      track_changes: false
     ]
 
     config = Keyword.merge(defaults, opts)
-    fields = filter_fields(config[:fields], config)
+
+    # Validate that at least one tracking option is enabled
+    has_any_tracking =
+      config[:track_urm] or config[:track_user] or config[:track_ip] or
+        config[:track_session] or config[:track_changes]
+
+    unless has_any_tracking do
+      raise ArgumentError, """
+      audit_fields() requires at least one tracking option to be enabled.
+
+      You have disabled all tracking options:
+        track_urm: false, track_user: false, track_ip: false,
+        track_session: false, track_changes: false
+
+      Either enable at least one option or remove the audit_fields() call entirely.
+
+      Examples:
+        audit_fields()                              # URM tracking (default)
+        audit_fields(track_urm: false, track_user: true)  # User tracking only
+        audit_fields(track_ip: true)                # URM + IP tracking
+      """
+    end
 
     token
-    |> add_basic_audit_fields(fields)
+    |> maybe_add_urm_tracking(config[:track_urm])
     |> maybe_add_user_tracking(config[:track_user])
     |> maybe_add_ip_tracking(config[:track_ip])
     |> maybe_add_session_tracking(config[:track_session])
     |> maybe_add_change_tracking(config[:track_changes])
   end
 
-  defp add_basic_audit_fields(token, fields) do
-    Enum.reduce(fields, token, fn field_name, acc ->
-      Token.add_field(acc, field_name, :string,
-        null: true,
-        comment: "Audit: #{field_name}"
-      )
-    end)
+  defp maybe_add_urm_tracking(token, false), do: token
+
+  defp maybe_add_urm_tracking(token, true) do
+    token
+    |> Token.add_field(:created_by_urm_id, FieldDefinitions.id_type(),
+      null: true,
+      comment: "Audit: created_by_urm_id"
+    )
+    |> Token.add_field(:updated_by_urm_id, FieldDefinitions.id_type(),
+      null: true,
+      comment: "Audit: updated_by_urm_id"
+    )
   end
 
   defp maybe_add_user_tracking(token, false), do: token

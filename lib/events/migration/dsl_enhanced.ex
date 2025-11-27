@@ -10,6 +10,17 @@ defmodule Events.Migration.DSLEnhanced do
         status_fields()
         timestamps()
       end
+
+  > #### Prefer FieldBuilders {: .info}
+  >
+  > For new code, consider using the behavior-based FieldBuilders in
+  > `Events.Migration.FieldBuilders.*` which provide better consistency
+  > and reference `Events.Migration.FieldDefinitions` for type definitions.
+  >
+  > The FieldBuilders approach offers:
+  > - Consistent types via `FieldDefinitions`
+  > - Behavior-based extensibility
+  > - Better testability
   """
 
   import Ecto.Migration
@@ -174,7 +185,7 @@ defmodule Events.Migration.DSLEnhanced do
         quote do
           add :previous_status, :citext
           add :status_changed_at, :utc_datetime_usec
-          add :status_changed_by, :uuid
+          add :status_changed_by, :binary_id
           add :status_history, :jsonb, default: fragment("'[]'::jsonb")
         end
       else
@@ -220,35 +231,69 @@ defmodule Events.Migration.DSLEnhanced do
   Adds audit tracking fields.
 
   ## Options
-  - `:track_user` - Include user ID tracking
-  - `:track_ip` - Include IP address tracking
-  - `:track_session` - Include session tracking
-  - `:track_changes` - Include change history
+  - `:track_urm` - Include URM tracking (created_by_urm_id, updated_by_urm_id) (default: true)
+  - `:track_user` - Include user ID tracking (default: false)
+  - `:track_ip` - Include IP address tracking (default: false)
+  - `:track_session` - Include session tracking (default: false)
+  - `:track_changes` - Include change history (default: false)
 
   ## Examples
 
       create table(:documents) do
+        # Default: URM tracking only
         audit_fields()
+
+        # User tracking only (no URM)
+        audit_fields(track_urm: false, track_user: true)
+
+        # Full audit trail
         audit_fields(track_user: true, track_ip: true)
       end
   """
   defmacro audit_fields(opts \\ []) do
+    track_urm = Keyword.get(opts, :track_urm, true)
     track_user = Keyword.get(opts, :track_user, false)
     track_ip = Keyword.get(opts, :track_ip, false)
     track_session = Keyword.get(opts, :track_session, false)
     track_changes = Keyword.get(opts, :track_changes, false)
 
-    base =
-      quote do
-        add :created_by, :string
-        add :updated_by, :string
+    # Validate at compile time that at least one tracking option is enabled
+    has_any_tracking = track_urm or track_user or track_ip or track_session or track_changes
+
+    unless has_any_tracking do
+      raise ArgumentError, """
+      audit_fields() requires at least one tracking option to be enabled.
+
+      You have disabled all tracking options:
+        track_urm: false, track_user: false, track_ip: false,
+        track_session: false, track_changes: false
+
+      Either enable at least one option or remove the audit_fields() call entirely.
+
+      Examples:
+        audit_fields()                              # URM tracking (default)
+        audit_fields(track_urm: false, track_user: true)  # User tracking only
+        audit_fields(track_ip: true)                # URM + IP tracking
+      """
+    end
+
+    # URM tracking fields (default: true)
+    urm_tracking =
+      if track_urm do
+        quote do
+          add :created_by_urm_id, :binary_id
+          add :updated_by_urm_id, :binary_id
+        end
+      else
+        quote do
+        end
       end
 
     user_tracking =
       if track_user do
         quote do
-          add :created_by_user_id, :uuid
-          add :updated_by_user_id, :uuid
+          add :created_by_user_id, :binary_id
+          add :updated_by_user_id, :binary_id
         end
       else
         quote do
@@ -289,7 +334,7 @@ defmodule Events.Migration.DSLEnhanced do
       end
 
     quote do
-      unquote(base)
+      unquote(urm_tracking)
       unquote(user_tracking)
       unquote(ip_tracking)
       unquote(session_tracking)
@@ -299,22 +344,44 @@ defmodule Events.Migration.DSLEnhanced do
 
   @doc """
   Creates indexes for audit fields.
+
+  ## Options
+  - `:track_urm` - Create indexes for URM fields (default: true)
+  - `:track_user` - Create indexes for user fields (default: false)
   """
   defmacro audit_field_indexes(table_name, opts \\ []) do
+    track_urm = Keyword.get(opts, :track_urm, true)
     track_user = Keyword.get(opts, :track_user, false)
 
-    if track_user do
-      [
-        quote do
-          create index(unquote(table_name), [:created_by_user_id])
-        end,
-        quote do
-          create index(unquote(table_name), [:updated_by_user_id])
-        end
-      ]
-    else
-      []
-    end
+    urm_indexes =
+      if track_urm do
+        [
+          quote do
+            create index(unquote(table_name), [:created_by_urm_id])
+          end,
+          quote do
+            create index(unquote(table_name), [:updated_by_urm_id])
+          end
+        ]
+      else
+        []
+      end
+
+    user_indexes =
+      if track_user do
+        [
+          quote do
+            create index(unquote(table_name), [:created_by_user_id])
+          end,
+          quote do
+            create index(unquote(table_name), [:updated_by_user_id])
+          end
+        ]
+      else
+        []
+      end
+
+    urm_indexes ++ user_indexes
   end
 
   # ============================================
@@ -432,8 +499,8 @@ defmodule Events.Migration.DSLEnhanced do
   Adds soft delete fields.
 
   ## Options
+  - `:track_urm` - Include deleted_by_urm_id (default: true)
   - `:track_user` - Include deleted_by_user_id (default: false)
-  - `:track_role_mapping` - Include deleted_by_user_role_mapping_id (default: true)
   - `:track_reason` - Include deletion_reason (default: false)
 
   ## Examples
@@ -441,11 +508,21 @@ defmodule Events.Migration.DSLEnhanced do
       create table(:users) do
         soft_delete_fields()
         soft_delete_fields(track_user: true, track_reason: true)
+        soft_delete_fields(track_urm: false)
       end
   """
   defmacro soft_delete_fields(opts \\ []) do
+    # Handle deprecated option name
+    opts =
+      if Keyword.has_key?(opts, :track_role_mapping) do
+        IO.warn("track_role_mapping is deprecated, use track_urm instead")
+        Keyword.put(opts, :track_urm, Keyword.get(opts, :track_role_mapping))
+      else
+        opts
+      end
+
+    track_urm = Keyword.get(opts, :track_urm, true)
     track_user = Keyword.get(opts, :track_user, false)
-    track_role_mapping = Keyword.get(opts, :track_role_mapping, true)
     track_reason = Keyword.get(opts, :track_reason, false)
 
     base =
@@ -453,10 +530,10 @@ defmodule Events.Migration.DSLEnhanced do
         add :deleted_at, :utc_datetime_usec
       end
 
-    role_mapping =
-      if track_role_mapping do
+    urm_tracking =
+      if track_urm do
         quote do
-          add :deleted_by_user_role_mapping_id, :uuid
+          add :deleted_by_urm_id, :binary_id
         end
       else
         quote do
@@ -466,7 +543,7 @@ defmodule Events.Migration.DSLEnhanced do
     user_tracking =
       if track_user do
         quote do
-          add :deleted_by_user_id, :uuid
+          add :deleted_by_user_id, :binary_id
         end
       else
         quote do
@@ -485,7 +562,7 @@ defmodule Events.Migration.DSLEnhanced do
 
     quote do
       unquote(base)
-      unquote(role_mapping)
+      unquote(urm_tracking)
       unquote(user_tracking)
       unquote(reason_tracking)
     end
@@ -600,7 +677,7 @@ defmodule Events.Migration.DSLEnhanced do
 
     quote do
       add unquote(field_name),
-          references(unquote(:"#{name}s"), type: :uuid, on_delete: unquote(on_delete)),
+          references(unquote(:"#{name}s"), type: :binary_id, on_delete: unquote(on_delete)),
           null: unquote(null)
     end
   end
