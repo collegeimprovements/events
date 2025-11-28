@@ -231,7 +231,9 @@ defmodule Events.PubSub do
 
       port ->
         case Integer.parse(port) do
-          {parsed, ""} -> parsed
+          {parsed, ""} ->
+            parsed
+
           _ ->
             Logger.warning("Invalid REDIS_PORT value '#{port}', using default 6379")
             6379

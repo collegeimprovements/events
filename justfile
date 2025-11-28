@@ -297,6 +297,261 @@ docker-run PORT="4000":
     docker run -p {{PORT}}:4000 --env-file .env events:latest
 
 # ==============================================================================
+# DOCKER SWARM
+# ==============================================================================
+
+# Registry for swarm deployment (override with REGISTRY=your-registry.com just swarm-setup)
+REGISTRY := env_var_or_default("REGISTRY", "localhost:5000")
+
+# One-command swarm setup: Initialize swarm, create secrets, setup registry
+swarm-setup:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "🐳 Setting up Docker Swarm..."
+    echo ""
+
+    # Check if already in swarm
+    if docker info 2>/dev/null | grep -q "Swarm: active"; then
+        echo "✓ Swarm already initialized"
+        NODE_ROLE=$(docker info --format '{{"{{"}}.Swarm.ControlAvailable{{"}}"}}')
+        if [ "$NODE_ROLE" = "true" ]; then
+            echo "  This node is a manager"
+        else
+            echo "  This node is a worker"
+        fi
+    else
+        echo "Initializing swarm..."
+        docker swarm init || {
+            echo "⚠ Swarm init failed. If you have multiple IPs, run:"
+            echo "  docker swarm init --advertise-addr <YOUR_IP>"
+            exit 1
+        }
+        echo "✓ Swarm initialized"
+    fi
+    echo ""
+
+    # Create network if it doesn't exist
+    echo "Creating overlay network..."
+    docker network create --driver overlay --attachable events_network 2>/dev/null || echo "✓ Network already exists"
+    echo ""
+
+    # Create secrets
+    echo "Setting up secrets..."
+
+    # Secret key base
+    if docker secret ls | grep -q "events_secret_key_base"; then
+        echo "✓ events_secret_key_base already exists"
+    else
+        echo "Creating events_secret_key_base..."
+        if command -v mix &> /dev/null; then
+            mix phx.gen.secret | docker secret create events_secret_key_base -
+        else
+            openssl rand -base64 64 | tr -d '\n' | docker secret create events_secret_key_base -
+        fi
+        echo "✓ events_secret_key_base created"
+    fi
+
+    # Database password
+    if docker secret ls | grep -q "events_db_password"; then
+        echo "✓ events_db_password already exists"
+    else
+        echo "Creating events_db_password..."
+        openssl rand -base64 32 | tr -d '\n' | docker secret create events_db_password -
+        echo "✓ events_db_password created"
+    fi
+
+    # Database URL (uses the password we just created)
+    if docker secret ls | grep -q "events_database_url"; then
+        echo "✓ events_database_url already exists"
+    else
+        echo "Creating events_database_url..."
+        # Note: This creates a URL with a placeholder password. For real deploys, recreate with actual password.
+        echo "ecto://events:REPLACE_WITH_DB_PASSWORD@db:5432/events_prod" | docker secret create events_database_url -
+        echo "✓ events_database_url created"
+        echo "  ⚠ Remember to update DATABASE_URL with actual password if needed"
+    fi
+
+    # Erlang cookie for clustering
+    if docker secret ls | grep -q "events_erlang_cookie"; then
+        echo "✓ events_erlang_cookie already exists"
+    else
+        echo "Creating events_erlang_cookie..."
+        openssl rand -base64 32 | tr -d '\n' | docker secret create events_erlang_cookie -
+        echo "✓ events_erlang_cookie created"
+    fi
+    echo ""
+
+    # Show join token for workers
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "Swarm setup complete!"
+    echo ""
+    echo "To add worker nodes, run this on other servers:"
+    docker swarm join-token worker 2>/dev/null | tail -n 3 || echo "(Run on manager node to see join token)"
+    echo ""
+    echo "Next step: just deploy"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+# Show swarm join token for workers
+swarm-token:
+    @docker swarm join-token worker
+
+# Show swarm status
+swarm-status:
+    #!/usr/bin/env bash
+    echo "🐳 Swarm Status"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    echo "Nodes:"
+    docker node ls 2>/dev/null || echo "Not in swarm mode"
+    echo ""
+    echo "Services:"
+    docker service ls 2>/dev/null || echo "No services"
+    echo ""
+    echo "Secrets:"
+    docker secret ls 2>/dev/null || echo "No secrets"
+
+# ==============================================================================
+# DEPLOYMENT
+# ==============================================================================
+
+# One-command deploy: Build, push, and deploy to swarm
+deploy PHX_HOST="localhost":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    REGISTRY="{{REGISTRY}}"
+    IMAGE="${REGISTRY}/events:latest"
+
+    echo "🚀 Deploying Events Application"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "Registry: $REGISTRY"
+    echo "Image: $IMAGE"
+    echo "Host: {{PHX_HOST}}"
+    echo ""
+
+    # Verify swarm is active
+    if ! docker info 2>/dev/null | grep -q "Swarm: active"; then
+        echo "✗ Error: Docker Swarm not initialized"
+        echo "  Run: just swarm-setup"
+        exit 1
+    fi
+
+    # Verify secrets exist
+    echo "Checking secrets..."
+    MISSING_SECRETS=""
+    for secret in events_secret_key_base events_database_url events_db_password; do
+        if ! docker secret ls | grep -q "$secret"; then
+            MISSING_SECRETS="$MISSING_SECRETS $secret"
+        fi
+    done
+    if [ -n "$MISSING_SECRETS" ]; then
+        echo "✗ Missing secrets:$MISSING_SECRETS"
+        echo "  Run: just swarm-setup"
+        exit 1
+    fi
+    echo "✓ All secrets present"
+    echo ""
+
+    # Build image
+    echo "Building Docker image..."
+    docker build -t events:latest .
+    echo "✓ Image built"
+    echo ""
+
+    # Tag and push if using registry
+    if [ "$REGISTRY" != "localhost:5000" ] && [ "$REGISTRY" != "" ]; then
+        echo "Pushing to registry..."
+        docker tag events:latest "$IMAGE"
+        docker push "$IMAGE"
+        echo "✓ Image pushed to $REGISTRY"
+        echo ""
+    else
+        IMAGE="events:latest"
+        echo "Using local image (no registry push)"
+        echo ""
+    fi
+
+    # Deploy or update stack
+    echo "Deploying stack..."
+    PHX_HOST="{{PHX_HOST}}" docker stack deploy -c docker-compose.yml events
+    echo "✓ Stack deployed"
+    echo ""
+
+    # Wait for services to start
+    echo "Waiting for services to start..."
+    sleep 5
+
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "✓ Deployment complete!"
+    echo ""
+    echo "Services:"
+    docker service ls --filter name=events
+    echo ""
+    echo "Monitor with: just deploy-logs"
+    echo "Check health: just deploy-health"
+
+# Deploy with specific image (skip build)
+deploy-image IMAGE PHX_HOST="localhost":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "🚀 Deploying image: {{IMAGE}}"
+
+    # Update the app service with new image
+    docker service update --image {{IMAGE}} events_app || {
+        # If service doesn't exist, deploy full stack
+        PHX_HOST="{{PHX_HOST}}" docker stack deploy -c docker-compose.yml events
+    }
+
+    echo "✓ Deployed {{IMAGE}}"
+
+# Rollback to previous deployment
+deploy-rollback:
+    #!/usr/bin/env bash
+    echo "⏪ Rolling back events_app..."
+    docker service rollback events_app
+    echo "✓ Rollback initiated"
+
+# View deployment logs
+deploy-logs SERVICE="app":
+    @docker service logs events_{{SERVICE}} -f --tail 100
+
+# Check deployment health
+deploy-health:
+    #!/usr/bin/env bash
+    echo "🏥 Deployment Health Check"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    echo "Services:"
+    docker service ls --filter name=events
+    echo ""
+    echo "App Replicas:"
+    docker service ps events_app --no-trunc 2>/dev/null || echo "App service not running"
+    echo ""
+    echo "Health Endpoints:"
+    for port in 4000; do
+        echo -n "  localhost:$port/health - "
+        curl -sf "http://localhost:$port/health" 2>/dev/null && echo "" || echo "unavailable"
+    done
+    echo ""
+    echo "Cluster Status:"
+    curl -sf "http://localhost:4000/health/cluster" 2>/dev/null | jq '.' || echo "  Cluster endpoint unavailable"
+
+# Scale app replicas
+deploy-scale REPLICAS="2":
+    @docker service scale events_app={{REPLICAS}}
+
+# Remove deployment
+deploy-remove:
+    #!/usr/bin/env bash
+    echo "🗑️  Removing events stack..."
+    docker stack rm events
+    echo "✓ Stack removed"
+    echo ""
+    echo "Note: Volumes and secrets are preserved."
+    echo "To remove volumes: docker volume rm events_postgres_data events_redis_data"
+    echo "To remove secrets: docker secret rm events_secret_key_base events_database_url events_db_password"
+
+# ==============================================================================
 # PRODUCTION
 # ==============================================================================
 
