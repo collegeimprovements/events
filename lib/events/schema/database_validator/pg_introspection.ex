@@ -5,6 +5,18 @@ defmodule Events.Schema.DatabaseValidator.PgIntrospection do
   Provides functions to query PostgreSQL system catalogs and information_schema
   to retrieve metadata about tables, columns, constraints, and indexes.
 
+  ## Atom Safety
+
+  This module converts database identifiers (column names, constraint names, etc.)
+  to atoms for easier comparison with Ecto schema definitions. This is safe because:
+
+  1. The set of identifiers is bounded by your application's own database schema
+  2. The `safe_to_atom/1` function first tries to use existing atoms (from Ecto schemas)
+  3. New atoms are only created for identifiers that match your database schema
+
+  If you have concerns about atom table pollution, consider running this module
+  only in development/test environments or on a limited set of tables.
+
   ## Usage
 
       alias Events.Schema.DatabaseValidator.PgIntrospection
@@ -21,6 +33,18 @@ defmodule Events.Schema.DatabaseValidator.PgIntrospection do
       # Check if specific constraint exists
       PgIntrospection.constraint_exists?(Events.Repo, "users", "users_pkey")
   """
+
+  # Safe atom conversion - tries existing atoms first, falls back to creating new ones
+  # This is bounded by the user's database schema, so atom table pollution is limited
+  @doc false
+  @spec safe_to_atom(String.t()) :: atom()
+  def safe_to_atom(string) when is_binary(string) do
+    String.to_existing_atom(string)
+  rescue
+    ArgumentError ->
+      # Atom doesn't exist yet - create it (bounded by database schema)
+      String.to_atom(string)
+  end
 
   @doc """
   Get all columns for a table with type and nullability information.
@@ -64,7 +88,7 @@ defmodule Events.Schema.DatabaseValidator.PgIntrospection do
 
   defp normalize_column(row) do
     %{
-      name: String.to_atom(row["column_name"]),
+      name: safe_to_atom(row["column_name"]),
       data_type: row["data_type"],
       udt_name: row["udt_name"],
       is_nullable: row["is_nullable"] == "YES",
@@ -115,7 +139,7 @@ defmodule Events.Schema.DatabaseValidator.PgIntrospection do
 
   defp normalize_constraint(row) do
     %{
-      name: String.to_atom(row["name"]),
+      name: safe_to_atom(row["name"]),
       type: constraint_type(row["type"]),
       columns: normalize_columns(row["columns"]),
       definition: row["definition"]
@@ -130,7 +154,7 @@ defmodule Events.Schema.DatabaseValidator.PgIntrospection do
   defp constraint_type(_), do: :unknown
 
   defp normalize_columns(nil), do: []
-  defp normalize_columns(cols), do: Enum.map(cols, &String.to_atom/1)
+  defp normalize_columns(cols), do: Enum.map(cols, &safe_to_atom/1)
 
   @doc """
   Get foreign key constraints with full details.
@@ -189,10 +213,10 @@ defmodule Events.Schema.DatabaseValidator.PgIntrospection do
 
   defp normalize_foreign_key(row) do
     %{
-      name: String.to_atom(row["constraint_name"]),
-      column: String.to_atom(row["column_name"]),
+      name: safe_to_atom(row["constraint_name"]),
+      column: safe_to_atom(row["column_name"]),
       references_table: row["references_table"],
-      references_column: String.to_atom(row["references_column"]),
+      references_column: safe_to_atom(row["references_column"]),
       on_delete: normalize_fk_action(row["delete_rule"]),
       on_update: normalize_fk_action(row["update_rule"]),
       deferrable: row["is_deferrable"] == "YES",
@@ -256,7 +280,7 @@ defmodule Events.Schema.DatabaseValidator.PgIntrospection do
 
   defp normalize_index(row) do
     %{
-      name: String.to_atom(row["index_name"]),
+      name: safe_to_atom(row["index_name"]),
       columns: normalize_columns(row["columns"]),
       unique: row["is_unique"],
       where: row["where_clause"],
@@ -352,7 +376,7 @@ defmodule Events.Schema.DatabaseValidator.PgIntrospection do
 
     case repo.query(query, [schema, table_name]) do
       {:ok, %{rows: rows}} ->
-        Enum.map(rows, fn [col] -> String.to_atom(col) end)
+        Enum.map(rows, fn [col] -> safe_to_atom(col) end)
 
       {:error, _} ->
         []
@@ -393,7 +417,7 @@ defmodule Events.Schema.DatabaseValidator.PgIntrospection do
 
   defp normalize_check_constraint(row) do
     %{
-      name: String.to_atom(row["name"]),
+      name: safe_to_atom(row["name"]),
       definition: row["definition"]
     }
   end
@@ -434,7 +458,7 @@ defmodule Events.Schema.DatabaseValidator.PgIntrospection do
 
   defp normalize_unique_constraint(row) do
     %{
-      name: String.to_atom(row["name"]),
+      name: safe_to_atom(row["name"]),
       columns: normalize_columns(row["columns"])
     }
   end

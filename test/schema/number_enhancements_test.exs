@@ -1,5 +1,5 @@
 defmodule Events.Schema.NumberEnhancementsTest do
-  use ExUnit.Case, async: true
+  use Events.TestCase, async: true
 
   defmodule Product do
     use Events.Schema

@@ -1,5 +1,5 @@
 defmodule Events.Schema.FieldLevelValidationTest do
-  use ExUnit.Case, async: true
+  use Events.TestCase, async: true
 
   defmodule TestUser do
     use Events.Schema

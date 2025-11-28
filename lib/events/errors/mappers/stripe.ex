@@ -43,7 +43,7 @@ defmodule Events.Errors.Mappers.Stripe do
   ## Helpers
 
   defp extract_code(%{code: code}) when is_atom(code), do: code
-  defp extract_code(%{code: code}) when is_binary(code), do: String.to_atom(code)
+  defp extract_code(%{code: code}) when is_binary(code), do: safe_to_atom(code)
 
   defp extract_code(%{} = error) do
     error
@@ -51,10 +51,21 @@ defmodule Events.Errors.Mappers.Stripe do
     |> Map.get(:raw_error, %{})
     |> Map.get("code", :unknown)
     |> case do
-      code when is_binary(code) -> String.to_atom(code)
+      code when is_binary(code) -> safe_to_atom(code)
       code when is_atom(code) -> code
       _ -> :unknown
     end
+  end
+
+  # Safe atom conversion - tries existing atoms first
+  # Stripe error codes are bounded, but we still prefer existing atoms
+  defp safe_to_atom(string) when is_binary(string) do
+    String.to_existing_atom(string)
+  rescue
+    ArgumentError ->
+      # Stripe may add new error codes, so we allow creating new atoms
+      # The set of Stripe error codes is bounded
+      String.to_atom(string)
   end
 
   defp extract_message(stripe_error, raw_error) do

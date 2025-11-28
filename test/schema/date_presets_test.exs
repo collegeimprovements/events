@@ -1,5 +1,6 @@
 defmodule Events.Schema.DatePresetsTest do
-  use ExUnit.Case, async: true
+  use Events.TestCase, async: true
+
   import Events.Schema.Presets.Dates
 
   defmodule Event do

@@ -1,5 +1,6 @@
 defmodule Events.Schema.PresetsExtendedTest do
-  use ExUnit.Case
+  use Events.TestCase, async: true
+
   import Events.Schema.TestHelpers
   import Events.Schema.Presets
 

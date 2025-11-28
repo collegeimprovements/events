@@ -189,3 +189,162 @@ end
 | **Security** | `role_required`, `rate_limit`, `audit_log` |
 | **Debugging** | `debug`, `inspect`, `pry` (dev only) |
 | **Purity** | `pure`, `deterministic`, `idempotent`, `memoizable` |
+
+---
+
+## S3 API Guidelines
+
+**IMPORTANT:** This project has a clean, unified S3 API at `Events.Services.S3`. Always use this module instead of raw ExAws or other S3 libraries.
+
+### Module Location
+
+- `Events.Services.S3` - Main API (use this)
+- `Events.Services.S3.Config` - Configuration
+- `Events.Services.S3.Client` - Low-level HTTP client (internal)
+- `Events.Services.S3.Request` - Pipeline builder (internal)
+- `Events.Services.S3.URI` - URI utilities
+
+### Two API Styles
+
+#### 1. Direct API (config as last argument)
+
+```elixir
+alias Events.Services.S3
+
+config = S3.config(access_key_id: "...", secret_access_key: "...")
+
+# Basic operations
+:ok = S3.put("s3://bucket/file.txt", "content", config)
+{:ok, data} = S3.get("s3://bucket/file.txt", config)
+:ok = S3.delete("s3://bucket/file.txt", config)
+true = S3.exists?("s3://bucket/file.txt", config)
+
+# Presigned URLs
+{:ok, url} = S3.presign("s3://bucket/file.pdf", config)
+{:ok, url} = S3.presign_put("s3://bucket/upload.jpg", config, expires_in: {5, :minutes})
+```
+
+#### 2. Pipeline API (chainable, config first)
+
+```elixir
+alias Events.Services.S3
+
+# Upload with metadata
+S3.new(config)
+|> S3.bucket("my-bucket")
+|> S3.prefix("uploads/2024/")
+|> S3.content_type("image/jpeg")
+|> S3.metadata(%{user_id: "123"})
+|> S3.put("photo.jpg", jpeg_data)
+
+# From environment variables
+S3.from_env()
+|> S3.expires_in({5, :minutes})
+|> S3.presign("s3://bucket/file.pdf")
+
+# Batch operations with concurrency
+S3.new(config)
+|> S3.bucket("my-bucket")
+|> S3.concurrency(10)
+|> S3.put_all([{"a.txt", "content"}, {"b.txt", "content"}])
+```
+
+### S3 URIs
+
+All operations accept `s3://bucket/key` URIs:
+
+```elixir
+"s3://my-bucket/path/to/file.txt"   # Full path
+"s3://my-bucket/prefix/"             # For listing
+"s3://my-bucket"                     # Bucket root
+```
+
+### Configuration
+
+```elixir
+# From environment (reads AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, etc.)
+S3.from_env()
+
+# Manual configuration
+S3.config(
+  access_key_id: "AKIA...",
+  secret_access_key: "...",
+  region: "us-east-1"
+)
+
+# With proxy
+S3.config(
+  access_key_id: "...",
+  secret_access_key: "...",
+  proxy: {"proxy.example.com", 8080}
+)
+
+# LocalStack / MinIO
+S3.config(
+  access_key_id: "test",
+  secret_access_key: "test",
+  endpoint: "http://localhost:4566"
+)
+```
+
+### Core Operations
+
+| Function | Description |
+|----------|-------------|
+| `put/3-4` | Upload content |
+| `get/2` | Download content |
+| `delete/2` | Delete object |
+| `exists?/2` | Check existence |
+| `head/2` | Get metadata |
+| `list/2-3` | List objects (paginated) |
+| `list_all/3` | List all objects (handles pagination) |
+| `copy/3` | Copy within S3 |
+| `presign/2-3` | Generate presigned URL |
+| `presign_get/2-3` | Presigned download URL |
+| `presign_put/2-3` | Presigned upload URL |
+
+### Batch Operations
+
+All batch operations support glob patterns and parallel execution:
+
+```elixir
+# Upload multiple files
+S3.put_all([{"a.txt", "..."}, {"b.txt", "..."}], config, to: "s3://bucket/")
+
+# Download with globs
+S3.get_all(["s3://bucket/*.pdf"], config)
+
+# Delete with patterns
+S3.delete_all(["s3://bucket/temp/*.tmp"], config)
+
+# Copy with glob
+S3.copy_all("s3://source/*.jpg", config, to: "s3://dest/")
+
+# Presign multiple
+S3.presign_all(["s3://bucket/*.pdf"], config, expires_in: {1, :hour})
+```
+
+### File Name Normalization
+
+```elixir
+S3.normalize_key("User's Photo (1).jpg")
+#=> "users-photo-1.jpg"
+
+S3.normalize_key("report.pdf", prefix: "docs", timestamp: true)
+#=> "docs/report-20240115-143022.pdf"
+
+S3.normalize_key("file.txt", uuid: true)
+#=> "file-a1b2c3d4-e5f6-7890-abcd-ef1234567890.txt"
+```
+
+### Quick Reference
+
+**Pipeline Setters:** `bucket/2`, `prefix/2`, `content_type/2`, `metadata/2`, `acl/2`, `storage_class/2`, `expires_in/2`, `method/2`, `concurrency/2`, `timeout/2`
+
+**Environment Variables:**
+- `AWS_ACCESS_KEY_ID` - Required
+- `AWS_SECRET_ACCESS_KEY` - Required
+- `AWS_REGION` / `AWS_DEFAULT_REGION` - Default: "us-east-1"
+- `AWS_ENDPOINT_URL_S3` / `AWS_ENDPOINT` - Custom endpoint
+- `HTTP_PROXY` / `HTTPS_PROXY` - Proxy configuration
+- `S3_BUCKET` - Default bucket

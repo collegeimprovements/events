@@ -1,5 +1,5 @@
 defmodule Events.Migration.PipelineTest do
-  use ExUnit.Case, async: true
+  use Events.TestCase, async: true
 
   alias Events.Migration.Pipeline
   alias Events.Migration.Token

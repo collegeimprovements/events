@@ -2,7 +2,7 @@ defmodule Events.SchemaOverrideTest do
   @moduledoc """
   Test to verify we can override schema macro itself, not just field.
   """
-  use ExUnit.Case
+  use Events.TestCase, async: true
 
   defmodule CustomSchema do
     @moduledoc """

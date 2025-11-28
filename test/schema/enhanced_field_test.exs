@@ -1,5 +1,5 @@
 defmodule Events.Schema.EnhancedFieldTest do
-  use ExUnit.Case, async: true
+  use Events.TestCase, async: true
 
   defmodule TestUser do
     use Events.Schema
@@ -195,14 +195,5 @@ defmodule Events.Schema.EnhancedFieldTest do
       changeset_negative = TestPost.apply_validations(changeset_negative)
       refute changeset_negative.valid?
     end
-  end
-
-  # Helper to get errors as a map
-  defp errors_on(changeset) do
-    Ecto.Changeset.traverse_errors(changeset, fn {msg, opts} ->
-      Regex.replace(~r"%{(\w+)}", msg, fn _, key ->
-        opts |> Keyword.get(String.to_existing_atom(key), key) |> to_string()
-      end)
-    end)
   end
 end

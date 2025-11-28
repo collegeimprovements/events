@@ -733,7 +733,7 @@ defmodule Events.Decorator.Telemetry do
         metadata = Map.put(unquote(base_metadata), :duration_ms, duration_ms)
 
         if unquote(async?) do
-          Task.start(fn ->
+          Task.Supervisor.start_child(Events.TaskSupervisor, fn ->
             unquote(service).log_async(:info, "Function completed", metadata)
           end)
         else
@@ -749,7 +749,7 @@ defmodule Events.Decorator.Telemetry do
             })
 
           if unquote(async?) do
-            Task.start(fn ->
+            Task.Supervisor.start_child(Events.TaskSupervisor, fn ->
               unquote(service).log_async(:error, "Function failed", metadata)
             end)
           else

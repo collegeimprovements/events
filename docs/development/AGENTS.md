@@ -278,6 +278,93 @@ end
 - **Respect proxies** when configured
 - **Log HTTP requests** when required for debugging and monitoring
 
+### S3 Layer (Events.Services.S3)
+
+**Always use `Events.Services.S3`** for all S3 operations. Never use raw ExAws or other S3 libraries directly.
+
+#### API Styles
+
+**Direct API** (config as last argument):
+```elixir
+alias Events.Services.S3
+
+config = S3.config(access_key_id: "...", secret_access_key: "...")
+:ok = S3.put("s3://bucket/file.txt", "content", config)
+{:ok, data} = S3.get("s3://bucket/file.txt", config)
+:ok = S3.delete("s3://bucket/file.txt", config)
+```
+
+**Pipeline API** (chainable, config first):
+```elixir
+S3.new(config)
+|> S3.bucket("my-bucket")
+|> S3.prefix("uploads/")
+|> S3.content_type("image/jpeg")
+|> S3.put("photo.jpg", jpeg_data)
+
+# From environment
+S3.from_env()
+|> S3.expires_in({5, :minutes})
+|> S3.presign("s3://bucket/file.pdf")
+```
+
+#### S3 URIs
+
+All operations accept `s3://bucket/key` URIs:
+```elixir
+"s3://my-bucket/path/to/file.txt"
+"s3://my-bucket/prefix/"              # For listing
+```
+
+#### Core Operations
+
+- `put/3-4` - Upload content
+- `get/2` - Download content
+- `delete/2` - Delete object
+- `exists?/2` - Check existence
+- `head/2` - Get metadata
+- `list/2-3` - List objects (paginated)
+- `list_all/3` - List all (handles pagination)
+- `copy/3` - Copy within S3
+- `presign/2-3` - Generate presigned URL
+
+#### Batch Operations (with glob support)
+
+```elixir
+S3.put_all([{"a.txt", "..."}, {"b.txt", "..."}], config, to: "s3://bucket/")
+S3.get_all(["s3://bucket/*.pdf"], config)
+S3.delete_all(["s3://bucket/temp/*.tmp"], config)
+S3.copy_all("s3://source/*.jpg", config, to: "s3://dest/")
+```
+
+#### Configuration
+
+```elixir
+# From environment variables
+S3.from_env()
+
+# Manual
+S3.config(
+  access_key_id: "AKIA...",
+  secret_access_key: "...",
+  region: "us-east-1"
+)
+
+# LocalStack / MinIO
+S3.config(
+  access_key_id: "test",
+  secret_access_key: "test",
+  endpoint: "http://localhost:4566"
+)
+```
+
+#### File Name Normalization
+
+```elixir
+S3.normalize_key("User's Photo (1).jpg")  #=> "users-photo-1.jpg"
+S3.normalize_key("report.pdf", prefix: "docs", timestamp: true)
+```
+
 ### Database Layer (Ecto)
 
 - **Use Ecto** as the primary database interface

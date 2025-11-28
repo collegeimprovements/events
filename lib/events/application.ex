@@ -14,8 +14,8 @@ defmodule Events.Application do
       Events.KillSwitch,
       {DNSCluster, query: Application.get_env(:events, :dns_cluster_query) || :ignore},
       Events.PubSub,
-      # Start a worker by calling: Events.Worker.start_link(arg)
-      # {Events.Worker, arg},
+      # Task supervisor for async operations (error storage, telemetry, etc.)
+      {Task.Supervisor, name: Events.TaskSupervisor},
       # Start to serve requests, typically the last entry
       EventsWeb.Endpoint
     ]
@@ -56,7 +56,12 @@ defmodule Events.Application do
 
   defp wait_for_repo(attempts, interval) do
     case Ecto.Repo.Registry.lookup(Events.Repo) do
-      {_adapter_meta, _pid} ->
+      # Ecto 3.x returns a map with adapter meta and pid
+      %{pid: pid} when is_pid(pid) ->
+        :ok
+
+      # Legacy format (tuple) for backwards compatibility
+      {_adapter_meta, pid} when is_pid(pid) ->
         :ok
 
       nil ->
@@ -64,7 +69,13 @@ defmodule Events.Application do
         wait_for_repo(attempts - 1, interval)
     end
   rescue
-    _ ->
+    # Handle ArgumentError when Repo module not yet loaded
+    ArgumentError ->
+      Process.sleep(interval)
+      wait_for_repo(attempts - 1, interval)
+
+    # Handle UndefinedFunctionError when Ecto.Repo.Registry not available
+    UndefinedFunctionError ->
       Process.sleep(interval)
       wait_for_repo(attempts - 1, interval)
   end

@@ -353,7 +353,7 @@ defmodule Events.Error do
   @spec store(t(), keyword()) :: {:ok, t()} | {:error, term()}
   def store(%Error{} = error, opts \\ []) do
     if opts[:async] do
-      Task.start(fn -> do_store(error) end)
+      Task.Supervisor.start_child(Events.TaskSupervisor, fn -> do_store(error) end)
       {:ok, error}
     else
       do_store(error)

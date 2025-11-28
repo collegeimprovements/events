@@ -1,5 +1,5 @@
 defmodule Events.Schema.SlugUniquenessTest do
-  use ExUnit.Case, async: true
+  use Events.TestCase, async: true
 
   defmodule Post do
     use Events.Schema

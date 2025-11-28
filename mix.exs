@@ -13,7 +13,16 @@ defmodule Events.MixProject do
       compilers: [:phoenix_live_view] ++ Mix.compilers(),
       listeners: [Phoenix.CodeReloader],
       # Xref checks for compile-time analysis
-      xref: [exclude: xref_excludes()]
+      xref: [exclude: xref_excludes()],
+      # Test coverage
+      test_coverage: [tool: ExCoveralls],
+      preferred_cli_env: [
+        coveralls: :test,
+        "coveralls.html": :test,
+        "coveralls.json": :test,
+        "test.interactive": :test,
+        "test.quality": :test
+      ]
     ]
   end
 
@@ -97,7 +106,36 @@ defmodule Events.MixProject do
       # Benchmarking
       {:benchee, "~> 1.3", only: :dev},
       # Static analysis
-      {:credo, "~> 1.7", only: [:dev, :test], runtime: false}
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+
+      # ============================================
+      # Testing Libraries
+      # ============================================
+
+      # Mocking - Mimic for ad-hoc mocking, Hammox for contract-enforced mocking
+      {:mimic, "~> 2.0", only: :test},
+      {:hammox, "~> 0.7", only: :test},
+
+      # Effects - Declarative side-effect isolation
+      {:efx, "~> 1.0", only: :test},
+
+      # HTTP Testing - Mock server with TLS/HTTP2 support
+      {:test_server, "~> 0.1", only: :test},
+
+      # Data Generation
+      {:faker, "~> 0.18", only: :test},
+
+      # Property-Based Testing
+      {:stream_data, "~> 1.1", only: :test},
+
+      # Test Coverage
+      {:excoveralls, "~> 0.18", only: :test},
+
+      # Development - Watch mode test runner
+      {:mix_test_watch, "~> 1.0", only: :dev, runtime: false},
+
+      # Documentation coverage
+      {:doctor, "~> 0.22", only: :dev}
     ]
   end
 
@@ -120,18 +158,58 @@ defmodule Events.MixProject do
         "esbuild events --minify",
         "phx.digest"
       ],
-      precommit: ["compile --warnings-as-errors", "deps.unlock --unused", "format", "credo", "test"],
-      # CI quality checks
-      ci: [
+
+      # ============================================
+      # Quality & Testing Aliases
+      # ============================================
+
+      # Pre-commit hook - fast quality checks
+      precommit: [
+        "format --check-formatted",
         "compile --warnings-as-errors",
-        "xref graph --label compile-connected --fail-above 0",
         "credo --strict",
         "test --warnings-as-errors"
       ],
-      # Check for circular dependencies and compile warnings
-      "xref.check": ["xref graph --label compile-connected --fail-above 50"],
+
+      # Full CI pipeline
+      ci: [
+        "deps.unlock --check-unused",
+        "format --check-formatted",
+        "compile --warnings-as-errors",
+        "credo --strict",
+        "test --warnings-as-errors --cover"
+      ],
+
+      # Test quality - comprehensive test validation
+      "test.quality": [
+        "compile --warnings-as-errors",
+        "test --warnings-as-errors"
+      ],
+
+      # Test with coverage report
+      "test.coverage": ["test --cover"],
+      "test.coverage.html": ["coveralls.html"],
+
+      # Run only fast unit tests (exclude integration/slow)
+      "test.unit": ["test --exclude integration --exclude slow --exclude external"],
+
+      # Run integration tests only
+      "test.integration": ["test --only integration"],
+
+      # Run external API tests only (requires network)
+      "test.external": ["test --only external"],
+
+      # Property-based tests
+      "test.properties": ["test --only property"],
+
       # Static analysis
-      lint: ["format --check-formatted", "credo --strict"]
+      lint: ["format --check-formatted", "credo --strict"],
+
+      # Check for circular dependencies
+      "xref.check": ["xref graph --label compile-connected --fail-above 50"],
+
+      # Documentation coverage
+      "docs.coverage": ["doctor"]
     ]
   end
 end

@@ -226,8 +226,16 @@ defmodule Events.PubSub do
 
   defp get_redis_port do
     case System.get_env("REDIS_PORT") do
-      nil -> 6379
-      port -> String.to_integer(port)
+      nil ->
+        6379
+
+      port ->
+        case Integer.parse(port) do
+          {parsed, ""} -> parsed
+          _ ->
+            Logger.warning("Invalid REDIS_PORT value '#{port}', using default 6379")
+            6379
+        end
     end
   end
 

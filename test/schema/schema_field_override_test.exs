@@ -2,7 +2,7 @@ defmodule Events.SchemaFieldOverrideTest do
   @moduledoc """
   Test to verify if overriding Ecto's field macro works correctly.
   """
-  use ExUnit.Case
+  use Events.TestCase, async: true
 
   # Define CustomField first before using it
   defmodule CustomField do

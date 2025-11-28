@@ -270,6 +270,10 @@ defmodule Events.Decorator.Tracing do
     format = opts[:format]
 
     quote do
+      # Note: Using spawn/1 intentionally here rather than Task.Supervisor.
+      # The tracer process must be independent of the supervision tree to correctly
+      # receive trace messages from :erlang.trace without being affected by
+      # the traced process's lifecycle.
       tracer_pid =
         spawn(fn ->
           Process.flag(:trap_exit, true)
@@ -307,6 +311,7 @@ defmodule Events.Decorator.Tracing do
     quote do
       modules_ref = :ets.new(:trace_modules, [:set, :public])
 
+      # Note: Using spawn/1 intentionally - tracer must be independent of supervision tree
       tracer_pid =
         spawn(fn ->
           Events.Decorator.Tracing.__trace_modules_loop__(
@@ -340,6 +345,7 @@ defmodule Events.Decorator.Tracing do
     quote do
       deps_ref = :ets.new(:trace_deps, [:bag, :public])
 
+      # Note: Using spawn/1 intentionally - tracer must be independent of supervision tree
       tracer_pid =
         spawn(fn ->
           unquote(__MODULE__).trace_deps_loop(deps_ref, unquote(type))

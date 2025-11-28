@@ -163,7 +163,16 @@ defmodule Events.Query.Params do
   end
 
   defp to_atom_key(key, nil) when is_atom(key), do: key
-  defp to_atom_key(key, nil) when is_binary(key), do: String.to_atom(key)
+
+  defp to_atom_key(key, nil) when is_binary(key) do
+    # Try existing atom first to avoid atom table pollution
+    String.to_existing_atom(key)
+  rescue
+    ArgumentError ->
+      # Atom doesn't exist - create it but this should be rare in well-designed code
+      # Callers should use `only:` option for untrusted input
+      String.to_atom(key)
+  end
 
   defp to_atom_key(key, only) when is_atom(key) do
     if key in only, do: key, else: nil

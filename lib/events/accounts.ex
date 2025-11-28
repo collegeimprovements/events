@@ -234,11 +234,17 @@ defmodule Events.Accounts do
 
   @doc """
   Generates a session token.
+
+  Returns `{:ok, token}` on success, `{:error, changeset}` on failure.
   """
+  @spec generate_user_session_token(User.t()) :: {:ok, binary()} | {:error, Ecto.Changeset.t()}
   def generate_user_session_token(user) do
     {token, user_token} = UserToken.build_session_token(user)
-    Repo.insert!(user_token)
-    token
+
+    case Repo.insert(user_token) do
+      {:ok, _} -> {:ok, token}
+      {:error, changeset} -> {:error, changeset}
+    end
   end
 
   @doc """
@@ -261,15 +267,22 @@ defmodule Events.Accounts do
 
   @doc """
   Delivers the confirmation email instructions to the given user.
+
+  Returns `{:ok, encoded_token}` on success, `{:error, reason}` on failure.
   """
+  @spec deliver_user_confirmation_instructions(User.t(), (binary() -> binary())) ::
+          {:ok, binary()} | {:error, :already_confirmed | Ecto.Changeset.t()}
   def deliver_user_confirmation_instructions(%User{} = user, confirmation_url_fun)
       when is_function(confirmation_url_fun, 1) do
     if user.confirmed_at do
       {:error, :already_confirmed}
     else
       {encoded_token, user_token} = UserToken.build_email_token(user, "confirm")
-      Repo.insert!(user_token)
-      {:ok, encoded_token}
+
+      case Repo.insert(user_token) do
+        {:ok, _} -> {:ok, encoded_token}
+        {:error, changeset} -> {:error, changeset}
+      end
     end
   end
 
@@ -296,12 +309,19 @@ defmodule Events.Accounts do
 
   @doc """
   Delivers the reset password email to the given user.
+
+  Returns `{:ok, encoded_token}` on success, `{:error, changeset}` on failure.
   """
+  @spec deliver_user_reset_password_instructions(User.t(), (binary() -> binary())) ::
+          {:ok, binary()} | {:error, Ecto.Changeset.t()}
   def deliver_user_reset_password_instructions(%User{} = user, reset_password_url_fun)
       when is_function(reset_password_url_fun, 1) do
     {encoded_token, user_token} = UserToken.build_email_token(user, "reset_password")
-    Repo.insert!(user_token)
-    {:ok, encoded_token}
+
+    case Repo.insert(user_token) do
+      {:ok, _} -> {:ok, encoded_token}
+      {:error, changeset} -> {:error, changeset}
+    end
   end
 
   @doc """

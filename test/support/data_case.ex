@@ -1,17 +1,42 @@
 defmodule Events.DataCase do
   @moduledoc """
-  This module defines the setup for tests requiring
-  access to the application's data layer.
+  Test case for tests requiring database access.
 
-  You may define functions here to be used as helpers in
-  your tests.
+  ## When to Use
 
-  Finally, if the test case interacts with the database,
-  we enable the SQL sandbox, so changes done to the database
-  are reverted at the end of every test. If you are using
-  PostgreSQL, you can even run database tests asynchronously
-  by setting `use Events.DataCase, async: true`, although
-  this option is not recommended for other databases.
+  Use `Events.DataCase` for:
+  - Context modules that interact with the database
+  - Schema tests with persistence
+  - Repository operations
+  - Database constraints and validations
+
+  For pure unit tests, use `Events.TestCase` instead.
+  For Phoenix controller tests, use `EventsWeb.ConnCase`.
+
+  ## Usage
+
+      defmodule Events.AccountsTest do
+        use Events.DataCase, async: true
+
+        test "creates user with valid attrs" do
+          attrs = build(:user)
+          assert {:ok, user} = Accounts.create_user(attrs)
+          assert user.email == attrs.email
+        end
+      end
+
+  ## Features
+
+  - Database sandbox (automatic transaction rollback)
+  - Ecto imports (`Ecto`, `Ecto.Query`, `Ecto.Changeset`)
+  - Custom assertions (`assert_ok`, `assert_error`, `assert_valid`)
+  - Test factory (`build/2`, `build_list/3`)
+  - Changeset helpers (`errors_on/1`)
+
+  ## Test Tags
+
+      @tag :slow        # Tests taking > 1 second
+      @tag :integration # Full integration tests
   """
 
   use ExUnit.CaseTemplate
@@ -24,6 +49,18 @@ defmodule Events.DataCase do
       import Ecto.Changeset
       import Ecto.Query
       import Events.DataCase
+
+      # Mocking support
+      use Mimic
+
+      # Custom assertions
+      use Events.Test.Assertions
+
+      # Test data factory
+      import Events.Test.Factory
+
+      # Property-based testing
+      use ExUnitProperties
     end
   end
 
@@ -54,5 +91,42 @@ defmodule Events.DataCase do
         opts |> Keyword.get(String.to_existing_atom(key), key) |> to_string()
       end)
     end)
+  end
+
+  @doc """
+  Asserts that the given changeset has no errors.
+  """
+  def assert_changeset_valid(changeset) do
+    assert changeset.valid?,
+           "Expected changeset to be valid, got errors: #{inspect(errors_on(changeset))}"
+
+    changeset
+  end
+
+  @doc """
+  Asserts that the given changeset has errors.
+  """
+  def assert_changeset_invalid(changeset) do
+    refute changeset.valid?, "Expected changeset to be invalid, but it was valid"
+    changeset
+  end
+
+  @doc """
+  Asserts a specific error exists on a field.
+  """
+  def assert_error_on(changeset, field, message \\ nil) do
+    errors = errors_on(changeset)
+
+    assert Map.has_key?(errors, field),
+           "Expected error on :#{field}, got errors on: #{inspect(Map.keys(errors))}"
+
+    if message do
+      field_errors = Map.get(errors, field, [])
+
+      assert message in field_errors,
+             "Expected error '#{message}' on :#{field}, got: #{inspect(field_errors)}"
+    end
+
+    changeset
   end
 end

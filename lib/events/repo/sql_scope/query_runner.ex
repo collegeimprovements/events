@@ -169,7 +169,12 @@ defmodule Events.Repo.SqlScope.QueryRunner do
   def postgres_version do
     case execute_query("SHOW server_version_num") do
       {:ok, %{rows: [[version_str]]}} ->
-        String.to_integer(version_str)
+        case Integer.parse(version_str) do
+          {version, _} -> version
+          :error ->
+            Logger.warning("Invalid PostgreSQL version format '#{version_str}', assuming 14.0")
+            140_000
+        end
 
       {:error, _} ->
         # Fallback: assume recent version

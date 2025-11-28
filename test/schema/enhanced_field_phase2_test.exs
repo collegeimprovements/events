@@ -1,5 +1,5 @@
 defmodule Events.Schema.EnhancedFieldPhase2Test do
-  use ExUnit.Case, async: true
+  use Events.TestCase, async: true
 
   # Test module for custom error messages
   defmodule TestCustomMessages do
@@ -508,14 +508,5 @@ defmodule Events.Schema.EnhancedFieldPhase2Test do
 
       assert changeset.valid?
     end
-  end
-
-  # Helper to get errors as a map
-  defp errors_on(changeset) do
-    Ecto.Changeset.traverse_errors(changeset, fn {msg, opts} ->
-      Regex.replace(~r"%{(\w+)}", msg, fn _, key ->
-        opts |> Keyword.get(String.to_existing_atom(key), key) |> to_string()
-      end)
-    end)
   end
 end

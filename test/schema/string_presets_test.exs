@@ -1,5 +1,6 @@
 defmodule Events.Schema.StringPresetsTest do
-  use ExUnit.Case, async: true
+  use Events.TestCase, async: true
+
   import Events.Schema.Presets.Strings
 
   defmodule Profile do

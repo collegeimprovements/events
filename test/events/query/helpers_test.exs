@@ -1,5 +1,5 @@
 defmodule Events.Query.HelpersTest do
-  use ExUnit.Case, async: true
+  use Events.TestCase, async: true
 
   import Events.Query.Helpers
   alias Events.Query

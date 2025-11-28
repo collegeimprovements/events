@@ -1,5 +1,5 @@
 defmodule Events.Query.DynamicBuilderFormatsTest do
-  use ExUnit.Case, async: true
+  use Events.TestCase, async: true
 
   alias Events.Query.DynamicBuilder
 

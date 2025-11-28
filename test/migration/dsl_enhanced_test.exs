@@ -1,5 +1,5 @@
 defmodule Events.Migration.DSLEnhancedTest do
-  use ExUnit.Case, async: true
+  use Events.TestCase, async: true
 
   # DSLEnhanced uses Ecto.Migration macros which require the Ecto migration context
   # We test the macro expansion at a high level to verify they compile correctly

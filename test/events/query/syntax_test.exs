@@ -6,7 +6,7 @@ defmodule Events.Query.SyntaxTest do
   - Keyword-based filters
   - DSL comparison operators
   """
-  use ExUnit.Case, async: true
+  use Events.TestCase, async: true
 
   alias Events.Query
   alias Events.Query.Token

@@ -1,5 +1,6 @@
 defmodule Events.Schema.MappersTest do
-  use ExUnit.Case, async: true
+  use Events.TestCase, async: true
+
   import Events.Schema.Mappers
 
   describe "trim/0" do

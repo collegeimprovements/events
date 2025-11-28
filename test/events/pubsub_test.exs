@@ -1,5 +1,5 @@
 defmodule Events.PubSubTest do
-  use ExUnit.Case, async: false
+  use Events.TestCase, async: false
 
   alias Events.PubSub
 
