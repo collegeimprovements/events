@@ -103,6 +103,8 @@ defmodule Events.MixProject do
       {:phoenix_pubsub_redis, "~> 3.0"},
       # Authentication
       {:bcrypt_elixir, "~> 3.0"},
+      # JWT for Google service account auth (FCM, etc.)
+      {:jose, "~> 1.11"},
       # Benchmarking
       {:benchee, "~> 1.3", only: :dev},
       # Static analysis

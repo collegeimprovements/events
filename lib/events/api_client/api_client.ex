@@ -4,7 +4,7 @@ defmodule Events.APIClient do
 
   Provides a composable, pipeline-based approach to making HTTP requests
   with built-in support for authentication, retries, circuit breaking,
-  and rate limiting.
+  rate limiting, and telemetry.
 
   ## Quick Start
 
@@ -28,6 +28,7 @@ defmodule Events.APIClient do
   - `:retry` - Enable retries (default: true)
   - `:circuit_breaker` - Circuit breaker name (atom)
   - `:rate_limiter` - Rate limiter name (atom)
+  - `:telemetry` - Enable telemetry events (default: true)
 
   ## Dual API Pattern
 
@@ -62,9 +63,19 @@ defmodule Events.APIClient do
         retry: [max_attempts: 3, base_delay: 1000],
         circuit_breaker: :stripe_api,
         rate_limiter: :stripe_api
+
+  ## Telemetry
+
+  All requests emit telemetry events:
+
+  - `[:events, :api_client, :request, :start]` - Request started
+  - `[:events, :api_client, :request, :stop]` - Request completed
+  - `[:events, :api_client, :request, :exception]` - Request failed
+
+  See `Events.APIClient.Telemetry` for details.
   """
 
-  alias Events.APIClient.{Request, Response}
+  alias Events.APIClient.{Request, Response, Telemetry}
 
   defmacro __using__(opts) do
     base_url = Keyword.fetch!(opts, :base_url)
@@ -73,11 +84,12 @@ defmodule Events.APIClient do
     retry_opts = Keyword.get(opts, :retry, true)
     circuit_breaker = Keyword.get(opts, :circuit_breaker)
     rate_limiter = Keyword.get(opts, :rate_limiter)
+    telemetry_enabled = Keyword.get(opts, :telemetry, true)
 
     quote do
       @behaviour Events.APIClient.Behaviour
 
-      alias Events.APIClient.{Request, Response, Auth}
+      alias Events.APIClient.{Request, Response, Auth, Telemetry}
 
       @base_url unquote(base_url)
       @auth_type unquote(auth_type)
@@ -85,6 +97,8 @@ defmodule Events.APIClient do
       @retry_opts unquote(retry_opts)
       @circuit_breaker unquote(circuit_breaker)
       @rate_limiter unquote(rate_limiter)
+      @telemetry_enabled unquote(telemetry_enabled)
+      @client_name __MODULE__
 
       # ============================================
       # Behaviour Implementation
@@ -267,22 +281,72 @@ defmodule Events.APIClient do
         opts = apply_retry_options(opts)
 
         request_id = generate_request_id()
-        start_time = System.monotonic_time(:millisecond)
 
-        case Req.request(opts) do
-          {:ok, resp} ->
-            timing = System.monotonic_time(:millisecond) - start_time
+        telemetry_meta = %{
+          method: request.method,
+          path: request.path,
+          request_id: request_id,
+          metadata: request.metadata
+        }
 
-            response =
-              Response.from_req(resp,
-                request_id: request_id,
-                timing_ms: timing
+        # Emit telemetry start event
+        start_time = maybe_emit_telemetry_start(telemetry_meta)
+
+        try do
+          case Req.request(opts) do
+            {:ok, resp} ->
+              timing =
+                System.monotonic_time(:millisecond) -
+                  (start_time || System.monotonic_time(:millisecond))
+
+              response =
+                Response.from_req(resp,
+                  request_id: request_id,
+                  timing_ms: timing
+                )
+
+              # Emit telemetry stop event
+              maybe_emit_telemetry_stop(
+                start_time,
+                Map.put(telemetry_meta, :status, response.status)
               )
 
-            {:ok, response}
+              {:ok, response}
 
-          {:error, exception} ->
-            {:error, exception}
+            {:error, exception} ->
+              maybe_emit_telemetry_stop(start_time, telemetry_meta)
+              {:error, exception}
+          end
+        rescue
+          e ->
+            maybe_emit_telemetry_exception(start_time, :error, e, __STACKTRACE__, telemetry_meta)
+            reraise e, __STACKTRACE__
+        catch
+          kind, reason ->
+            maybe_emit_telemetry_exception(start_time, kind, reason, __STACKTRACE__, telemetry_meta)
+            :erlang.raise(kind, reason, __STACKTRACE__)
+        end
+      end
+
+      defp maybe_emit_telemetry_start(metadata) do
+        if @telemetry_enabled do
+          Telemetry.emit_start(@client_name, metadata)
+        end
+      end
+
+      defp maybe_emit_telemetry_stop(nil, _metadata), do: :ok
+
+      defp maybe_emit_telemetry_stop(start_time, metadata) do
+        if @telemetry_enabled do
+          Telemetry.emit_stop(start_time, @client_name, metadata)
+        end
+      end
+
+      defp maybe_emit_telemetry_exception(nil, _kind, _reason, _stacktrace, _metadata), do: :ok
+
+      defp maybe_emit_telemetry_exception(start_time, kind, reason, stacktrace, metadata) do
+        if @telemetry_enabled do
+          Telemetry.emit_exception(start_time, @client_name, kind, reason, stacktrace, metadata)
         end
       end
 

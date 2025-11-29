@@ -293,12 +293,118 @@ defmodule Events.APIClient.Response do
       #=> {:ok, %Response{status: 200, ...}}
   """
   @spec to_full_result(t()) :: {:ok, t()} | {:error, t()}
-  def to_full_result(%__MODULE__{} = resp) do
-    if success?(resp) do
-      {:ok, resp}
-    else
-      {:error, resp}
-    end
+  def to_full_result(%__MODULE__{status: status} = resp) when status in 200..299 do
+    {:ok, resp}
+  end
+
+  def to_full_result(%__MODULE__{} = resp), do: {:error, resp}
+
+  # ============================================
+  # Pattern Matching Helpers
+  # ============================================
+
+  @doc """
+  Pattern matches on response status and returns appropriate result.
+
+  Useful for handling different status codes with pattern matching.
+
+  ## Examples
+
+      Response.match(response) do
+        {:ok, body} -> process_success(body)
+        {:not_found, _} -> handle_not_found()
+        {:rate_limited, resp} -> wait_and_retry(resp)
+        {:client_error, resp} -> handle_client_error(resp)
+        {:server_error, resp} -> handle_server_error(resp)
+      end
+  """
+  @spec categorize(t()) ::
+          {:ok, term()}
+          | {:created, term()}
+          | {:accepted, term()}
+          | {:no_content, nil}
+          | {:not_found, t()}
+          | {:unauthorized, t()}
+          | {:forbidden, t()}
+          | {:unprocessable, t()}
+          | {:rate_limited, t()}
+          | {:client_error, t()}
+          | {:server_error, t()}
+  def categorize(%__MODULE__{status: 200, body: body}), do: {:ok, body}
+  def categorize(%__MODULE__{status: 201, body: body}), do: {:created, body}
+  def categorize(%__MODULE__{status: 202, body: body}), do: {:accepted, body}
+  def categorize(%__MODULE__{status: 204}), do: {:no_content, nil}
+  def categorize(%__MODULE__{status: 401} = resp), do: {:unauthorized, resp}
+  def categorize(%__MODULE__{status: 403} = resp), do: {:forbidden, resp}
+  def categorize(%__MODULE__{status: 404} = resp), do: {:not_found, resp}
+  def categorize(%__MODULE__{status: 422} = resp), do: {:unprocessable, resp}
+  def categorize(%__MODULE__{status: 429} = resp), do: {:rate_limited, resp}
+
+  def categorize(%__MODULE__{status: status} = resp) when status in 400..499,
+    do: {:client_error, resp}
+
+  def categorize(%__MODULE__{status: status} = resp) when status in 500..599,
+    do: {:server_error, resp}
+
+  def categorize(%__MODULE__{status: status, body: body}) when status in 200..299, do: {:ok, body}
+  def categorize(%__MODULE__{} = resp), do: {:error, resp}
+
+  @doc """
+  Unwraps a successful response or returns an error.
+
+  Similar to `to_result/1` but with better pattern matching support.
+
+  ## Examples
+
+      case Response.unwrap(response) do
+        {:ok, %{"id" => id}} -> {:ok, id}
+        {:error, %Response{status: 404}} -> {:error, :not_found}
+        {:error, %Response{status: 422, body: body}} -> {:error, body["errors"]}
+        {:error, resp} -> {:error, resp}
+      end
+  """
+  @spec unwrap(t()) :: {:ok, term()} | {:error, t()}
+  def unwrap(%__MODULE__{status: status, body: body}) when status in 200..299 do
+    {:ok, body}
+  end
+
+  def unwrap(%__MODULE__{} = resp), do: {:error, resp}
+
+  @doc """
+  Transforms the response body if successful.
+
+  ## Examples
+
+      response
+      |> Response.map(fn body -> body["data"] end)
+      #=> {:ok, data} or {:error, response}
+  """
+  @spec map(t(), (term() -> term())) :: {:ok, term()} | {:error, t()}
+  def map(%__MODULE__{status: status, body: body}, fun) when status in 200..299 do
+    {:ok, fun.(body)}
+  end
+
+  def map(%__MODULE__{} = resp, _fun), do: {:error, resp}
+
+  @doc """
+  Transforms both success and error cases.
+
+  ## Examples
+
+      response
+      |> Response.map_both(
+        fn body -> body["user"] end,
+        fn resp -> %{status: resp.status, message: resp.body["error"]} end
+      )
+  """
+  @spec map_both(t(), (term() -> term()), (t() -> term())) :: {:ok, term()} | {:error, term()}
+  def map_both(%__MODULE__{status: status, body: body}, success_fn, _error_fn)
+      when status in 200..299 do
+    {:ok, success_fn.(body)}
+  end
+
+  def map_both(%__MODULE__{} = resp, _success_fn, error_fn) do
+    {:error, error_fn.(resp)}
   end
 
   # ============================================
