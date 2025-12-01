@@ -1,0 +1,115 @@
+# =============================================================================
+# Schema Template
+# =============================================================================
+# Copy this template when creating a new schema module.
+#
+# Usage:
+#   1. Copy this file to lib/events/<domain>/<entity>.ex
+#   2. Replace MODULE_NAME with your module name
+#   3. Replace table_name with your table name
+#   4. Add your custom fields
+#   5. Adjust field groups as needed
+# =============================================================================
+
+defmodule Events.MODULE_NAME do
+  @moduledoc """
+  Schema for `table_name` table.
+
+  ## Fields
+
+  - `:field_name` - Description of the field
+
+  ## Examples
+
+      iex> %MODULE_NAME{}
+  """
+
+  use Events.Schema
+
+  # Import presets if using them
+  # import Events.Schema.Presets
+
+  # Define status values as module attribute for documentation
+  @statuses [:active, :inactive]
+
+  schema "table_name" do
+    # ==========================================================================
+    # Core Fields
+    # ==========================================================================
+    # Add your custom fields here. Use validation options directly on fields:
+    #
+    # field :name, :string, required: true, min_length: 2, max_length: 100
+    # field :email, :string, required: true, format: :email, mappers: [:trim, :downcase]
+    # field :age, :integer, positive: true, max: 150
+    # field :description, :text
+    # field :amount, :decimal, precision: 10, scale: 2
+
+    field :name, :string, required: true
+
+    # ==========================================================================
+    # Associations
+    # ==========================================================================
+    # belongs_to :account, Events.Accounts.Account, on_delete: :cascade
+    # has_many :items, Events.Items.Item
+
+    # ==========================================================================
+    # Standard Field Groups
+    # ==========================================================================
+    # Choose the field groups your schema needs:
+
+    type_fields()                                              # type, subtype
+    status_fields(values: @statuses, default: :active)         # status enum
+    metadata_field()                                           # metadata JSONB
+    # assets_field()                                           # assets JSONB
+    audit_fields()                                             # created_by_urm_id, updated_by_urm_id
+    # soft_delete_field()                                      # deleted_at
+    timestamps()                                               # inserted_at, updated_at
+
+    # ==========================================================================
+    # Constraints (optional)
+    # ==========================================================================
+    # constraints do
+    #   unique [:account_id, :email], name: :table_name_account_email_idx
+    #   check :valid_amount, expr: "amount >= 0"
+    # end
+  end
+
+  # ============================================================================
+  # Changesets
+  # ============================================================================
+
+  @doc """
+  Creates a changeset for creating/updating a record.
+
+  ## Examples
+
+      iex> changeset(%MODULE_NAME{}, %{name: "Test"})
+  """
+  def changeset(struct, attrs) do
+    struct
+    |> base_changeset(attrs)
+    |> unique_constraints([
+      # Add your unique constraints here
+      # {:email, []},
+      # {[:account_id, :slug], name: :table_name_account_slug_idx}
+    ])
+    |> foreign_key_constraints([
+      # Add your foreign key constraints here
+      # {:account_id, []}
+    ])
+  end
+
+  # ============================================================================
+  # Query Helpers (optional)
+  # ============================================================================
+
+  # Add query helpers as needed:
+  #
+  # def by_status(query \\ __MODULE__, status) do
+  #   from q in query, where: q.status == ^status
+  # end
+  #
+  # def by_account(query \\ __MODULE__, account_id) do
+  #   from q in query, where: q.account_id == ^account_id
+  # end
+end

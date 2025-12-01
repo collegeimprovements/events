@@ -1,33 +1,53 @@
 defmodule Events.Errors.Mappers do
   @moduledoc """
-  Collection of error mappers for converting external errors to Events.Errors.Error.
+  Collection of error mappers for converting external errors to Events.Error.
 
-  This module serves as a namespace for all mapper modules:
+  ## Deprecation Notice
 
-  - `Mappers.Ecto` - Ecto changeset and query errors
-  - `Mappers.Http` - HTTP status codes and client errors
-  - `Mappers.Aws` - AWS service errors
-  - `Mappers.Posix` - POSIX file system errors
-  - `Mappers.Stripe` - Stripe payment errors
-  - `Mappers.Graphql` - Graphql/Absinthe errors
-  - `Mappers.Business` - Domain-specific business errors
-  - `Mappers.Exception` - Generic Elixir exceptions
+  **This module and its sub-modules are deprecated.** Use the `Events.Normalizable`
+  protocol instead, which provides:
 
-  ## Usage
+  - Type-based dispatch (extensible without modifying core code)
+  - Consistent interface for all error types
+  - Integration with `Events.Recoverable` protocol
 
-      # Direct mapper usage
+  ## Migration Guide
+
+      # OLD (deprecated)
       Mappers.Ecto.normalize(changeset)
       Mappers.Http.normalize_status(404)
-      Mappers.Aws.normalize({:error, {:http_error, 403, %{}}})
 
-      # Via Normalizer (recommended)
-      Normalizer.normalize(changeset)
-      Normalizer.normalize({:error, :not_found})
+      # NEW (preferred)
+      Events.Normalizable.normalize(changeset)
+      Events.HttpError.new(404) |> Events.Normalizable.normalize()
+
+      # Or via Normalizer (uses protocol internally)
+      Events.Errors.Normalizer.normalize(changeset)
+
+  ## Available Protocol Implementations
+
+  The `Events.Normalizable` protocol has implementations for:
+  - `Ecto.Changeset`, `Ecto.NoResultsError`, `Ecto.StaleEntryError`, etc.
+  - `Postgrex.Error`, `DBConnection.ConnectionError`
+  - `Mint.TransportError`, `Mint.HTTPError`
+  - `Events.HttpError` (wrapper for HTTP status codes)
+  - `Events.PosixError` (wrapper for POSIX error atoms)
+  - Any exception (via `Any` fallback)
   """
+
+  @deprecated "Use Events.Normalizable protocol instead"
 
   # Re-export all mappers for convenience
   defdelegate normalize_ecto(changeset), to: Events.Errors.Mappers.Ecto, as: :normalize
-  defdelegate normalize_http_status(status), to: Events.Errors.Mappers.Http, as: :normalize_status
+
+  # Direct implementation instead of delegation to avoid deprecation warning cascade
+  # (Http.normalize_status is also deprecated, and we don't want double warnings)
+  @doc false
+  @spec normalize_http_status(integer()) :: Events.Error.t()
+  def normalize_http_status(status) do
+    Events.HttpError.new(status) |> Events.Normalizable.normalize()
+  end
+
   defdelegate normalize_posix(error), to: Events.Errors.Mappers.Posix, as: :normalize
   defdelegate normalize_aws(error), to: Events.Errors.Mappers.Aws, as: :normalize
   defdelegate normalize_stripe(error), to: Events.Errors.Mappers.Stripe, as: :normalize

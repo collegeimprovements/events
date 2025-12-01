@@ -6,6 +6,8 @@ defmodule Events.Accounts.Membership do
   A user can belong to multiple accounts (GitHub org model).
   """
 
+  @derive {Events.Identifiable, type: :membership}
+
   use Events.Schema
 
   @types [:owner, :member, :guest]
@@ -45,10 +47,12 @@ defmodule Events.Accounts.Membership do
   end
 
   defp maybe_set_joined_at(changeset) do
-    if get_field(changeset, :joined_at) do
-      changeset
-    else
-      put_change(changeset, :joined_at, DateTime.utc_now() |> DateTime.truncate(:microsecond))
+    case get_field(changeset, :joined_at) do
+      nil ->
+        put_change(changeset, :joined_at, DateTime.utc_now() |> DateTime.truncate(:microsecond))
+
+      _existing ->
+        changeset
     end
   end
 

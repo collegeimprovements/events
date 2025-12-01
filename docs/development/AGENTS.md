@@ -166,6 +166,236 @@ def get_field(struct, field), do: Map.get(struct, field)
 - **Follow functional programming** principles throughout the codebase
 - **Maintain consistent patterns** across the codebase so it's easy to optimize, follow, and fix issues
 
+### Functional Data Structures
+
+This project provides robust functional programming utilities. **Always use these modules** instead of manual pattern matching or custom implementations.
+
+See `docs/functional/OVERVIEW.md` for comprehensive documentation with real-world examples.
+
+#### Events.Result - Error Handling
+
+Use `Result` for all fallible operations. Returns `{:ok, value} | {:error, reason}`.
+
+```elixir
+alias Events.Result
+
+# Chain operations that can fail
+{:ok, 5}
+|> Result.map(&(&1 * 2))           # {:ok, 10}
+|> Result.and_then(&validate/1)    # Chains if ok, short-circuits on error
+
+# Safe exception handling
+Result.try_with(fn -> risky_operation() end)
+
+# Collect multiple results
+Result.collect([{:ok, 1}, {:ok, 2}, {:ok, 3}])  # {:ok, [1, 2, 3]}
+Result.collect([{:ok, 1}, {:error, :bad}])       # {:error, :bad}
+
+# Add context to errors
+{:error, :not_found}
+|> Result.wrap_error(user_id: 123, action: :fetch)
+# {:error, %{reason: :not_found, context: %{user_id: 123, action: :fetch}}}
+```
+
+#### Events.Maybe - Optional Values
+
+Use `Maybe` for values that may or may not exist. Returns `{:some, value} | :none`.
+
+```elixir
+alias Events.Maybe
+
+# Safe nested access
+user
+|> Maybe.from_nilable()
+|> Maybe.and_then(&Maybe.from_nilable(&1.address))
+|> Maybe.and_then(&Maybe.from_nilable(&1.city))
+|> Maybe.unwrap_or("Unknown")
+
+# Convert from nil
+Maybe.from_nilable(nil)    # :none
+Maybe.from_nilable("val")  # {:some, "val"}
+
+# Provide defaults
+Maybe.unwrap_or({:some, 42}, 0)  # 42
+Maybe.unwrap_or(:none, 0)         # 0
+```
+
+#### Events.Pipeline - Multi-Step Workflows
+
+Use `Pipeline` for complex multi-step operations with context accumulation.
+
+```elixir
+alias Events.Pipeline
+
+Pipeline.new(%{input: data})
+|> Pipeline.step(:validate, &validate_input/1)
+|> Pipeline.step(:transform, &transform_data/1)
+|> Pipeline.step(:persist, &save_to_db/1)
+|> Pipeline.run()
+# {:ok, %{input: data, validate: ..., transform: ..., persist: ...}}
+
+# With cleanup handlers
+Pipeline.new(%{})
+|> Pipeline.step(:acquire_resource, &acquire/1)
+|> Pipeline.ensure(:acquire_resource, fn _ctx, _result -> release_resource() end)
+|> Pipeline.run_with_ensure()
+```
+
+#### Events.AsyncResult - Async Operations
+
+Use `AsyncResult` for concurrent operations with proper error handling.
+
+```elixir
+alias Events.AsyncResult
+
+# Parallel fetching
+AsyncResult.parallel([
+  fn -> fetch_users() end,
+  fn -> fetch_orders() end,
+  fn -> fetch_products() end
+])
+# {:ok, [users, orders, products]} or {:error, first_error}
+
+# Race for fastest result
+AsyncResult.race([
+  fn -> fetch_from_cache() end,
+  fn -> fetch_from_db() end
+])
+
+# Retry with backoff
+AsyncResult.retry(fn -> flaky_api_call() end,
+  max_attempts: 3,
+  initial_delay: 100,
+  max_delay: 2000
+)
+```
+
+#### Pipeline + AsyncResult Composition
+
+`Pipeline` and `AsyncResult` compose seamlessly. Use AsyncResult **inside** Pipeline steps for async operations.
+
+**Feature Matrix:**
+
+| Feature | AsyncResult | Pipeline | How to Compose |
+|---------|-------------|----------|----------------|
+| Parallel execution | `parallel/2`, `parallel_map/2` | `parallel/3` | Pipeline wraps AsyncResult internally |
+| Race (first wins) | `race/2`, `race_with_fallback/3` | — | Use inside step function |
+| Retry with backoff | `retry/2` | `step_with_retry/4` | Both available |
+| Timeout | `with_timeout/2` | `run_with_timeout/2` | Both available at different levels |
+| Batch processing | `batch/2` | — | Use inside step function |
+| Progress tracking | `parallel_with_progress/3` | — | Use inside step function |
+| Sequential fallback | `first_ok/1` | — | Use inside step function |
+| Settlement (all results) | `parallel_settle/2` | — | Use inside step function |
+| Context accumulation | — | `step/3`, `assign/3` | Pipeline-only |
+| Branching | — | `branch/4` | Pipeline-only |
+| Rollback | — | `run_with_rollback/1` | Pipeline-only |
+| Checkpoints | — | `checkpoint/2` | Pipeline-only |
+
+**Composition Examples:**
+
+```elixir
+# Race multiple sources inside a Pipeline step
+Pipeline.new(%{id: 123})
+|> Pipeline.step(:fetch_data, fn ctx ->
+  AsyncResult.race([
+    fn -> Cache.get(ctx.id) end,
+    fn -> DB.get(ctx.id) end
+  ])
+  |> Result.map(&%{data: &1})
+end)
+|> Pipeline.run()
+
+# Parallel enrichment inside a Pipeline step
+Pipeline.new(%{user: user})
+|> Pipeline.step(:enrich, fn ctx ->
+  AsyncResult.parallel([
+    fn -> fetch_preferences(ctx.user.id) end,
+    fn -> fetch_notifications(ctx.user.id) end
+  ])
+  |> Result.map(fn [prefs, notifs] ->
+    %{preferences: prefs, notifications: notifs}
+  end)
+end)
+|> Pipeline.run()
+
+# Retry with backoff for flaky operations
+Pipeline.new(%{url: url})
+|> Pipeline.step(:fetch_external, fn ctx ->
+  AsyncResult.retry(
+    fn -> HttpClient.get(ctx.url) end,
+    max_attempts: 3,
+    initial_delay: 100,
+    max_delay: 2000
+  )
+  |> Result.map(&%{response: &1})
+end)
+|> Pipeline.run()
+
+# Batch processing with rate limiting
+Pipeline.new(%{items: items})
+|> Pipeline.step(:process_batches, fn ctx ->
+  AsyncResult.batch(
+    Enum.map(ctx.items, fn item -> fn -> process_item(item) end end),
+    batch_size: 10,
+    delay_between_batches: 1000
+  )
+  |> Result.map(&%{results: &1})
+end)
+|> Pipeline.run()
+```
+
+**When to Use Which:**
+
+| Scenario | Use |
+|----------|-----|
+| Multi-step business workflow | `Pipeline` |
+| Simple parallel fetching | `AsyncResult.parallel/2` |
+| Parallel steps in a workflow | `Pipeline.parallel/3` |
+| Race multiple alternatives | `AsyncResult.race/2` inside Pipeline step |
+| Retry flaky operation | `AsyncResult.retry/2` or `Pipeline.step_with_retry/4` |
+| Batch API with rate limiting | `AsyncResult.batch/2` inside Pipeline step |
+| Need context between steps | `Pipeline` |
+| Need rollback on failure | `Pipeline.run_with_rollback/1` |
+| Just running concurrent tasks | `AsyncResult` directly |
+
+#### Events.Guards - Pattern Matching Guards
+
+Use guards in function heads for cleaner pattern matching.
+
+```elixir
+import Events.Guards
+
+# Guards in function definitions
+def handle(result) when is_ok(result), do: :success
+def handle(result) when is_error(result), do: :failure
+
+def process(maybe) when is_some(maybe), do: :present
+def process(maybe) when is_none(maybe), do: :absent
+
+# Pattern matching macros
+case result do
+  ok(value) -> process(value)
+  error(reason) -> handle_error(reason)
+end
+
+case maybe do
+  some(v) -> use(v)
+  none() -> default()
+end
+```
+
+#### Quick Reference
+
+| Need | Use | Example |
+|------|-----|---------|
+| Fallible operation | `Result` | `Result.and_then(result, &process/1)` |
+| Optional value | `Maybe` | `Maybe.from_nilable(user.email)` |
+| Multi-step workflow | `Pipeline` | `Pipeline.step(p, :name, &fun/1)` |
+| Concurrent tasks | `AsyncResult` | `AsyncResult.all(tasks)` |
+| Guard clauses | `Guards` | `when is_ok(result)` |
+| Error context | `Result.wrap_error/2` | `Result.wrap_error(err, ctx)` |
+| Safe exceptions | `Result.try_with/1` | `Result.try_with(fn -> ... end)` |
+
 #### Pipe Operator for Clean Transformations
 
 **Preferred - Flat pipeline:**

@@ -2,6 +2,42 @@ defmodule Events.Error.Transform do
   @moduledoc """
   Transformation modules for converting various error sources to Error structs.
 
+  ## Deprecation Notice
+
+  **This module and its sub-modules are deprecated.** Use the `Events.Normalizable`
+  protocol instead, which provides:
+
+  - Type-based dispatch (extensible without modifying core code)
+  - Consistent interface for all error types
+  - Integration with `Events.Recoverable` protocol
+  - Better error context and recoverability tracking
+
+  ## Migration Guide
+
+      # OLD (deprecated)
+      Events.Error.Transform.Ecto.transform(changeset)
+      Events.Error.Transform.HTTP.transform(404)
+      Events.Error.Transform.POSIX.transform(:enoent)
+
+      # NEW (preferred)
+      Events.Normalizable.normalize(changeset)
+      Events.HttpError.new(404) |> Events.Normalizable.normalize()
+      Events.PosixError.new(:enoent) |> Events.Normalizable.normalize()
+
+      # Or via unified API
+      Events.Errors.Normalizer.normalize(changeset)
+      Events.Error.normalize(changeset)
+
+  ## Available Protocol Implementations
+
+  The `Events.Normalizable` protocol has implementations for:
+  - `Ecto.Changeset`, `Ecto.NoResultsError`, `Ecto.StaleEntryError`, etc.
+  - `Postgrex.Error`, `DBConnection.ConnectionError`
+  - `Mint.TransportError`, `Mint.HTTPError`
+  - `Events.HttpError` (wrapper for HTTP status codes)
+  - `Events.PosixError` (wrapper for POSIX error atoms)
+  - Any exception (via `Any` fallback)
+
   This module contains submodules for transforming specific error types:
   - Ecto - Database and changeset errors
   - HTTP - HTTP status codes and request errors
@@ -13,7 +49,11 @@ defmodule Events.Error.Transform do
   defmodule Ecto do
     @moduledoc """
     Transforms Ecto errors into standard Error structs.
+
+    **Deprecated:** Use `Events.Normalizable.normalize/1` instead.
     """
+
+    @deprecated "Use Events.Normalizable.normalize/1 instead"
 
     alias Events.Error
 
@@ -79,7 +119,11 @@ defmodule Events.Error.Transform do
   defmodule HTTP do
     @moduledoc """
     Transforms HTTP errors into standard Error structs.
+
+    **Deprecated:** Use `Events.HttpError.new/1` with `Events.Normalizable.normalize/1` instead.
     """
+
+    @deprecated "Use Events.HttpError with Events.Normalizable protocol instead"
 
     alias Events.Error
 
@@ -168,7 +212,11 @@ defmodule Events.Error.Transform do
   defmodule AWS do
     @moduledoc """
     Transforms AWS service errors into standard Error structs.
+
+    **Deprecated:** Implement `Events.Normalizable` for AWS error types instead.
     """
+
+    @deprecated "Implement Events.Normalizable for AWS error types instead"
 
     alias Events.Error
 
@@ -224,7 +272,11 @@ defmodule Events.Error.Transform do
   defmodule POSIX do
     @moduledoc """
     Transforms POSIX/file system errors into standard Error structs.
+
+    **Deprecated:** Use `Events.PosixError.new/1` with `Events.Normalizable.normalize/1` instead.
     """
+
+    @deprecated "Use Events.PosixError with Events.Normalizable protocol instead"
 
     alias Events.Error
 
@@ -281,7 +333,11 @@ defmodule Events.Error.Transform do
   defmodule Business do
     @moduledoc """
     Transforms business/domain errors into standard Error structs.
+
+    **Deprecated:** Implement `Events.Normalizable` for your business error types instead.
     """
+
+    @deprecated "Implement Events.Normalizable for business error types instead"
 
     alias Events.Error
 

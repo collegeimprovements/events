@@ -202,7 +202,7 @@ defmodule Events.AsyncResult do
         fn task -> execute_task(task, ordered) end,
         max_concurrency: max_concurrency,
         timeout: timeout,
-        on_timeout: :kill,
+        on_timeout: :kill_task,
         ordered: ordered
       )
       |> Enum.map(&extract_stream_result/1)
@@ -458,7 +458,8 @@ defmodule Events.AsyncResult do
     do: :ok
 
   defp sleep_unless_last(_attempt, _max_attempts, delay, true) do
-    jittered = delay + :rand.uniform(div(delay, 2))
+    jitter_range = max(1, div(delay, 2))
+    jittered = delay + :rand.uniform(jitter_range)
     Process.sleep(jittered)
   end
 
@@ -531,6 +532,191 @@ defmodule Events.AsyncResult do
   end
 
   # ============================================
+  # Mapping and Transformation
+  # ============================================
+
+  @doc """
+  Maps a function over the results of parallel execution.
+
+  ## Examples
+
+      AsyncResult.parallel([fn -> {:ok, 1} end, fn -> {:ok, 2} end])
+      |> AsyncResult.map(fn values -> Enum.sum(values) end)
+      #=> {:ok, 3}
+  """
+  @spec map(Result.t([a], e), ([a] -> b)) :: Result.t(b, e) when a: term(), b: term(), e: term()
+  def map({:ok, values}, fun) when is_function(fun, 1), do: {:ok, fun.(values)}
+  def map({:error, _} = error, _fun), do: error
+
+  @doc """
+  Chains async operations.
+
+  ## Examples
+
+      AsyncResult.parallel([fn -> {:ok, 1} end])
+      |> AsyncResult.and_then(fn [x] -> {:ok, x * 2} end)
+      #=> {:ok, 2}
+  """
+  @spec and_then(Result.t(a, e), (a -> Result.t(b, e))) :: Result.t(b, e)
+        when a: term(), b: term(), e: term()
+  def and_then({:ok, value}, fun) when is_function(fun, 1), do: fun.(value)
+  def and_then({:error, _} = error, _fun), do: error
+
+  # ============================================
+  # Context and Error Enhancement
+  # ============================================
+
+  @doc """
+  Wraps a task function to add context metadata to errors.
+
+  ## Examples
+
+      AsyncResult.with_context(fn -> fetch_user(id) end, user_id: id, operation: :fetch)
+      #=> {:ok, user} | {:error, %{reason: :not_found, context: %{user_id: 123, operation: :fetch}}}
+  """
+  @spec with_context(task_fun(a), keyword() | map()) :: task_fun(a) when a: term()
+  def with_context(task, context) when is_function(task, 0) do
+    context_map = if is_list(context), do: Map.new(context), else: context
+
+    fn ->
+      case task.() do
+        {:ok, _} = success -> success
+        {:error, reason} -> {:error, %{reason: reason, context: context_map}}
+      end
+    end
+  end
+
+  @doc """
+  Executes parallel tasks with context attached to each.
+
+  ## Examples
+
+      tasks = [
+        {fn -> fetch_user(1) end, user_id: 1},
+        {fn -> fetch_user(2) end, user_id: 2}
+      ]
+      AsyncResult.parallel_with_context(tasks)
+  """
+  @spec parallel_with_context([{task_fun(a), keyword() | map()}], options()) ::
+          Result.t([a], term())
+        when a: term()
+  def parallel_with_context(tasks_with_context, opts \\ []) do
+    tasks = Enum.map(tasks_with_context, fn {task, ctx} -> with_context(task, ctx) end)
+    parallel(tasks, opts)
+  end
+
+  # ============================================
+  # Progress Tracking
+  # ============================================
+
+  @doc """
+  Executes tasks in parallel with progress callback.
+
+  The callback receives `{completed, total}` after each task completes.
+
+  ## Examples
+
+      AsyncResult.parallel_with_progress(
+        tasks,
+        fn completed, total ->
+          IO.puts("Progress: \#{completed}/\#{total}")
+        end
+      )
+  """
+  @spec parallel_with_progress(
+          [task_fun(a)],
+          (non_neg_integer(), non_neg_integer() -> any()),
+          options()
+        ) :: Result.t([a], term())
+        when a: term()
+  def parallel_with_progress(tasks, progress_callback, opts \\ [])
+      when is_list(tasks) and is_function(progress_callback, 2) do
+    total = length(tasks)
+
+    if total == 0 do
+      {:ok, []}
+    else
+      parent = self()
+      ref = make_ref()
+
+      max_concurrency = Keyword.get(opts, :max_concurrency, @default_max_concurrency)
+      timeout = Keyword.get(opts, :timeout, @default_timeout)
+
+      # Wrap tasks to report progress
+      indexed_tasks =
+        tasks
+        |> Enum.with_index()
+        |> Enum.map(fn {task, index} ->
+          {index,
+           fn ->
+             result = safe_execute(task)
+             send(parent, {:progress, ref, index, result})
+             result
+           end}
+        end)
+
+      # Start initial batch of tasks
+      {initial_tasks, remaining} = Enum.split(indexed_tasks, max_concurrency)
+      running_count = length(initial_tasks)
+      Enum.each(initial_tasks, fn {_idx, task} -> spawn_link(task) end)
+
+      # Collect results with progress tracking
+      collect_with_progress(ref, running_count, remaining, [], 0, total, progress_callback, timeout)
+    end
+  end
+
+  defp collect_with_progress(_ref, 0, [], results, _completed, _total, _callback, _timeout) do
+    sorted = results |> Enum.sort_by(fn {idx, _} -> idx end) |> Enum.map(fn {_, r} -> r end)
+
+    case Enum.find(sorted, &match?({:error, _}, &1)) do
+      nil -> {:ok, Enum.map(sorted, fn {:ok, v} -> v end)}
+      error -> error
+    end
+  end
+
+  defp collect_with_progress(
+         ref,
+         running_count,
+         remaining,
+         results,
+         completed,
+         total,
+         callback,
+         timeout
+       ) do
+    receive do
+      {:progress, ^ref, index, result} ->
+        new_completed = completed + 1
+        callback.(new_completed, total)
+
+        # Start next task if any remaining
+        {new_running_count, new_remaining} =
+          case remaining do
+            [{_idx, next_task} | rest] ->
+              spawn_link(next_task)
+              {running_count, rest}
+
+            [] ->
+              {running_count - 1, []}
+          end
+
+        collect_with_progress(
+          ref,
+          new_running_count,
+          new_remaining,
+          [{index, result} | results],
+          new_completed,
+          total,
+          callback,
+          timeout
+        )
+    after
+      timeout ->
+        {:error, :timeout}
+    end
+  end
+
+  # ============================================
   # Utilities
   # ============================================
 
@@ -585,9 +771,9 @@ defmodule Events.AsyncResult do
   defp execute_task({task, index}, true) when is_function(task, 0), do: {index, safe_execute(task)}
   defp execute_task(task, false) when is_function(task, 0), do: safe_execute(task)
 
-  defp on_timeout_handler(:error), do: :kill
-  defp on_timeout_handler(:kill), do: :kill
-  defp on_timeout_handler({:default, _}), do: :kill
+  defp on_timeout_handler(:error), do: :kill_task
+  defp on_timeout_handler(:kill), do: :kill_task
+  defp on_timeout_handler({:default, _}), do: :kill_task
 
   defp collect_stream_results(stream, ordered, on_timeout) do
     stream

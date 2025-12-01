@@ -1,0 +1,112 @@
+# =============================================================================
+# Migration Template
+# =============================================================================
+# Copy this template when creating a new migration.
+#
+# Usage:
+#   1. Run: mix ecto.gen.migration create_table_name
+#   2. Replace the generated content with this template
+#   3. Replace TABLE_NAME and field definitions
+# =============================================================================
+
+defmodule Events.Repo.Migrations.CreateTableName do
+  use Events.Migration
+
+  # Uncomment if using migration constants
+  # alias Events.Repo.MigrationConstants, as: C
+
+  def change do
+    create table(:table_name, primary_key: false) do
+      # ==========================================================================
+      # Primary Key
+      # ==========================================================================
+      add :id, :uuid, primary_key: true, default: fragment("uuidv7()")
+
+      # ==========================================================================
+      # Foreign Keys
+      # ==========================================================================
+      # add :account_id, references(:accounts, type: :uuid, on_delete: :delete_all), null: false
+      # add :user_id, references(:users, type: :uuid, on_delete: :delete_all), null: false
+
+      # ==========================================================================
+      # Core Fields
+      # ==========================================================================
+      add :name, :citext, null: false
+      # add :slug, :citext, null: false
+      # add :description, :text
+      # add :amount, :decimal, precision: 10, scale: 2
+
+      # ==========================================================================
+      # Status Field
+      # ==========================================================================
+      add :status, :string, null: false, default: "active"
+
+      # ==========================================================================
+      # Standard Fields
+      # ==========================================================================
+      add :type, :citext
+      add :subtype, :citext
+      add :metadata, :jsonb, default: fragment("'{}'"), null: false
+      add :assets, :jsonb, default: fragment("'{}'"), null: false
+
+      # ==========================================================================
+      # Audit Fields
+      # ==========================================================================
+      # Note: FK constraints for audit fields should be added separately after
+      # the user_role_mappings table exists
+      add :created_by_urm_id, :uuid
+      add :updated_by_urm_id, :uuid
+
+      # ==========================================================================
+      # Soft Delete (optional)
+      # ==========================================================================
+      # add :deleted_at, :utc_datetime_usec
+      # add :deleted_by_urm_id, :uuid
+
+      # ==========================================================================
+      # Timestamps
+      # ==========================================================================
+      timestamps(type: :utc_datetime_usec)
+    end
+
+    # ==========================================================================
+    # Unique Indexes
+    # ==========================================================================
+    # create unique_index(:table_name, [:slug])
+    # create unique_index(:table_name, [:account_id, :name])
+
+    # ==========================================================================
+    # Foreign Key Indexes
+    # ==========================================================================
+    # create index(:table_name, [:account_id])
+    # create index(:table_name, [:user_id])
+
+    # ==========================================================================
+    # Standard Indexes
+    # ==========================================================================
+    create index(:table_name, [:status])
+    create index(:table_name, [:type])
+    create index(:table_name, [:subtype])
+    create index(:table_name, [:created_by_urm_id])
+    create index(:table_name, [:updated_by_urm_id])
+    create index(:table_name, [:inserted_at])
+    create index(:table_name, [:updated_at])
+
+    # ==========================================================================
+    # Soft Delete Index (optional)
+    # ==========================================================================
+    # Partial index for non-deleted records
+    # create index(:table_name, [:status], where: "deleted_at IS NULL")
+
+    # ==========================================================================
+    # JSONB Indexes (optional)
+    # ==========================================================================
+    # create index(:table_name, [:metadata], using: :gin)
+
+    # ==========================================================================
+    # Compound Indexes (optional)
+    # ==========================================================================
+    # Common query patterns
+    # create index(:table_name, [:account_id, :status])
+  end
+end

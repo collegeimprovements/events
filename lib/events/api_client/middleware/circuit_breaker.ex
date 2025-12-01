@@ -40,6 +40,8 @@ defmodule Events.APIClient.Middleware.CircuitBreaker do
   use GenServer
   require Logger
 
+  alias Events.Recoverable
+
   @type state :: :closed | :open | :half_open
   @type name :: atom()
 
@@ -323,13 +325,22 @@ defmodule Events.APIClient.Middleware.CircuitBreaker do
           record_success(name)
           result
 
-        {:error, _} ->
-          record_failure(name)
+        {:error, error} ->
+          # Only record failure if the error should trip the circuit
+          # Validation errors, not found, etc. should not affect circuit state
+          if Recoverable.trips_circuit?(error) do
+            record_failure(name)
+          end
+
           result
       end
     rescue
       error ->
-        record_failure(name)
+        # Exceptions should trip the circuit (unexpected failures)
+        if Recoverable.trips_circuit?(error) do
+          record_failure(name)
+        end
+
         {:error, error}
     catch
       :exit, reason ->

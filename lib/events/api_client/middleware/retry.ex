@@ -42,6 +42,8 @@ defmodule Events.APIClient.Middleware.Retry do
 
   require Logger
 
+  alias Events.Recoverable
+
   @default_max_attempts 3
   @default_base_delay 1_000
   @default_max_delay 30_000
@@ -178,10 +180,16 @@ defmodule Events.APIClient.Middleware.Retry do
   defp build_retry_fn(retry_statuses, nil) do
     fn
       {:ok, %{status: status}} ->
+        # HTTP status-based retry (fallback for raw responses)
         status in retry_statuses
 
       {:error, %{__exception__: true} = error} ->
-        transient_error?(error)
+        # Use Recoverable protocol for exception errors
+        Recoverable.recoverable?(error)
+
+      {:error, error} when is_map(error) ->
+        # Use Recoverable protocol for error structs/maps
+        Recoverable.recoverable?(error)
 
       _ ->
         false
@@ -201,7 +209,20 @@ defmodule Events.APIClient.Middleware.Retry do
       # Check for Retry-After header first
       case extract_retry_after(response) do
         nil ->
-          calculate_delay_with_jitter(attempt, base_delay, max_delay, jitter)
+          # Try to use Recoverable protocol delay if error struct is available
+          case response do
+            {:error, error} when is_map(error) ->
+              protocol_delay = Recoverable.retry_delay(error, attempt)
+
+              if protocol_delay > 0 do
+                min(protocol_delay, max_delay)
+              else
+                calculate_delay_with_jitter(attempt, base_delay, max_delay, jitter)
+              end
+
+            _ ->
+              calculate_delay_with_jitter(attempt, base_delay, max_delay, jitter)
+          end
 
         retry_after_ms ->
           min(retry_after_ms, max_delay)
@@ -221,13 +242,16 @@ defmodule Events.APIClient.Middleware.Retry do
     min(delay_with_jitter, max_delay)
   end
 
-  defp transient_error?(%Mint.TransportError{}), do: true
-  defp transient_error?(%Mint.HTTPError{reason: :timeout}), do: true
-  defp transient_error?(%{reason: :timeout}), do: true
-  defp transient_error?(%{reason: :econnrefused}), do: true
-  defp transient_error?(%{reason: :econnreset}), do: true
-  defp transient_error?(%{reason: :closed}), do: true
-  defp transient_error?(_), do: false
+  # Legacy transient_error? kept for backwards compatibility
+  # New code should use Events.Recoverable.recoverable?/1
+  @doc false
+  def transient_error?(%Mint.TransportError{}), do: true
+  def transient_error?(%Mint.HTTPError{reason: :timeout}), do: true
+  def transient_error?(%{reason: :timeout}), do: true
+  def transient_error?(%{reason: :econnrefused}), do: true
+  def transient_error?(%{reason: :econnreset}), do: true
+  def transient_error?(%{reason: :closed}), do: true
+  def transient_error?(_), do: false
 
   defp parse_retry_after(value) when is_binary(value) do
     case Integer.parse(value) do

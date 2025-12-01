@@ -593,6 +593,307 @@ defmodule Events.Pipeline do
   end
 
   # ============================================
+  # Checkpoints
+  # ============================================
+
+  @doc """
+  Creates a named checkpoint in the pipeline.
+
+  Checkpoints can be used for partial rollback with `rollback_to/2`.
+
+  ## Examples
+
+      Pipeline.new(%{})
+      |> Pipeline.step(:step1, &step1/1)
+      |> Pipeline.checkpoint(:after_step1)
+      |> Pipeline.step(:step2, &step2/1)
+      |> Pipeline.checkpoint(:after_step2)
+      |> Pipeline.step(:step3, &step3/1)
+  """
+  @spec checkpoint(t(), atom()) :: t()
+  def checkpoint(%__MODULE__{halted: true} = pipeline, _name), do: pipeline
+
+  def checkpoint(%__MODULE__{} = pipeline, name) when is_atom(name) do
+    checkpoint_data = %{
+      name: name,
+      context: pipeline.context,
+      completed: pipeline.completed
+    }
+
+    checkpoints = Map.get(pipeline.metadata, :checkpoints, [])
+    new_metadata = Map.put(pipeline.metadata, :checkpoints, [checkpoint_data | checkpoints])
+    %{pipeline | metadata: new_metadata}
+  end
+
+  @doc """
+  Gets checkpoints from a pipeline.
+
+  ## Examples
+
+      Pipeline.checkpoints(pipeline)
+      #=> [:after_step1, :after_step2]
+  """
+  @spec checkpoints(t()) :: [atom()]
+  def checkpoints(%__MODULE__{metadata: metadata}) do
+    metadata
+    |> Map.get(:checkpoints, [])
+    |> Enum.map(& &1.name)
+    |> Enum.reverse()
+  end
+
+  @doc """
+  Restores pipeline to a checkpoint state.
+
+  ## Examples
+
+      pipeline
+      |> Pipeline.rollback_to(:after_step1)
+      |> Pipeline.step(:alternative_step2, &alt/1)
+      |> Pipeline.run()
+  """
+  @spec rollback_to(t(), atom()) :: t()
+  def rollback_to(%__MODULE__{metadata: metadata} = pipeline, checkpoint_name) do
+    checkpoints = Map.get(metadata, :checkpoints, [])
+
+    case Enum.find(checkpoints, fn cp -> cp.name == checkpoint_name end) do
+      nil ->
+        %{pipeline | halted: true, error: {:checkpoint_not_found, checkpoint_name}}
+
+      checkpoint ->
+        %{
+          pipeline
+          | context: checkpoint.context,
+            completed: checkpoint.completed,
+            halted: false,
+            error: nil,
+            steps: []
+        }
+    end
+  end
+
+  # ============================================
+  # Retry and Guard
+  # ============================================
+
+  @doc """
+  Adds a step that retries on failure.
+
+  ## Options
+
+  - `:max_attempts` - Maximum retry attempts (default: 3)
+  - `:delay` - Delay between retries in ms (default: 100)
+  - `:should_retry` - Function to determine if error is retriable (default: always retry)
+
+  ## Examples
+
+      Pipeline.step_with_retry(pipeline, :fetch_external, &fetch/1,
+        max_attempts: 3,
+        delay: 100,
+        should_retry: fn error -> error in [:timeout, :connection_refused] end
+      )
+  """
+  @spec step_with_retry(t(), step_name(), step_fun(), keyword()) :: t()
+  def step_with_retry(pipeline, name, fun, opts \\ [])
+
+  def step_with_retry(%__MODULE__{halted: true} = pipeline, _name, _fun, _opts), do: pipeline
+
+  def step_with_retry(%__MODULE__{} = pipeline, name, fun, opts)
+      when is_atom(name) and is_function(fun, 1) do
+    max_attempts = Keyword.get(opts, :max_attempts, 3)
+    delay = Keyword.get(opts, :delay, 100)
+    should_retry = Keyword.get(opts, :should_retry, fn _ -> true end)
+
+    retry_fun = fn ctx ->
+      do_retry_step(fun, ctx, 1, max_attempts, delay, should_retry)
+    end
+
+    step(pipeline, name, retry_fun, Keyword.drop(opts, [:max_attempts, :delay, :should_retry]))
+  end
+
+  defp do_retry_step(fun, ctx, attempt, max_attempts, _delay, _should_retry)
+       when attempt > max_attempts do
+    fun.(ctx)
+  end
+
+  defp do_retry_step(fun, ctx, attempt, max_attempts, delay, should_retry) do
+    case fun.(ctx) do
+      {:ok, _} = success ->
+        success
+
+      {:error, reason} = error ->
+        if attempt < max_attempts and should_retry.(reason) do
+          Process.sleep(delay)
+          do_retry_step(fun, ctx, attempt + 1, max_attempts, delay, should_retry)
+        else
+          error
+        end
+    end
+  end
+
+  @doc """
+  Adds a guard step that halts with a custom error if condition fails.
+
+  ## Examples
+
+      Pipeline.guard(pipeline, :authorized,
+        fn ctx -> ctx.user.admin? end,
+        {:error, :unauthorized}
+      )
+
+      Pipeline.guard(pipeline, :valid_amount,
+        fn ctx -> ctx.amount > 0 end,
+        fn ctx -> {:error, {:invalid_amount, ctx.amount}} end
+      )
+  """
+  @spec guard(t(), step_name(), (context() -> boolean()), term() | (context() -> term())) :: t()
+  def guard(%__MODULE__{halted: true} = pipeline, _name, _condition, _error), do: pipeline
+
+  def guard(%__MODULE__{} = pipeline, name, condition, error)
+      when is_atom(name) and is_function(condition, 1) do
+    step(pipeline, name, fn ctx ->
+      case condition.(ctx) do
+        true ->
+          {:ok, %{}}
+
+        false ->
+          error_value =
+            case error do
+              {:error, _} = e -> e
+              fun when is_function(fun, 1) -> fun.(ctx)
+              reason -> {:error, reason}
+            end
+
+          error_value
+      end
+    end)
+  end
+
+  # ============================================
+  # Context Manipulation
+  # ============================================
+
+  @doc """
+  Transforms the entire context with a function.
+
+  ## Examples
+
+      Pipeline.map_context(pipeline, fn ctx ->
+        Map.take(ctx, [:user, :order])
+      end)
+
+      Pipeline.map_context(pipeline, fn ctx ->
+        Map.put(ctx, :processed_at, DateTime.utc_now())
+      end)
+  """
+  @spec map_context(t(), (context() -> context())) :: t()
+  def map_context(%__MODULE__{halted: true} = pipeline, _fun), do: pipeline
+
+  def map_context(%__MODULE__{} = pipeline, fun) when is_function(fun, 1) do
+    %{pipeline | context: fun.(pipeline.context)}
+  end
+
+  @doc """
+  Merges additional context into the pipeline.
+
+  ## Examples
+
+      Pipeline.merge_context(pipeline, %{timestamp: DateTime.utc_now()})
+  """
+  @spec merge_context(t(), map()) :: t()
+  def merge_context(%__MODULE__{halted: true} = pipeline, _additions), do: pipeline
+
+  def merge_context(%__MODULE__{} = pipeline, additions) when is_map(additions) do
+    %{pipeline | context: Map.merge(pipeline.context, additions)}
+  end
+
+  @doc """
+  Drops keys from the context.
+
+  ## Examples
+
+      Pipeline.drop_context(pipeline, [:temp_data, :internal_state])
+  """
+  @spec drop_context(t(), [atom()]) :: t()
+  def drop_context(%__MODULE__{halted: true} = pipeline, _keys), do: pipeline
+
+  def drop_context(%__MODULE__{} = pipeline, keys) when is_list(keys) do
+    %{pipeline | context: Map.drop(pipeline.context, keys)}
+  end
+
+  # ============================================
+  # Dry Run and Debugging
+  # ============================================
+
+  @doc """
+  Returns a list of step names without executing.
+
+  Useful for debugging and understanding pipeline structure.
+
+  ## Examples
+
+      Pipeline.dry_run(pipeline)
+      #=> [:fetch_user, :validate, :send_email, :log]
+  """
+  @spec dry_run(t()) :: [step_name()]
+  def dry_run(%__MODULE__{steps: steps}) do
+    Enum.map(steps, & &1.name)
+  end
+
+  @doc """
+  Returns detailed step information without executing.
+
+  ## Examples
+
+      Pipeline.inspect_steps(pipeline)
+      #=> [
+        %{name: :fetch_user, has_rollback: true, has_condition: false},
+        %{name: :validate, has_rollback: false, has_condition: true}
+      ]
+  """
+  @spec inspect_steps(t()) :: [map()]
+  def inspect_steps(%__MODULE__{steps: steps}) do
+    Enum.map(steps, fn step ->
+      %{
+        name: step.name,
+        has_rollback: step.rollback != nil,
+        has_condition: Keyword.has_key?(step.opts, :condition)
+      }
+    end)
+  end
+
+  @doc """
+  Pretty prints the pipeline structure.
+
+  Returns a string representation of the pipeline.
+
+  ## Examples
+
+      Pipeline.to_string(pipeline)
+      #=> "Pipeline [3 steps]
+           1. fetch_user (rollback: yes)
+           2. validate
+           3. send_email"
+  """
+  @spec to_string(t()) :: String.t()
+  def to_string(%__MODULE__{steps: steps, halted: halted, error: error}) do
+    header = "Pipeline [#{length(steps)} steps]#{if halted, do: " (HALTED)", else: ""}"
+
+    step_lines =
+      steps
+      |> Enum.with_index(1)
+      |> Enum.map(fn {step, idx} ->
+        rollback_str = if step.rollback, do: " (rollback: yes)", else: ""
+        condition_str = if Keyword.has_key?(step.opts, :condition), do: " (conditional)", else: ""
+        "  #{idx}. #{step.name}#{rollback_str}#{condition_str}"
+      end)
+
+    error_line = if error, do: ["\n  Error: #{inspect(error)}"], else: []
+
+    [header | step_lines ++ error_line]
+    |> Enum.join("\n")
+  end
+
+  # ============================================
   # Inspection
   # ============================================
 
@@ -752,4 +1053,138 @@ defmodule Events.Pipeline do
       %{pipeline: pipeline.metadata, step: step.name, status: status}
     )
   end
+
+  # ============================================
+  # Ensure (Cleanup)
+  # ============================================
+
+  @doc """
+  Adds a cleanup step that always runs, even on error.
+
+  Similar to `try/after` - the ensure function runs regardless of
+  whether the pipeline succeeds or fails. Useful for resource cleanup.
+
+  The ensure function receives the current context and the pipeline result.
+  It does not affect the pipeline result.
+
+  ## Examples
+
+      Pipeline.new(%{})
+      |> Pipeline.step(:open_file, &open_file/1)
+      |> Pipeline.step(:process, &process/1)
+      |> Pipeline.ensure(:close_file, fn ctx, _result ->
+        File.close(ctx.file_handle)
+      end)
+      |> Pipeline.run_with_ensure()
+  """
+  @spec ensure(t(), step_name(), (context(), {:ok, context()} | {:error, term()} -> any())) :: t()
+  def ensure(%__MODULE__{} = pipeline, name, cleanup_fun)
+      when is_atom(name) and is_function(cleanup_fun, 2) do
+    ensure_funs = Map.get(pipeline.metadata, :ensure_funs, [])
+    new_metadata = Map.put(pipeline.metadata, :ensure_funs, [{name, cleanup_fun} | ensure_funs])
+    %{pipeline | metadata: new_metadata}
+  end
+
+  @doc """
+  Runs the pipeline with ensure callbacks executed after.
+
+  All ensure callbacks are executed in reverse order (LIFO),
+  similar to nested try/after blocks.
+
+  ## Examples
+
+      Pipeline.run_with_ensure(pipeline)
+      #=> {:ok, ctx} | {:error, reason}
+  """
+  @spec run_with_ensure(t()) :: {:ok, context()} | {:error, term()}
+  def run_with_ensure(%__MODULE__{} = pipeline) do
+    result = run(pipeline)
+    ensure_funs = Map.get(pipeline.metadata, :ensure_funs, [])
+
+    # Execute ensure functions in reverse order (LIFO)
+    Enum.each(ensure_funs, fn {_name, fun} ->
+      try do
+        fun.(pipeline.context, result)
+      rescue
+        _ -> :ok
+      end
+    end)
+
+    result
+  end
+
+  # ============================================
+  # Timeout
+  # ============================================
+
+  @doc """
+  Runs the pipeline with a timeout.
+
+  Returns `{:error, :timeout}` if the pipeline doesn't complete
+  within the specified time.
+
+  ## Examples
+
+      Pipeline.run_with_timeout(pipeline, 5000)
+      #=> {:ok, ctx} | {:error, :timeout}
+  """
+  @spec run_with_timeout(t(), timeout()) :: {:ok, context()} | {:error, term()}
+  def run_with_timeout(%__MODULE__{} = pipeline, timeout) when is_integer(timeout) do
+    task = Task.async(fn -> run(pipeline) end)
+
+    case Task.yield(task, timeout) || Task.shutdown(task, :brutal_kill) do
+      {:ok, result} -> result
+      nil -> {:error, :timeout}
+    end
+  end
+end
+
+# ============================================
+# Protocol Implementations
+# ============================================
+
+defimpl Inspect, for: Events.Pipeline do
+  import Inspect.Algebra
+
+  def inspect(pipeline, opts) do
+    step_count = length(pipeline.steps)
+    completed_count = length(pipeline.completed)
+
+    status =
+      cond do
+        pipeline.halted -> "HALTED"
+        completed_count > 0 -> "IN_PROGRESS"
+        true -> "PENDING"
+      end
+
+    step_names = Enum.map(pipeline.steps, & &1.name)
+
+    info = %{
+      status: status,
+      steps: step_names,
+      completed: Enum.reverse(pipeline.completed),
+      context_keys: Map.keys(pipeline.context)
+    }
+
+    info =
+      if pipeline.error do
+        Map.put(info, :error, pipeline.error)
+      else
+        info
+      end
+
+    concat([
+      "#Pipeline<",
+      to_doc(step_count, opts),
+      " steps, ",
+      status,
+      ", ",
+      to_doc(info, opts),
+      ">"
+    ])
+  end
+end
+
+defimpl String.Chars, for: Events.Pipeline do
+  def to_string(pipeline), do: Events.Pipeline.to_string(pipeline)
 end

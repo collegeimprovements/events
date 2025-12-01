@@ -1,5 +1,5 @@
 defmodule Events.Repo.Migrations.CreateUsersTokensTable do
-  use Ecto.Migration
+  use Events.Migration
 
   def change do
     create table(:users_tokens, primary_key: false) do

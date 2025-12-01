@@ -33,7 +33,8 @@ defmodule Events.APIClient.AuthTest do
     test "new/2 with query option" do
       auth = APIKey.new("abc123", query: "api_key")
 
-      assert auth.location == {:query, "api_key"}
+      # Query param name is converted to atom at construction time
+      assert auth.location == {:query, :api_key}
     end
 
     test "bearer/1 creates standard bearer token" do
@@ -55,7 +56,8 @@ defmodule Events.APIClient.AuthTest do
       auth = APIKey.query("abc123", "api_key")
 
       assert auth.key == "abc123"
-      assert auth.location == {:query, "api_key"}
+      # Query param name is converted to atom at construction time
+      assert auth.location == {:query, :api_key}
     end
 
     test "authenticate adds header without prefix" do

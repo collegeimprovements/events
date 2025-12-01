@@ -2,12 +2,28 @@ defmodule Events.Errors.Mappers.Http do
   @moduledoc """
   Error mapper for HTTP client errors.
 
+  ## Deprecation Notice
+
+  **This module is deprecated.** Use the `Events.Normalizable` protocol with
+  `Events.HttpError` wrapper instead:
+
+      # OLD (deprecated)
+      Mappers.Http.normalize_status(404)
+
+      # NEW (preferred)
+      Events.HttpError.new(404) |> Events.Normalizable.normalize()
+
+      # For Mint errors (protocol implementation exists)
+      Events.Normalizable.normalize(%Mint.TransportError{reason: :timeout})
+
   Handles normalization of errors from HTTP clients like:
   - Req
   - Tesla
   - HTTPoison
   - Mint
   """
+
+  @deprecated "Use Events.HttpError with Events.Normalizable protocol instead"
 
   alias Events.Errors.Error
 
@@ -42,12 +58,14 @@ defmodule Events.Errors.Mappers.Http do
     if Map.has_key?(error, :reason) do
       normalize_transport_error(reason)
     else
-      Events.Errors.Mappers.Exception.normalize(error)
+      # Use Normalizable protocol instead of old mapper
+      Events.Normalizable.normalize(error)
     end
   end
 
   def normalize_req({:error, exception}) do
-    Events.Errors.Mappers.Exception.normalize(exception)
+    # Use Normalizable protocol instead of old mapper
+    Events.Normalizable.normalize(exception)
   end
 
   @doc """

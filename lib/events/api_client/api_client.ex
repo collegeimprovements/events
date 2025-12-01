@@ -29,6 +29,7 @@ defmodule Events.APIClient do
   - `:circuit_breaker` - Circuit breaker name (atom)
   - `:rate_limiter` - Rate limiter name (atom)
   - `:telemetry` - Enable telemetry events (default: true)
+  - `:idempotency` - Idempotency settings (scope, enabled for mutating requests)
 
   ## Dual API Pattern
 
@@ -85,6 +86,7 @@ defmodule Events.APIClient do
     circuit_breaker = Keyword.get(opts, :circuit_breaker)
     rate_limiter = Keyword.get(opts, :rate_limiter)
     telemetry_enabled = Keyword.get(opts, :telemetry, true)
+    idempotency_opts = Keyword.get(opts, :idempotency)
 
     quote do
       @behaviour Events.APIClient.Behaviour
@@ -98,6 +100,7 @@ defmodule Events.APIClient do
       @circuit_breaker unquote(circuit_breaker)
       @rate_limiter unquote(rate_limiter)
       @telemetry_enabled unquote(telemetry_enabled)
+      @idempotency_opts unquote(idempotency_opts)
       @client_name __MODULE__
 
       # ============================================
@@ -129,9 +132,39 @@ defmodule Events.APIClient do
       @impl true
       def execute(%Request{} = request) do
         with {:ok, request} <- authenticate_request(request),
-             {:ok, response} <- do_request(request) do
+             {:ok, response} <- maybe_with_idempotency(request) do
           {:ok, response}
         end
+      end
+
+      defp maybe_with_idempotency(%Request{idempotency_key: nil} = request) do
+        do_request(request)
+      end
+
+      defp maybe_with_idempotency(%Request{idempotency_key: key} = request) do
+        case @idempotency_opts do
+          nil ->
+            # No idempotency configured, just add header and execute
+            do_request(request)
+
+          opts when is_list(opts) ->
+            # Use idempotency middleware
+            scope = Keyword.get(opts, :scope, derive_idempotency_scope())
+            Events.Idempotency.Middleware.wrap(request, &do_request/1, scope: scope)
+
+          true ->
+            # Default idempotency with derived scope
+            Events.Idempotency.Middleware.wrap(request, &do_request/1,
+              scope: derive_idempotency_scope()
+            )
+        end
+      end
+
+      defp derive_idempotency_scope do
+        # Extract host from base_url as default scope
+        @base_url
+        |> URI.parse()
+        |> Map.get(:host)
       end
 
       # ============================================

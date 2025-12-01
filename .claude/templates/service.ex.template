@@ -1,0 +1,133 @@
+# =============================================================================
+# Service Module Template
+# =============================================================================
+# Copy this template when creating a new service module.
+#
+# Usage:
+#   1. Copy to lib/events/services/<service_name>.ex
+#   2. Replace SERVICE_NAME with your service name
+#   3. Implement your service functions
+# =============================================================================
+
+defmodule Events.Services.SERVICE_NAME do
+  @moduledoc """
+  Service module for handling SERVICE_NAME operations.
+
+  This module encapsulates business logic for SERVICE_NAME.
+
+  ## Examples
+
+      iex> perform_operation(arg)
+      {:ok, result}
+  """
+
+  use Events.Decorator
+
+  alias Events.Result
+  # alias Events.Pipeline
+  # alias Events.Repo
+
+  # ============================================================================
+  # Public API
+  # ============================================================================
+
+  @doc """
+  Performs the main operation.
+
+  ## Parameters
+
+    * `param1` - Description of param1
+    * `opts` - Optional keyword list:
+      * `:option1` - Description (default: `value`)
+
+  ## Examples
+
+      iex> perform(arg)
+      {:ok, result}
+
+      iex> perform(invalid_arg)
+      {:error, :invalid_input}
+  """
+  @decorate returns_result(ok: :any, error: :atom)
+  @spec perform(term(), keyword()) :: {:ok, term()} | {:error, atom()}
+  def perform(param1, opts \\ []) do
+    _option1 = Keyword.get(opts, :option1, :default)
+
+    param1
+    |> validate_input()
+    |> Result.and_then(&process/1)
+    |> Result.map(&format_output/1)
+  end
+
+  # ============================================================================
+  # Pipeline Example (for complex multi-step operations)
+  # ============================================================================
+
+  # @doc """
+  # Performs a complex multi-step operation using Pipeline.
+  #
+  # ## Parameters
+  #
+  #   * `params` - Map of input parameters
+  #
+  # ## Examples
+  #
+  #     iex> execute_workflow(%{user_id: "123"})
+  #     {:ok, %{user: %User{}, result: :success}}
+  # """
+  # @decorate returns_result(ok: :map, error: :atom)
+  # @spec execute_workflow(map()) :: {:ok, map()} | {:error, atom()}
+  # def execute_workflow(params) do
+  #   Pipeline.new(params)
+  #   |> Pipeline.step(:validate, &validate_params/1)
+  #   |> Pipeline.step(:fetch_user, &fetch_user/1)
+  #   |> Pipeline.step(:process, &process_data/1)
+  #   |> Pipeline.step(:save, &save_result/1)
+  #   |> Pipeline.run()
+  # end
+
+  # ============================================================================
+  # Private Functions
+  # ============================================================================
+
+  defp validate_input(nil), do: {:error, :invalid_input}
+  defp validate_input(input), do: {:ok, input}
+
+  defp process(input) do
+    # Your processing logic here
+    {:ok, input}
+  end
+
+  defp format_output(result) do
+    # Format the output as needed
+    result
+  end
+
+  # ============================================================================
+  # Pipeline Step Functions (if using Pipeline)
+  # ============================================================================
+
+  # defp validate_params(%{params: params} = context) do
+  #   case validate(params) do
+  #     :ok -> {:ok, context}
+  #     {:error, reason} -> {:error, reason}
+  #   end
+  # end
+  #
+  # defp fetch_user(%{params: %{user_id: user_id}} = context) do
+  #   case Accounts.get_user(user_id) do
+  #     {:ok, user} -> {:ok, Map.put(context, :user, user)}
+  #     {:error, _} -> {:error, :user_not_found}
+  #   end
+  # end
+  #
+  # defp process_data(context) do
+  #   # Process data and add to context
+  #   {:ok, Map.put(context, :processed, true)}
+  # end
+  #
+  # defp save_result(%{user: user, processed: true} = context) do
+  #   # Save results
+  #   {:ok, Map.put(context, :result, :success)}
+  # end
+end

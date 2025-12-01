@@ -16,7 +16,8 @@ defmodule Events.CompileQualityTest do
       {output, exit_code} =
         System.cmd("mix", ["compile", "--force", "--warnings-as-errors"],
           stderr_to_stdout: true,
-          cd: File.cwd!()
+          cd: File.cwd!(),
+          env: []
         )
 
       # Filter out expected info messages
@@ -51,7 +52,8 @@ defmodule Events.CompileQualityTest do
       {output, _exit_code} =
         System.cmd("mix", ["xref", "graph", "--label", "compile-connected", "--format", "stats"],
           stderr_to_stdout: true,
-          cd: File.cwd!()
+          cd: File.cwd!(),
+          env: []
         )
 
       # Parse the output to check if dependencies are reasonable
@@ -67,7 +69,8 @@ defmodule Events.CompileQualityTest do
       {output, exit_code} =
         System.cmd("mix", ["xref", "unreachable"],
           stderr_to_stdout: true,
-          cd: File.cwd!()
+          cd: File.cwd!(),
+          env: []
         )
 
       # Filter out any expected warnings
@@ -80,7 +83,7 @@ defmodule Events.CompileQualityTest do
             not String.contains?(line, "Compiling")
         end)
 
-      assert exit_code == 0 and length(issues) == 0,
+      assert exit_code == 0 and issues == [],
              """
              Found unreachable or undefined calls:
              #{output}

@@ -69,7 +69,10 @@ defmodule Events.Error do
           source: term(),
           stacktrace: list() | nil,
           id: String.t(),
-          occurred_at: DateTime.t()
+          occurred_at: DateTime.t(),
+          recoverable: boolean(),
+          step: atom() | nil,
+          cause: t() | nil
         }
 
   defstruct [
@@ -81,7 +84,10 @@ defmodule Events.Error do
     :source,
     :stacktrace,
     :id,
-    :occurred_at
+    :occurred_at,
+    recoverable: false,
+    step: nil,
+    cause: nil
   ]
 
   ## Error Creation
@@ -107,7 +113,10 @@ defmodule Events.Error do
       source: opts[:source],
       stacktrace: opts[:stacktrace],
       id: generate_id(),
-      occurred_at: DateTime.utc_now()
+      occurred_at: DateTime.utc_now(),
+      recoverable: opts[:recoverable] || infer_recoverable(type, code),
+      step: opts[:step],
+      cause: opts[:cause]
     }
   end
 
@@ -122,85 +131,40 @@ defmodule Events.Error do
   - Existing Error structs
   - Custom error maps
 
+  This function delegates to the `Events.Normalizable` protocol for type-based
+  dispatch. You can extend normalization for custom types by implementing the
+  protocol.
+
   ## Examples
 
       Error.normalize({:error, :not_found})
       Error.normalize(%Ecto.Changeset{valid?: false})
       Error.normalize(%RuntimeError{message: "boom"})
+
+  ## Extending
+
+  Implement `Events.Normalizable` for custom error types:
+
+      defimpl Events.Normalizable, for: MyApp.CustomError do
+        def normalize(error, opts) do
+          Events.Error.new(:business, error.code,
+            message: error.message,
+            context: Keyword.get(opts, :context, %{})
+          )
+        end
+      end
   """
   @spec normalize(term(), keyword()) :: t()
-  def normalize(%Error{} = error, _opts), do: error
+  def normalize(error, opts \\ [])
 
-  def normalize({:error, %Error{} = error}, _opts), do: error
-
+  # Unwrap error tuples
   def normalize({:error, reason}, opts) do
     normalize(reason, opts)
   end
 
-  def normalize(:not_found, opts) do
-    new(:not_found, :not_found, opts)
-  end
-
-  def normalize(:unauthorized, opts) do
-    new(:unauthorized, :unauthorized, opts)
-  end
-
-  def normalize(:forbidden, opts) do
-    new(:forbidden, :forbidden, opts)
-  end
-
-  def normalize(%Ecto.Changeset{} = changeset, opts) do
-    errors = transform_changeset_errors(changeset)
-
-    new(
-      :validation,
-      :validation_failed,
-      Keyword.merge(
-        [
-          message: "Validation failed",
-          details: errors,
-          source: changeset
-        ],
-        opts
-      )
-    )
-  end
-
-  def normalize(%{__exception__: true} = exception, opts) do
-    new(
-      :internal,
-      :exception,
-      Keyword.merge(
-        [
-          message: Exception.message(exception),
-          source: exception,
-          stacktrace: opts[:stacktrace] || Exception.format_stacktrace()
-        ],
-        opts
-      )
-    )
-  end
-
-  def normalize(error, opts) when is_atom(error) do
-    new(:internal, error, Keyword.put(opts, :source, error))
-  end
-
-  def normalize(error, opts) when is_binary(error) do
-    new(:internal, :error, Keyword.merge([message: error, source: error], opts))
-  end
-
+  # Delegate to Normalizable protocol
   def normalize(error, opts) do
-    new(
-      :internal,
-      :unknown,
-      Keyword.merge(
-        [
-          message: "An unknown error occurred",
-          source: error
-        ],
-        opts
-      )
-    )
+    Events.Normalizable.normalize(error, opts)
   end
 
   @doc """
@@ -402,7 +366,178 @@ defmodule Events.Error do
     }
   end
 
+  ## Recoverability and Step Handling
+
+  @doc """
+  Checks if an error is recoverable.
+
+  ## Examples
+
+      Error.recoverable?(error)
+      #=> true | false
+  """
+  @spec recoverable?(t()) :: boolean()
+  def recoverable?(%Error{recoverable: recoverable}), do: recoverable
+
+  @doc """
+  Marks error as recoverable or not.
+
+  ## Examples
+
+      error |> Error.recoverable(true)
+  """
+  @spec recoverable(t(), boolean()) :: t()
+  def recoverable(%Error{} = error, is_recoverable) when is_boolean(is_recoverable) do
+    %{error | recoverable: is_recoverable}
+  end
+
+  @doc """
+  Sets the step on an error (for pipeline integration).
+
+  ## Examples
+
+      error |> Error.with_step(:fetch_user)
+  """
+  @spec with_step(t(), atom()) :: t()
+  def with_step(%Error{} = error, step) when is_atom(step) do
+    %{error | step: step}
+  end
+
+  @doc """
+  Gets the step where the error occurred.
+
+  ## Examples
+
+      Error.step(error)
+      #=> :fetch_user | nil
+  """
+  @spec step(t()) :: atom() | nil
+  def step(%Error{step: step}), do: step
+
+  ## Error Chaining
+
+  @doc """
+  Sets the cause of an error (for error chaining).
+
+  ## Examples
+
+      outer_error = Error.new(:internal, :pipeline_failed,
+        cause: inner_error
+      )
+
+      # Or using pipe
+      outer_error |> Error.with_cause(inner_error)
+  """
+  @spec with_cause(t(), t()) :: t()
+  def with_cause(%Error{} = error, %Error{} = cause) do
+    %{error | cause: cause}
+  end
+
+  @doc """
+  Gets the root cause of an error chain.
+
+  ## Examples
+
+      Error.root_cause(error)
+      #=> %Error{...} (the innermost error)
+  """
+  @spec root_cause(t()) :: t()
+  def root_cause(%Error{cause: nil} = error), do: error
+  def root_cause(%Error{cause: cause}), do: root_cause(cause)
+
+  @doc """
+  Returns all errors in the cause chain.
+
+  ## Examples
+
+      Error.cause_chain(error)
+      #=> [outer_error, middle_error, root_error]
+  """
+  @spec cause_chain(t()) :: [t()]
+  def cause_chain(%Error{cause: nil} = error), do: [error]
+  def cause_chain(%Error{cause: cause} = error), do: [error | cause_chain(cause)]
+
+  ## Category Helpers
+
+  @doc """
+  Checks if error is of a specific type.
+
+  ## Examples
+
+      Error.type?(error, :validation)
+      #=> true | false
+  """
+  @spec type?(t(), error_type()) :: boolean()
+  def type?(%Error{type: type}, expected_type), do: type == expected_type
+
+  @doc """
+  Checks if error is a validation error.
+  """
+  @spec validation?(t()) :: boolean()
+  def validation?(%Error{} = error), do: type?(error, :validation)
+
+  @doc """
+  Checks if error is a not found error.
+  """
+  @spec not_found?(t()) :: boolean()
+  def not_found?(%Error{} = error), do: type?(error, :not_found)
+
+  @doc """
+  Checks if error is an authorization error (unauthorized or forbidden).
+  """
+  @spec auth_error?(t()) :: boolean()
+  def auth_error?(%Error{type: type}), do: type in [:unauthorized, :forbidden]
+
+  @doc """
+  Checks if error is a client error (validation, not_found, unauthorized, forbidden, conflict).
+  """
+  @spec client_error?(t()) :: boolean()
+  def client_error?(%Error{type: type}) do
+    type in [:validation, :not_found, :unauthorized, :forbidden, :conflict, :rate_limited]
+  end
+
+  @doc """
+  Checks if error is a server error (internal, external, timeout, network).
+  """
+  @spec server_error?(t()) :: boolean()
+  def server_error?(%Error{type: type}) do
+    type in [:internal, :external, :timeout, :network]
+  end
+
+  ## Formatting
+
+  @doc """
+  Formats the error as a human-readable string.
+
+  ## Examples
+
+      Error.format(error)
+      #=> "[validation] Validation failed (step: create_user)"
+  """
+  @spec format(t()) :: String.t()
+  def format(%Error{} = error) do
+    parts = ["[#{error.type}]", error.message]
+
+    parts =
+      case error.step do
+        nil -> parts
+        step -> parts ++ ["(step: #{step})"]
+      end
+
+    parts =
+      case error.cause do
+        nil -> parts
+        cause -> parts ++ ["caused by:", format(cause)]
+      end
+
+    Enum.join(parts, " ")
+  end
+
   ## Private Functions
+
+  defp infer_recoverable(type, _code) do
+    type in [:timeout, :network, :external, :rate_limited]
+  end
 
   defp default_message(type, code) do
     case {type, code} do
@@ -438,14 +573,6 @@ defmodule Events.Error do
       :network -> 503
       _ -> 500
     end
-  end
-
-  defp transform_changeset_errors(%Ecto.Changeset{} = changeset) do
-    Ecto.Changeset.traverse_errors(changeset, fn {msg, opts} ->
-      Enum.reduce(opts, msg, fn {key, value}, acc ->
-        String.replace(acc, "%{#{key}}", to_string(value))
-      end)
-    end)
   end
 
   defp generate_id do

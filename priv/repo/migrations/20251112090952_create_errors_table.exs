@@ -1,5 +1,5 @@
 defmodule Events.Repo.Migrations.CreateErrorsTable do
-  use Ecto.Migration
+  use Events.Migration
 
   import Events.Repo.MigrationMacros,
     only: [

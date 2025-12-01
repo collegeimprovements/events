@@ -6,6 +6,8 @@ defmodule Events.Accounts.User do
   via memberships (GitHub org model).
   """
 
+  @derive {Events.Identifiable, type: :user}
+
   use Events.Schema
 
   @types [:human, :system, :service]

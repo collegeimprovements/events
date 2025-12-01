@@ -1,5 +1,5 @@
 defmodule Events.Repo.Migrations.CreateRolesTable do
-  use Ecto.Migration
+  use Events.Migration
 
   alias Events.Repo.MigrationConstants, as: C
 

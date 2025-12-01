@@ -6,11 +6,10 @@ defmodule Events.Accounts.UserToken do
   This is a minimal schema without standard fields (type, subtype, metadata, assets).
   """
 
-  use Ecto.Schema
-  import Ecto.Query
+  @derive {Events.Identifiable, type: :user_token}
 
-  @primary_key {:id, :binary_id, autogenerate: true}
-  @foreign_key_type :binary_id
+  use Events.Schema
+  import Ecto.Query
 
   @hash_algorithm :sha256
   @rand_size 32
@@ -28,7 +27,7 @@ defmodule Events.Accounts.UserToken do
 
     belongs_to :user, Events.Accounts.User
 
-    timestamps(type: :utc_datetime_usec, updated_at: false)
+    timestamps(only: [:inserted_at])
   end
 
   @doc """

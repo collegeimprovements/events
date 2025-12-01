@@ -52,6 +52,7 @@ defmodule Events.Errors.Handler do
   alias Events.Errors.Error
   alias Events.Errors.Enrichment.Context
   alias Events.Errors.Mappers
+  alias Events.Recoverable
 
   @type context ::
           Plug.Conn.t()
@@ -199,7 +200,13 @@ defmodule Events.Errors.Handler do
   @doc """
   Handle error in background job context.
 
-  Returns `:ok` for non-retriable errors, `{:error, :retry}` for retriable errors.
+  Uses the `Recoverable` protocol to determine retry behavior.
+  Returns appropriate instructions based on recovery strategy:
+
+  - `:ok` - Error is not recoverable, don't retry
+  - `{:error, :retry}` - Error is recoverable, retry with default delay
+  - `{:error, :retry, delay: ms}` - Retry after specified delay
+  - `{:error, :discard}` - Permanently failed, don't retry
 
   ## Examples
 
@@ -209,16 +216,38 @@ defmodule Events.Errors.Handler do
           {:error, reason} -> Handler.handle_worker_error(reason, args)
         end
       end
-  """
-  @spec handle_worker_error(term(), map() | keyword(), options()) :: :ok | {:error, :retry}
-  def handle_worker_error(error, context, opts \\ []) do
-    opts = Keyword.merge([context: :worker, format: :error], opts)
-    error_struct = handle_error(error, context, opts)
 
-    if Errors.retriable?(error_struct) do
-      {:error, :retry}
-    else
-      :ok
+      # With attempt tracking
+      def perform(args, attempt: attempt) do
+        case process(args) do
+          {:ok, result} -> :ok
+          {:error, reason} -> Handler.handle_worker_error(reason, args, attempt: attempt)
+        end
+      end
+  """
+  @spec handle_worker_error(term(), map() | keyword(), options()) ::
+          :ok | {:error, :retry} | {:error, :retry, keyword()} | {:error, :discard}
+  def handle_worker_error(error, context, opts \\ []) do
+    handler_opts = Keyword.merge([context: :worker, format: :error], opts)
+    error_struct = handle_error(error, context, handler_opts)
+    attempt = Keyword.get(opts, :attempt, 1)
+
+    case Recoverable.Helpers.recovery_decision(error_struct, attempt: attempt) do
+      {:retry, decision_opts} ->
+        {:error, :retry, delay: decision_opts[:delay]}
+
+      {:wait, decision_opts} ->
+        {:error, :retry, delay: decision_opts[:delay]}
+
+      {:circuit_break, _} ->
+        # Circuit is open, don't retry
+        {:error, :discard}
+
+      {:fail, _} ->
+        :ok
+
+      {:fallback, _} ->
+        :ok
     end
   end
 

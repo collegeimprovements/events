@@ -27,7 +27,7 @@ defmodule Events.APIClient.Auth.APIKey do
 
   alias Events.APIClient.Request
 
-  @type location :: {:header, String.t()} | {:query, String.t()}
+  @type location :: {:header, String.t()} | {:query, atom()}
 
   @type t :: %__MODULE__{
           key: String.t(),
@@ -57,7 +57,7 @@ defmodule Events.APIClient.Auth.APIKey do
   def new(key, opts \\ []) when is_binary(key) do
     location =
       cond do
-        opts[:query] -> {:query, opts[:query]}
+        opts[:query] -> {:query, to_atom(opts[:query])}
         opts[:header] -> {:header, opts[:header]}
         true -> {:header, "authorization"}
       end
@@ -111,6 +111,11 @@ defmodule Events.APIClient.Auth.APIKey do
     new(key, query: param_name)
   end
 
+  # Convert query param name to atom at construction time
+  # This is developer configuration, not user input
+  defp to_atom(name) when is_atom(name), do: name
+  defp to_atom(name) when is_binary(name), do: String.to_atom(name)
+
   # ============================================
   # Protocol Implementation
   # ============================================
@@ -125,7 +130,7 @@ defmodule Events.APIClient.Auth.APIKey do
     end
 
     def authenticate(%{location: {:query, name}, key: key}, request) do
-      Request.put_query(request, String.to_atom(name), key)
+      Request.put_query(request, name, key)
     end
 
     def valid?(_auth), do: true

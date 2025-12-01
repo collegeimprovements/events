@@ -149,12 +149,24 @@ defmodule Events.APIClient.MiddlewareTest do
       assert state.failure_count == 0
     end
 
-    test "call/2 records failure on {:error, _}", %{name: name} do
-      CircuitBreaker.call(name, fn -> {:error, "failed"} end)
+    test "call/2 records failure on {:error, _} when error trips circuit", %{name: name} do
+      # Use an error that trips the circuit (service_unavailable does)
+      error = Events.Errors.Error.new(:service_unavailable, :service_down)
+      CircuitBreaker.call(name, fn -> {:error, error} end)
       :timer.sleep(10)
 
       state = CircuitBreaker.get_state(name)
       assert state.failure_count == 1
+    end
+
+    test "call/2 does not record failure when error doesn't trip circuit", %{name: name} do
+      # Use an error that doesn't trip the circuit (validation errors don't)
+      error = Events.Errors.Error.new(:validation, :invalid_input)
+      CircuitBreaker.call(name, fn -> {:error, error} end)
+      :timer.sleep(10)
+
+      state = CircuitBreaker.get_state(name)
+      assert state.failure_count == 0
     end
 
     test "call/2 returns circuit_open error when open", %{name: name} do

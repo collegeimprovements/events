@@ -609,7 +609,7 @@ defmodule Events.Decorator.Validation do
 
   @doc false
   def handle_contract_violation(type, context, :raise) do
-    raise Events.ContractViolation,
+    raise Events.ContractViolationError,
       message: "Contract violation (#{type}) in #{context.module}.#{context.name}/#{context.arity}"
   end
 
@@ -637,6 +637,6 @@ defmodule Events.CoercionError do
   defexception [:message]
 end
 
-defmodule Events.ContractViolation do
+defmodule Events.ContractViolationError do
   defexception [:message]
 end

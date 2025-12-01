@@ -1,0 +1,153 @@
+# =============================================================================
+# Test Module Template
+# =============================================================================
+# Copy this template when creating a new test module.
+#
+# Usage:
+#   1. Copy to test/events/<module>_test.exs
+#   2. Replace MODULE_NAME with your module name
+#   3. Add your test cases
+# =============================================================================
+
+defmodule Events.MODULE_NAMETest do
+  use Events.DataCase, async: true
+
+  alias Events.MODULE_NAME
+  # alias Events.ENTITY
+
+  # ============================================================================
+  # Test Fixtures
+  # ============================================================================
+
+  # Define fixtures for common test data
+  # @valid_attrs %{name: "Test", status: :active}
+  # @invalid_attrs %{name: nil}
+  # @update_attrs %{name: "Updated"}
+
+  # Setup block for tests that need common data
+  # setup do
+  #   entity = insert_entity()
+  #   %{entity: entity}
+  # end
+
+  # ============================================================================
+  # Describe Blocks
+  # ============================================================================
+
+  describe "list_entities/1" do
+    test "returns all entities" do
+      # Arrange
+      # entity = insert_entity()
+
+      # Act
+      result = MODULE_NAME.list_entities()
+
+      # Assert
+      assert {:ok, entities} = result
+      assert is_list(entities)
+    end
+
+    test "filters by status" do
+      # Arrange
+      # _active = insert_entity(status: :active)
+      # _inactive = insert_entity(status: :inactive)
+
+      # Act
+      result = MODULE_NAME.list_entities(status: :active)
+
+      # Assert
+      assert {:ok, entities} = result
+      assert Enum.all?(entities, &(&1.status == :active))
+    end
+  end
+
+  describe "get_entity/2" do
+    test "returns entity when found" do
+      # Arrange
+      # entity = insert_entity()
+
+      # Act
+      # result = MODULE_NAME.get_entity(entity.id)
+
+      # Assert
+      # assert {:ok, found} = result
+      # assert found.id == entity.id
+    end
+
+    test "returns error when not found" do
+      # Act
+      result = MODULE_NAME.get_entity(Ecto.UUID.generate())
+
+      # Assert
+      assert {:error, :not_found} = result
+    end
+  end
+
+  describe "create_entity/1" do
+    test "creates entity with valid attributes" do
+      # Arrange
+      attrs = %{name: "Test"}
+
+      # Act
+      result = MODULE_NAME.create_entity(attrs)
+
+      # Assert
+      assert {:ok, entity} = result
+      assert entity.name == "Test"
+    end
+
+    test "returns error with invalid attributes" do
+      # Arrange
+      attrs = %{name: nil}
+
+      # Act
+      result = MODULE_NAME.create_entity(attrs)
+
+      # Assert
+      assert {:error, changeset} = result
+      assert %Ecto.Changeset{valid?: false} = changeset
+    end
+  end
+
+  describe "update_entity/2" do
+    test "updates entity with valid attributes" do
+      # Arrange
+      # entity = insert_entity()
+      # attrs = %{name: "Updated"}
+
+      # Act
+      # result = MODULE_NAME.update_entity(entity, attrs)
+
+      # Assert
+      # assert {:ok, updated} = result
+      # assert updated.name == "Updated"
+    end
+  end
+
+  describe "delete_entity/1" do
+    test "deletes entity" do
+      # Arrange
+      # entity = insert_entity()
+
+      # Act
+      # result = MODULE_NAME.delete_entity(entity)
+
+      # Assert
+      # assert {:ok, deleted} = result
+      # assert {:error, :not_found} = MODULE_NAME.get_entity(deleted.id)
+    end
+  end
+
+  # ============================================================================
+  # Private Helpers
+  # ============================================================================
+
+  # defp insert_entity(attrs \\ %{}) do
+  #   default_attrs = %{name: "Test #{System.unique_integer()}", status: :active}
+  #   attrs = Map.merge(default_attrs, attrs)
+  #
+  #   %ENTITY{}
+  #   |> ENTITY.changeset(attrs)
+  #   |> Repo.insert!()
+  # end
+end

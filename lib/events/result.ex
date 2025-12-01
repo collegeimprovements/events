@@ -224,6 +224,69 @@ defmodule Events.Result do
   @spec unwrap(t()) :: t()
   def unwrap(result), do: result
 
+  ## Flattening
+
+  @doc """
+  Flattens a nested result.
+
+  ## Examples
+
+      iex> Result.flatten({:ok, {:ok, 42}})
+      {:ok, 42}
+
+      iex> Result.flatten({:ok, {:error, :inner}})
+      {:error, :inner}
+
+      iex> Result.flatten({:error, :outer})
+      {:error, :outer}
+
+      iex> Result.flatten({:ok, 42})
+      {:ok, 42}
+  """
+  @spec flatten(t(t(a, e), e)) :: t(a, e) when a: term(), e: term()
+  def flatten({:ok, {:ok, _} = inner}), do: inner
+  def flatten({:ok, {:error, _} = inner}), do: inner
+  def flatten({:ok, value}), do: {:ok, value}
+  def flatten({:error, _} = error), do: error
+
+  ## Creation from Nilable
+
+  @doc """
+  Creates a result from a potentially nil value.
+
+  Returns `{:ok, value}` if not nil, `{:error, reason}` if nil.
+
+  ## Examples
+
+      iex> Result.from_nilable(42, :not_found)
+      {:ok, 42}
+
+      iex> Result.from_nilable(nil, :not_found)
+      {:error, :not_found}
+
+      iex> Result.from_nilable(false, :not_found)
+      {:ok, false}
+  """
+  @spec from_nilable(value | nil, error) :: t(value, error) when value: term(), error: term()
+  def from_nilable(nil, error), do: {:error, error}
+  def from_nilable(value, _error), do: {:ok, value}
+
+  @doc """
+  Creates a result from a potentially nil value with lazy error.
+
+  ## Examples
+
+      iex> Result.from_nilable_lazy(42, fn -> :not_found end)
+      {:ok, 42}
+
+      iex> Result.from_nilable_lazy(nil, fn -> :not_found end)
+      {:error, :not_found}
+  """
+  @spec from_nilable_lazy(value | nil, (-> error)) :: t(value, error)
+        when value: term(), error: term()
+  def from_nilable_lazy(nil, error_fun) when is_function(error_fun, 0), do: {:error, error_fun.()}
+  def from_nilable_lazy(value, _error_fun), do: {:ok, value}
+
   ## Collection Operations
 
   @doc """
@@ -276,6 +339,65 @@ defmodule Events.Result do
     list
     |> Enum.map(fun)
     |> collect()
+  end
+
+  @doc """
+  Partitions a list of results into successes and failures.
+
+  Unlike `collect/1` which fails fast, this processes all results
+  and separates them.
+
+  ## Examples
+
+      iex> Result.partition([{:ok, 1}, {:error, :a}, {:ok, 2}, {:error, :b}])
+      %{ok: [1, 2], errors: [:a, :b]}
+
+      iex> Result.partition([{:ok, 1}, {:ok, 2}])
+      %{ok: [1, 2], errors: []}
+
+      iex> Result.partition([{:error, :a}])
+      %{ok: [], errors: [:a]}
+  """
+  @spec partition([t(v, e)]) :: %{ok: [v], errors: [e]} when v: term(), e: term()
+  def partition(results) when is_list(results) do
+    {oks, errors} =
+      Enum.reduce(results, {[], []}, fn
+        {:ok, value}, {ok_acc, err_acc} -> {[value | ok_acc], err_acc}
+        {:error, reason}, {ok_acc, err_acc} -> {ok_acc, [reason | err_acc]}
+      end)
+
+    %{ok: Enum.reverse(oks), errors: Enum.reverse(errors)}
+  end
+
+  @doc """
+  Filters a list keeping only ok values, unwrapped.
+
+  ## Examples
+
+      iex> Result.cat_ok([{:ok, 1}, {:error, :bad}, {:ok, 2}])
+      [1, 2]
+
+      iex> Result.cat_ok([{:error, :a}, {:error, :b}])
+      []
+  """
+  @spec cat_ok([t(v, any())]) :: [v] when v: term()
+  def cat_ok(results) when is_list(results) do
+    results
+    |> Enum.filter(&ok?/1)
+    |> Enum.map(&unwrap!/1)
+  end
+
+  @doc """
+  Filters a list keeping only error reasons.
+
+  ## Examples
+
+      iex> Result.cat_errors([{:ok, 1}, {:error, :bad}, {:ok, 2}, {:error, :worse}])
+      [:bad, :worse]
+  """
+  @spec cat_errors([t(any(), e)]) :: [e] when e: term()
+  def cat_errors(results) when is_list(results) do
+    for {:error, reason} <- results, do: reason
   end
 
   ## Combination
@@ -386,4 +508,395 @@ defmodule Events.Result do
   end
 
   def tap_error({:ok, _} = ok, _fun), do: ok
+
+  ## Swapping
+
+  @doc """
+  Swaps ok and error.
+
+  Useful for testing or inverting the meaning of a result.
+
+  ## Examples
+
+      iex> Result.swap({:ok, 42})
+      {:error, 42}
+
+      iex> Result.swap({:error, :not_found})
+      {:ok, :not_found}
+  """
+  @spec swap(t(v, e)) :: t(e, v) when v: term(), e: term()
+  def swap({:ok, value}), do: {:error, value}
+  def swap({:error, reason}), do: {:ok, reason}
+
+  ## Applicative
+
+  @doc """
+  Applies a wrapped function to a wrapped value.
+
+  Applicative functor pattern.
+
+  ## Examples
+
+      iex> Result.apply({:ok, &String.upcase/1}, {:ok, "hello"})
+      {:ok, "HELLO"}
+
+      iex> Result.apply({:error, :no_fn}, {:ok, "hello"})
+      {:error, :no_fn}
+
+      iex> Result.apply({:ok, &String.upcase/1}, {:error, :no_val})
+      {:error, :no_val}
+  """
+  @spec apply(t((a -> b), e), t(a, e)) :: t(b, e) when a: term(), b: term(), e: term()
+  def apply({:ok, fun}, {:ok, value}) when is_function(fun, 1), do: {:ok, fun.(value)}
+  def apply({:error, _} = error, _), do: error
+  def apply(_, {:error, _} = error), do: error
+
+  @doc """
+  Applies a wrapped 2-arity function to two wrapped values.
+
+  ## Examples
+
+      iex> Result.apply({:ok, &+/2}, {:ok, 1}, {:ok, 2})
+      {:ok, 3}
+  """
+  @spec apply(t((a, b -> c), e), t(a, e), t(b, e)) :: t(c, e)
+        when a: term(), b: term(), c: term(), e: term()
+  def apply({:ok, fun}, {:ok, a}, {:ok, b}) when is_function(fun, 2), do: {:ok, fun.(a, b)}
+  def apply({:error, _} = error, _, _), do: error
+  def apply(_, {:error, _} = error, _), do: error
+  def apply(_, _, {:error, _} = error), do: error
+
+  ## Zipping (aliases for combine)
+
+  @doc """
+  Zips two results into a result of tuple.
+
+  Alias for `combine/2`.
+
+  ## Examples
+
+      iex> Result.zip({:ok, 1}, {:ok, 2})
+      {:ok, {1, 2}}
+
+      iex> Result.zip({:error, :a}, {:ok, 2})
+      {:error, :a}
+  """
+  @spec zip(t(a, e), t(b, e)) :: t({a, b}, e) when a: term(), b: term(), e: term()
+  def zip(result_a, result_b), do: combine(result_a, result_b)
+
+  @doc """
+  Zips two results with a combining function.
+
+  Alias for `combine_with/3`.
+
+  ## Examples
+
+      iex> Result.zip_with({:ok, 2}, {:ok, 3}, &+/2)
+      {:ok, 5}
+  """
+  @spec zip_with(t(a, e), t(b, e), (a, b -> c)) :: t(c, e)
+        when a: term(), b: term(), c: term(), e: term()
+  def zip_with(result_a, result_b, fun), do: combine_with(result_a, result_b, fun)
+
+  ## Exception Handling
+
+  @doc """
+  Wraps a potentially raising function in a Result.
+
+  Catches exceptions and returns them as `{:error, exception}`.
+
+  ## Examples
+
+      iex> Result.try_with(fn -> 1 + 1 end)
+      {:ok, 2}
+
+      iex> {:error, %RuntimeError{}} = Result.try_with(fn -> raise "boom" end)
+      iex> :ok
+      :ok
+
+      iex> Result.try_with(fn -> throw(:ball) end)
+      {:error, {:throw, :ball}}
+
+      iex> Result.try_with(fn -> exit(:normal) end)
+      {:error, {:exit, :normal}}
+  """
+  @spec try_with((-> a)) :: t(a, Exception.t() | {:throw, term()} | {:exit, term()})
+        when a: term()
+  def try_with(fun) when is_function(fun, 0) do
+    {:ok, fun.()}
+  rescue
+    e -> {:error, e}
+  catch
+    :throw, value -> {:error, {:throw, value}}
+    :exit, reason -> {:error, {:exit, reason}}
+  end
+
+  @doc """
+  Wraps a potentially raising function, passing an argument.
+
+  ## Examples
+
+      iex> Result.try_with(fn x -> x * 2 end, 5)
+      {:ok, 10}
+
+      iex> Result.try_with(fn _ -> raise "boom" end, 5)
+      {:error, %RuntimeError{message: "boom"}}
+  """
+  @spec try_with((a -> b), a) :: t(b, Exception.t() | {:throw, term()} | {:exit, term()})
+        when a: term(), b: term()
+  def try_with(fun, arg) when is_function(fun, 1) do
+    {:ok, fun.(arg)}
+  rescue
+    e -> {:error, e}
+  catch
+    :throw, value -> {:error, {:throw, value}}
+    :exit, reason -> {:error, {:exit, reason}}
+  end
+
+  ## Bimap
+
+  @doc """
+  Maps both the ok and error values simultaneously.
+
+  Applies `ok_fun` if ok, `error_fun` if error.
+
+  ## Examples
+
+      iex> Result.bimap({:ok, 5}, &(&1 * 2), &String.upcase/1)
+      {:ok, 10}
+
+      iex> Result.bimap({:error, "bad"}, &(&1 * 2), &String.upcase/1)
+      {:error, "BAD"}
+  """
+  @spec bimap(t(a, e1), (a -> b), (e1 -> e2)) :: t(b, e2)
+        when a: term(), b: term(), e1: term(), e2: term()
+  def bimap({:ok, value}, ok_fun, _error_fun) when is_function(ok_fun, 1) do
+    {:ok, ok_fun.(value)}
+  end
+
+  def bimap({:error, reason}, _ok_fun, error_fun) when is_function(error_fun, 1) do
+    {:error, error_fun.(reason)}
+  end
+
+  ## Function Lifting
+
+  @doc """
+  Lifts a regular function to work on Result values.
+
+  Returns a new function that takes a Result and applies the
+  original function to the wrapped value if ok.
+
+  ## Examples
+
+      iex> upcase = Result.lift(&String.upcase/1)
+      iex> upcase.({:ok, "hello"})
+      {:ok, "HELLO"}
+
+      iex> upcase = Result.lift(&String.upcase/1)
+      iex> upcase.({:error, :bad})
+      {:error, :bad}
+
+      iex> add = Result.lift(&(&1 + &2))
+      iex> add.({:ok, 1}, {:ok, 2})
+      {:ok, 3}
+  """
+  @spec lift((a -> b)) :: (t(a, e) -> t(b, e)) when a: term(), b: term(), e: term()
+  def lift(fun) when is_function(fun, 1) do
+    fn result -> map(result, fun) end
+  end
+
+  @spec lift((a, b -> c)) :: (t(a, e), t(b, e) -> t(c, e))
+        when a: term(), b: term(), c: term(), e: term()
+  def lift(fun) when is_function(fun, 2) do
+    fn result_a, result_b -> combine_with(result_a, result_b, fun) end
+  end
+
+  @doc """
+  Lifts a function and immediately applies it to Result values.
+
+  ## Examples
+
+      iex> Result.lift_apply(&String.upcase/1, {:ok, "hello"})
+      {:ok, "HELLO"}
+
+      iex> Result.lift_apply(&+/2, {:ok, 1}, {:ok, 2})
+      {:ok, 3}
+  """
+  @spec lift_apply((a -> b), t(a, e)) :: t(b, e) when a: term(), b: term(), e: term()
+  def lift_apply(fun, result) when is_function(fun, 1), do: map(result, fun)
+
+  @spec lift_apply((a, b -> c), t(a, e), t(b, e)) :: t(c, e)
+        when a: term(), b: term(), c: term(), e: term()
+  def lift_apply(fun, result_a, result_b) when is_function(fun, 2) do
+    combine_with(result_a, result_b, fun)
+  end
+
+  ## Enumerable Support
+
+  @doc """
+  Converts a Result to an enumerable (list).
+
+  Enables using Result values with Enum functions.
+
+  ## Examples
+
+      iex> Result.to_enum({:ok, 42})
+      [42]
+
+      iex> Result.to_enum({:error, :bad})
+      []
+
+      iex> {:ok, 5} |> Result.to_enum() |> Enum.map(&(&1 * 2))
+      [10]
+  """
+  @spec to_enum(t(a, any())) :: [a] when a: term()
+  def to_enum({:ok, value}), do: [value]
+  def to_enum({:error, _}), do: []
+
+  @doc """
+  Reduces over a Result value.
+
+  ## Examples
+
+      iex> Result.reduce({:ok, 5}, 0, &+/2)
+      5
+
+      iex> Result.reduce({:error, :bad}, 0, &+/2)
+      0
+  """
+  @spec reduce(t(a, any()), acc, (a, acc -> acc)) :: acc when a: term(), acc: term()
+  def reduce({:ok, value}, acc, fun) when is_function(fun, 2), do: fun.(value, acc)
+  def reduce({:error, _}, acc, _fun), do: acc
+
+  ## Error Module Integration
+
+  @doc """
+  Normalizes an error using the Events.Normalizable protocol.
+
+  Transforms any error reason into a structured `Events.Error` using
+  protocol-based normalization. Supports Ecto changesets, HTTP errors,
+  database errors, and any type implementing `Events.Normalizable`.
+
+  ## Examples
+
+      {:error, changeset} |> Result.normalize_error()
+      #=> {:error, %Events.Error{type: :validation, ...}}
+
+      {:error, :not_found} |> Result.normalize_error()
+      #=> {:error, %Events.Error{type: :not_found, ...}}
+
+      {:error, %Postgrex.Error{}} |> Result.normalize_error(context: %{user_id: 123})
+      #=> {:error, %Events.Error{context: %{user_id: 123}, ...}}
+
+      {:ok, value} |> Result.normalize_error()
+      #=> {:ok, value}
+  """
+  @spec normalize_error(t(v, e), keyword()) :: t(v, Events.Error.t()) when v: term(), e: term()
+  def normalize_error(result, opts \\ [])
+  def normalize_error({:ok, _} = ok, _opts), do: ok
+
+  def normalize_error({:error, reason}, opts) do
+    {:error, Events.Normalizable.normalize(reason, opts)}
+  end
+
+  @doc """
+  Wraps an error with Events.Error context.
+
+  Transforms a simple error into a structured Error with context.
+  Useful for adding debugging information to errors.
+
+  ## Examples
+
+      iex> {:error, :not_found}
+      ...> |> Result.wrap_error(user_id: 123, action: :fetch)
+      {:error, %{reason: :not_found, context: %{user_id: 123, action: :fetch}}}
+
+      iex> {:ok, 42} |> Result.wrap_error(user_id: 123)
+      {:ok, 42}
+  """
+  @spec wrap_error(t(v, e), keyword()) :: t(v, %{reason: e, context: map()})
+        when v: term(), e: term()
+  def wrap_error({:ok, _} = ok, _context), do: ok
+
+  def wrap_error({:error, reason}, context) when is_list(context) do
+    {:error, %{reason: reason, context: Map.new(context)}}
+  end
+
+  @doc """
+  Converts an error to an Events.Error struct.
+
+  Creates a full Error struct from a result error, with optional
+  type and context.
+
+  ## Examples
+
+      Result.to_error({:error, :not_found}, :not_found,
+        message: "User not found",
+        context: %{user_id: 123}
+      )
+      #=> {:error, %Events.Error{type: :not_found, code: :not_found, ...}}
+
+      Result.to_error({:ok, value}, :not_found)
+      #=> {:ok, value}
+  """
+  @spec to_error(t(v, e), atom(), keyword()) :: t(v, Events.Error.t()) when v: term(), e: term()
+  def to_error(result, type, opts \\ [])
+  def to_error({:ok, _} = ok, _type, _opts), do: ok
+
+  def to_error({:error, reason}, type, opts) when is_atom(type) do
+    code = Keyword.get(opts, :code, reason_to_code(reason))
+    message = Keyword.get(opts, :message, reason_to_message(reason))
+    context = Keyword.get(opts, :context, %{})
+    details = Keyword.get(opts, :details, %{original_reason: reason})
+
+    error = Events.Error.new(type, code, message: message, details: details, context: context)
+    {:error, error}
+  end
+
+  @doc """
+  Adds step context to an error for pipeline tracking.
+
+  ## Examples
+
+      Result.with_step({:error, :not_found}, :fetch_user)
+      #=> {:error, {:step_failed, :fetch_user, :not_found}}
+
+      Result.with_step({:ok, value}, :fetch_user)
+      #=> {:ok, value}
+  """
+  @spec with_step(t(v, e), atom()) :: t(v, {:step_failed, atom(), e}) when v: term(), e: term()
+  def with_step({:ok, _} = ok, _step), do: ok
+
+  def with_step({:error, reason}, step) when is_atom(step) do
+    {:error, {:step_failed, step, reason}}
+  end
+
+  @doc """
+  Extracts the original error from a step-wrapped error.
+
+  ## Examples
+
+      iex> Result.unwrap_step({:error, {:step_failed, :fetch, :not_found}})
+      {:error, :not_found}
+
+      iex> Result.unwrap_step({:error, :simple_error})
+      {:error, :simple_error}
+
+      iex> Result.unwrap_step({:ok, 42})
+      {:ok, 42}
+  """
+  @spec unwrap_step(t(v, e)) :: t(v, term()) when v: term(), e: term()
+  def unwrap_step({:ok, _} = ok), do: ok
+  def unwrap_step({:error, {:step_failed, _step, reason}}), do: {:error, reason}
+  def unwrap_step({:error, _} = error), do: error
+
+  # Private helpers for error conversion
+  defp reason_to_code(reason) when is_atom(reason), do: reason
+  defp reason_to_code(%{code: code}) when is_atom(code), do: code
+  defp reason_to_code(_), do: :unknown
+
+  defp reason_to_message(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp reason_to_message(reason) when is_binary(reason), do: reason
+  defp reason_to_message(%{message: msg}) when is_binary(msg), do: msg
+  defp reason_to_message(reason), do: inspect(reason)
 end

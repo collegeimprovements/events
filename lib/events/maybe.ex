@@ -573,6 +573,126 @@ defmodule Events.Maybe do
   end
 
   # ============================================
+  # Flattening
+  # ============================================
+
+  @doc """
+  Flattens a nested maybe.
+
+  ## Examples
+
+      iex> Maybe.flatten({:some, {:some, 42}})
+      {:some, 42}
+
+      iex> Maybe.flatten({:some, :none})
+      :none
+
+      iex> Maybe.flatten(:none)
+      :none
+
+      iex> Maybe.flatten({:some, 42})
+      {:some, 42}
+  """
+  @spec flatten(t(t(a))) :: t(a) when a: term()
+  def flatten({:some, {:some, _} = inner}), do: inner
+  def flatten({:some, :none}), do: :none
+  def flatten({:some, value}), do: {:some, value}
+  def flatten(:none), do: :none
+
+  # ============================================
+  # Applicative
+  # ============================================
+
+  @doc """
+  Applies a wrapped function to a wrapped value.
+
+  Applicative functor pattern - useful for applying functions
+  that are themselves wrapped in Maybe.
+
+  ## Examples
+
+      iex> Maybe.apply({:some, &String.upcase/1}, {:some, "hello"})
+      {:some, "HELLO"}
+
+      iex> Maybe.apply(:none, {:some, "hello"})
+      :none
+
+      iex> Maybe.apply({:some, &String.upcase/1}, :none)
+      :none
+
+      iex> Maybe.apply({:some, fn a, b -> a + b end}, {:some, 1}, {:some, 2})
+      {:some, 3}
+  """
+  @spec apply(t((a -> b)), t(a)) :: t(b) when a: term(), b: term()
+  def apply({:some, fun}, {:some, value}) when is_function(fun, 1), do: {:some, fun.(value)}
+  def apply(:none, _), do: :none
+  def apply(_, :none), do: :none
+
+  @spec apply(t((a, b -> c)), t(a), t(b)) :: t(c) when a: term(), b: term(), c: term()
+  def apply({:some, fun}, {:some, a}, {:some, b}) when is_function(fun, 2), do: {:some, fun.(a, b)}
+  def apply(:none, _, _), do: :none
+  def apply(_, :none, _), do: :none
+  def apply(_, _, :none), do: :none
+
+  # ============================================
+  # Zipping
+  # ============================================
+
+  @doc """
+  Zips two maybes into a maybe of tuple.
+
+  Alias for `combine/2` with clearer semantics for parallel combination.
+
+  ## Examples
+
+      iex> Maybe.zip({:some, 1}, {:some, 2})
+      {:some, {1, 2}}
+
+      iex> Maybe.zip(:none, {:some, 2})
+      :none
+
+      iex> Maybe.zip({:some, 1}, :none)
+      :none
+  """
+  @spec zip(t(a), t(b)) :: t({a, b}) when a: term(), b: term()
+  def zip(maybe_a, maybe_b), do: combine(maybe_a, maybe_b)
+
+  @doc """
+  Zips two maybes with a combining function.
+
+  Alias for `combine_with/3` with clearer semantics.
+
+  ## Examples
+
+      iex> Maybe.zip_with({:some, 2}, {:some, 3}, &(&1 + &2))
+      {:some, 5}
+
+      iex> Maybe.zip_with(:none, {:some, 3}, &(&1 + &2))
+      :none
+
+      iex> Maybe.zip_with({:some, "Hello, "}, {:some, "World!"}, &<>/2)
+      {:some, "Hello, World!"}
+  """
+  @spec zip_with(t(a), t(b), (a, b -> c)) :: t(c) when a: term(), b: term(), c: term()
+  def zip_with(maybe_a, maybe_b, fun), do: combine_with(maybe_a, maybe_b, fun)
+
+  @doc """
+  Zips a list of maybes into a maybe of list.
+
+  Returns some only if all values are some. Alias for `collect/1`.
+
+  ## Examples
+
+      iex> Maybe.zip_all([{:some, 1}, {:some, 2}, {:some, 3}])
+      {:some, [1, 2, 3]}
+
+      iex> Maybe.zip_all([{:some, 1}, :none, {:some, 3}])
+      :none
+  """
+  @spec zip_all([t(a)]) :: t([a]) when a: term()
+  def zip_all(maybes), do: collect(maybes)
+
+  # ============================================
   # Combining
   # ============================================
 
@@ -708,15 +828,49 @@ defmodule Events.Maybe do
 
   ## Examples
 
-      iex> Maybe.when_true_lazy(true, fn -> expensive_computation() end)
-      {:some, result}
+      iex> Maybe.when_true_lazy(true, fn -> 42 end)
+      {:some, 42}
 
-      iex> Maybe.when_true_lazy(false, fn -> expensive_computation() end)
-      :none  # Function not called
+      iex> Maybe.when_true_lazy(false, fn -> 42 end)
+      :none
   """
   @spec when_true_lazy(boolean(), (-> value)) :: t(value) when value: term()
   def when_true_lazy(true, fun) when is_function(fun, 0), do: {:some, fun.()}
   def when_true_lazy(false, _fun), do: :none
+
+  @doc """
+  Returns some if condition is false, none otherwise.
+
+  Inverse of `when_true/2`.
+
+  ## Examples
+
+      iex> Maybe.unless_true(false, 42)
+      {:some, 42}
+
+      iex> Maybe.unless_true(true, 42)
+      :none
+  """
+  @spec unless_true(boolean(), value) :: t(value) when value: term()
+  def unless_true(false, value), do: {:some, value}
+  def unless_true(true, _value), do: :none
+
+  @doc """
+  Returns some with lazy value if condition is false.
+
+  Inverse of `when_true_lazy/2`.
+
+  ## Examples
+
+      iex> Maybe.unless_true_lazy(false, fn -> 42 end)
+      {:some, 42}
+
+      iex> Maybe.unless_true_lazy(true, fn -> 42 end)
+      :none
+  """
+  @spec unless_true_lazy(boolean(), (-> value)) :: t(value) when value: term()
+  def unless_true_lazy(false, fun) when is_function(fun, 0), do: {:some, fun.()}
+  def unless_true_lazy(true, _fun), do: :none
 
   # ============================================
   # Map/Struct Access
@@ -770,4 +924,100 @@ defmodule Events.Maybe do
   end
 
   def fetch_path(_, _), do: :none
+
+  # ============================================
+  # Function Lifting
+  # ============================================
+
+  @doc """
+  Lifts a regular function to work on Maybe values.
+
+  Returns a new function that takes a Maybe and applies the
+  original function to the wrapped value if present.
+
+  ## Examples
+
+      iex> upcase = Maybe.lift(&String.upcase/1)
+      iex> upcase.({:some, "hello"})
+      {:some, "HELLO"}
+
+      iex> upcase = Maybe.lift(&String.upcase/1)
+      iex> upcase.(:none)
+      :none
+
+      iex> add = Maybe.lift(&(&1 + &2))
+      iex> add.({:some, 1}, {:some, 2})
+      {:some, 3}
+  """
+  @spec lift((a -> b)) :: (t(a) -> t(b)) when a: term(), b: term()
+  def lift(fun) when is_function(fun, 1) do
+    fn maybe -> map(maybe, fun) end
+  end
+
+  @spec lift((a, b -> c)) :: (t(a), t(b) -> t(c)) when a: term(), b: term(), c: term()
+  def lift(fun) when is_function(fun, 2) do
+    fn maybe_a, maybe_b -> combine_with(maybe_a, maybe_b, fun) end
+  end
+
+  @doc """
+  Lifts a function and immediately applies it to Maybe values.
+
+  Convenience for `lift(fun).(maybe)`.
+
+  ## Examples
+
+      iex> Maybe.lift_apply(&String.upcase/1, {:some, "hello"})
+      {:some, "HELLO"}
+
+      iex> Maybe.lift_apply(&+/2, {:some, 1}, {:some, 2})
+      {:some, 3}
+  """
+  @spec lift_apply((a -> b), t(a)) :: t(b) when a: term(), b: term()
+  def lift_apply(fun, maybe) when is_function(fun, 1), do: map(maybe, fun)
+
+  @spec lift_apply((a, b -> c), t(a), t(b)) :: t(c) when a: term(), b: term(), c: term()
+  def lift_apply(fun, maybe_a, maybe_b) when is_function(fun, 2) do
+    combine_with(maybe_a, maybe_b, fun)
+  end
+
+  # ============================================
+  # Enumerable Support
+  # ============================================
+
+  @doc """
+  Converts a Maybe to an enumerable (list).
+
+  Enables using Maybe values with Enum functions.
+
+  ## Examples
+
+      iex> Maybe.to_enum({:some, 42})
+      [42]
+
+      iex> Maybe.to_enum(:none)
+      []
+
+      iex> {:some, 5} |> Maybe.to_enum() |> Enum.map(&(&1 * 2))
+      [10]
+  """
+  @spec to_enum(t(a)) :: [a] when a: term()
+  def to_enum({:some, value}), do: [value]
+  def to_enum(:none), do: []
+
+  @doc """
+  Reduces over a Maybe value.
+
+  Provides Enum.reduce-like semantics for Maybe.
+
+  ## Examples
+
+      iex> Maybe.reduce({:some, 5}, 0, &+/2)
+      5
+
+      iex> Maybe.reduce(:none, 0, &+/2)
+      0
+  """
+  @spec reduce(t(a), acc, (a, acc -> acc)) :: acc when a: term(), acc: term()
+  def reduce({:some, value}, acc, fun) when is_function(fun, 2), do: fun.(value, acc)
+  def reduce(:none, acc, _fun), do: acc
 end

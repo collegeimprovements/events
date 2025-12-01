@@ -8,7 +8,12 @@ defmodule Events.Accounts do
   - Memberships (account ↔ user associations)
   - Roles (global and per-account)
   - User role mappings (assigns roles to users within accounts)
+
+  All public functions return result tuples `{:ok, result} | {:error, reason}` unless
+  explicitly documented otherwise (e.g., bang variants, boolean predicates).
   """
+
+  use Events.Decorator
 
   import Ecto.Query
   alias Events.Repo
@@ -143,12 +148,22 @@ defmodule Events.Accounts do
   @doc """
   Gets a user by email and password.
 
-  Returns `nil` if the user does not exist or the password is invalid.
+  Returns the user if found and password is valid, `nil` otherwise.
   """
   def get_user_by_email_and_password(email, password)
       when is_binary(email) and is_binary(password) do
-    user = get_user_by_email(email)
-    if User.valid_password?(user, password), do: user
+    email
+    |> get_user_by_email()
+    |> validate_user_password(password)
+  end
+
+  defp validate_user_password(nil, _password), do: nil
+
+  defp validate_user_password(%User{} = user, password) do
+    case User.valid_password?(user, password) do
+      true -> user
+      false -> nil
+    end
   end
 
   @doc """
@@ -272,17 +287,21 @@ defmodule Events.Accounts do
   """
   @spec deliver_user_confirmation_instructions(User.t(), (binary() -> binary())) ::
           {:ok, binary()} | {:error, :already_confirmed | Ecto.Changeset.t()}
+  def deliver_user_confirmation_instructions(
+        %User{confirmed_at: confirmed_at},
+        _confirmation_url_fun
+      )
+      when not is_nil(confirmed_at) do
+    {:error, :already_confirmed}
+  end
+
   def deliver_user_confirmation_instructions(%User{} = user, confirmation_url_fun)
       when is_function(confirmation_url_fun, 1) do
-    if user.confirmed_at do
-      {:error, :already_confirmed}
-    else
-      {encoded_token, user_token} = UserToken.build_email_token(user, "confirm")
+    {encoded_token, user_token} = UserToken.build_email_token(user, "confirm")
 
-      case Repo.insert(user_token) do
-        {:ok, _} -> {:ok, encoded_token}
-        {:error, changeset} -> {:error, changeset}
-      end
+    case Repo.insert(user_token) do
+      {:ok, _} -> {:ok, encoded_token}
+      {:error, changeset} -> {:error, changeset}
     end
   end
 
@@ -439,13 +458,19 @@ defmodule Events.Accounts do
 
   @doc """
   Removes a user from an account.
+
+  Returns `{:ok, membership}` on success, `{:error, :not_found}` if no membership exists.
   """
+  @spec remove_user_from_account(binary(), binary()) ::
+          {:ok, Membership.t()} | {:error, :not_found | Ecto.Changeset.t()}
   def remove_user_from_account(account_id, user_id) do
-    case get_membership_by_account_and_user(account_id, user_id) do
-      nil -> {:error, :not_found}
-      membership -> delete_membership(membership)
-    end
+    account_id
+    |> get_membership_by_account_and_user(user_id)
+    |> do_delete_membership()
   end
+
+  defp do_delete_membership(nil), do: {:error, :not_found}
+  defp do_delete_membership(%Membership{} = membership), do: delete_membership(membership)
 
   @doc """
   Returns an `%Ecto.Changeset{}` for tracking membership changes.
@@ -680,13 +705,19 @@ defmodule Events.Accounts do
 
   @doc """
   Removes a role from a user in an account.
+
+  Returns `{:ok, urm}` on success, `{:error, :not_found}` if no mapping exists.
   """
+  @spec remove_role(binary(), binary(), binary()) ::
+          {:ok, UserRoleMapping.t()} | {:error, :not_found | Ecto.Changeset.t()}
   def remove_role(user_id, role_id, account_id) do
-    case get_urm_by_user_role_account(user_id, role_id, account_id) do
-      nil -> {:error, :not_found}
-      urm -> delete_urm(urm)
-    end
+    user_id
+    |> get_urm_by_user_role_account(role_id, account_id)
+    |> do_delete_urm()
   end
+
+  defp do_delete_urm(nil), do: {:error, :not_found}
+  defp do_delete_urm(%UserRoleMapping{} = urm), do: delete_urm(urm)
 
   @doc """
   Returns an `%Ecto.Changeset{}` for tracking URM changes.

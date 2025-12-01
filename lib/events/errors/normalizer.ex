@@ -3,29 +3,35 @@ defmodule Events.Errors.Normalizer do
   Public API for normalizing errors from various sources.
 
   This module provides a unified interface for converting errors from different
-  sources (Ecto, HTTP, AWS, POSIX, etc.) into the standard `Events.Errors.Error` struct.
+  sources (Ecto, HTTP, AWS, POSIX, etc.) into the standard `Events.Error` struct.
 
-  ## Supported Sources
+  ## Protocol-Based Normalization
 
-  - **Ecto** - Changesets, queries, constraints
-  - **HTTP** - Status codes, Req/Tesla/HTTPoison errors
-  - **AWS** - ExAws service errors
-  - **POSIX** - File system errors
-  - **Stripe** - Payment errors
-  - **GraphQL** - Absinthe errors
-  - **Business** - Domain-specific errors
-  - **Exceptions** - Elixir exceptions
+  This module delegates to the `Events.Normalizable` protocol, which provides
+  type-based dispatch for error normalization. Any type can be made normalizable
+  by implementing the protocol.
+
+  ## Supported Sources (via Protocol Implementations)
+
+  - **Ecto** - Changesets, NoResultsError, StaleEntryError, ConstraintError
+  - **Postgrex** - Database errors with PostgreSQL error codes
+  - **DBConnection** - Connection pool errors
+  - **Mint** - HTTP transport and protocol errors
+  - **HTTP** - Status codes via `Events.HttpError` wrapper
+  - **POSIX** - File system errors via `Events.PosixError` wrapper
+  - **Exceptions** - Any Elixir exception (via Any fallback)
   - **Result tuples** - `{:error, term()}`
+  - **Custom types** - Any struct implementing `Events.Normalizable`
 
   ## Usage
 
-      # Normalize any error
+      # Normalize any error (uses protocol dispatch)
       Normalizer.normalize({:error, :not_found})
       Normalizer.normalize(%Ecto.Changeset{valid?: false})
-      Normalizer.normalize(%HTTPoison.Error{})
+      Normalizer.normalize(%Mint.TransportError{reason: :timeout})
 
-      # With metadata
-      Normalizer.normalize({:error, :timeout}, metadata: %{request_id: "123"})
+      # With context
+      Normalizer.normalize(error, context: %{user_id: 123})
 
       # Normalize result tuples
       {:ok, user} |> Normalizer.normalize_result()  #=> {:ok, user}
@@ -42,25 +48,45 @@ defmodule Events.Errors.Normalizer do
       # Wrap function calls
       Normalizer.wrap(fn -> risky_operation() end)
       #=> {:ok, result} | {:error, %Error{}}
+
+  ## Extending with Custom Types
+
+  Implement the `Events.Normalizable` protocol for your custom error types:
+
+      defimpl Events.Normalizable, for: MyApp.PaymentError do
+        def normalize(%{code: code}, opts) do
+          Events.Error.new(:unprocessable, code,
+            message: "Payment failed",
+            context: Keyword.get(opts, :context, %{})
+          )
+        end
+      end
+
+  Or use `@derive`:
+
+      defmodule MyApp.CustomError do
+        @derive {Events.Normalizable, type: :business, code: :custom_error}
+        defstruct [:message, :details]
+      end
   """
 
   use Events.Decorator
 
-  alias Events.Errors.Error
-  alias Events.Errors.Mappers
+  alias Events.Error
 
-  @posix_errors [:enoent, :eacces, :eisdir, :enotdir, :eexist, :enospc]
-
-  @type normalizable ::
-          {:error, term()}
-          | Ecto.Changeset.t()
-          | Exception.t()
-          | Error.t()
-          | atom()
-          | String.t()
+  @type normalizable :: term()
 
   @doc """
   Normalizes an error from any source into a standard Error struct.
+
+  Uses the `Events.Normalizable` protocol for type-based dispatch.
+
+  ## Options
+
+  - `:context` - Additional context to attach to the error
+  - `:stacktrace` - Stacktrace to attach (for exceptions)
+  - `:step` - Pipeline step where the error occurred
+  - `:message` - Override the default message
 
   ## Examples
 
@@ -77,58 +103,14 @@ defmodule Events.Errors.Normalizer do
   @decorate log_call(level: :debug, label: "Error normalization")
   def normalize(error, opts \\ [])
 
-  # Already normalized
-  def normalize(%Error{} = error, opts) do
-    maybe_add_metadata(error, opts)
-  end
-
-  # Result tuple
+  # Unwrap result tuples
   def normalize({:error, reason}, opts) do
     normalize(reason, opts)
   end
 
-  # Ecto changeset
-  def normalize(%Ecto.Changeset{} = changeset, opts) do
-    changeset
-    |> Mappers.Ecto.normalize()
-    |> maybe_add_metadata(opts)
-  end
-
-  # Exceptions
-  def normalize(%{__exception__: true} = exception, opts) do
-    exception
-    |> Mappers.Exception.normalize(Keyword.get(opts, :stacktrace))
-    |> maybe_add_metadata(opts)
-  end
-
-  # POSIX errors
-  def normalize(posix, opts) when posix in @posix_errors do
-    posix
-    |> Mappers.Posix.normalize()
-    |> maybe_add_metadata(opts)
-  end
-
-  # Simple atoms
-  def normalize(atom, opts) when is_atom(atom) do
-    type = infer_type(atom)
-
-    Error.new(type, atom)
-    |> maybe_add_metadata(opts)
-  end
-
-  # String messages
-  def normalize(message, opts) when is_binary(message) do
-    Error.new(:unknown, :error, message: message)
-    |> maybe_add_metadata(opts)
-  end
-
-  # Fallback
-  def normalize(unknown, opts) do
-    Error.new(:unknown, :error,
-      message: "Unknown error",
-      details: %{original: Kernel.inspect(unknown)}
-    )
-    |> maybe_add_metadata(opts)
+  # Delegate to protocol
+  def normalize(error, opts) do
+    Events.Normalizable.normalize(error, opts)
   end
 
   @doc """
@@ -183,6 +165,8 @@ defmodule Events.Errors.Normalizer do
   @doc """
   Wraps a function call and normalizes any errors.
 
+  Catches exceptions, exits, and throws, normalizing them all to Error structs.
+
   ## Examples
 
       Normalizer.wrap(fn -> risky_operation() end)
@@ -196,35 +180,17 @@ defmodule Events.Errors.Normalizer do
     {:ok, fun.()}
   rescue
     exception ->
-      error = Mappers.Exception.normalize(exception, __STACKTRACE__)
-      {:error, maybe_add_metadata(error, opts)}
+      error =
+        Events.Normalizable.normalize(exception, Keyword.put(opts, :stacktrace, __STACKTRACE__))
+
+      {:error, error}
   catch
     :exit, reason ->
       error = Error.new(:internal, :exit, message: "Process exited", details: %{reason: reason})
-      {:error, maybe_add_metadata(error, opts)}
+      {:error, error}
 
     :throw, value ->
       error = Error.new(:internal, :throw, message: "Value thrown", details: %{value: value})
-      {:error, maybe_add_metadata(error, opts)}
+      {:error, error}
   end
-
-  ## Helpers
-
-  defp maybe_add_metadata(error, opts) do
-    case Keyword.get(opts, :metadata) do
-      nil -> error
-      metadata -> Error.with_metadata(error, metadata)
-    end
-  end
-
-  defp infer_type(:not_found), do: :not_found
-  defp infer_type(:unauthorized), do: :unauthorized
-  defp infer_type(:forbidden), do: :forbidden
-  defp infer_type(:conflict), do: :conflict
-  defp infer_type(:timeout), do: :timeout
-  defp infer_type(:rate_limit), do: :rate_limit
-  defp infer_type(:bad_request), do: :bad_request
-  defp infer_type(:invalid), do: :validation
-  defp infer_type(:validation_failed), do: :validation
-  defp infer_type(_), do: :unknown
 end

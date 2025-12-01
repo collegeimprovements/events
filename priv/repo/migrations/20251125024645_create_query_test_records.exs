@@ -1,5 +1,5 @@
 defmodule Events.Repo.Migrations.CreateQueryTestRecords do
-  use Ecto.Migration
+  use Events.Migration
 
   @doc """
   Creates a simple test table for Query execution tests.

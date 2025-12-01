@@ -1,0 +1,216 @@
+# =============================================================================
+# Context Module Template
+# =============================================================================
+# Copy this template when creating a new context module.
+#
+# Usage:
+#   1. Copy to lib/events/<domain>.ex
+#   2. Replace MODULE_NAME with your context name (e.g., Events.Products)
+#   3. Replace ENTITY with your entity module (e.g., Events.Products.Product)
+#   4. Add your business logic functions
+# =============================================================================
+
+defmodule Events.MODULE_NAME do
+  @moduledoc """
+  Context module for managing ENTITY records.
+
+  This module provides the public API for ENTITY operations.
+
+  ## Examples
+
+      iex> list_entities()
+      {:ok, [%ENTITY{}, ...]}
+
+      iex> get_entity("uuid")
+      {:ok, %ENTITY{}}
+
+      iex> create_entity(%{name: "Test"})
+      {:ok, %ENTITY{}}
+  """
+
+  use Events.Decorator
+
+  import Ecto.Query, warn: false
+
+  alias Events.Repo
+  alias Events.ENTITY
+
+  # ============================================================================
+  # List Operations
+  # ============================================================================
+
+  @doc """
+  Returns a list of all entities.
+
+  ## Options
+
+    * `:status` - Filter by status (default: `:active`)
+    * `:preload` - List of associations to preload
+    * `:limit` - Maximum number of records to return
+    * `:offset` - Number of records to skip
+
+  ## Examples
+
+      iex> list_entities()
+      {:ok, [%ENTITY{}, ...]}
+
+      iex> list_entities(status: :inactive, limit: 10)
+      {:ok, [%ENTITY{}, ...]}
+  """
+  @decorate returns_result(ok: {:list, ENTITY.t()}, error: :atom)
+  @spec list_entities(keyword()) :: {:ok, [ENTITY.t()]} | {:error, atom()}
+  def list_entities(opts \\ []) do
+    status = Keyword.get(opts, :status, :active)
+    preload = Keyword.get(opts, :preload, [])
+    limit = Keyword.get(opts, :limit)
+    offset = Keyword.get(opts, :offset)
+
+    query =
+      ENTITY
+      |> where([e], e.status == ^status)
+      |> order_by([e], desc: e.inserted_at)
+      |> maybe_limit(limit)
+      |> maybe_offset(offset)
+
+    entities =
+      query
+      |> Repo.all()
+      |> Repo.preload(preload)
+
+    {:ok, entities}
+  end
+
+  # ============================================================================
+  # Get Operations
+  # ============================================================================
+
+  @doc """
+  Gets a single entity by ID.
+
+  ## Options
+
+    * `:preload` - List of associations to preload
+
+  ## Examples
+
+      iex> get_entity("valid-uuid")
+      {:ok, %ENTITY{}}
+
+      iex> get_entity("invalid-uuid")
+      {:error, :not_found}
+  """
+  @decorate returns_result(ok: ENTITY.t(), error: :atom)
+  @spec get_entity(binary(), keyword()) :: {:ok, ENTITY.t()} | {:error, :not_found}
+  def get_entity(id, opts \\ []) do
+    preload = Keyword.get(opts, :preload, [])
+
+    case Repo.get(ENTITY, id) do
+      nil -> {:error, :not_found}
+      entity -> {:ok, Repo.preload(entity, preload)}
+    end
+  end
+
+  @doc """
+  Gets a single entity by ID, raising if not found.
+
+  ## Examples
+
+      iex> get_entity!("valid-uuid")
+      %ENTITY{}
+  """
+  @spec get_entity!(binary()) :: ENTITY.t()
+  def get_entity!(id) do
+    Repo.get!(ENTITY, id)
+  end
+
+  # ============================================================================
+  # Create Operations
+  # ============================================================================
+
+  @doc """
+  Creates a new entity.
+
+  ## Examples
+
+      iex> create_entity(%{name: "Test"})
+      {:ok, %ENTITY{}}
+
+      iex> create_entity(%{name: nil})
+      {:error, %Ecto.Changeset{}}
+  """
+  @decorate returns_result(ok: ENTITY.t(), error: Ecto.Changeset.t())
+  @spec create_entity(map()) :: {:ok, ENTITY.t()} | {:error, Ecto.Changeset.t()}
+  def create_entity(attrs) do
+    %ENTITY{}
+    |> ENTITY.changeset(attrs)
+    |> Repo.insert()
+  end
+
+  # ============================================================================
+  # Update Operations
+  # ============================================================================
+
+  @doc """
+  Updates an existing entity.
+
+  ## Examples
+
+      iex> update_entity(entity, %{name: "Updated"})
+      {:ok, %ENTITY{}}
+
+      iex> update_entity(entity, %{name: nil})
+      {:error, %Ecto.Changeset{}}
+  """
+  @decorate returns_result(ok: ENTITY.t(), error: Ecto.Changeset.t())
+  @spec update_entity(ENTITY.t(), map()) :: {:ok, ENTITY.t()} | {:error, Ecto.Changeset.t()}
+  def update_entity(%ENTITY{} = entity, attrs) do
+    entity
+    |> ENTITY.changeset(attrs)
+    |> Repo.update()
+  end
+
+  # ============================================================================
+  # Delete Operations
+  # ============================================================================
+
+  @doc """
+  Deletes an entity.
+
+  ## Examples
+
+      iex> delete_entity(entity)
+      {:ok, %ENTITY{}}
+  """
+  @decorate returns_result(ok: ENTITY.t(), error: Ecto.Changeset.t())
+  @spec delete_entity(ENTITY.t()) :: {:ok, ENTITY.t()} | {:error, Ecto.Changeset.t()}
+  def delete_entity(%ENTITY{} = entity) do
+    Repo.delete(entity)
+  end
+
+  # ============================================================================
+  # Changeset
+  # ============================================================================
+
+  @doc """
+  Returns a changeset for tracking entity changes.
+
+  ## Examples
+
+      iex> change_entity(entity)
+      %Ecto.Changeset{}
+  """
+  @spec change_entity(ENTITY.t(), map()) :: Ecto.Changeset.t()
+  def change_entity(%ENTITY{} = entity, attrs \\ %{}) do
+    ENTITY.changeset(entity, attrs)
+  end
+
+  # ============================================================================
+  # Private Helpers
+  # ============================================================================
+
+  defp maybe_limit(query, nil), do: query
+  defp maybe_limit(query, limit), do: limit(query, ^limit)
+
+  defp maybe_offset(query, nil), do: query
+  defp maybe_offset(query, offset), do: offset(query, ^offset)
+end

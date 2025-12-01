@@ -6,7 +6,8 @@
       files: %{
         included: [
           "lib/",
-          "test/"
+          "test/",
+          "priv/repo/migrations/"
         ],
         excluded: [
           ~r"/_build/",
@@ -16,7 +17,14 @@
         ]
       },
       plugins: [],
-      requires: [],
+      requires: [
+        "lib/events/credo/checks/use_events_schema.ex",
+        "lib/events/credo/checks/use_events_migration.ex",
+        "lib/events/credo/checks/no_bang_repo_operations.ex",
+        "lib/events/credo/checks/require_result_tuples.ex",
+        "lib/events/credo/checks/prefer_pattern_matching.ex",
+        "lib/events/credo/checks/use_decorator.ex"
+      ],
       strict: false,
       parse_timeout: 5000,
       color: true,
@@ -80,34 +88,105 @@
           #
           {Credo.Check.Refactor.Apply, []},
           {Credo.Check.Refactor.CondStatements, []},
-          {Credo.Check.Refactor.CyclomaticComplexity, [max_complexity: 15]},
-          {Credo.Check.Refactor.FunctionArity, [max_arity: 8]},
-          {Credo.Check.Refactor.LongQuoteBlocks, [max_line_count: 200]},
+          {Credo.Check.Refactor.CyclomaticComplexity, [max_complexity: 12]},
+          {Credo.Check.Refactor.DoubleBooleanNegation, []},
+          {Credo.Check.Refactor.FilterFilter, []},
+          {Credo.Check.Refactor.FilterReject, []},
+          {Credo.Check.Refactor.FunctionArity, [max_arity: 6]},
+          {Credo.Check.Refactor.LongQuoteBlocks, [max_line_count: 150]},
           {Credo.Check.Refactor.MapJoin, []},
+          {Credo.Check.Refactor.MapMap, []},
           {Credo.Check.Refactor.MatchInCondition, []},
           {Credo.Check.Refactor.NegatedConditionsInUnless, []},
           {Credo.Check.Refactor.NegatedConditionsWithElse, []},
-          {Credo.Check.Refactor.Nesting, [max_nesting: 4]},
-          {Credo.Check.Refactor.UnlessWithElse, []},
-          {Credo.Check.Refactor.WithClauses, []},
-          {Credo.Check.Refactor.FilterFilter, []},
-          {Credo.Check.Refactor.RejectReject, []},
+          {Credo.Check.Refactor.NegatedIsNil, []},
+          {Credo.Check.Refactor.Nesting, [max_nesting: 3]},
+          {Credo.Check.Refactor.PassAsyncInTestCases, []},
           {Credo.Check.Refactor.RedundantWithClauseResult, []},
+          {Credo.Check.Refactor.RejectFilter, []},
+          {Credo.Check.Refactor.RejectReject, []},
+          {Credo.Check.Refactor.UnlessWithElse, []},
+          {Credo.Check.Refactor.UtcNowTruncate, []},
+          {Credo.Check.Refactor.WithClauses, []},
 
           #
-          # Warnings
+          # Warnings (catch real bugs)
           #
           {Credo.Check.Warning.ApplicationConfigInModuleAttribute, []},
           {Credo.Check.Warning.BoolOperationOnSameValues, []},
           {Credo.Check.Warning.ExpensiveEmptyEnumCheck, []},
-          {Credo.Check.Warning.IExPry, []},
-          {Credo.Check.Warning.IoInspect, []},
-          {Credo.Check.Warning.MixEnv, []},
+          {Credo.Check.Warning.IExPry,
+           [
+             files: %{
+               excluded: [
+                 ~r"/decorator/",
+                 ~r"decorator",
+                 ~r"/test/"
+               ]
+             }
+           ]},
+          {Credo.Check.Warning.IoInspect,
+           [
+             files: %{
+               excluded: [
+                 ~r"/decorator/",
+                 ~r"decorator",
+                 ~r"/test/",
+                 ~r"demo\.ex$",
+                 ~r"pipeline\.ex$",
+                 ~r"examples\.ex$"
+               ]
+             }
+           ]},
+          {Credo.Check.Warning.LeakyEnvironment,
+           [files: %{excluded: [~r"/test/", ~r"/mix/tasks/"]}]},
+          {Credo.Check.Warning.MapGetUnsafePass, []},
+          {Credo.Check.Warning.MissedMetadataKeyInLoggerConfig,
+           [files: %{excluded: [~r"/api_client/", ~r"/errors/", ~r"error\.ex$"]}]},
+          {Credo.Check.Warning.MixEnv,
+           [
+             files: %{
+               excluded: [
+                 ~r"/decorator/",
+                 ~r"decorator",
+                 ~r"/test/",
+                 ~r"/errors/",
+                 ~r"examples\.ex$",
+                 ~r"system_health/"
+               ]
+             }
+           ]},
           {Credo.Check.Warning.OperationOnSameValues, []},
           {Credo.Check.Warning.OperationWithConstantResult, []},
           {Credo.Check.Warning.RaiseInsideRescue, []},
           {Credo.Check.Warning.SpecWithStruct, []},
           {Credo.Check.Warning.UnsafeExec, []},
+          {Credo.Check.Warning.UnsafeToAtom,
+           [
+             files: %{
+               excluded: [
+                 # Infrastructure code with controlled atom creation
+                 ~r"/migration/",
+                 ~r"/decorator/",
+                 ~r"/identifiable/",
+                 ~r"/normalizable/",
+                 ~r"/context\.ex$",
+                 ~r"/supervisor\.ex$",
+                 ~r"/api_client/",
+                 ~r"query\.ex$",
+                 ~r"/query/",
+                 ~r"pubsub\.ex$",
+                 ~r"schema\.ex$",
+                 ~r"pipeline\.ex$",
+                 ~r"validation\.ex$",
+                 ~r"errors/mappers/",
+                 ~r"/schema/",
+                 ~r"/behaviours/",
+                 ~r"/mix/tasks/",
+                 ~r"/test/"
+               ]
+             }
+           ]},
           {Credo.Check.Warning.UnusedEnumOperation, []},
           {Credo.Check.Warning.UnusedFileOperation, []},
           {Credo.Check.Warning.UnusedKeywordOperation, []},
@@ -116,14 +195,24 @@
           {Credo.Check.Warning.UnusedRegexOperation, []},
           {Credo.Check.Warning.UnusedStringOperation, []},
           {Credo.Check.Warning.UnusedTupleOperation, []},
-          {Credo.Check.Warning.WrongTestFileExtension, []}
+          {Credo.Check.Warning.WrongTestFileExtension, []},
+
+          #
+          # Events Project Custom Checks
+          #
+          {Events.Credo.Checks.UseEventsSchema, []},
+          {Events.Credo.Checks.UseEventsMigration, []},
+          {Events.Credo.Checks.NoBangRepoOperations, []},
+          {Events.Credo.Checks.RequireResultTuples, [priority: :normal]},
+          {Events.Credo.Checks.PreferPatternMatching, [priority: :low]},
+          {Events.Credo.Checks.UseDecorator, [priority: :low]}
         ],
         disabled: [
           # Disabled because we use multi-alias imports
           {Credo.Check.Readability.MultiAlias, []},
           # Allow single pipes for clarity in some cases
           {Credo.Check.Readability.SinglePipe, []},
-          # Specs are optional in this project
+          # Specs are optional in this project (using decorators instead)
           {Credo.Check.Readability.Specs, []},
           # Not using @impl in all cases
           {Credo.Check.Readability.StrictModuleLayout, []},
@@ -132,7 +221,9 @@
           # Allow modules over 500 lines for now
           {Credo.Check.Refactor.ModuleDependencies, []},
           # Pipeline length varies by use case
-          {Credo.Check.Refactor.PipeChainStart, []}
+          {Credo.Check.Refactor.PipeChainStart, []},
+          # Incompatible with Elixir 1.19+
+          {Credo.Check.Warning.LazyLogging, []}
         ]
       }
     }
