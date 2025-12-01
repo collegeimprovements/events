@@ -1,4 +1,4 @@
-# Events.Query - Production-Grade Query System
+# Events.Core.Query - Production-Grade Query System
 
 A comprehensive, composable query builder for Elixir/Ecto applications using token pattern, pipelines, and pattern matching.
 
@@ -7,7 +7,7 @@ A comprehensive, composable query builder for Elixir/Ecto applications using tok
 ### Core Components
 
 ```
-Events.Query (Public API)
+Events.Core.Query (Public API)
     ├── Token (Composable container)
     ├── Builder (Ecto query construction)
     ├── Executor (Query execution with telemetry)
@@ -54,7 +54,7 @@ Events.Query (Public API)
 
 ```elixir
 # Import the DSL
-import Events.Query.DSL
+import Events.Core.Query.DSL
 
 # Simple query
 query User do
@@ -67,10 +67,10 @@ end
 
 # Pipeline style
 User
-|> Events.Query.new()
-|> Events.Query.filter(:status, :eq, "active")
-|> Events.Query.paginate(:offset, limit: 20, offset: 40)
-|> Events.Query.execute()
+|> Events.Core.Query.new()
+|> Events.Core.Query.filter(:status, :eq, "active")
+|> Events.Core.Query.paginate(:offset, limit: 20, offset: 40)
+|> Events.Core.Query.execute()
 ```
 
 ### Filtering
@@ -119,7 +119,7 @@ def list_posts(page \\ 1, per_page \\ 20) do
 end
 
 # Result includes pagination metadata
-%Events.Query.Result{
+%Events.Core.Query.Result{
   data: [...],
   pagination: %{
     type: :offset,
@@ -254,14 +254,14 @@ end
 
 ```elixir
 # Simple transaction
-Events.Query.transaction(fn ->
-  user_result = user_query |> Events.Query.execute()
-  post_result = post_query |> Events.Query.execute()
+Events.Core.Query.transaction(fn ->
+  user_result = user_query |> Events.Core.Query.execute()
+  post_result = post_query |> Events.Core.Query.execute()
   {:ok, {user_result, post_result}}
 end)
 
 # With Ecto.Multi
-alias Events.Query.Multi, as: QM
+alias Events.Core.Query.Multi, as: QM
 
 Ecto.Multi.new()
 |> QM.query(:users, user_query)
@@ -269,7 +269,7 @@ Ecto.Multi.new()
 |> QM.run(:process, fn _repo, %{users: users, posts: posts} ->
   {:ok, %{count: length(users.data) + length(posts.data)}}
 end)
-|> Events.Repo.transaction()
+|> Events.Core.Repo.transaction()
 ```
 
 ### Batch Execution
@@ -277,7 +277,7 @@ end)
 ```elixir
 # Execute multiple queries in parallel
 [users_result, posts_result, comments_result] =
-  Events.Query.batch([user_query, post_query, comment_query])
+  Events.Core.Query.batch([user_query, post_query, comment_query])
 ```
 
 ### Streaming
@@ -285,9 +285,9 @@ end)
 ```elixir
 # Stream large result sets
 User
-|> Events.Query.new()
-|> Events.Query.filter(:status, :eq, "active")
-|> Events.Query.stream(max_rows: 1000)
+|> Events.Core.Query.new()
+|> Events.Core.Query.filter(:status, :eq, "active")
+|> Events.Core.Query.stream(max_rows: 1000)
 |> Enum.each(fn user ->
   # Process each user
 end)
@@ -298,7 +298,7 @@ end)
 All queries return a structured `Result`:
 
 ```elixir
-%Events.Query.Result{
+%Events.Core.Query.Result{
   data: [...],              # Query results
 
   pagination: %{
@@ -363,19 +363,19 @@ Attach handlers:
 
 ```elixir
 def search_products(filters) do
-  base = Events.Query.new(Product)
+  base = Events.Core.Query.new(Product)
 
   final_token =
     Enum.reduce(filters, base, fn
       {:category, cat}, token ->
-        Events.Query.filter(token, :category, :eq, cat)
+        Events.Core.Query.filter(token, :category, :eq, cat)
       {:min_price, price}, token ->
-        Events.Query.filter(token, :price, :gte, price)
+        Events.Core.Query.filter(token, :price, :gte, price)
       _, token ->
         token
     end)
 
-  Events.Query.execute(final_token)
+  Events.Core.Query.execute(final_token)
 end
 ```
 
@@ -383,16 +383,16 @@ end
 
 ```elixir
 # Get the Ecto.Query
-token = Events.Query.new(User)
-        |> Events.Query.filter(:status, :eq, "active")
+token = Events.Core.Query.new(User)
+        |> Events.Core.Query.filter(:status, :eq, "active")
 
-ecto_query = Events.Query.build(token)
+ecto_query = Events.Core.Query.build(token)
 
 # Inspect or modify
 IO.inspect(ecto_query)
 
 # Execute manually
-Events.Repo.all(ecto_query)
+Events.Core.Repo.all(ecto_query)
 ```
 
 ## Configuration
@@ -400,8 +400,8 @@ Events.Repo.all(ecto_query)
 Execute options:
 
 ```elixir
-Events.Query.execute(token,
-  repo: Events.Repo,              # Repo module
+Events.Core.Query.execute(token,
+  repo: Events.Core.Repo,              # Repo module
   timeout: 30_000,                # Query timeout (ms)
   telemetry: true,                # Enable telemetry
   include_total_count: true,      # Include total count (pagination)
@@ -431,7 +431,7 @@ Events.Query.execute(token,
 
 ## See Also
 
-- `Events.Query.Examples` - Comprehensive examples
-- `Events.Query.Token` - Token structure and operations
-- `Events.Query.Result` - Result structure
-- `Events.Query.Multi` - Transaction helpers
+- `Events.Core.Query.Examples` - Comprehensive examples
+- `Events.Core.Query.Token` - Token structure and operations
+- `Events.Core.Query.Result` - Result structure
+- `Events.Core.Query.Multi` - Transaction helpers

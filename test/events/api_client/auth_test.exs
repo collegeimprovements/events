@@ -1,9 +1,9 @@
-defmodule Events.APIClient.AuthTest do
+defmodule Events.Api.Client.AuthTest do
   use ExUnit.Case, async: true
 
-  alias Events.APIClient.Auth
-  alias Events.APIClient.Auth.{APIKey, Basic}
-  alias Events.APIClient.Request
+  alias Events.Api.Client.Auth
+  alias Events.Api.Client.Auth.{APIKey, Basic}
+  alias Events.Api.Client.Request
 
   defmodule TestConfig do
     defstruct [:api_key]

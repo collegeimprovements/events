@@ -5,12 +5,12 @@ Code.require_file("config_helper.ex", __DIR__)
 
 # General application configuration
 config :events,
-  ecto_repos: [Events.Repo],
+  ecto_repos: [Events.Core.Repo],
   generators: [timestamp_type: :utc_datetime_usec, binary_id: true]
 
 # Repo configuration with UUIDv7 and UTC timestamp defaults
 # PostgreSQL 18+ has native uuidv7() function - no extensions needed
-config :events, Events.Repo,
+config :events, Events.Core.Repo,
   migration_primary_key: [type: :uuid, default: {:fragment, "uuidv7()"}],
   migration_foreign_key: [type: :uuid],
   migration_timestamps: [
@@ -31,7 +31,7 @@ config :events, EventsWeb.Endpoint,
   live_view: [signing_salt: "bADKq9rD"]
 
 # Mailer configuration
-config :events, Events.Mailer, adapter: Swoosh.Adapters.Local
+config :events, Events.Infra.Mailer, adapter: Swoosh.Adapters.Local
 
 # Configure esbuild
 config :esbuild,

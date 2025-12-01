@@ -1,8 +1,8 @@
-defmodule Events.IdempotencyTest do
+defmodule Events.Infra.IdempotencyTest do
   use ExUnit.Case, async: true
 
-  alias Events.Idempotency
-  alias Events.Idempotency.Record
+  alias Events.Infra.Idempotency
+  alias Events.Infra.Idempotency.Record
 
   # ============================================
   # Key Generation Tests

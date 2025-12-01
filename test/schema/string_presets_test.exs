@@ -1,10 +1,10 @@
-defmodule Events.Schema.StringPresetsTest do
+defmodule Events.Core.Schema.StringPresetsTest do
   use Events.TestCase, async: true
 
-  import Events.Schema.Presets.Strings
+  import Events.Core.Schema.Presets.Strings
 
   defmodule Profile do
-    use Events.Schema
+    use Events.Core.Schema
 
     schema "profiles" do
       field :first_name, :string, preset: name()

@@ -1,7 +1,7 @@
-defmodule Events.GuardsTest do
+defmodule Events.Types.GuardsTest do
   use ExUnit.Case, async: true
 
-  import Events.Guards
+  import Events.Types.Guards
 
   describe "result guards" do
     test "is_ok/1 returns true for ok tuples" do

@@ -44,7 +44,7 @@ defmodule Events.Test.Mocks do
       # External services
       Events.Services.S3,
       Events.Services.S3.Client,
-      Events.Cache,
+      Events.Core.Cache,
 
       # External libraries
       Redix,
@@ -91,10 +91,10 @@ defmodule Events.Test.Mocks do
     end
 
     # Cache - pass through or return nil
-    if Code.ensure_loaded?(Events.Cache) do
-      Mimic.stub(Events.Cache, :get, fn _key -> nil end)
-      Mimic.stub(Events.Cache, :put, fn _key, value, _opts -> value end)
-      Mimic.stub(Events.Cache, :delete, fn _key -> :ok end)
+    if Code.ensure_loaded?(Events.Core.Cache) do
+      Mimic.stub(Events.Core.Cache, :get, fn _key -> nil end)
+      Mimic.stub(Events.Core.Cache, :put, fn _key, value, _opts -> value end)
+      Mimic.stub(Events.Core.Cache, :delete, fn _key -> :ok end)
     end
 
     :ok

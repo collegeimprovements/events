@@ -9,9 +9,9 @@ defmodule Events.Accounts.Role do
   System roles (is_system: true) cannot be deleted.
   """
 
-  @derive {Events.Identifiable, type: :role}
+  @derive {Events.Protocols.Identifiable, type: :role}
 
-  use Events.Schema
+  use Events.Core.Schema
 
   @types [:system, :custom]
   @subtypes [:global, :account_specific]

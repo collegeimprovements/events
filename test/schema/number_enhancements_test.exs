@@ -1,8 +1,8 @@
-defmodule Events.Schema.NumberEnhancementsTest do
+defmodule Events.Core.Schema.NumberEnhancementsTest do
   use Events.TestCase, async: true
 
   defmodule Product do
-    use Events.Schema
+    use Events.Core.Schema
 
     schema "products" do
       # Range syntax

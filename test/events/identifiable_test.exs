@@ -1,8 +1,8 @@
-defmodule Events.IdentifiableTest do
+defmodule Events.Protocols.IdentifiableTest do
   use ExUnit.Case, async: true
 
-  alias Events.Identifiable
-  alias Events.Identifiable.Helpers
+  alias Events.Protocols.Identifiable
+  alias Events.Protocols.Identifiable.Helpers
 
   # =============================================================================
   # Test using real schema modules from the application
@@ -42,31 +42,31 @@ defmodule Events.IdentifiableTest do
   end
 
   # =============================================================================
-  # Protocol Tests - Events.Error Implementation
+  # Protocol Tests - Events.Types.Error Implementation
   # =============================================================================
 
-  describe "Events.Error implementation" do
+  describe "Events.Types.Error implementation" do
     test "entity_type/1 returns the error type" do
-      error = Events.Error.new(:validation, :invalid_email)
+      error = Events.Types.Error.new(:validation, :invalid_email)
       assert Identifiable.entity_type(error) == :validation
     end
 
     test "entity_type/1 varies by error type" do
-      validation_error = Events.Error.new(:validation, :invalid)
-      not_found_error = Events.Error.new(:not_found, :missing)
+      validation_error = Events.Types.Error.new(:validation, :invalid)
+      not_found_error = Events.Types.Error.new(:not_found, :missing)
 
       assert Identifiable.entity_type(validation_error) == :validation
       assert Identifiable.entity_type(not_found_error) == :not_found
     end
 
     test "id/1 returns the error id" do
-      error = Events.Error.new(:validation, :invalid_email)
+      error = Events.Types.Error.new(:validation, :invalid_email)
       assert is_binary(Identifiable.id(error))
       assert String.starts_with?(Identifiable.id(error), "err_")
     end
 
     test "identity/1 returns {error_type, error_id}" do
-      error = Events.Error.new(:validation, :invalid_email)
+      error = Events.Types.Error.new(:validation, :invalid_email)
       {type, id} = Identifiable.identity(error)
 
       assert type == :validation
@@ -75,8 +75,8 @@ defmodule Events.IdentifiableTest do
     end
 
     test "different errors have different identities" do
-      error1 = Events.Error.new(:validation, :invalid_email)
-      error2 = Events.Error.new(:validation, :invalid_email)
+      error1 = Events.Types.Error.new(:validation, :invalid_email)
+      error2 = Events.Types.Error.new(:validation, :invalid_email)
 
       # Same type but different IDs
       assert Identifiable.entity_type(error1) == Identifiable.entity_type(error2)
@@ -152,7 +152,7 @@ defmodule Events.IdentifiableTest do
 
   describe "Helpers.cache_key/2 with errors" do
     test "generates error type:id format" do
-      error = Events.Error.new(:validation, :invalid)
+      error = Events.Types.Error.new(:validation, :invalid)
       key = Helpers.cache_key(error)
       assert String.starts_with?(key, "validation:err_")
     end
@@ -181,8 +181,8 @@ defmodule Events.IdentifiableTest do
     end
 
     test "returns false for different error types (different types)" do
-      error1 = Events.Error.new(:validation, :invalid)
-      error2 = Events.Error.new(:not_found, :missing)
+      error1 = Events.Types.Error.new(:validation, :invalid)
+      error2 = Events.Types.Error.new(:not_found, :missing)
 
       refute Helpers.same_entity?(error1, error2)
     end
@@ -225,9 +225,9 @@ defmodule Events.IdentifiableTest do
 
   describe "Helpers.group_by_type/1 with errors" do
     test "groups errors by their type" do
-      val_error1 = Events.Error.new(:validation, :invalid)
-      val_error2 = Events.Error.new(:validation, :required)
-      not_found = Events.Error.new(:not_found, :missing)
+      val_error1 = Events.Types.Error.new(:validation, :invalid)
+      val_error2 = Events.Types.Error.new(:validation, :required)
+      not_found = Events.Types.Error.new(:not_found, :missing)
 
       result = Helpers.group_by_type([val_error1, not_found, val_error2])
 
@@ -263,8 +263,8 @@ defmodule Events.IdentifiableTest do
 
   describe "Helpers.identity_map/1" do
     test "creates lookup map from identity to entity" do
-      error1 = Events.Error.new(:validation, :invalid)
-      error2 = Events.Error.new(:not_found, :missing)
+      error1 = Events.Types.Error.new(:validation, :invalid)
+      error2 = Events.Types.Error.new(:not_found, :missing)
 
       map = Helpers.identity_map([error1, error2])
 
@@ -298,7 +298,7 @@ defmodule Events.IdentifiableTest do
 
   describe "Helpers.to_global_id/1" do
     test "encodes identity as base64" do
-      error = Events.Error.new(:validation, :invalid)
+      error = Events.Types.Error.new(:validation, :invalid)
       global_id = Helpers.to_global_id(error)
 
       assert is_binary(global_id)
@@ -310,7 +310,7 @@ defmodule Events.IdentifiableTest do
 
   describe "Helpers.from_global_id/1" do
     test "decodes valid global id" do
-      error = Events.Error.new(:validation, :invalid)
+      error = Events.Types.Error.new(:validation, :invalid)
       global_id = Helpers.to_global_id(error)
       error_id = Identifiable.id(error)
 
@@ -336,7 +336,7 @@ defmodule Events.IdentifiableTest do
 
   describe "Helpers.from_global_id!/1" do
     test "returns identity on success" do
-      error = Events.Error.new(:validation, :invalid)
+      error = Events.Types.Error.new(:validation, :invalid)
       global_id = Helpers.to_global_id(error)
       error_id = Identifiable.id(error)
 
@@ -356,7 +356,7 @@ defmodule Events.IdentifiableTest do
 
   describe "Helpers.idempotency_key/3" do
     test "generates key from identity and operation" do
-      error = Events.Error.new(:validation, :invalid)
+      error = Events.Types.Error.new(:validation, :invalid)
       error_id = Identifiable.id(error)
       key = Helpers.idempotency_key(error, :send_alert)
 
@@ -364,7 +364,7 @@ defmodule Events.IdentifiableTest do
     end
 
     test "supports namespace option" do
-      error = Events.Error.new(:validation, :invalid)
+      error = Events.Types.Error.new(:validation, :invalid)
       error_id = Identifiable.id(error)
       key = Helpers.idempotency_key(error, :send_alert, namespace: "v2")
 
@@ -378,7 +378,7 @@ defmodule Events.IdentifiableTest do
 
   describe "Helpers.format_identity/1" do
     test "formats error as type:id" do
-      error = Events.Error.new(:validation, :invalid)
+      error = Events.Types.Error.new(:validation, :invalid)
       formatted = Helpers.format_identity(error)
 
       assert String.starts_with?(formatted, "validation:err_")
@@ -392,8 +392,8 @@ defmodule Events.IdentifiableTest do
 
   describe "Helpers.format_identities/1" do
     test "formats multiple identities" do
-      error1 = Events.Error.new(:validation, :invalid)
-      error2 = Events.Error.new(:not_found, :missing)
+      error1 = Events.Types.Error.new(:validation, :invalid)
+      error2 = Events.Types.Error.new(:not_found, :missing)
 
       result = Helpers.format_identities([error1, error2])
 
@@ -406,7 +406,7 @@ defmodule Events.IdentifiableTest do
 
   describe "Helpers.identity_info/1" do
     test "returns comprehensive identity info" do
-      error = Events.Error.new(:validation, :invalid)
+      error = Events.Types.Error.new(:validation, :invalid)
       info = Helpers.identity_info(error)
 
       assert info.type == :validation

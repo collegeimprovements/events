@@ -1,9 +1,9 @@
-defmodule Events.Schema.FieldLevelValidationTest do
+defmodule Events.Core.Schema.FieldLevelValidationTest do
   use Events.TestCase, async: true
 
   defmodule TestUser do
-    use Events.Schema
-    import Events.Schema.Presets
+    use Events.Core.Schema
+    import Events.Core.Schema.Presets
 
     schema "test_users" do
       field :email, :string, required: true, format: :email, normalize: [:trim, :downcase]
@@ -11,7 +11,7 @@ defmodule Events.Schema.FieldLevelValidationTest do
       field :username, :string, preset: username()
       field :bio, :string, max_length: 500, cast: true
       field :notes, :string, cast: false
-      # timestamps() already added by Events.Schema
+      # timestamps() already added by Events.Core.Schema
     end
 
     def changeset(user, attrs) do

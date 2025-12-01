@@ -152,7 +152,7 @@ end)
 ### Basic Structure
 
 ```elixir
-import Events.Query.DSL
+import Events.Core.Query.DSL
 
 query Organization do
   filter(:status, :eq, "active")
@@ -444,11 +444,11 @@ Mix DSL and pipeline styles as needed. Both produce identical tokens.
 
 ## Testing Nested Queries
 
-See `Events.Query.NestedExample` for comprehensive examples you can run:
+See `Events.Core.Query.NestedExample` for comprehensive examples you can run:
 
 ```elixir
 # In IEx
-iex> alias Events.Query.NestedExample
+iex> alias Events.Core.Query.NestedExample
 
 # Inspect token structure
 iex> NestedExample.inspect_nested_token()
@@ -482,6 +482,6 @@ iex> NestedExample.dashboard_data_loading()
 ## See Also
 
 - `QUERY_SYSTEM.md` - Complete API documentation
-- `Events.Query.Examples` - More query patterns
-- `Events.Query.Demo` - Working demonstrations
-- `Events.Query.NestedExample` - This module with all examples
+- `Events.Core.Query.Examples` - More query patterns
+- `Events.Core.Query.Demo` - Working demonstrations
+- `Events.Core.Query.NestedExample` - This module with all examples

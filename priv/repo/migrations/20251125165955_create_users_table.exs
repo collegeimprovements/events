@@ -1,7 +1,7 @@
 defmodule Events.Repo.Migrations.CreateUsersTable do
   use Events.Migration
 
-  alias Events.Repo.MigrationConstants, as: C
+  alias Events.Core.Repo.MigrationConstants, as: C
 
   def change do
     create table(:users, primary_key: false) do

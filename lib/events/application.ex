@@ -9,11 +9,11 @@ defmodule Events.Application do
   def start(_type, _args) do
     children = [
       EventsWeb.Telemetry,
-      Events.Repo,
-      Events.Cache,
-      Events.KillSwitch,
+      Events.Core.Repo,
+      Events.Core.Cache,
+      Events.Infra.KillSwitch,
       {DNSCluster, query: Application.get_env(:events, :dns_cluster_query) || :ignore},
-      Events.PubSub,
+      Events.Infra.PubSub,
       # Task supervisor for async operations (error storage, telemetry, etc.)
       {Task.Supervisor, name: Events.TaskSupervisor},
       # Start to serve requests, typically the last entry
@@ -39,7 +39,7 @@ defmodule Events.Application do
       # Wait for Repo to be fully registered before validation
       case wait_for_repo(50, 100) do
         :ok ->
-          Events.Schema.DatabaseValidator.validate_on_startup()
+          Events.Core.Schema.DatabaseValidator.validate_on_startup()
 
         :timeout ->
           require Logger
@@ -55,7 +55,7 @@ defmodule Events.Application do
   defp wait_for_repo(0, _interval), do: :timeout
 
   defp wait_for_repo(attempts, interval) do
-    case Ecto.Repo.Registry.lookup(Events.Repo) do
+    case Ecto.Repo.Registry.lookup(Events.Core.Repo) do
       # Ecto 3.x returns a map with adapter meta and pid
       %{pid: pid} when is_pid(pid) ->
         :ok

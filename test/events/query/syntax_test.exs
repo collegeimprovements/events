@@ -1,4 +1,4 @@
-defmodule Events.Query.SyntaxTest do
+defmodule Events.Core.Query.SyntaxTest do
   @moduledoc """
   Tests for improved Query syntax features:
   - Queryable protocol (pipe from schema without Query.new)
@@ -8,8 +8,8 @@ defmodule Events.Query.SyntaxTest do
   """
   use Events.TestCase, async: true
 
-  alias Events.Query
-  alias Events.Query.Token
+  alias Events.Core.Query
+  alias Events.Core.Query.Token
 
   # Test schemas
   defmodule User do
@@ -121,7 +121,7 @@ defmodule Events.Query.SyntaxTest do
   end
 
   describe "DSL comparison operators" do
-    import Events.Query.DSL
+    import Events.Core.Query.DSL
 
     test "== operator translates to :eq" do
       token =
@@ -309,7 +309,7 @@ defmodule Events.Query.SyntaxTest do
   end
 
   describe "DSL on macro for join filtering" do
-    import Events.Query.DSL
+    import Events.Core.Query.DSL
 
     test "on macro filters on joined table" do
       token =
@@ -451,7 +451,7 @@ defmodule Events.Query.SyntaxTest do
   end
 
   describe "DSL preloads with nested blocks" do
-    import Events.Query.DSL
+    import Events.Core.Query.DSL
 
     test "preload with do block for nested filters" do
       token =
@@ -567,7 +567,7 @@ defmodule Events.Query.SyntaxTest do
   end
 
   describe "complex query with joins, filters, and pagination" do
-    import Events.Query.DSL
+    import Events.Core.Query.DSL
 
     test "e-commerce style query with multiple joins" do
       token =
@@ -677,7 +677,7 @@ defmodule Events.Query.SyntaxTest do
   end
 
   describe "DSL convenience join macros" do
-    import Events.Query.DSL
+    import Events.Core.Query.DSL
 
     test "left_join macro" do
       token =
@@ -712,7 +712,7 @@ defmodule Events.Query.SyntaxTest do
   end
 
   describe "DSL where with binding tuple {:binding, :field}" do
-    import Events.Query.DSL
+    import Events.Core.Query.DSL
 
     test "where with binding tuple == operator" do
       token =
@@ -792,7 +792,7 @@ defmodule Events.Query.SyntaxTest do
   end
 
   describe "DSL where with case: :insensitive option" do
-    import Events.Query.DSL
+    import Events.Core.Query.DSL
 
     test "where with case insensitive option for :eq" do
       token =
@@ -842,7 +842,7 @@ defmodule Events.Query.SyntaxTest do
   end
 
   describe "value casting with cast: option" do
-    import Events.Query.DSL
+    import Events.Core.Query.DSL
 
     test "cast string to integer" do
       token = User |> Query.filter(:age, :eq, "25", cast: :integer)

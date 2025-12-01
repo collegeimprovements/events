@@ -1,4 +1,4 @@
-defmodule Events.Migration.DSLEnhancedTest do
+defmodule Events.Core.Migration.DSLEnhancedTest do
   use Events.TestCase, async: true
 
   # DSLEnhanced uses Ecto.Migration macros which require the Ecto migration context
@@ -13,85 +13,85 @@ defmodule Events.Migration.DSLEnhancedTest do
 
   describe "Module compilation" do
     test "DSLEnhanced module compiles successfully" do
-      assert Code.ensure_loaded?(Events.Migration.DSLEnhanced)
+      assert Code.ensure_loaded?(Events.Core.Migration.DSLEnhanced)
     end
 
     test "exports uuid_primary_key/1 macro" do
-      assert has_macro?(Events.Migration.DSLEnhanced, :uuid_primary_key, 1)
+      assert has_macro?(Events.Core.Migration.DSLEnhanced, :uuid_primary_key, 1)
     end
 
     test "exports uuid_v4_primary_key/1 macro" do
-      assert has_macro?(Events.Migration.DSLEnhanced, :uuid_v4_primary_key, 1)
+      assert has_macro?(Events.Core.Migration.DSLEnhanced, :uuid_v4_primary_key, 1)
     end
 
     test "exports type_fields/1 macro" do
-      assert has_macro?(Events.Migration.DSLEnhanced, :type_fields, 1)
+      assert has_macro?(Events.Core.Migration.DSLEnhanced, :type_fields, 1)
     end
 
     test "exports status_fields/1 macro" do
-      assert has_macro?(Events.Migration.DSLEnhanced, :status_fields, 1)
+      assert has_macro?(Events.Core.Migration.DSLEnhanced, :status_fields, 1)
     end
 
     test "exports audit_fields/1 macro" do
-      assert has_macro?(Events.Migration.DSLEnhanced, :audit_fields, 1)
+      assert has_macro?(Events.Core.Migration.DSLEnhanced, :audit_fields, 1)
     end
 
     test "exports event_timestamps/1 macro" do
-      assert has_macro?(Events.Migration.DSLEnhanced, :event_timestamps, 1)
+      assert has_macro?(Events.Core.Migration.DSLEnhanced, :event_timestamps, 1)
     end
 
     test "exports soft_delete_fields/1 macro" do
-      assert has_macro?(Events.Migration.DSLEnhanced, :soft_delete_fields, 1)
+      assert has_macro?(Events.Core.Migration.DSLEnhanced, :soft_delete_fields, 1)
     end
 
     test "exports metadata_field/1 macro" do
-      assert has_macro?(Events.Migration.DSLEnhanced, :metadata_field, 1)
+      assert has_macro?(Events.Core.Migration.DSLEnhanced, :metadata_field, 1)
     end
 
     test "exports tags_field/1 macro" do
-      assert has_macro?(Events.Migration.DSLEnhanced, :tags_field, 1)
+      assert has_macro?(Events.Core.Migration.DSLEnhanced, :tags_field, 1)
     end
 
     test "exports money_field/2 macro" do
-      assert has_macro?(Events.Migration.DSLEnhanced, :money_field, 2)
+      assert has_macro?(Events.Core.Migration.DSLEnhanced, :money_field, 2)
     end
 
     test "exports belongs_to_field/2 macro" do
-      assert has_macro?(Events.Migration.DSLEnhanced, :belongs_to_field, 2)
+      assert has_macro?(Events.Core.Migration.DSLEnhanced, :belongs_to_field, 2)
     end
   end
 
   describe "Index macro exports" do
     test "exports type_field_indexes/2 macro" do
-      assert has_macro?(Events.Migration.DSLEnhanced, :type_field_indexes, 2)
+      assert has_macro?(Events.Core.Migration.DSLEnhanced, :type_field_indexes, 2)
     end
 
     test "exports status_field_indexes/2 macro" do
-      assert has_macro?(Events.Migration.DSLEnhanced, :status_field_indexes, 2)
+      assert has_macro?(Events.Core.Migration.DSLEnhanced, :status_field_indexes, 2)
     end
 
     test "exports audit_field_indexes/2 macro" do
-      assert has_macro?(Events.Migration.DSLEnhanced, :audit_field_indexes, 2)
+      assert has_macro?(Events.Core.Migration.DSLEnhanced, :audit_field_indexes, 2)
     end
 
     test "exports timestamp_indexes/2 macro" do
-      assert has_macro?(Events.Migration.DSLEnhanced, :timestamp_indexes, 2)
+      assert has_macro?(Events.Core.Migration.DSLEnhanced, :timestamp_indexes, 2)
     end
 
     test "exports metadata_index/2 macro" do
-      assert has_macro?(Events.Migration.DSLEnhanced, :metadata_index, 2)
+      assert has_macro?(Events.Core.Migration.DSLEnhanced, :metadata_index, 2)
     end
 
     test "exports tags_index/2 macro" do
-      assert has_macro?(Events.Migration.DSLEnhanced, :tags_index, 2)
+      assert has_macro?(Events.Core.Migration.DSLEnhanced, :tags_index, 2)
     end
 
     test "exports foreign_key_index/2 macro" do
-      assert has_macro?(Events.Migration.DSLEnhanced, :foreign_key_index, 2)
+      assert has_macro?(Events.Core.Migration.DSLEnhanced, :foreign_key_index, 2)
     end
 
     test "exports create_standard_indexes/2 macro" do
-      assert has_macro?(Events.Migration.DSLEnhanced, :create_standard_indexes, 2)
+      assert has_macro?(Events.Core.Migration.DSLEnhanced, :create_standard_indexes, 2)
     end
   end
 
@@ -125,13 +125,13 @@ defmodule Events.Migration.DSLEnhancedTest do
 
   describe "Documentation" do
     test "module has moduledoc" do
-      {:docs_v1, _, _, _, module_doc, _, _} = Code.fetch_docs(Events.Migration.DSLEnhanced)
+      {:docs_v1, _, _, _, module_doc, _, _} = Code.fetch_docs(Events.Core.Migration.DSLEnhanced)
       assert module_doc != :hidden
       assert module_doc != :none
     end
 
     test "uuid_primary_key has doc" do
-      {:docs_v1, _, _, _, _, _, function_docs} = Code.fetch_docs(Events.Migration.DSLEnhanced)
+      {:docs_v1, _, _, _, _, _, function_docs} = Code.fetch_docs(Events.Core.Migration.DSLEnhanced)
 
       uuid_pk_doc =
         Enum.find(function_docs, fn
@@ -143,7 +143,7 @@ defmodule Events.Migration.DSLEnhancedTest do
     end
 
     test "type_fields has doc" do
-      {:docs_v1, _, _, _, _, _, function_docs} = Code.fetch_docs(Events.Migration.DSLEnhanced)
+      {:docs_v1, _, _, _, _, _, function_docs} = Code.fetch_docs(Events.Core.Migration.DSLEnhanced)
 
       type_fields_doc =
         Enum.find(function_docs, fn
@@ -155,7 +155,7 @@ defmodule Events.Migration.DSLEnhancedTest do
     end
 
     test "status_fields has doc" do
-      {:docs_v1, _, _, _, _, _, function_docs} = Code.fetch_docs(Events.Migration.DSLEnhanced)
+      {:docs_v1, _, _, _, _, _, function_docs} = Code.fetch_docs(Events.Core.Migration.DSLEnhanced)
 
       status_fields_doc =
         Enum.find(function_docs, fn
@@ -167,7 +167,7 @@ defmodule Events.Migration.DSLEnhancedTest do
     end
 
     test "audit_fields has doc" do
-      {:docs_v1, _, _, _, _, _, function_docs} = Code.fetch_docs(Events.Migration.DSLEnhanced)
+      {:docs_v1, _, _, _, _, _, function_docs} = Code.fetch_docs(Events.Core.Migration.DSLEnhanced)
 
       audit_fields_doc =
         Enum.find(function_docs, fn
@@ -179,7 +179,7 @@ defmodule Events.Migration.DSLEnhancedTest do
     end
 
     test "soft_delete_fields has doc" do
-      {:docs_v1, _, _, _, _, _, function_docs} = Code.fetch_docs(Events.Migration.DSLEnhanced)
+      {:docs_v1, _, _, _, _, _, function_docs} = Code.fetch_docs(Events.Core.Migration.DSLEnhanced)
 
       soft_delete_doc =
         Enum.find(function_docs, fn

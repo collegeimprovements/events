@@ -1,4 +1,4 @@
-defmodule Events.SchemaOverrideTest do
+defmodule Events.Core.SchemaOverrideTest do
   @moduledoc """
   Test to verify we can override schema macro itself, not just field.
   """
@@ -15,7 +15,7 @@ defmodule Events.SchemaOverrideTest do
         import Ecto.Changeset
         # ← Exclude Ecto's schema!
         import Ecto.Schema, except: [schema: 2]
-        import Events.SchemaOverrideTest.CustomSchema
+        import Events.Core.SchemaOverrideTest.CustomSchema
 
         @primary_key {:id, :binary_id, autogenerate: true}
         @foreign_key_type :binary_id
@@ -44,7 +44,7 @@ defmodule Events.SchemaOverrideTest do
 
   # Test it works
   defmodule TestUser do
-    use Events.SchemaOverrideTest.CustomSchema
+    use Events.Core.SchemaOverrideTest.CustomSchema
 
     # Just use schema! Not events_schema!
     schema "users" do

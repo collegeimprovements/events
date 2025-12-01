@@ -1,13 +1,13 @@
-defmodule Events.CacheTest do
+defmodule Events.Core.CacheTest do
   @moduledoc """
-  Tests for Events.Cache (Nebulex-based cache).
+  Tests for Events.Core.Cache (Nebulex-based cache).
 
   These tests verify the Nebulex cache operations work correctly.
   """
 
   use Events.DataCase, async: true
 
-  alias Events.Cache
+  alias Events.Core.Cache
 
   describe "get/1" do
     test "returns cached value when key exists" do

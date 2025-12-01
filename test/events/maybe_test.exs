@@ -1,9 +1,9 @@
-defmodule Events.MaybeTest do
+defmodule Events.Types.MaybeTest do
   use ExUnit.Case, async: true
   # Note: Doctests disabled because examples use short `Maybe` alias.
   # Comprehensive unit tests below provide full coverage.
 
-  alias Events.Maybe
+  alias Events.Types.Maybe
 
   describe "type checking" do
     test "some?/1 returns true for some values" do
@@ -251,9 +251,9 @@ defmodule Events.MaybeTest do
       assert Maybe.collect([]) == {:some, []}
     end
 
-    test "cat_maybes/1 filters and unwraps some values" do
+    test "cat_somes/1 filters and unwraps some values" do
       maybes = [{:some, 1}, :none, {:some, 3}]
-      assert Maybe.cat_maybes(maybes) == [1, 3]
+      assert Maybe.cat_somes(maybes) == [1, 3]
     end
 
     test "traverse/2 applies function and collects" do

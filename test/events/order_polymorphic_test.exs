@@ -1,7 +1,7 @@
 defmodule Events.OrderPolymorphicTest do
   use Events.TestCase, async: true
 
-  alias Events.Query
+  alias Events.Core.Query
 
   describe "order_by/order - Ecto keyword syntax vs tuple syntax" do
     test "Ecto keyword syntax - [asc: :field, desc: :field]" do
@@ -183,7 +183,7 @@ defmodule Events.OrderPolymorphicTest do
   end
 
   describe "order_by/order in DSL" do
-    import Events.Query.DSL
+    import Events.Core.Query.DSL
 
     test "DSL order with single field" do
       token =

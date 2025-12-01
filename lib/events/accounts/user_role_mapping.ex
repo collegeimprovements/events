@@ -7,9 +7,9 @@ defmodule Events.Accounts.UserRoleMapping do
   updated_by_urm_id) to track which user+role+account context performed an action.
   """
 
-  @derive {Events.Identifiable, type: :user_role_mapping}
+  @derive {Events.Protocols.Identifiable, type: :user_role_mapping}
 
-  use Events.Schema
+  use Events.Core.Schema
 
   @types [:permanent, :temporary]
   @subtypes [:direct, :inherited]

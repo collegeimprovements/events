@@ -1,4 +1,4 @@
-defmodule Events.SchemaFieldOverrideTest do
+defmodule Events.Core.SchemaFieldOverrideTest do
   @moduledoc """
   Test to verify if overriding Ecto's field macro works correctly.
   """
@@ -35,7 +35,7 @@ defmodule Events.SchemaFieldOverrideTest do
     schema "test_table" do
       # Import our custom field macro which shadows Ecto.Schema.field
       import Ecto.Schema, except: [field: 3]
-      import Events.SchemaFieldOverrideTest.CustomField
+      import Events.Core.SchemaFieldOverrideTest.CustomField
 
       field(:name, :string, min: 2, max: 100)
       field(:age, :integer, min: 0, max: 150)
@@ -71,10 +71,10 @@ defmodule Events.SchemaFieldOverrideTest do
 
     schema "parents" do
       import Ecto.Schema, except: [field: 3]
-      import Events.SchemaFieldOverrideTest.CustomField
+      import Events.Core.SchemaFieldOverrideTest.CustomField
 
       field(:title, :string, min: 1, max: 255)
-      has_many :children, Events.SchemaFieldOverrideTest.ChildSchema
+      has_many :children, Events.Core.SchemaFieldOverrideTest.ChildSchema
     end
   end
 
@@ -83,7 +83,7 @@ defmodule Events.SchemaFieldOverrideTest do
 
     schema "children" do
       field(:description, :string)
-      belongs_to :parent, Events.SchemaFieldOverrideTest.ParentSchema
+      belongs_to :parent, Events.Core.SchemaFieldOverrideTest.ParentSchema
     end
   end
 
@@ -100,7 +100,7 @@ defmodule Events.SchemaFieldOverrideTest do
 
     schema "validated_table" do
       import Ecto.Schema, except: [field: 3]
-      import Events.SchemaFieldOverrideTest.CustomField
+      import Events.Core.SchemaFieldOverrideTest.CustomField
 
       field(:email, :string, format: ~r/@/, required: true, cast: true)
       field(:age, :integer, min: 0, max: 150, required: true)
@@ -135,7 +135,7 @@ defmodule Events.SchemaFieldOverrideTest do
       # Exclude Ecto's field and import our custom one
       import Kernel, except: []
       import Ecto.Schema, only: []
-      import Events.SchemaFieldOverrideTest.CustomField
+      import Events.Core.SchemaFieldOverrideTest.CustomField
 
       field(:real_field, :string, min: 1)
       field(:virtual_field, :string, virtual: true, min: 1)

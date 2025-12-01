@@ -6,9 +6,9 @@ defmodule Events.Accounts.User do
   via memberships (GitHub org model).
   """
 
-  @derive {Events.Identifiable, type: :user}
+  @derive {Events.Protocols.Identifiable, type: :user}
 
-  use Events.Schema
+  use Events.Core.Schema
 
   @types [:human, :system, :service]
   @subtypes [:standard, :admin, :bot]
@@ -115,8 +115,8 @@ defmodule Events.Accounts.User do
   defp maybe_validate_unique(changeset, opts) do
     if Keyword.get(opts, :validate_unique, true) do
       changeset
-      |> unsafe_validate_unique(:email, Events.Repo)
-      |> unsafe_validate_unique(:username, Events.Repo)
+      |> unsafe_validate_unique(:email, Events.Core.Repo)
+      |> unsafe_validate_unique(:username, Events.Core.Repo)
       |> unique_constraints([{:email, []}, {:username, []}])
     else
       changeset

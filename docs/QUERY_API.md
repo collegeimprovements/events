@@ -18,7 +18,7 @@ A powerful query builder that composes with both keyword and pipe syntax, featur
 ## Quick Start
 
 ```elixir
-alias Events.Repo.Query
+alias Events.Core.Repo.Query
 alias Events.Repo
 
 # Pipe syntax
@@ -1870,7 +1870,7 @@ find_products_by_tags(["red", "green"])  # Any type
 defmodule Events.Products do
   alias Events.Product
   alias Events.Repo
-  alias Events.Repo.Query
+  alias Events.Core.Repo.Query
 
   def list_products(filters \\ []) do
     build_query(filters)

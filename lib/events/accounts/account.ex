@@ -6,9 +6,9 @@ defmodule Events.Accounts.Account do
   A default account is seeded for single-tenant deployments.
   """
 
-  @derive {Events.Identifiable, type: :account}
+  @derive {Events.Protocols.Identifiable, type: :account}
 
-  use Events.Schema
+  use Events.Core.Schema
 
   @types [:personal, :organization, :enterprise]
   @subtypes [:free, :pro, :business]

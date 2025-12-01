@@ -14,8 +14,8 @@ defmodule Mix.Tasks.Consistency.Check do
 
   ## Checks Performed
 
-  1. **Schema Usage** - All schemas use `Events.Schema`
-  2. **Migration Usage** - All migrations use `Events.Migration`
+  1. **Schema Usage** - All schemas use `Events.Core.Schema`
+  2. **Migration Usage** - All migrations use `Events.Core.Migration`
   3. **Result Tuples** - Public functions return `{:ok, _} | {:error, _}`
   4. **Decorators** - Context/service modules use decorators
   5. **Specs** - Public functions have @spec annotations
@@ -97,14 +97,14 @@ defmodule Mix.Tasks.Consistency.Check do
       |> Enum.map(fn file ->
         %{
           file: file,
-          message: "Uses `Ecto.Schema` instead of `Events.Schema`",
-          fix: "Replace `use Ecto.Schema` with `use Events.Schema`"
+          message: "Uses `Ecto.Schema` instead of `Events.Core.Schema`",
+          fix: "Replace `use Ecto.Schema` with `use Events.Core.Schema`"
         }
       end)
 
     %{
       name: "Schema Usage",
-      description: "All schemas should use Events.Schema",
+      description: "All schemas should use Events.Core.Schema",
       passed: violations == [],
       violations: violations,
       total_checked: length(lib_files |> Enum.filter(&schema_file?/1)),
@@ -123,7 +123,7 @@ defmodule Mix.Tasks.Consistency.Check do
 
   defp uses_raw_ecto_schema?(path) do
     content = File.read!(path)
-    # Check for `use Ecto.Schema` without Events.Schema
+    # Check for `use Ecto.Schema` without Events.Core.Schema
     has_ecto_schema = Regex.match?(~r/use\s+Ecto\.Schema/, content)
     has_events_schema = Regex.match?(~r/use\s+Events\.Schema/, content)
     has_ecto_schema and not has_events_schema
@@ -142,14 +142,14 @@ defmodule Mix.Tasks.Consistency.Check do
       |> Enum.map(fn file ->
         %{
           file: file,
-          message: "Uses `Ecto.Migration` instead of `Events.Migration`",
-          fix: "Replace `use Ecto.Migration` with `use Events.Migration`"
+          message: "Uses `Ecto.Migration` instead of `Events.Core.Migration`",
+          fix: "Replace `use Ecto.Migration` with `use Events.Core.Migration`"
         }
       end)
 
     %{
       name: "Migration Usage",
-      description: "All migrations should use Events.Migration",
+      description: "All migrations should use Events.Core.Migration",
       passed: violations == [],
       violations: violations,
       total_checked: length(migration_files),

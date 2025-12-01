@@ -1,8 +1,8 @@
-defmodule Events.Schema.FieldMappersTest do
+defmodule Events.Core.Schema.FieldMappersTest do
   use Events.TestCase, async: true
 
   defmodule TestUser do
-    use Events.Schema
+    use Events.Core.Schema
 
     schema "test_users" do
       # Using mappers with atom names (recommended)

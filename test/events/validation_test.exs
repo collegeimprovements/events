@@ -1,8 +1,8 @@
-defmodule Events.ValidationTest do
+defmodule Events.Types.ValidationTest do
   use ExUnit.Case, async: true
 
-  alias Events.Validation, as: V
-  alias Events.Error
+  alias Events.Types.Validation, as: V
+  alias Events.Types.Error
 
   # ============================================
   # Core Construction
@@ -743,7 +743,7 @@ defmodule Events.ValidationTest do
   end
 
   describe "to_error/2" do
-    test "converts to Events.Error on failure" do
+    test "converts to Events.Types.Error on failure" do
       result =
         V.new(%{email: ""})
         |> V.field(:email, [V.required()])
@@ -930,7 +930,9 @@ defmodule Events.ValidationTest do
             ctx
             |> V.field(:street, [V.required()])
             |> V.field(:city, [V.required()])
-          end, unless: & &1[:same_billing_address])
+          end,
+          unless: & &1[:same_billing_address]
+        )
         |> V.to_result()
 
       assert {:error, errors} = result

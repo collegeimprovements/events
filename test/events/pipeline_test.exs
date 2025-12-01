@@ -1,7 +1,7 @@
-defmodule Events.PipelineTest do
+defmodule Events.Types.PipelineTest do
   use ExUnit.Case, async: true
 
-  alias Events.Pipeline
+  alias Events.Types.Pipeline
 
   describe "new/2" do
     test "creates pipeline with initial context" do

@@ -1,8 +1,8 @@
-defmodule Events.Migration.PipelineTest do
+defmodule Events.Core.Migration.PipelineTest do
   use Events.TestCase, async: true
 
-  alias Events.Migration.Pipeline
-  alias Events.Migration.Token
+  alias Events.Core.Migration.Pipeline
+  alias Events.Core.Migration.Token
 
   # Helper to create a table token
   defp create_table(name, opts \\ []) do

@@ -1,6 +1,6 @@
-defmodule Events.KillSwitch.CacheTest do
+defmodule Events.Infra.KillSwitch.CacheTest do
   @moduledoc """
-  Tests for Events.KillSwitch.Cache.
+  Tests for Events.Infra.KillSwitch.Cache.
 
   Tests the cache wrapper with kill switch functionality,
   verifying graceful degradation when cache is disabled.
@@ -8,8 +8,8 @@ defmodule Events.KillSwitch.CacheTest do
 
   use Events.DataCase, async: false
 
-  alias Events.KillSwitch
-  alias Events.KillSwitch.Cache, as: KSCache
+  alias Events.Infra.KillSwitch
+  alias Events.Infra.KillSwitch.Cache, as: KSCache
 
   setup do
     # Ensure cache is enabled by default for each test
@@ -94,7 +94,7 @@ defmodule Events.KillSwitch.CacheTest do
       KillSwitch.enable(:cache)
 
       key = {:ks_test, :user, 1}
-      Events.Cache.put(key, %{id: 1, name: "Test"})
+      Events.Core.Cache.put(key, %{id: 1, name: "Test"})
 
       result = KSCache.get(key)
 
@@ -103,7 +103,7 @@ defmodule Events.KillSwitch.CacheTest do
 
     test "returns nil when cache is disabled" do
       key = {:ks_test, :user, 2}
-      Events.Cache.put(key, %{id: 2, name: "Test"})
+      Events.Core.Cache.put(key, %{id: 2, name: "Test"})
 
       KillSwitch.disable(:cache, reason: "Test disabled")
 
@@ -121,7 +121,7 @@ defmodule Events.KillSwitch.CacheTest do
       result = KSCache.put(key, "value")
 
       assert result == :ok
-      assert Events.Cache.get(key) == "value"
+      assert Events.Core.Cache.get(key) == "value"
     end
 
     test "returns :ok but does not store when cache is disabled" do
@@ -134,7 +134,7 @@ defmodule Events.KillSwitch.CacheTest do
 
       # Re-enable and verify nothing was stored
       KillSwitch.enable(:cache)
-      assert Events.Cache.get(key) == nil
+      assert Events.Core.Cache.get(key) == nil
     end
 
     test "accepts TTL option" do
@@ -152,20 +152,20 @@ defmodule Events.KillSwitch.CacheTest do
       KillSwitch.enable(:cache)
 
       key = {:ks_delete, :test}
-      Events.Cache.put(key, "value")
-      assert Events.Cache.get(key) == "value"
+      Events.Core.Cache.put(key, "value")
+      assert Events.Core.Cache.get(key) == "value"
 
       result = KSCache.delete(key)
 
       assert result == :ok
-      assert Events.Cache.get(key) == nil
+      assert Events.Core.Cache.get(key) == nil
     end
 
     test "returns :ok but does not delete when cache is disabled" do
       KillSwitch.enable(:cache)
 
       key = {:ks_delete_disabled, :test}
-      Events.Cache.put(key, "value")
+      Events.Core.Cache.put(key, "value")
 
       KillSwitch.disable(:cache, reason: "Test disabled")
 
@@ -174,7 +174,7 @@ defmodule Events.KillSwitch.CacheTest do
 
       # Re-enable and verify value still exists
       KillSwitch.enable(:cache)
-      assert Events.Cache.get(key) == "value"
+      assert Events.Core.Cache.get(key) == "value"
     end
   end
 
@@ -182,8 +182,8 @@ defmodule Events.KillSwitch.CacheTest do
     test "returns values when cache is enabled" do
       KillSwitch.enable(:cache)
 
-      Events.Cache.put({:ks_all, 1}, "a")
-      Events.Cache.put({:ks_all, 2}, "b")
+      Events.Core.Cache.put({:ks_all, 1}, "a")
+      Events.Core.Cache.put({:ks_all, 2}, "b")
 
       result = KSCache.get_all([{:ks_all, 1}, {:ks_all, 2}])
 
@@ -204,7 +204,7 @@ defmodule Events.KillSwitch.CacheTest do
       KillSwitch.enable(:cache)
 
       key = {:ks_has_key, :test}
-      Events.Cache.put(key, "value")
+      Events.Core.Cache.put(key, "value")
 
       assert KSCache.has_key?(key) == true
     end
@@ -219,7 +219,7 @@ defmodule Events.KillSwitch.CacheTest do
       KillSwitch.enable(:cache)
 
       key = {:ks_has_key_disabled, :test}
-      Events.Cache.put(key, "value")
+      Events.Core.Cache.put(key, "value")
 
       KillSwitch.disable(:cache, reason: "Test disabled")
 
@@ -232,7 +232,7 @@ defmodule Events.KillSwitch.CacheTest do
       KillSwitch.enable(:cache)
 
       key = {:ks_fetch, :cached}
-      Events.Cache.put(key, "cached_value")
+      Events.Core.Cache.put(key, "cached_value")
 
       call_count = :counters.new(1, [:atomics])
 
@@ -257,7 +257,7 @@ defmodule Events.KillSwitch.CacheTest do
         end)
 
       assert result == "computed_value"
-      assert Events.Cache.get(key) == "computed_value"
+      assert Events.Core.Cache.get(key) == "computed_value"
     end
 
     test "always computes value when cache is disabled" do

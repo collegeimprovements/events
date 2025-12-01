@@ -1,10 +1,10 @@
-defmodule Events.RecoverableTest do
+defmodule Events.Protocols.RecoverableTest do
   use ExUnit.Case, async: true
 
-  alias Events.Recoverable
-  alias Events.Recoverable.Backoff
-  alias Events.Recoverable.Helpers
-  alias Events.Errors.Error
+  alias Events.Protocols.Recoverable
+  alias Events.Protocols.Recoverable.Backoff
+  alias Events.Protocols.Recoverable.Helpers
+  alias Events.Types.Error
 
   # ============================================
   # Backoff Module Tests
@@ -105,10 +105,10 @@ defmodule Events.RecoverableTest do
   end
 
   # ============================================
-  # Events.Errors.Error Implementation Tests
+  # Events.Types.Error Implementation Tests
   # ============================================
 
-  describe "Recoverable for Events.Errors.Error" do
+  describe "Recoverable for Events.Types.Error" do
     test "timeout errors are recoverable" do
       error = Error.new(:timeout, :connection_timeout)
 
@@ -119,8 +119,8 @@ defmodule Events.RecoverableTest do
       assert Recoverable.severity(error) == :degraded
     end
 
-    test "rate_limit errors use wait_until strategy" do
-      error = Error.new(:rate_limit, :too_many_requests)
+    test "rate_limited errors use wait_until strategy" do
+      error = Error.new(:rate_limited, :too_many_requests)
 
       assert Recoverable.recoverable?(error) == true
       assert Recoverable.strategy(error) == :wait_until
@@ -129,22 +129,12 @@ defmodule Events.RecoverableTest do
       assert Recoverable.severity(error) == :degraded
     end
 
-    test "rate_limit respects retry_after in metadata" do
+    test "rate_limited respects retry_after in context" do
       error =
-        Error.new(:rate_limit, :too_many_requests, metadata: %{retry_after: 30})
+        Error.new(:rate_limited, :too_many_requests, context: %{retry_after: 30})
 
       delay = Recoverable.retry_delay(error, 1)
       assert delay == 30_000
-    end
-
-    test "service_unavailable errors use circuit_break strategy" do
-      error = Error.new(:service_unavailable, :service_down)
-
-      assert Recoverable.recoverable?(error) == true
-      assert Recoverable.strategy(error) == :circuit_break
-      assert Recoverable.max_attempts(error) == 2
-      assert Recoverable.trips_circuit?(error) == true
-      assert Recoverable.severity(error) == :critical
     end
 
     test "network errors use retry_with_backoff strategy" do
@@ -317,18 +307,19 @@ defmodule Events.RecoverableTest do
     end
 
     test "returns :wait for rate limit" do
-      error = Error.new(:rate_limit, :too_many_requests)
+      error = Error.new(:rate_limited, :too_many_requests)
 
       assert {:wait, opts} = Helpers.recovery_decision(error, attempt: 1)
       assert opts[:delay] > 0
       assert opts[:remaining] == 4
     end
 
-    test "returns :circuit_break for service unavailable" do
-      error = Error.new(:service_unavailable, :down)
+    test "returns :retry_with_backoff for external errors" do
+      error = Error.new(:external, :down)
 
-      assert {:circuit_break, opts} = Helpers.recovery_decision(error, attempt: 1)
-      assert opts[:reason] == error
+      assert {:retry, opts} = Helpers.recovery_decision(error, attempt: 1)
+      assert opts[:delay] > 0
+      assert opts[:remaining] == 2
     end
 
     test "returns :fail for validation errors" do
@@ -465,7 +456,7 @@ defmodule Events.RecoverableTest do
       errors = [
         Error.new(:timeout, :t1),
         Error.new(:validation, :v1),
-        Error.new(:rate_limit, :r1),
+        Error.new(:rate_limited, :r1),
         Error.new(:not_found, :n1),
         Error.new(:network, :net1)
       ]
@@ -484,7 +475,7 @@ defmodule Events.RecoverableTest do
       errors = [
         Error.new(:timeout, :t1),
         Error.new(:validation, :v1),
-        Error.new(:rate_limit, :r1),
+        Error.new(:rate_limited, :r1),
         Error.new(:not_found, :n1)
       ]
 

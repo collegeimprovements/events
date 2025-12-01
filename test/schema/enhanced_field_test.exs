@@ -1,8 +1,8 @@
-defmodule Events.Schema.EnhancedFieldTest do
+defmodule Events.Core.Schema.EnhancedFieldTest do
   use Events.TestCase, async: true
 
   defmodule TestUser do
-    use Events.Schema
+    use Events.Core.Schema
 
     schema "users" do
       field :name, :string, required: true, min_length: 2, max_length: 100
@@ -21,7 +21,7 @@ defmodule Events.Schema.EnhancedFieldTest do
   end
 
   defmodule TestPost do
-    use Events.Schema
+    use Events.Core.Schema
 
     schema "posts" do
       field :title, :string, required: true

@@ -1,7 +1,7 @@
-defmodule Events.Schema.MappersTest do
+defmodule Events.Core.Schema.MappersTest do
   use Events.TestCase, async: true
 
-  import Events.Schema.Mappers
+  import Events.Core.Schema.Mappers
 
   describe "trim/0" do
     test "removes leading and trailing whitespace" do

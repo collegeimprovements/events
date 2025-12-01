@@ -1,10 +1,10 @@
-defmodule Events.NormalizableTest do
+defmodule Events.Protocols.NormalizableTest do
   use ExUnit.Case, async: true
 
-  alias Events.Error
-  alias Events.Normalizable
-  alias Events.HttpError
-  alias Events.PosixError
+  alias Events.Types.Error
+  alias Events.Protocols.Normalizable
+  alias Events.Errors.HttpError
+  alias Events.Errors.PosixError
 
   describe "Ecto.Changeset normalization" do
     test "normalizes invalid changeset to validation error" do
@@ -404,7 +404,7 @@ defmodule Events.NormalizableTest do
     end
   end
 
-  describe "Events.Error passthrough" do
+  describe "Events.Types.Error passthrough" do
     test "already normalized errors are passed through" do
       original = Error.new(:validation, :test_error, message: "test")
 
@@ -471,7 +471,8 @@ defmodule Events.NormalizableTest do
 
     defmodule DerivedError do
       # This derive won't take effect because protocol is already consolidated
-      @derive {Events.Normalizable, type: :business, code: :derived_error, recoverable: true}
+      @derive {Events.Protocols.Normalizable,
+               type: :business, code: :derived_error, recoverable: true}
       defstruct [:message, :details]
     end
 
@@ -500,10 +501,8 @@ defmodule Events.NormalizableTest do
     end
   end
 
-  describe "integration with Normalizer" do
-    alias Events.Errors.Normalizer
-
-    test "Normalizer delegates to protocol" do
+  describe "integration with Events.Types.Error" do
+    test "Error.normalize delegates to protocol" do
       changeset = %Ecto.Changeset{
         valid?: false,
         errors: [name: {"is required", [validation: :required]}],
@@ -511,33 +510,33 @@ defmodule Events.NormalizableTest do
         changes: %{}
       }
 
-      error = Normalizer.normalize(changeset)
+      error = Error.normalize(changeset)
 
       assert error.type == :validation
       assert error.code == :changeset_invalid
     end
 
-    test "Normalizer unwraps error tuples" do
-      error = Normalizer.normalize({:error, :not_found})
+    test "Error.normalize unwraps error tuples" do
+      error = Error.normalize({:error, :not_found})
 
       assert error.type == :not_found
       assert error.code == :not_found
     end
 
     test "normalize_result passes ok values through" do
-      result = Normalizer.normalize_result({:ok, "value"})
+      result = Error.normalize_result({:ok, "value"}, [])
 
       assert result == {:ok, "value"}
     end
 
     test "normalize_result normalizes error values" do
-      result = Normalizer.normalize_result({:error, :not_found})
+      result = Error.normalize_result({:error, :not_found}, [])
 
       assert {:error, %Error{type: :not_found}} = result
     end
 
     test "wrap catches and normalizes exceptions" do
-      result = Normalizer.wrap(fn -> raise "boom" end)
+      result = Error.wrap(fn -> raise "boom" end)
 
       assert {:error, %Error{type: :internal, code: :runtime_error}} = result
     end

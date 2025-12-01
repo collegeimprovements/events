@@ -1,7 +1,7 @@
-defmodule Events.AsyncResultTest do
+defmodule Events.Types.AsyncResultTest do
   use ExUnit.Case, async: true
 
-  alias Events.AsyncResult
+  alias Events.Types.AsyncResult
 
   describe "parallel/2" do
     test "executes tasks in parallel and returns all results" do

@@ -24,10 +24,10 @@ defmodule Events.MODULE_NAME do
       iex> %MODULE_NAME{}
   """
 
-  use Events.Schema
+  use Events.Core.Schema
 
   # Import presets if using them
-  # import Events.Schema.Presets
+  # import Events.Core.Schema.Presets
 
   # Define status values as module attribute for documentation
   @statuses [:active, :inactive]

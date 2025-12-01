@@ -63,7 +63,7 @@ lib/events/migration/
 The pipeline API provides functional composition with the `with_*` pattern:
 
 ```elixir
-alias Events.Migration.{Token, Pipeline}
+alias Events.Core.Migration.{Token, Pipeline}
 
 # Create a table using pipelines
 token =
@@ -77,7 +77,7 @@ token =
 # Validate and execute
 token
 |> Pipeline.validate!()
-|> Events.Migration.Executor.execute()
+|> Events.Core.Migration.Executor.execute()
 ```
 
 ### DSL Enhanced (Ecto Macro Based)
@@ -87,7 +87,7 @@ For use within Ecto migrations:
 ```elixir
 defmodule MyApp.Repo.Migrations.CreateUsers do
   use Ecto.Migration
-  import Events.Migration.DSLEnhanced
+  import Events.Core.Migration.DSLEnhanced
 
   def change do
     create table(:users, primary_key: false) do
@@ -110,7 +110,7 @@ end
 
 ```elixir
 defmodule MyApp.Repo.Migrations.CreateUsers do
-  use Events.Repo.Migration
+  use Events.Core.Repo.Migration
 
   def change do
     # Enable extensions
@@ -135,10 +135,10 @@ end
 
 ```elixir
 # Import only specific modules
-use Events.Repo.Migration, only: [:field_sets, :indexes]
+use Events.Core.Repo.Migration, only: [:field_sets, :indexes]
 
 # Exclude specific modules
-use Events.Repo.Migration, except: [:helpers]
+use Events.Core.Repo.Migration, except: [:helpers]
 ```
 
 ## Field Sets

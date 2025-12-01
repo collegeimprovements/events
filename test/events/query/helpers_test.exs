@@ -1,8 +1,8 @@
-defmodule Events.Query.HelpersTest do
+defmodule Events.Core.Query.HelpersTest do
   use Events.TestCase, async: true
 
-  import Events.Query.Helpers
-  alias Events.Query
+  import Events.Core.Query.Helpers
+  alias Events.Core.Query
 
   describe "Date helpers" do
     test "today/0 returns current date" do
@@ -356,7 +356,7 @@ defmodule Events.Query.HelpersTest do
   end
 
   describe "integration with DSL" do
-    import Events.Query.DSL
+    import Events.Core.Query.DSL
 
     test "date helpers work in DSL" do
       token =

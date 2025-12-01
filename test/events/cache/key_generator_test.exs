@@ -1,11 +1,11 @@
-defmodule Events.Cache.KeyGeneratorTest do
+defmodule Events.Core.Cache.KeyGeneratorTest do
   @moduledoc """
-  Tests for Events.Cache.KeyGenerator.
+  Tests for Events.Core.Cache.KeyGenerator.
   """
 
   use Events.DataCase, async: true
 
-  alias Events.Cache.KeyGenerator
+  alias Events.Core.Cache.KeyGenerator
 
   describe "generate/3" do
     test "returns 0 for empty arguments" do

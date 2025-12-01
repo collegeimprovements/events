@@ -9,11 +9,11 @@
 #   3. Replace TABLE_NAME and field definitions
 # =============================================================================
 
-defmodule Events.Repo.Migrations.CreateTableName do
-  use Events.Migration
+defmodule Events.Core.Repo.Migrations.CreateTableName do
+  use Events.Core.Migration
 
   # Uncomment if using migration constants
-  # alias Events.Repo.MigrationConstants, as: C
+  # alias Events.Core.Repo.MigrationConstants, as: C
 
   def change do
     create table(:table_name, primary_key: false) do

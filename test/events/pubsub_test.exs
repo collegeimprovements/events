@@ -1,11 +1,11 @@
-defmodule Events.PubSubTest do
+defmodule Events.Infra.PubSubTest do
   use Events.TestCase, async: false
 
-  alias Events.PubSub
+  alias Events.Infra.PubSub
 
   describe "server/0" do
     test "returns the pubsub server name" do
-      assert PubSub.server() == Events.PubSub.Server
+      assert PubSub.server() == Events.Infra.PubSub.Server
     end
   end
 

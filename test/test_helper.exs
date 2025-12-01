@@ -35,7 +35,7 @@ mockable_modules = [
   # External services
   Events.Services.S3,
   Events.Services.S3.Client,
-  Events.Cache,
+  Events.Core.Cache,
 
   # External libraries (only if loaded)
   Redix,
@@ -95,7 +95,7 @@ ExUnit.start()
 # Database Sandbox
 # ------------------------------------------------------------------------------
 
-Ecto.Adapters.SQL.Sandbox.mode(Events.Repo, :manual)
+Ecto.Adapters.SQL.Sandbox.mode(Events.Core.Repo, :manual)
 
 # ------------------------------------------------------------------------------
 # Global Test Setup

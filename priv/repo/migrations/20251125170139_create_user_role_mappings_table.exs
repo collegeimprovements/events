@@ -1,7 +1,7 @@
 defmodule Events.Repo.Migrations.CreateUserRoleMappingsTable do
   use Events.Migration
 
-  alias Events.Repo.MigrationConstants, as: C
+  alias Events.Core.Repo.MigrationConstants, as: C
 
   def change do
     create table(:user_role_mappings, primary_key: false) do

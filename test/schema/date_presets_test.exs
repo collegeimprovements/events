@@ -1,10 +1,10 @@
-defmodule Events.Schema.DatePresetsTest do
+defmodule Events.Core.Schema.DatePresetsTest do
   use Events.TestCase, async: true
 
-  import Events.Schema.Presets.Dates
+  import Events.Core.Schema.Presets.Dates
 
   defmodule Event do
-    use Events.Schema
+    use Events.Core.Schema
 
     schema "events" do
       field :event_date, :date, preset: future_date()

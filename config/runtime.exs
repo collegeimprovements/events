@@ -93,13 +93,13 @@ repo_config =
     end
   end)
 
-config :events, Events.Repo, repo_config
+config :events, Events.Core.Repo, repo_config
 
 # ==============================================================================
 # CACHE CONFIGURATION
 # ==============================================================================
 
-config :events, Events.Cache, ConfigHelper.get_cache_config()
+config :events, Events.Core.Cache, ConfigHelper.get_cache_config()
 
 # ==============================================================================
 # PHOENIX ENDPOINT CONFIGURATION
@@ -205,7 +205,7 @@ case env do
 
   :test ->
     # Test mailer
-    config :events, Events.Mailer, adapter: Swoosh.Adapters.Test
+    config :events, Events.Infra.Mailer, adapter: Swoosh.Adapters.Test
 
     # Schema validation (validates schemas against DB on startup)
     # Fails fast in tests if schemas don't match DB

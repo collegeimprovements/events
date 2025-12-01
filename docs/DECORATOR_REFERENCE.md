@@ -46,14 +46,14 @@ end
 ┌─────────────────────────────────────────┐
 │      User Code (@decorate attribute)    │
 ├─────────────────────────────────────────┤
-│  Events.Decorator (Entry Point)         │
+│  Events.Infra.Decorator (Entry Point)         │
 ├─────────────────────────────────────────┤
-│  Events.Decorator.Define (Registration) │
+│  Events.Infra.Decorator.Define (Registration) │
 ├─────────────────────────────────────────┤
 │  Category Modules (Implementation)      │
 │  - Caching, Telemetry, Debugging, etc.  │
 ├─────────────────────────────────────────┤
-│  Events.Decorator.Shared (Utilities)    │
+│  Events.Infra.Decorator.Shared (Utilities)    │
 └─────────────────────────────────────────┘
 ```
 
@@ -555,11 +555,11 @@ Most decorators support `on_error` option:
 
 ### Decorator Not Applied
 
-Ensure you have `use Events.Decorator` at the top of your module:
+Ensure you have `use Events.Infra.Decorator` at the top of your module:
 
 ```elixir
 defmodule MyApp.Users do
-  use Events.Decorator  # Required!
+  use Events.Infra.Decorator  # Required!
 
   @decorate cacheable(...)
   def get_user(id), do: ...

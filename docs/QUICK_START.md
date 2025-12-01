@@ -99,7 +99,7 @@ with_timestamps(type: :naive_datetime)  # Use utc_datetime_usec!
 ```elixir
 defmodule MyApp.Product do
   use Events.Schema
-  import Events.Schema.FieldMacros
+  import Events.Core.Schema.FieldMacros
 
   schema "products" do
     field :name, :string
@@ -123,7 +123,7 @@ end
 
 ```elixir
 defmodule MyApp.User do
-  use Events.Schema.PipelineMode
+  use Events.Core.Schema.PipelineMode
 
   schema "users" do
     field :email, :string
@@ -334,14 +334,14 @@ mix ecto.reset
 
 ```elixir
 # Migration help
-Events.Migration.help()
-Events.Migration.help(:fields)
-Events.Migration.help(:indexes)
+Events.Core.Migration.help()
+Events.Core.Migration.help(:fields)
+Events.Core.Migration.help(:indexes)
 
 # Schema help
-Events.Schema.help()
-Events.Schema.help(:validators)
-Events.Schema.help(:pipelines)
+Events.Core.Schema.help()
+Events.Core.Schema.help(:validators)
+Events.Core.Schema.help(:pipelines)
 ```
 
 ## Troubleshooting

@@ -1,4 +1,4 @@
-defmodule Events.Query.ExecutionTest do
+defmodule Events.Core.Query.ExecutionTest do
   @moduledoc """
   Integration tests for Query execution methods.
 
@@ -11,9 +11,9 @@ defmodule Events.Query.ExecutionTest do
   """
   use Events.DataCase, async: true
 
-  alias Events.Query
-  alias Events.Query.Result
-  alias Events.Repo
+  alias Events.Core.Query
+  alias Events.Core.Query.Result
+  alias Events.Core.Repo
 
   # Test schema - maps to query_test_records table
   defmodule TestRecord do

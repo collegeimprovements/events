@@ -96,13 +96,13 @@ Legend: ✅ Completed | ⏳ Pending
 
 ### 1. Behaviours (✅ Complete)
 
-#### Events.Behaviours.Service
+#### Events.Support.Behaviours.Service
 Base behaviour for all service modules. Defines optional callbacks for supervised services.
 
-#### Events.Behaviours.Adapter
+#### Events.Support.Behaviours.Adapter
 Base behaviour for adapter implementations. Provides adapter resolution and validation.
 
-#### Events.Behaviours.Builder
+#### Events.Support.Behaviours.Builder
 Base behaviour for builder modules. Provides `defcompose` macro for fluent APIs.
 
 ### 2. Normalizers (✅ Complete)
@@ -259,7 +259,7 @@ All services and composers integrate with the existing decorator system:
 
 ### Caching
 ```elixir
-@decorate cacheable(cache: Events.Cache, key: {S3, context.bucket, key})
+@decorate cacheable(cache: Events.Core.Cache, key: {S3, context.bucket, key})
 def get_object(context, key) do
   # Implementation
 end

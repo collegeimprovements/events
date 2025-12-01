@@ -1,7 +1,7 @@
-defmodule Events.APIClient.MiddlewareTest do
+defmodule Events.Api.Client.MiddlewareTest do
   use ExUnit.Case, async: true
 
-  alias Events.APIClient.Middleware.{Retry, CircuitBreaker, RateLimiter}
+  alias Events.Api.Client.Middleware.{Retry, CircuitBreaker, RateLimiter}
 
   describe "Retry" do
     test "options/0 returns default retry options" do
@@ -150,8 +150,8 @@ defmodule Events.APIClient.MiddlewareTest do
     end
 
     test "call/2 records failure on {:error, _} when error trips circuit", %{name: name} do
-      # Use an error that trips the circuit (service_unavailable does)
-      error = Events.Errors.Error.new(:service_unavailable, :service_down)
+      # Use an error that trips the circuit (external errors do)
+      error = Events.Types.Error.new(:external, :service_down)
       CircuitBreaker.call(name, fn -> {:error, error} end)
       :timer.sleep(10)
 
@@ -161,7 +161,7 @@ defmodule Events.APIClient.MiddlewareTest do
 
     test "call/2 does not record failure when error doesn't trip circuit", %{name: name} do
       # Use an error that doesn't trip the circuit (validation errors don't)
-      error = Events.Errors.Error.new(:validation, :invalid_input)
+      error = Events.Types.Error.new(:validation, :invalid_input)
       CircuitBreaker.call(name, fn -> {:error, error} end)
       :timer.sleep(10)
 

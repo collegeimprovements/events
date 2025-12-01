@@ -1,9 +1,9 @@
-defmodule Events.ResultTest do
+defmodule Events.Types.ResultTest do
   use ExUnit.Case, async: true
   # Note: Doctests disabled because examples use short `Result` alias.
   # Comprehensive unit tests below provide full coverage.
 
-  alias Events.Result
+  alias Events.Types.Result
 
   describe "type checking" do
     test "ok?/1 returns true for ok tuples" do
@@ -430,14 +430,14 @@ defmodule Events.ResultTest do
   describe "normalize_error/2" do
     test "normalizes atom errors" do
       {:error, error} = Result.normalize_error({:error, :not_found})
-      assert %Events.Error{} = error
+      assert %Events.Types.Error{} = error
       assert error.type == :not_found
       assert error.code == :not_found
     end
 
     test "normalizes string errors" do
       {:error, error} = Result.normalize_error({:error, "Something went wrong"})
-      assert %Events.Error{} = error
+      assert %Events.Types.Error{} = error
       assert error.message == "Something went wrong"
     end
 
@@ -448,7 +448,7 @@ defmodule Events.ResultTest do
       }
 
       {:error, error} = Result.normalize_error({:error, changeset})
-      assert %Events.Error{} = error
+      assert %Events.Types.Error{} = error
       assert error.type == :validation
     end
 
@@ -466,7 +466,7 @@ defmodule Events.ResultTest do
       result =
         {:error, :not_found}
         |> Result.normalize_error(context: %{action: :fetch})
-        |> Result.map_error(&Events.Error.with_details(&1, extra: "info"))
+        |> Result.map_error(&Events.Types.Error.with_details(&1, extra: "info"))
 
       {:error, error} = result
       assert error.context == %{action: :fetch}

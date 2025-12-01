@@ -343,7 +343,7 @@ Maybe.collect([{:some, 1}, :none])                # :none
 Maybe.collect([])                                 # {:some, []}
 
 # Cat: filter and unwrap somes
-Maybe.cat_maybes([{:some, 1}, :none, {:some, 3}]) # [1, 3]
+Maybe.cat_somes([{:some, 1}, :none, {:some, 3}]) # [1, 3]
 
 # Traverse: map then collect
 Maybe.traverse([1, 2, 3], fn x ->
@@ -842,7 +842,7 @@ Result.lift_apply(&String.upcase/1, {:ok, "hi"})  # {:ok, "HI"}
 # Convert to Error struct
 {:error, :not_found}
 |> Result.to_error(:not_found, message: "User not found")
-#=> {:error, %Events.Error{type: :not_found, ...}}
+#=> {:error, %Events.Types.Error{type: :not_found, ...}}
 
 # ═══════════════════════════════════════════════════════════════════════════
 # ENUMERABLE & REDUCE
@@ -1932,7 +1932,7 @@ Each module has companion test helpers with assertions and generators.
 ```elixir
 defmodule MyTest do
   use ExUnit.Case
-  import Events.Maybe.Test
+  import Events.Types.Maybe.Test
 
   test "returns some for valid input" do
     result = MyModule.get_value(input)
@@ -1968,7 +1968,7 @@ end
 ```elixir
 defmodule MyTest do
   use ExUnit.Case
-  import Events.Result.Test
+  import Events.Types.Result.Test
 
   test "returns ok for valid input" do
     result = MyModule.process(valid_input)
@@ -2001,7 +2001,7 @@ end
 ```elixir
 defmodule MyTest do
   use ExUnit.Case
-  import Events.Pipeline.Test
+  import Events.Types.Pipeline.Test
 
   test "pipeline executes all steps" do
     result = MyPipeline.run(params)
@@ -2258,3 +2258,366 @@ def register(params) do
   |> format_registration_result()
 end
 ```
+
+---
+
+## Future Data Structures
+
+The following data structures are planned for future implementation. They follow the same functional programming principles as the existing modules.
+
+### Tier 1: High Practical Value
+
+#### Lens
+
+Composable getters/setters for nested data structures.
+
+```elixir
+# Problem: Updating deeply nested structures is verbose
+user = %{profile: %{settings: %{theme: "light"}}}
+put_in(user, [:profile, :settings, :theme], "dark")
+
+# With Lens:
+theme_lens = Lens.make([:profile, :settings, :theme])
+Lens.set(theme_lens, user, "dark")
+Lens.over(theme_lens, user, &String.upcase/1)
+
+# Composable
+profile = Lens.at(:profile)
+settings = Lens.at(:settings)
+theme = Lens.compose(profile, settings, Lens.at(:theme))
+```
+
+**Use cases:**
+- Updating deeply nested configuration
+- Immutable data transformations
+- State management in LiveView
+- JSON/map manipulation
+
+#### Resource
+
+Safe resource acquisition/release (bracket pattern).
+
+```elixir
+# Guarantees cleanup even on exceptions
+Resource.bracket(
+  acquire: fn -> File.open!("data.txt") end,
+  release: fn file -> File.close(file) end,
+  use: fn file -> IO.read(file, :all) end
+)
+
+# Composable resources
+db_conn = Resource.make(&connect_db/0, &disconnect/1)
+file = Resource.make(&open_file/0, &close_file/1)
+
+Resource.both(db_conn, file)
+|> Resource.use(fn {conn, file} -> import_data(conn, file) end)
+```
+
+**Use cases:**
+- Database connections
+- File handles
+- External API sessions
+- Lock acquisition
+
+#### RateLimiter
+
+Token bucket / sliding window as a pure data structure.
+
+```elixir
+limiter = RateLimiter.new(rate: 100, per: :second)
+
+case RateLimiter.acquire(limiter) do
+  {:ok, limiter} -> proceed(limiter)
+  {:error, :rate_limited, retry_after} -> wait(retry_after)
+end
+
+# Sliding window
+limiter = RateLimiter.sliding_window(max: 1000, window: :minute)
+
+# Token bucket with burst
+limiter = RateLimiter.token_bucket(rate: 10, per: :second, burst: 50)
+```
+
+**Use cases:**
+- API rate limiting
+- Request throttling
+- Resource protection
+- Fair scheduling
+
+#### Memo
+
+Memoization as an explicit, pure data structure.
+
+```elixir
+memo = Memo.new()
+{result, memo} = Memo.get_or_compute(memo, key, fn -> expensive() end)
+
+# With TTL
+memo = Memo.new(ttl: :timer.minutes(5))
+
+# Bounded size (LRU eviction)
+memo = Memo.new(max_size: 1000)
+
+# Unlike process-based caching, this is pure and testable
+```
+
+**Use cases:**
+- Expensive computations
+- Recursive algorithms (fibonacci, etc.)
+- Request deduplication
+- Pure, testable caching
+
+#### Predicate
+
+Composable predicates for validation and filtering.
+
+```elixir
+is_adult = Predicate.new(&(&1.age >= 18))
+is_verified = Predicate.new(&(&1.verified))
+
+can_purchase = Predicate.and(is_adult, is_verified)
+can_view = Predicate.or(is_adult, Predicate.new(&(&1.has_permission)))
+
+Predicate.test(can_purchase, user)
+
+# With descriptions for error messages
+is_valid_email = Predicate.new(&valid_email?/1, "must be a valid email")
+Predicate.explain(is_valid_email)
+#=> "must be a valid email"
+```
+
+**Use cases:**
+- Complex validation rules
+- Query builders
+- Access control
+- Filter composition
+
+### Tier 2: Domain-Specific but Powerful
+
+#### Diff
+
+Structural diffing with patch/unpatch capabilities.
+
+```elixir
+old = %{name: "Alice", age: 30}
+new = %{name: "Alice", age: 31, email: "a@b.com"}
+
+diff = Diff.compute(old, new)
+#=> %Diff{changes: [{:update, :age, 30, 31}, {:add, :email, "a@b.com"}]}
+
+Diff.apply(old, diff) == new  # true
+Diff.revert(new, diff) == old # true
+
+# For lists
+Diff.list_diff([1, 2, 3], [1, 3, 4])
+#=> [{:remove, 1, 2}, {:add, 2, 4}]
+```
+
+**Use cases:**
+- Audit logging
+- Undo/redo functionality
+- Sync protocols
+- Change tracking
+
+#### Saga
+
+Distributed transaction compensation pattern.
+
+```elixir
+# Like Pipeline but with automatic rollback on failure
+Saga.new()
+|> Saga.step(:reserve_inventory, &reserve/1, compensate: &unreserve/1)
+|> Saga.step(:charge_payment, &charge/1, compensate: &refund/1)
+|> Saga.step(:ship_order, &ship/1, compensate: &cancel_shipment/1)
+|> Saga.execute(order)
+# If ship fails, automatically calls refund then unreserve
+
+# With timeout per step
+Saga.step(:external_call, &call/1,
+  compensate: &rollback/1,
+  timeout: 5000
+)
+```
+
+**Use cases:**
+- Distributed transactions
+- Order processing
+- Multi-service workflows
+- Event-driven architectures
+
+#### Batch
+
+Efficient batched operations with backpressure.
+
+```elixir
+# Accumulate items, flush when batch full or timeout
+Batch.new(size: 100, timeout: :timer.seconds(5))
+|> Batch.add(item1)
+|> Batch.add(item2)
+|> Batch.on_flush(&bulk_insert/1)
+
+# With backpressure
+Batch.new(size: 100, max_pending: 1000)
+|> Batch.add(item)  # Blocks if too many pending
+```
+
+**Use cases:**
+- Bulk database inserts
+- Log aggregation
+- Metrics collection
+- Stream processing
+
+#### Ior (Inclusive Or)
+
+Like Result but can hold both success and error (warnings with success).
+
+```elixir
+# {:left, errors} - failure only
+# {:right, value} - success only
+# {:both, errors, value} - success with warnings
+
+validate_with_warnings(data)
+|> Ior.map(&process/1)  # processes if Right or Both
+#=> {:both, ["field X deprecated"], %{processed: true}}
+
+# Accumulate warnings
+Ior.combine(result1, result2)  # Combines warnings from both
+```
+
+**Use cases:**
+- Validation with warnings
+- Deprecation notices
+- Partial success scenarios
+- Non-fatal error accumulation
+
+### Tier 3: Advanced Patterns
+
+#### Zipper
+
+Navigate and modify tree/list structures with context.
+
+```elixir
+# Navigate a tree while keeping track of where you are
+zipper = Zipper.from_list([1, 2, 3, 4, 5])
+zipper
+|> Zipper.next()      # focus on 2
+|> Zipper.next()      # focus on 3
+|> Zipper.replace(30) # [1, 2, 30, 4, 5]
+|> Zipper.prev()      # back to 2
+|> Zipper.to_list()   # reconstruct
+
+# For trees
+zipper = Zipper.from_tree(ast)
+zipper
+|> Zipper.down()      # first child
+|> Zipper.right()     # sibling
+|> Zipper.edit(&transform/1)
+|> Zipper.root()      # back to root
+```
+
+**Use cases:**
+- AST manipulation
+- Tree editing
+- Navigation with undo
+- Cursor-based editing
+
+#### Builder
+
+Type-safe builder pattern for complex struct construction.
+
+```elixir
+User.builder()
+|> Builder.set(:name, "Alice")
+|> Builder.set(:email, "alice@example.com")
+|> Builder.build()
+#=> {:ok, %User{}} or {:error, [:age_required]}
+
+# With validation at each step
+Builder.set(builder, :age, -5)
+#=> {:error, :age_must_be_positive}
+
+# Required vs optional fields
+User.builder()
+|> Builder.require([:name, :email])
+|> Builder.optional([:bio, :avatar])
+```
+
+**Use cases:**
+- Complex object construction
+- API request builders
+- Query builders
+- Configuration objects
+
+#### Lazy
+
+Deferred computation with memoization.
+
+```elixir
+lazy_value = Lazy.new(fn -> expensive_computation() end)
+
+# Not computed yet
+Lazy.computed?(lazy_value)  #=> false
+
+# Force evaluation
+{value, lazy_value} = Lazy.force(lazy_value)
+
+# Now memoized
+Lazy.computed?(lazy_value)  #=> true
+{value, _} = Lazy.force(lazy_value)  # Returns cached value
+
+# Map over lazy values (still lazy)
+Lazy.map(lazy_value, &transform/1)
+```
+
+**Use cases:**
+- Expensive computations
+- Infinite sequences
+- Conditional evaluation
+- Resource optimization
+
+#### Reader
+
+Dependency injection monad for threading configuration.
+
+```elixir
+# Define computations that need config
+fetch_user = Reader.new(fn config ->
+  config.repo.get(User, config.user_id)
+end)
+
+send_email = Reader.new(fn config ->
+  config.mailer.send(config.user, "Welcome!")
+end)
+
+# Compose without passing config
+workflow = Reader.and_then(fetch_user, fn user ->
+  Reader.map(send_email, fn _ -> user end)
+end)
+
+# Run with config at the edge
+Reader.run(workflow, %{repo: Repo, mailer: Mailer, user_id: 123})
+```
+
+**Use cases:**
+- Dependency injection
+- Configuration threading
+- Testing with mocks
+- Environment-dependent code
+
+### Implementation Priority
+
+Based on practical value for this codebase:
+
+1. **Lens** - Nested schema updates are common
+2. **Resource** - Pairs with S3, database, and external APIs
+3. **RateLimiter** - API integrations need rate limiting
+4. **Memo** - Pure memoization for expensive operations
+5. **Predicate** - Composable validation rules
+6. **Saga** - Natural extension of Pipeline for distributed transactions
+7. **Ior** - Validation system would benefit from "success with warnings"
+8. **Diff** - Audit logging and change tracking
+9. **Batch** - Bulk operations optimization
+10. **Zipper** - AST/tree manipulation
+11. **Builder** - Complex struct construction
+12. **Lazy** - Deferred computation
+13. **Reader** - Dependency injection

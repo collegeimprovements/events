@@ -1,7 +1,7 @@
 defmodule Events.Repo.Migrations.AddAuditForeignKeysAndBootstrapData do
   use Events.Migration
 
-  alias Events.Repo.MigrationConstants, as: C
+  alias Events.Core.Repo.MigrationConstants, as: C
 
   def up do
     # Step 1: Insert bootstrap data in dependency order

@@ -325,7 +325,7 @@ Presets are pre-configured option sets for common field patterns.
 ### String Presets
 
 ```elixir
-import Events.Schema.Presets.Strings
+import Events.Core.Schema.Presets.Strings
 
 # Name fields (titlecase, 2-100 chars)
 field :first_name, :string, preset: name()
@@ -369,7 +369,7 @@ field :notes, :string, preset: notes()
 ### Date/DateTime Presets
 
 ```elixir
-import Events.Schema.Presets.Dates
+import Events.Core.Schema.Presets.Dates
 
 # Past dates
 field :birth_date, :date, preset: past_date()
@@ -426,7 +426,7 @@ Field helpers are macro shortcuts that combine field type, preset, and common op
 ### String Field Helpers
 
 ```elixir
-import Events.Schema.FieldHelpers
+import Events.Core.Schema.FieldHelpers
 
 # Email (lowercase, email format, required)
 email_field :email
@@ -511,7 +511,7 @@ password_field :password_confirmation
 ```elixir
 defmodule MyApp.User do
   use Events.Schema
-  import Events.Schema.FieldHelpers
+  import Events.Core.Schema.FieldHelpers
 
   schema "users" do
     # Using field helpers (most concise)
@@ -543,8 +543,8 @@ end
 ```elixir
 defmodule MyApp.Product do
   use Events.Schema
-  import Events.Schema.FieldHelpers
-  import Events.Schema.Presets.Strings
+  import Events.Core.Schema.FieldHelpers
+  import Events.Core.Schema.Presets.Strings
 
   schema "products" do
     # Title and description
@@ -576,8 +576,8 @@ end
 ```elixir
 defmodule MyApp.Event do
   use Events.Schema
-  import Events.Schema.Presets.Dates
-  import Events.Schema.FieldHelpers
+  import Events.Core.Schema.Presets.Dates
+  import Events.Core.Schema.FieldHelpers
 
   schema "events" do
     # Basic info
@@ -692,7 +692,7 @@ The validation pipeline executes in this order:
 
 ### Generated Functions
 
-When using `use Events.Schema`, these functions are automatically generated:
+When using `use Events.Core.Schema`, these functions are automatically generated:
 
 ```elixir
 # List of all castable fields
@@ -744,7 +744,7 @@ email_field :email
 
 ```elixir
 # Define common patterns once
-import Events.Schema.Presets.Strings
+import Events.Core.Schema.Presets.Strings
 
 field :first_name, :string, preset: name()
 field :last_name, :string, preset: name()

@@ -28,11 +28,11 @@ defmodule Events.MODULE_NAME do
       {:ok, %ENTITY{}}
   """
 
-  use Events.Decorator
+  use Events.Infra.Decorator
 
   import Ecto.Query, warn: false
 
-  alias Events.Repo
+  alias Events.Core.Repo
   alias Events.ENTITY
 
   # ============================================================================

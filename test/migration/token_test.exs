@@ -1,7 +1,7 @@
-defmodule Events.Migration.TokenTest do
+defmodule Events.Core.Migration.TokenTest do
   use Events.TestCase, async: true
 
-  alias Events.Migration.Token
+  alias Events.Core.Migration.Token
 
   describe "Token.new/3" do
     test "creates a table token with name" do

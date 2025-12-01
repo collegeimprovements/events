@@ -1,7 +1,7 @@
 defmodule Events.AdvancedQueryTest do
   use Events.TestCase, async: true
 
-  alias Events.Query
+  alias Events.Core.Query
 
   describe "CTEs (Common Table Expressions)" do
     test "creates CTE from token" do

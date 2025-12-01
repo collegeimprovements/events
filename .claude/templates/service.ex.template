@@ -21,11 +21,11 @@ defmodule Events.Services.SERVICE_NAME do
       {:ok, result}
   """
 
-  use Events.Decorator
+  use Events.Infra.Decorator
 
-  alias Events.Result
-  # alias Events.Pipeline
-  # alias Events.Repo
+  alias Events.Types.Result
+  # alias Events.Types.Pipeline
+  # alias Events.Core.Repo
 
   # ============================================================================
   # Public API

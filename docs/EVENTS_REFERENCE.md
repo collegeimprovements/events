@@ -52,7 +52,7 @@ All major systems follow the **Behavior + Registry** pattern:
 
 ```elixir
 # 1. Define behavior
-defmodule Events.Schema.Behaviours.Validator do
+defmodule Events.Core.Schema.Behaviours.Validator do
   @callback validate(changeset, field_name, opts) :: changeset
   @callback field_types() :: [atom()]
   @callback supported_options() :: [atom()]
@@ -60,7 +60,7 @@ end
 
 # 2. Implement behavior
 defmodule MyApp.CustomValidator do
-  @behaviour Events.Schema.Behaviours.Validator
+  @behaviour Events.Core.Schema.Behaviours.Validator
 
   @impl true
   def field_types, do: [:money]
@@ -73,7 +73,7 @@ defmodule MyApp.CustomValidator do
 end
 
 # 3. Register implementation
-Events.Schema.ValidatorRegistry.register(:money, MyApp.CustomValidator)
+Events.Core.Schema.ValidatorRegistry.register(:money, MyApp.CustomValidator)
 ```
 
 ## Registry Pattern
@@ -84,15 +84,15 @@ Maps field types to validator modules:
 
 ```elixir
 # Get validator for a field type
-Events.Schema.ValidatorRegistry.get(:string)
-# => Events.Schema.Validators.String
+Events.Core.Schema.ValidatorRegistry.get(:string)
+# => Events.Core.Schema.Validators.String
 
 # Register custom validator
-Events.Schema.ValidatorRegistry.register(:phone, MyApp.PhoneValidator)
+Events.Core.Schema.ValidatorRegistry.register(:phone, MyApp.PhoneValidator)
 
 # List all validators
-Events.Schema.ValidatorRegistry.all()
-# => %{string: Events.Schema.Validators.String, integer: Events.Schema.Validators.Number, ...}
+Events.Core.Schema.ValidatorRegistry.all()
+# => %{string: Events.Core.Schema.Validators.String, integer: Events.Core.Schema.Validators.Number, ...}
 ```
 
 ### DecoratorRegistry (Decorator System)
@@ -101,14 +101,14 @@ Maps decorator names to modules and functions:
 
 ```elixir
 # Get decorator implementation
-Events.Decorator.Registry.get(:cacheable)
-# => {Events.Decorator.Caching, :cacheable}
+Events.Infra.Decorator.Registry.get(:cacheable)
+# => {Events.Infra.Decorator.Caching, :cacheable}
 
 # Register custom decorator
-Events.Decorator.Registry.register(:my_decorator, MyModule, :my_decorator)
+Events.Infra.Decorator.Registry.register(:my_decorator, MyModule, :my_decorator)
 
 # List decorators by category
-Events.Decorator.Registry.by_category()
+Events.Infra.Decorator.Registry.by_category()
 # => %{caching: [:cacheable, :cache_put, :cache_evict], ...}
 ```
 
@@ -119,7 +119,7 @@ Events.Decorator.Registry.by_category()
 Query migration token structure at runtime:
 
 ```elixir
-alias Events.Migration.Token
+alias Events.Core.Migration.Token
 
 # Create and inspect a token
 token = Token.new(:table, :users)
@@ -149,7 +149,7 @@ Token.to_schema_fields(token)
 Comprehensive validation before execution:
 
 ```elixir
-alias Events.Migration.TokenValidator
+alias Events.Core.Migration.TokenValidator
 
 # Validate with detailed errors
 case TokenValidator.validate(token) do
@@ -170,10 +170,10 @@ if TokenValidator.valid?(token), do: execute(token)
 
 ### Decorator Introspection
 
-Query decorator metadata at runtime (requires modules compiled with `use Events.Decorator`):
+Query decorator metadata at runtime (requires modules compiled with `use Events.Infra.Decorator`):
 
 ```elixir
-alias Events.Decorator.Introspection
+alias Events.Infra.Decorator.Introspection
 
 # Get all decorated functions
 Introspection.decorators(MyModule)
@@ -198,7 +198,7 @@ Introspection.functions_with_decorator(MyModule, :cacheable)
 
 ## Getting Started
 
-Replace `use Ecto.Schema` with `use Events.Schema`:
+Replace `use Ecto.Schema` with `use Events.Core.Schema`:
 
 ```elixir
 defmodule MyApp.Accounts.User do
@@ -616,7 +616,7 @@ end
 Import presets for common field patterns:
 
 ```elixir
-import Events.Schema.Presets
+import Events.Core.Schema.Presets
 ```
 
 ### Available Presets
@@ -740,7 +740,7 @@ field :phone, :string, mappers: [:trim, fn v -> String.replace(v, "-", "") end]
 ### Mapper Functions
 
 ```elixir
-import Events.Schema.Mappers
+import Events.Core.Schema.Mappers
 
 # Get mapper functions
 trim = trim()
@@ -1296,7 +1296,7 @@ create_standard_indexes(:products)
 ### Token Structure
 
 ```elixir
-%Events.Migration.Token{
+%Events.Core.Migration.Token{
   type: :table | :index | :constraint | :alter,
   name: :users,
   fields: [{:email, :citext, [null: false]}, ...],
@@ -1329,7 +1329,7 @@ create_standard_indexes(:products)
 ### Pre-built Field Sets
 
 ```elixir
-alias Events.Migration.Fields
+alias Events.Core.Migration.Fields
 
 # Name fields
 Fields.name_fields()
@@ -2241,7 +2241,7 @@ def expensive_calculation(input), do: complex_math(input)
 ```elixir
 defmodule MyApp.Accounts.User do
   use Events.Schema
-  import Events.Schema.Presets
+  import Events.Core.Schema.Presets
 
   @changeset_actions %{
     create: [also_required: [:password]],
