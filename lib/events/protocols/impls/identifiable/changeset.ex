@@ -50,7 +50,7 @@ defimpl Events.Protocols.Identifiable, for: Ecto.Changeset do
 
   The entity type is derived from the schema module name:
 
-  - `Events.Accounts.User` -> `:user`
+  - `Events.Domains.Accounts.User` -> `:user`
   - `Events.Billing.Invoice` -> `:invoice`
 
   If the underlying schema implements Identifiable, we delegate to it

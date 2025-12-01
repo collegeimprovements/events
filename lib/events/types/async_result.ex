@@ -2,61 +2,70 @@ defmodule Events.Types.AsyncResult do
   @moduledoc """
   Concurrent operations on Result types.
 
-  Provides utilities for executing result-returning operations in parallel,
-  with configurable concurrency, timeouts, and error handling strategies.
+  A comprehensive wrapper around Elixir's `Task` and `Task.async_stream` that
+  provides result-aware concurrent operations with configurable error handling.
 
   ## Design Philosophy
 
   - **Fail-fast by default**: Returns first error encountered
-  - **Configurable settlement**: Can collect all results (successes and failures)
-  - **Bounded concurrency**: Controls resource usage with max_concurrency
+  - **Configurable settlement**: Use `settle: true` to collect all results
+  - **Bounded concurrency**: Controls resource usage with `:max_concurrency`
   - **Timeout safety**: All operations have configurable timeouts
-  - **Task supervision**: Uses `Task.Supervisor` for crash isolation
+  - **Task supervision**: Pass `:supervisor` option for crash isolation
+  - **Streaming support**: Memory-efficient processing of large collections
+
+  ## Quick Reference
+
+  | Function | Use Case |
+  |----------|----------|
+  | `async/1` + `await/2` | Explicit task handle control |
+  | `parallel/2` | Execute multiple tasks, fail-fast |
+  | `parallel_map/3` | Map function over items in parallel |
+  | `race/2` | First success wins |
+  | `hedge/3` | Hedged request with backup |
+  | `stream/3` | Lazy evaluation for large collections |
+  | `retry/2` | Retry with exponential backoff |
+  | `fire_and_forget/2` | Side-effects only, no result |
+  | `lazy/1` + `run_lazy/1` | Deferred computation |
 
   ## Basic Usage
 
       # Execute multiple operations in parallel
       AsyncResult.parallel([
         fn -> fetch_user(1) end,
-        fn -> fetch_user(2) end,
-        fn -> fetch_user(3) end
+        fn -> fetch_user(2) end
       ])
-      #=> {:ok, [user1, user2, user3]} | {:error, reason}
+      #=> {:ok, [user1, user2]} | {:error, reason}
+
+      # With settlement (collect all results)
+      AsyncResult.parallel(tasks, settle: true)
+      #=> %{ok: [val1, val3], errors: [:failed], results: [...]}
 
       # Map over items in parallel
-      AsyncResult.parallel_map([1, 2, 3], fn id ->
-        fetch_user(id)
-      end)
+      AsyncResult.parallel_map([1, 2, 3], &fetch_user/1)
       #=> {:ok, [user1, user2, user3]}
 
       # Race multiple alternatives
       AsyncResult.race([
-        fn -> fetch_from_primary() end,
-        fn -> fetch_from_replica() end
+        fn -> fetch_from_cache() end,
+        fn -> fetch_from_db() end
       ])
       #=> {:ok, first_success}
 
-  ## Settlement Mode
+  ## Explicit Task Handles
 
-      # Get all results, both successes and failures
-      AsyncResult.parallel_settle([
-        fn -> {:ok, 1} end,
-        fn -> {:error, :bad} end,
-        fn -> {:ok, 3} end
-      ])
-      #=> %{
-        ok: [1, 3],
-        errors: [:bad],
-        results: [{:ok, 1}, {:error, :bad}, {:ok, 3}]
-      }
+      handle = AsyncResult.async(fn -> expensive_operation() end)
+      # ... do other work ...
+      {:ok, result} = AsyncResult.await(handle)
 
-  ## Configuration
+  ## Common Options
 
-      AsyncResult.parallel(tasks,
+      parallel(tasks,
         max_concurrency: 5,      # Limit concurrent tasks
         timeout: 5000,           # Per-task timeout in ms
         ordered: true,           # Preserve input order
-        on_timeout: :error       # :error | :kill | {:default, value}
+        settle: true,            # Collect all results
+        supervisor: MySupervisor # Crash isolation
       )
   """
 
@@ -75,155 +84,446 @@ defmodule Events.Types.AsyncResult do
           results: [Result.t()]
         }
 
+  @type settlement_indexed(a) :: %{
+          ok: [{a, term()}],
+          errors: [{a, term()}],
+          results: [{a, Result.t()}]
+        }
+
   @type options :: [
           max_concurrency: pos_integer(),
           timeout: timeout(),
           ordered: boolean(),
-          on_timeout: :error | :kill | {:default, term()},
-          supervisor: atom() | pid()
+          settle: boolean(),
+          indexed: boolean(),
+          supervisor: atom() | pid(),
+          telemetry: [atom()],
+          on_progress: (non_neg_integer(), non_neg_integer() -> any())
         ]
 
   @default_timeout 5_000
   @default_max_concurrency System.schedulers_online() * 2
 
   # ============================================
+  # Internal Structs
+  # ============================================
+
+  @typedoc "A handle to an async task"
+  @opaque handle :: %__MODULE__.Handle{task: Task.t(), ref: reference()}
+
+  defmodule Handle do
+    @moduledoc false
+    @enforce_keys [:task, :ref]
+    defstruct [:task, :ref]
+  end
+
+  @typedoc "A completed task with pre-computed result"
+  @opaque completed_handle :: %__MODULE__.Completed{result: Result.t()}
+
+  defmodule Completed do
+    @moduledoc false
+    @enforce_keys [:result]
+    defstruct [:result]
+  end
+
+  # ============================================
+  # Settlement Helpers
+  # ============================================
+
+  defmodule Settlement do
+    @moduledoc """
+    Helper functions for working with settlement results.
+
+    Settlement results are returned when using `settle: true` option
+    with `parallel/2` or `parallel_map/3`.
+    """
+
+    @type t :: %{ok: [term()], errors: [term()], results: [Events.Types.Result.t()]}
+    @type indexed(a) :: %{
+            ok: [{a, term()}],
+            errors: [{a, term()}],
+            results: [{a, Events.Types.Result.t()}]
+          }
+
+    @doc "Extract success values from settlement"
+    @spec ok(t() | indexed(term())) :: [term()]
+    def ok(%{ok: values}), do: values
+
+    @doc "Extract error values from settlement"
+    @spec errors(t() | indexed(term())) :: [term()]
+    def errors(%{errors: values}), do: values
+
+    @doc "Check if all tasks succeeded"
+    @spec ok?(t() | indexed(term())) :: boolean()
+    def ok?(%{errors: []}), do: true
+    def ok?(%{errors: _}), do: false
+
+    @doc "Check if any task failed"
+    @spec failed?(t() | indexed(term())) :: boolean()
+    def failed?(settlement), do: not ok?(settlement)
+
+    @doc "Split into {successes, failures} tuple"
+    @spec split(t()) :: {[term()], [term()]}
+    def split(%{ok: oks, errors: errs}), do: {oks, errs}
+
+    @doc "Split indexed settlement into maps"
+    @spec split_indexed(indexed(a)) :: %{successes: %{a => term()}, failures: %{a => term()}}
+          when a: term()
+    def split_indexed(%{ok: oks, errors: errs}) do
+      %{
+        successes: Map.new(oks),
+        failures: Map.new(errs)
+      }
+    end
+  end
+
+  # ============================================
+  # Lazy Computation
+  # ============================================
+
+  defmodule Lazy do
+    @moduledoc """
+    A deferred async computation that hasn't started yet.
+
+    Unlike `async/1` which starts immediately, `Lazy` captures the
+    computation for later execution with `run_lazy/1`.
+    """
+
+    @enforce_keys [:fun]
+    defstruct [:fun, opts: []]
+
+    @type t(a) :: %__MODULE__{fun: (-> a), opts: keyword()}
+  end
+
+  # ============================================
+  # Async/Await (Task Handles)
+  # ============================================
+
+  @doc """
+  Starts an async task, returning a handle that must be awaited.
+
+  ## Options
+
+    * `:supervisor` - Use `Task.Supervisor` for crash isolation (unlinked task)
+
+  ## Examples
+
+      handle = AsyncResult.async(fn -> fetch_user(id) end)
+      {:ok, user} = AsyncResult.await(handle)
+
+      # Unlinked task (requires supervisor)
+      handle = AsyncResult.async(fn -> risky_op() end, supervisor: MySupervisor)
+  """
+  @spec async(task_fun(a), keyword()) :: handle() when a: term()
+  def async(fun, opts \\ []) when is_function(fun, 0) do
+    task =
+      case Keyword.get(opts, :supervisor) do
+        nil ->
+          Task.async(fn -> safe_execute(fun) end)
+
+        supervisor ->
+          Task.Supervisor.async_nolink(supervisor, fn -> safe_execute(fun) end)
+      end
+
+    %Handle{task: task, ref: task.ref}
+  end
+
+  @doc """
+  Awaits a task handle, blocking until the result is available.
+
+  ## Options
+
+    * `:timeout` - Timeout in milliseconds (default: 5000)
+
+  ## Examples
+
+      {:ok, result} = AsyncResult.await(handle)
+      {:ok, result} = AsyncResult.await(handle, timeout: 10_000)
+  """
+  @spec await(handle() | completed_handle(), keyword()) :: Result.t()
+  def await(handle, opts \\ [])
+
+  def await(%Completed{result: result}, _opts), do: result
+
+  def await(%Handle{task: task}, opts) do
+    timeout = Keyword.get(opts, :timeout, @default_timeout)
+
+    case Task.yield(task, timeout) || Task.shutdown(task) do
+      {:ok, {:ok, _} = ok} -> ok
+      {:ok, {:error, _} = error} -> error
+      nil -> {:error, :timeout}
+      {:exit, reason} -> {:error, {:exit, reason}}
+    end
+  end
+
+  @doc """
+  Awaits multiple handles, returning results in order.
+
+  ## Options
+
+    * `:timeout` - Timeout in milliseconds (default: 5000)
+    * `:settle` - If true, collect all results instead of fail-fast
+
+  ## Examples
+
+      {:ok, [r1, r2]} = AsyncResult.await_many([h1, h2])
+
+      # With settlement
+      %{ok: [...], errors: [...]} = AsyncResult.await_many(handles, settle: true)
+  """
+  @spec await_many([handle() | completed_handle()], keyword()) :: Result.t([term()]) | settlement()
+  def await_many(handles, opts \\ []) when is_list(handles) do
+    settle = Keyword.get(opts, :settle, false)
+    results = Enum.map(handles, &await(&1, opts))
+
+    if settle do
+      settle_results(results)
+    else
+      collect_results(results)
+    end
+  end
+
+  @doc """
+  Non-blocking yield - checks if task is done without blocking.
+
+  Returns `{:ok, result}` if done, `nil` if still running.
+
+  ## Options
+
+    * `:timeout` - How long to wait (default: 0)
+
+  ## Examples
+
+      case AsyncResult.yield(handle) do
+        {:ok, result} -> handle_result(result)
+        nil -> :still_running
+      end
+  """
+  @spec yield(handle(), keyword()) :: {:ok, Result.t()} | nil
+  def yield(%Handle{task: task}, opts \\ []) do
+    timeout = Keyword.get(opts, :timeout, 0)
+
+    case Task.yield(task, timeout) do
+      {:ok, result} -> {:ok, result}
+      nil -> nil
+      {:exit, reason} -> {:ok, {:error, {:exit, reason}}}
+    end
+  end
+
+  @doc """
+  Shuts down a running task.
+
+  ## Options
+
+    * `:timeout` - Graceful shutdown timeout before brutal kill (default: 5000)
+    * `:brutal_kill` - If true, immediately kill without waiting
+
+  ## Examples
+
+      AsyncResult.shutdown(handle)
+      AsyncResult.shutdown(handle, brutal_kill: true)
+  """
+  @spec shutdown(handle(), keyword()) :: {:ok, Result.t()} | nil
+  def shutdown(%Handle{task: task}, opts \\ []) do
+    timeout =
+      if Keyword.get(opts, :brutal_kill, false) do
+        :brutal_kill
+      else
+        Keyword.get(opts, :timeout, @default_timeout)
+      end
+
+    case Task.shutdown(task, timeout) do
+      {:ok, result} -> {:ok, result}
+      nil -> nil
+      {:exit, reason} -> {:ok, {:error, {:exit, reason}}}
+    end
+  end
+
+  @doc """
+  Creates a pre-computed handle from an existing result.
+
+  Useful for mixing cached results with async fetches.
+
+  ## Examples
+
+      handles = Enum.map(items, fn item ->
+        case Cache.get(item) do
+          {:ok, cached} -> AsyncResult.completed({:ok, cached})
+          :miss -> AsyncResult.async(fn -> fetch(item) end)
+        end
+      end)
+      AsyncResult.await_many(handles)
+  """
+  @spec completed(Result.t()) :: completed_handle()
+  def completed(result) do
+    %Completed{result: result}
+  end
+
+  # ============================================
   # Parallel Execution
   # ============================================
 
   @doc """
-  Executes multiple result-returning functions in parallel.
+  Executes multiple tasks in parallel.
 
-  Returns `{:ok, values}` if all succeed, `{:error, first_error}` otherwise.
-  Tasks are executed concurrently with bounded parallelism.
+  By default, fails fast on first error. Use `settle: true` to collect all results.
 
   ## Options
 
-  - `:max_concurrency` - Maximum concurrent tasks (default: #{@default_max_concurrency})
-  - `:timeout` - Per-task timeout in ms (default: #{@default_timeout})
-  - `:ordered` - Preserve input order in results (default: true)
-  - `:on_timeout` - How to handle timeouts: `:error`, `:kill`, or `{:default, value}`
+    * `:max_concurrency` - Maximum concurrent tasks (default: schedulers * 2)
+    * `:timeout` - Per-task timeout in ms (default: 5000)
+    * `:ordered` - Preserve input order (default: true)
+    * `:settle` - Collect all results, don't fail fast (default: false)
+    * `:supervisor` - Task.Supervisor for crash isolation
+    * `:telemetry` - Event prefix for telemetry (e.g., `[:myapp, :batch]`)
+    * `:on_progress` - Callback `fn(completed, total) -> any()`
 
   ## Examples
 
-      AsyncResult.parallel([
-        fn -> {:ok, 1} end,
-        fn -> {:ok, 2} end,
-        fn -> {:ok, 3} end
-      ])
-      #=> {:ok, [1, 2, 3]}
+      # Fail-fast (default)
+      {:ok, [r1, r2, r3]} = AsyncResult.parallel([task1, task2, task3])
+      {:error, reason} = AsyncResult.parallel([ok_task, failing_task])
 
-      AsyncResult.parallel([
-        fn -> {:ok, 1} end,
-        fn -> {:error, :bad} end,
-        fn -> {:ok, 3} end
-      ])
-      #=> {:error, :bad}
+      # Settlement mode
+      %{ok: [...], errors: [...]} = AsyncResult.parallel(tasks, settle: true)
 
-      AsyncResult.parallel(tasks, max_concurrency: 5, timeout: 10_000)
+      # With progress callback
+      AsyncResult.parallel(tasks, on_progress: fn done, total ->
+        IO.puts("\#{done}/\#{total} complete")
+      end)
   """
-  @spec parallel([task_fun(a)], options()) :: Result.t([a], term()) when a: term()
-  def parallel(tasks, opts \\ [])
-
-  def parallel([], _opts), do: {:ok, []}
-
-  def parallel(tasks, opts) when is_list(tasks) do
+  @spec parallel([task_fun(a)], keyword()) :: Result.t([a]) | settlement() when a: term()
+  def parallel(tasks, opts \\ []) when is_list(tasks) do
+    settle = Keyword.get(opts, :settle, false)
     max_concurrency = Keyword.get(opts, :max_concurrency, @default_max_concurrency)
     timeout = Keyword.get(opts, :timeout, @default_timeout)
     ordered = Keyword.get(opts, :ordered, true)
-    on_timeout = Keyword.get(opts, :on_timeout, :error)
+    supervisor = Keyword.get(opts, :supervisor)
+    telemetry_prefix = Keyword.get(opts, :telemetry)
+    on_progress = Keyword.get(opts, :on_progress)
 
-    tasks
-    |> indexed_if_ordered(ordered)
-    |> Task.async_stream(
-      fn task -> execute_task(task, ordered) end,
+    total = length(tasks)
+    counter = if on_progress, do: :counters.new(1, [:atomics]), else: nil
+
+    start_time = if telemetry_prefix, do: System.monotonic_time(), else: nil
+    if telemetry_prefix, do: emit_start(telemetry_prefix, %{count: total})
+
+    stream_opts = [
       max_concurrency: max_concurrency,
       timeout: timeout,
-      on_timeout: on_timeout_handler(on_timeout),
-      ordered: ordered
-    )
-    |> collect_stream_results(ordered, on_timeout)
+      ordered: ordered,
+      zip_input_on_exit: true
+    ]
+
+    execute_fn = fn task ->
+      result = safe_execute(task)
+
+      if counter do
+        :counters.add(counter, 1, 1)
+        on_progress.(:counters.get(counter, 1), total)
+      end
+
+      result
+    end
+
+    results =
+      if supervisor do
+        Task.Supervisor.async_stream_nolink(supervisor, tasks, execute_fn, stream_opts)
+      else
+        Task.async_stream(tasks, execute_fn, stream_opts)
+      end
+      |> Enum.map(&extract_stream_result/1)
+
+    result =
+      if settle do
+        settle_results(results)
+      else
+        collect_results(results)
+      end
+
+    if telemetry_prefix do
+      duration = System.monotonic_time() - start_time
+      {success_count, error_count} = count_results(results)
+
+      emit_stop(telemetry_prefix, %{
+        duration: duration,
+        count: total,
+        success_count: success_count,
+        error_count: error_count,
+        result: if(match?({:ok, _}, result), do: :ok, else: :error)
+      })
+    end
+
+    result
   end
 
   @doc """
-  Maps a result-returning function over items in parallel.
+  Maps a function over items in parallel.
+
+  Equivalent to `parallel/2` but takes items and a function.
+
+  ## Options
+
+  Same as `parallel/2`, plus:
+
+    * `:indexed` - Include input with result in settlement (requires `settle: true`)
 
   ## Examples
 
-      AsyncResult.parallel_map([1, 2, 3], fn id ->
-        case Repo.get(User, id) do
-          nil -> {:error, :not_found}
-          user -> {:ok, user}
-        end
-      end)
-      #=> {:ok, [user1, user2, user3]}
+      {:ok, users} = AsyncResult.parallel_map(ids, &fetch_user/1)
 
-      AsyncResult.parallel_map(ids, &fetch_user/1, max_concurrency: 10)
+      # With settlement
+      %{ok: [...], errors: [...]} = AsyncResult.parallel_map(ids, &fetch/1, settle: true)
+
+      # Track which inputs failed
+      %{ok: [{1, val}], errors: [{2, reason}]} =
+        AsyncResult.parallel_map(ids, &fetch/1, settle: true, indexed: true)
   """
-  @spec parallel_map([a], task_fun_with_arg(a, b), options()) :: Result.t([b], term())
+  @spec parallel_map([a], task_fun_with_arg(a, b), keyword()) ::
+          Result.t([b]) | settlement() | settlement_indexed(a)
         when a: term(), b: term()
   def parallel_map(items, fun, opts \\ []) when is_list(items) and is_function(fun, 1) do
-    tasks = Enum.map(items, fn item -> fn -> fun.(item) end end)
-    parallel(tasks, opts)
-  end
-
-  @doc """
-  Executes tasks in parallel, collecting all results.
-
-  Unlike `parallel/2`, this does not fail-fast on errors.
-  Returns a settlement map with all successes and failures.
-
-  ## Examples
-
-      AsyncResult.parallel_settle([
-        fn -> {:ok, 1} end,
-        fn -> {:error, :bad} end,
-        fn -> {:ok, 3} end
-      ])
-      #=> %{
-        ok: [1, 3],
-        errors: [:bad],
-        results: [{:ok, 1}, {:error, :bad}, {:ok, 3}]
-      }
-  """
-  @spec parallel_settle([task_fun(term())], options()) :: settlement()
-  def parallel_settle(tasks, opts \\ [])
-
-  def parallel_settle([], _opts), do: %{ok: [], errors: [], results: []}
-
-  def parallel_settle(tasks, opts) when is_list(tasks) do
+    settle = Keyword.get(opts, :settle, false)
+    indexed = Keyword.get(opts, :indexed, false)
     max_concurrency = Keyword.get(opts, :max_concurrency, @default_max_concurrency)
     timeout = Keyword.get(opts, :timeout, @default_timeout)
     ordered = Keyword.get(opts, :ordered, true)
+    supervisor = Keyword.get(opts, :supervisor)
+
+    stream_opts = [
+      max_concurrency: max_concurrency,
+      timeout: timeout,
+      ordered: ordered,
+      zip_input_on_exit: indexed
+    ]
 
     results =
-      tasks
-      |> indexed_if_ordered(ordered)
-      |> Task.async_stream(
-        fn task -> execute_task(task, ordered) end,
-        max_concurrency: max_concurrency,
-        timeout: timeout,
-        on_timeout: :kill_task,
-        ordered: ordered
-      )
-      |> Enum.map(&extract_stream_result/1)
-      |> maybe_reorder(ordered)
+      if supervisor do
+        Task.Supervisor.async_stream_nolink(
+          supervisor,
+          items,
+          fn item -> safe_execute(fn -> fun.(item) end) end,
+          stream_opts
+        )
+      else
+        Task.async_stream(items, fn item -> safe_execute(fn -> fun.(item) end) end, stream_opts)
+      end
+      |> Enum.to_list()
 
-    settle_results(results)
-  end
+    cond do
+      settle and indexed ->
+        settle_results_indexed(results, items)
 
-  @doc """
-  Maps over items in parallel, settling all results.
+      settle ->
+        results
+        |> Enum.map(&extract_stream_result/1)
+        |> settle_results()
 
-  ## Examples
-
-      AsyncResult.parallel_map_settle(ids, &fetch_user/1)
-      #=> %{ok: [user1, user3], errors: [:not_found], results: [...]}
-  """
-  @spec parallel_map_settle([a], task_fun_with_arg(a, b), options()) :: settlement()
-        when a: term(), b: term()
-  def parallel_map_settle(items, fun, opts \\ []) when is_list(items) and is_function(fun, 1) do
-    tasks = Enum.map(items, fn item -> fn -> fun.(item) end end)
-    parallel_settle(tasks, opts)
+      true ->
+        results
+        |> Enum.map(&extract_stream_result/1)
+        |> collect_results()
+    end
   end
 
   # ============================================
@@ -231,485 +531,146 @@ defmodule Events.Types.AsyncResult do
   # ============================================
 
   @doc """
-  Races multiple tasks, returning the first successful result.
+  Races multiple tasks, returning the first success.
 
-  Cancels remaining tasks once a success is found.
-  Returns error only if all tasks fail.
+  All tasks are started in parallel. The first one to return `{:ok, value}` wins.
+  Remaining tasks are shut down. Only fails if ALL tasks fail.
+
+  ## Options
+
+    * `:timeout` - Overall timeout (default: 5000)
 
   ## Examples
 
-      AsyncResult.race([
+      {:ok, data} = AsyncResult.race([
         fn -> fetch_from_cache() end,
-        fn -> fetch_from_database() end,
+        fn -> fetch_from_db() end,
         fn -> fetch_from_api() end
       ])
-      #=> {:ok, first_success}
 
-      # All fail
-      AsyncResult.race([
-        fn -> {:error, :cache_miss} end,
-        fn -> {:error, :db_error} end
-      ])
-      #=> {:error, [:cache_miss, :db_error]}
+      # Returns {:error, [all_errors]} only if all fail
+      {:error, [:not_cached, :db_down, :api_error]} = AsyncResult.race([...])
   """
-  @spec race([task_fun(a)], options()) :: Result.t(a, [term()]) when a: term()
-  def race(tasks, opts \\ [])
-
-  def race([], _opts), do: {:error, :no_tasks}
-
-  def race(tasks, opts) when is_list(tasks) do
+  @spec race([task_fun(a)], keyword()) :: Result.t(a, [term()]) when a: term()
+  def race(tasks, opts \\ []) when is_list(tasks) and length(tasks) > 0 do
     timeout = Keyword.get(opts, :timeout, @default_timeout)
     parent = self()
     ref = make_ref()
 
-    # Spawn all tasks
-    task_refs =
+    # Start all tasks
+    task_pids =
       Enum.map(tasks, fn task ->
-        Task.async(fn ->
+        spawn_link(fn ->
           result = safe_execute(task)
           send(parent, {ref, self(), result})
-          result
         end)
       end)
 
     # Wait for first success or all failures
-    result = await_first_success(ref, task_refs, [], timeout)
+    result = race_collect(ref, task_pids, [], timeout)
 
-    # Clean up remaining tasks
-    Enum.each(task_refs, fn task ->
-      Task.shutdown(task, :brutal_kill)
+    # Cleanup remaining tasks
+    Enum.each(task_pids, fn pid ->
+      if Process.alive?(pid), do: Process.exit(pid, :shutdown)
     end)
 
     result
   end
 
-  @doc """
-  Races with a fallback that's only executed if all primary tasks fail.
+  defp race_collect(_ref, [], errors, _timeout), do: {:error, Enum.reverse(errors)}
 
-  ## Examples
+  defp race_collect(ref, remaining, errors, timeout) do
+    receive do
+      {^ref, _pid, {:ok, value}} ->
+        {:ok, value}
 
-      AsyncResult.race_with_fallback(
-        [
-          fn -> fetch_from_cache() end,
-          fn -> fetch_from_hot_replica() end
-        ],
-        fn -> fetch_from_cold_storage() end
-      )
-  """
-  @spec race_with_fallback([task_fun(a)], task_fun(a), options()) :: Result.t(a, term())
-        when a: term()
-  def race_with_fallback(primary_tasks, fallback, opts \\ []) do
-    case race(primary_tasks, opts) do
-      {:ok, _} = success -> success
-      {:error, _} -> fallback.()
-    end
-  end
-
-  # ============================================
-  # Sequential with Early Exit
-  # ============================================
-
-  @doc """
-  Executes tasks sequentially until first success.
-
-  Useful when you want to try alternatives in order without parallel overhead.
-
-  ## Examples
-
-      AsyncResult.first_ok([
-        fn -> check_local_cache() end,
-        fn -> check_distributed_cache() end,
-        fn -> fetch_from_source() end
-      ])
-      #=> {:ok, value} | {:error, :all_failed}
-  """
-  @spec first_ok([task_fun(a)]) :: Result.t(a, :all_failed) when a: term()
-  def first_ok([]), do: {:error, :all_failed}
-
-  def first_ok([task | rest]) do
-    case safe_execute(task) do
-      {:ok, _} = success -> success
-      {:error, _} -> first_ok(rest)
+      {^ref, pid, {:error, reason}} ->
+        race_collect(ref, List.delete(remaining, pid), [reason | errors], timeout)
+    after
+      timeout ->
+        {:error, [:timeout | errors]}
     end
   end
 
   @doc """
-  Executes tasks sequentially until first failure.
+  Hedged request - starts backup if primary is slow.
 
-  Returns all successful values up to (but not including) the first failure.
-
-  ## Examples
-
-      AsyncResult.until_error([
-        fn -> {:ok, 1} end,
-        fn -> {:ok, 2} end,
-        fn -> {:error, :bad} end,
-        fn -> {:ok, 4} end
-      ])
-      #=> {:error, {:at_index, 2, :bad, [1, 2]}}
-  """
-  @spec until_error([task_fun(a)]) :: Result.t([a], {:at_index, non_neg_integer(), term(), [a]})
-        when a: term()
-  def until_error(tasks) when is_list(tasks) do
-    do_until_error(tasks, 0, [])
-  end
-
-  defp do_until_error([], _index, acc), do: {:ok, Enum.reverse(acc)}
-
-  defp do_until_error([task | rest], index, acc) do
-    case safe_execute(task) do
-      {:ok, value} -> do_until_error(rest, index + 1, [value | acc])
-      {:error, reason} -> {:error, {:at_index, index, reason, Enum.reverse(acc)}}
-    end
-  end
-
-  # ============================================
-  # Batch Operations
-  # ============================================
-
-  @doc """
-  Executes tasks in batches with configurable concurrency per batch.
-
-  Useful for rate-limited APIs or resource-constrained operations.
-
-  ## Examples
-
-      AsyncResult.batch(tasks, batch_size: 10, delay_between_batches: 1000)
-      #=> {:ok, all_results}
-  """
-  @spec batch([task_fun(a)], keyword()) :: Result.t([a], term()) when a: term()
-  def batch(tasks, opts \\ []) when is_list(tasks) do
-    batch_size = Keyword.get(opts, :batch_size, 10)
-    delay = Keyword.get(opts, :delay_between_batches, 0)
-    task_opts = Keyword.take(opts, [:timeout, :on_timeout])
-
-    tasks
-    |> Enum.chunk_every(batch_size)
-    |> Enum.with_index()
-    |> Enum.reduce_while({:ok, []}, fn {batch, index}, {:ok, acc} ->
-      # Add delay between batches (not before first batch)
-      add_batch_delay(index, delay)
-
-      case parallel(batch, task_opts) do
-        {:ok, results} -> {:cont, {:ok, acc ++ results}}
-        {:error, _} = error -> {:halt, error}
-      end
-    end)
-  end
-
-  defp add_batch_delay(0, _delay), do: :ok
-  defp add_batch_delay(_index, 0), do: :ok
-  defp add_batch_delay(_index, delay), do: Process.sleep(delay)
-
-  # ============================================
-  # Retry with Parallel Fallbacks
-  # ============================================
-
-  @doc """
-  Retries a task with exponential backoff.
+  Starts the primary task immediately. If it doesn't complete within `delay` ms,
+  starts the backup task. Returns whichever succeeds first.
 
   ## Options
 
-  - `:max_attempts` - Maximum retry attempts (default: 3)
-  - `:initial_delay` - Initial delay in ms (default: 100)
-  - `:max_delay` - Maximum delay cap in ms (default: 5000)
-  - `:multiplier` - Delay multiplier (default: 2)
-  - `:jitter` - Add random jitter (default: true)
+    * `:delay` - Milliseconds before starting backup (default: 100)
+    * `:timeout` - Overall timeout (default: 5000)
 
   ## Examples
 
-      AsyncResult.retry(fn -> flaky_api_call() end,
-        max_attempts: 5,
-        initial_delay: 100,
-        max_delay: 2000
+      # If primary takes > 50ms, also try backup
+      AsyncResult.hedge(
+        fn -> fetch_from_primary() end,
+        fn -> fetch_from_replica() end,
+        delay: 50
       )
   """
-  @spec retry(task_fun(a), keyword()) :: Result.t(a, term()) when a: term()
-  def retry(task, opts \\ []) do
-    max_attempts = Keyword.get(opts, :max_attempts, 3)
-    initial_delay = Keyword.get(opts, :initial_delay, 100)
-    max_delay = Keyword.get(opts, :max_delay, 5000)
-    multiplier = Keyword.get(opts, :multiplier, 2)
-    jitter = Keyword.get(opts, :jitter, true)
+  @spec hedge(task_fun(a), task_fun(a), keyword()) :: Result.t(a) when a: term()
+  def hedge(primary, backup, opts \\ []) when is_function(primary, 0) and is_function(backup, 0) do
+    delay = Keyword.get(opts, :delay, 100)
+    timeout = Keyword.get(opts, :timeout, @default_timeout)
+    parent = self()
+    ref = make_ref()
 
-    do_retry(task, 1, max_attempts, initial_delay, max_delay, multiplier, jitter, nil)
+    # Start primary immediately
+    primary_pid =
+      spawn_link(fn ->
+        result = safe_execute(primary)
+        send(parent, {ref, :primary, result})
+      end)
+
+    # Schedule backup start
+    backup_pid_ref = make_ref()
+
+    backup_timer = Process.send_after(self(), {backup_pid_ref, :start_backup}, delay)
+
+    result = hedge_collect(ref, backup_pid_ref, primary_pid, nil, backup, parent, timeout)
+
+    # Cleanup
+    Process.cancel_timer(backup_timer)
+    if Process.alive?(primary_pid), do: Process.exit(primary_pid, :shutdown)
+
+    result
   end
 
-  defp do_retry(_task, attempt, max_attempts, _delay, _max_delay, _multiplier, _jitter, last_error)
-       when attempt > max_attempts do
-    {:error, {:max_retries_exceeded, last_error}}
-  end
-
-  defp do_retry(task, attempt, max_attempts, delay, max_delay, multiplier, jitter, _last_error) do
-    case safe_execute(task) do
-      {:ok, _} = success ->
-        success
-
-      {:error, reason} ->
-        # Don't sleep after last attempt
-        sleep_unless_last(attempt, max_attempts, delay, jitter)
-
-        next_delay = min(delay * multiplier, max_delay)
-        do_retry(task, attempt + 1, max_attempts, next_delay, max_delay, multiplier, jitter, reason)
-    end
-  end
-
-  defp sleep_unless_last(attempt, max_attempts, _delay, _jitter) when attempt >= max_attempts,
-    do: :ok
-
-  defp sleep_unless_last(_attempt, _max_attempts, delay, true) do
-    jitter_range = max(1, div(delay, 2))
-    jittered = delay + :rand.uniform(jitter_range)
-    Process.sleep(jittered)
-  end
-
-  defp sleep_unless_last(_attempt, _max_attempts, delay, false), do: Process.sleep(delay)
-
-  # ============================================
-  # Combinators
-  # ============================================
-
-  @doc """
-  Combines results from two parallel tasks.
-
-  ## Examples
-
-      AsyncResult.combine(
-        fn -> fetch_user(id) end,
-        fn -> fetch_preferences(id) end
-      )
-      #=> {:ok, {user, preferences}}
-  """
-  @spec combine(task_fun(a), task_fun(b), options()) :: Result.t({a, b}, term())
-        when a: term(), b: term()
-  def combine(task1, task2, opts \\ []) do
-    case parallel([task1, task2], opts) do
-      {:ok, [a, b]} -> {:ok, {a, b}}
-      {:error, _} = error -> error
-    end
-  end
-
-  @doc """
-  Combines results from two parallel tasks with a function.
-
-  ## Examples
-
-      AsyncResult.combine_with(
-        fn -> fetch_user(id) end,
-        fn -> fetch_preferences(id) end,
-        fn user, prefs -> Map.put(user, :preferences, prefs) end
-      )
-      #=> {:ok, user_with_preferences}
-  """
-  @spec combine_with(task_fun(a), task_fun(b), (a, b -> c), options()) :: Result.t(c, term())
-        when a: term(), b: term(), c: term()
-  def combine_with(task1, task2, combiner, opts \\ []) when is_function(combiner, 2) do
-    case combine(task1, task2, opts) do
-      {:ok, {a, b}} -> {:ok, combiner.(a, b)}
-      {:error, _} = error -> error
-    end
-  end
-
-  @doc """
-  Combines multiple parallel tasks with a reducer.
-
-  ## Examples
-
-      AsyncResult.combine_all([
-        fn -> {:ok, 1} end,
-        fn -> {:ok, 2} end,
-        fn -> {:ok, 3} end
-      ], fn acc, val -> acc + val end, 0)
-      #=> {:ok, 6}
-  """
-  @spec combine_all([task_fun(a)], (b, a -> b), b, options()) :: Result.t(b, term())
-        when a: term(), b: term()
-  def combine_all(tasks, reducer, initial, opts \\ []) when is_function(reducer, 2) do
-    case parallel(tasks, opts) do
-      {:ok, values} -> {:ok, Enum.reduce(values, initial, reducer)}
-      {:error, _} = error -> error
-    end
-  end
-
-  # ============================================
-  # Mapping and Transformation
-  # ============================================
-
-  @doc """
-  Maps a function over the results of parallel execution.
-
-  ## Examples
-
-      AsyncResult.parallel([fn -> {:ok, 1} end, fn -> {:ok, 2} end])
-      |> AsyncResult.map(fn values -> Enum.sum(values) end)
-      #=> {:ok, 3}
-  """
-  @spec map(Result.t([a], e), ([a] -> b)) :: Result.t(b, e) when a: term(), b: term(), e: term()
-  def map({:ok, values}, fun) when is_function(fun, 1), do: {:ok, fun.(values)}
-  def map({:error, _} = error, _fun), do: error
-
-  @doc """
-  Chains async operations.
-
-  ## Examples
-
-      AsyncResult.parallel([fn -> {:ok, 1} end])
-      |> AsyncResult.and_then(fn [x] -> {:ok, x * 2} end)
-      #=> {:ok, 2}
-  """
-  @spec and_then(Result.t(a, e), (a -> Result.t(b, e))) :: Result.t(b, e)
-        when a: term(), b: term(), e: term()
-  def and_then({:ok, value}, fun) when is_function(fun, 1), do: fun.(value)
-  def and_then({:error, _} = error, _fun), do: error
-
-  # ============================================
-  # Context and Error Enhancement
-  # ============================================
-
-  @doc """
-  Wraps a task function to add context metadata to errors.
-
-  ## Examples
-
-      AsyncResult.with_context(fn -> fetch_user(id) end, user_id: id, operation: :fetch)
-      #=> {:ok, user} | {:error, %{reason: :not_found, context: %{user_id: 123, operation: :fetch}}}
-  """
-  @spec with_context(task_fun(a), keyword() | map()) :: task_fun(a) when a: term()
-  def with_context(task, context) when is_function(task, 0) do
-    context_map = if is_list(context), do: Map.new(context), else: context
-
-    fn ->
-      case task.() do
-        {:ok, _} = success -> success
-        {:error, reason} -> {:error, %{reason: reason, context: context_map}}
-      end
-    end
-  end
-
-  @doc """
-  Executes parallel tasks with context attached to each.
-
-  ## Examples
-
-      tasks = [
-        {fn -> fetch_user(1) end, user_id: 1},
-        {fn -> fetch_user(2) end, user_id: 2}
-      ]
-      AsyncResult.parallel_with_context(tasks)
-  """
-  @spec parallel_with_context([{task_fun(a), keyword() | map()}], options()) ::
-          Result.t([a], term())
-        when a: term()
-  def parallel_with_context(tasks_with_context, opts \\ []) do
-    tasks = Enum.map(tasks_with_context, fn {task, ctx} -> with_context(task, ctx) end)
-    parallel(tasks, opts)
-  end
-
-  # ============================================
-  # Progress Tracking
-  # ============================================
-
-  @doc """
-  Executes tasks in parallel with progress callback.
-
-  The callback receives `{completed, total}` after each task completes.
-
-  ## Examples
-
-      AsyncResult.parallel_with_progress(
-        tasks,
-        fn completed, total ->
-          IO.puts("Progress: \#{completed}/\#{total}")
-        end
-      )
-  """
-  @spec parallel_with_progress(
-          [task_fun(a)],
-          (non_neg_integer(), non_neg_integer() -> any()),
-          options()
-        ) :: Result.t([a], term())
-        when a: term()
-  def parallel_with_progress(tasks, progress_callback, opts \\ [])
-      when is_list(tasks) and is_function(progress_callback, 2) do
-    total = length(tasks)
-
-    if total == 0 do
-      {:ok, []}
-    else
-      parent = self()
-      ref = make_ref()
-
-      max_concurrency = Keyword.get(opts, :max_concurrency, @default_max_concurrency)
-      timeout = Keyword.get(opts, :timeout, @default_timeout)
-
-      # Wrap tasks to report progress
-      indexed_tasks =
-        tasks
-        |> Enum.with_index()
-        |> Enum.map(fn {task, index} ->
-          {index,
-           fn ->
-             result = safe_execute(task)
-             send(parent, {:progress, ref, index, result})
-             result
-           end}
-        end)
-
-      # Start initial batch of tasks
-      {initial_tasks, remaining} = Enum.split(indexed_tasks, max_concurrency)
-      running_count = length(initial_tasks)
-      Enum.each(initial_tasks, fn {_idx, task} -> spawn_link(task) end)
-
-      # Collect results with progress tracking
-      collect_with_progress(ref, running_count, remaining, [], 0, total, progress_callback, timeout)
-    end
-  end
-
-  defp collect_with_progress(_ref, 0, [], results, _completed, _total, _callback, _timeout) do
-    sorted = results |> Enum.sort_by(fn {idx, _} -> idx end) |> Enum.map(fn {_, r} -> r end)
-
-    case Enum.find(sorted, &match?({:error, _}, &1)) do
-      nil -> {:ok, Enum.map(sorted, fn {:ok, v} -> v end)}
-      error -> error
-    end
-  end
-
-  defp collect_with_progress(
-         ref,
-         running_count,
-         remaining,
-         results,
-         completed,
-         total,
-         callback,
-         timeout
-       ) do
+  defp hedge_collect(ref, backup_pid_ref, primary_pid, backup_pid, backup_fun, parent, timeout) do
     receive do
-      {:progress, ^ref, index, result} ->
-        new_completed = completed + 1
-        callback.(new_completed, total)
+      {^ref, _source, {:ok, value}} ->
+        if backup_pid && Process.alive?(backup_pid), do: Process.exit(backup_pid, :shutdown)
+        {:ok, value}
 
-        # Start next task if any remaining
-        {new_running_count, new_remaining} =
-          case remaining do
-            [{_idx, next_task} | rest] ->
-              spawn_link(next_task)
-              {running_count, rest}
-
-            [] ->
-              {running_count - 1, []}
+      {^ref, :primary, {:error, _} = error} ->
+        if backup_pid do
+          # Wait for backup
+          receive do
+            {^ref, :backup, result} -> result
+          after
+            timeout -> {:error, :timeout}
           end
+        else
+          error
+        end
 
-        collect_with_progress(
-          ref,
-          new_running_count,
-          new_remaining,
-          [{index, result} | results],
-          new_completed,
-          total,
-          callback,
-          timeout
-        )
+      {^ref, :backup, {:error, _}} ->
+        # Backup failed, keep waiting for primary
+        hedge_collect(ref, backup_pid_ref, primary_pid, nil, backup_fun, parent, timeout)
+
+      {^backup_pid_ref, :start_backup} ->
+        # Start backup task
+        pid =
+          spawn_link(fn ->
+            result = safe_execute(backup_fun)
+            send(parent, {ref, :backup, result})
+          end)
+
+        hedge_collect(ref, backup_pid_ref, primary_pid, pid, backup_fun, parent, timeout)
     after
       timeout ->
         {:error, :timeout}
@@ -717,37 +678,469 @@ defmodule Events.Types.AsyncResult do
   end
 
   # ============================================
+  # Streaming
+  # ============================================
+
+  @doc """
+  Creates a lazy stream for processing large collections.
+
+  Unlike `parallel_map/3`, this returns a `Stream` that processes items
+  on-demand with backpressure. Memory-efficient for large datasets.
+
+  ## Options
+
+    * `:max_concurrency` - Maximum concurrent tasks (default: schedulers * 2)
+    * `:timeout` - Per-task timeout (default: 5000)
+    * `:ordered` - Preserve input order (default: true)
+    * `:on_error` - Error handling strategy:
+      - `:halt` (default) - Stop stream on first error
+      - `:skip` - Skip errors, only yield successes
+      - `:include` - Include both successes and errors
+      - `{:default, value}` - Replace errors with default value
+
+  ## Examples
+
+      # Process large dataset with backpressure
+      large_dataset
+      |> AsyncResult.stream(&transform/1, max_concurrency: 20)
+      |> Stream.each(&save/1)
+      |> Stream.run()
+
+      # Skip errors
+      items
+      |> AsyncResult.stream(&fetch/1, on_error: :skip)
+      |> Enum.to_list()
+  """
+  @spec stream(Enumerable.t(a), task_fun_with_arg(a, b), keyword()) :: Enumerable.t(Result.t(b))
+        when a: term(), b: term()
+  def stream(items, fun, opts \\ []) when is_function(fun, 1) do
+    max_concurrency = Keyword.get(opts, :max_concurrency, @default_max_concurrency)
+    timeout = Keyword.get(opts, :timeout, @default_timeout)
+    ordered = Keyword.get(opts, :ordered, true)
+    on_error = Keyword.get(opts, :on_error, :halt)
+
+    items
+    |> Task.async_stream(
+      fn item -> safe_execute(fn -> fun.(item) end) end,
+      max_concurrency: max_concurrency,
+      timeout: timeout,
+      ordered: ordered
+    )
+    |> Stream.transform(:continue, fn
+      _result, :halt ->
+        {:halt, :halt}
+
+      {:ok, {:ok, _} = result}, :continue ->
+        {[result], :continue}
+
+      {:ok, {:error, _reason} = result}, :continue ->
+        case on_error do
+          :halt -> {[result], :halt}
+          :skip -> {[], :continue}
+          :include -> {[result], :continue}
+          {:default, value} -> {[{:ok, value}], :continue}
+        end
+
+      {:exit, reason}, :continue ->
+        result = {:error, {:exit, reason}}
+
+        case on_error do
+          :halt -> {[result], :halt}
+          :skip -> {[], :continue}
+          :include -> {[result], :continue}
+          {:default, value} -> {[{:ok, value}], :continue}
+        end
+    end)
+  end
+
+  # ============================================
+  # Retry
+  # ============================================
+
+  @doc """
+  Retries a task with exponential backoff.
+
+  ## Options
+
+    * `:max_attempts` - Maximum attempts (default: 3)
+    * `:initial_delay` - Initial delay in ms (default: 100)
+    * `:max_delay` - Maximum delay cap in ms (default: 5000)
+    * `:multiplier` - Delay multiplier (default: 2)
+    * `:jitter` - Add randomness to delay (default: true)
+    * `:when` - Predicate `fn(error) -> boolean()` to decide if should retry
+    * `:on_retry` - Callback `fn(attempt, error, delay) -> any()` between attempts
+
+  ## Examples
+
+      AsyncResult.retry(fn -> flaky_api_call() end,
+        max_attempts: 5,
+        initial_delay: 100
+      )
+
+      # Only retry specific errors
+      AsyncResult.retry(fn -> api_call() end,
+        when: fn
+          {:error, :rate_limited} -> true
+          {:error, :timeout} -> true
+          _ -> false
+        end
+      )
+
+      # With logging
+      AsyncResult.retry(fn -> api_call() end,
+        on_retry: fn attempt, error, delay ->
+          Logger.warn("Attempt \#{attempt} failed: \#{inspect(error)}, retrying in \#{delay}ms")
+        end
+      )
+  """
+  @spec retry(task_fun(a), keyword()) :: Result.t(a, {:max_retries, term()}) when a: term()
+  def retry(task, opts \\ []) when is_function(task, 0) do
+    max_attempts = Keyword.get(opts, :max_attempts, 3)
+    initial_delay = Keyword.get(opts, :initial_delay, 100)
+    max_delay = Keyword.get(opts, :max_delay, 5000)
+    multiplier = Keyword.get(opts, :multiplier, 2)
+    jitter = Keyword.get(opts, :jitter, true)
+    should_retry = Keyword.get(opts, :when, fn _ -> true end)
+    on_retry = Keyword.get(opts, :on_retry)
+
+    do_retry(
+      task,
+      1,
+      max_attempts,
+      initial_delay,
+      max_delay,
+      multiplier,
+      jitter,
+      should_retry,
+      on_retry
+    )
+  end
+
+  defp do_retry(
+         task,
+         attempt,
+         max_attempts,
+         delay,
+         max_delay,
+         multiplier,
+         jitter,
+         should_retry,
+         on_retry
+       ) do
+    case safe_execute(task) do
+      {:ok, _} = success ->
+        success
+
+      {:error, reason} when attempt >= max_attempts ->
+        {:error, {:max_retries, reason}}
+
+      {:error, _reason} = error ->
+        if should_retry.(error) do
+          actual_delay = if jitter, do: add_jitter(delay), else: delay
+
+          if on_retry, do: on_retry.(attempt, error, actual_delay)
+
+          Process.sleep(actual_delay)
+          next_delay = min(delay * multiplier, max_delay)
+
+          do_retry(
+            task,
+            attempt + 1,
+            max_attempts,
+            next_delay,
+            max_delay,
+            multiplier,
+            jitter,
+            should_retry,
+            on_retry
+          )
+        else
+          error
+        end
+    end
+  end
+
+  defp add_jitter(delay) when delay < 4, do: delay
+  defp add_jitter(delay) do
+    variance = div(delay, 4)
+    delay + :rand.uniform(max(1, variance * 2)) - variance
+  end
+
+  # ============================================
+  # Fire-and-Forget
+  # ============================================
+
+  @doc """
+  Starts a task without waiting for the result.
+
+  Useful for side-effects like analytics, logging, or notifications
+  where you don't need to wait for completion.
+
+  ## Options
+
+    * `:supervisor` - Task.Supervisor for crash isolation
+    * `:link` - Link to caller (default: false)
+
+  ## Examples
+
+      {:ok, pid} = AsyncResult.fire_and_forget(fn -> send_analytics(event) end)
+
+      # With supervisor
+      AsyncResult.fire_and_forget(fn -> send_email(user) end,
+        supervisor: MyApp.TaskSupervisor
+      )
+  """
+  @spec fire_and_forget(task_fun(term()), keyword()) :: {:ok, pid()}
+  def fire_and_forget(fun, opts \\ []) when is_function(fun, 0) do
+    supervisor = Keyword.get(opts, :supervisor)
+    link = Keyword.get(opts, :link, false)
+
+    pid =
+      cond do
+        supervisor && link ->
+          {:ok, pid} = Task.Supervisor.start_child(supervisor, fun)
+          pid
+
+        supervisor ->
+          {:ok, pid} = Task.Supervisor.start_child(supervisor, fun)
+          pid
+
+        link ->
+          spawn_link(fun)
+
+        true ->
+          spawn(fun)
+      end
+
+    {:ok, pid}
+  end
+
+  @doc """
+  Executes a function over all items, ignoring results.
+
+  Useful for side-effect operations like sending notifications.
+  Always returns `:ok` when complete.
+
+  ## Options
+
+    * `:max_concurrency` - Maximum concurrent tasks (default: schedulers * 2)
+    * `:timeout` - Per-task timeout (default: 5000)
+
+  ## Examples
+
+      :ok = AsyncResult.run_all(users, &send_notification/1, max_concurrency: 50)
+  """
+  @spec run_all([a], (a -> term()), keyword()) :: :ok when a: term()
+  def run_all(items, fun, opts \\ []) when is_list(items) and is_function(fun, 1) do
+    max_concurrency = Keyword.get(opts, :max_concurrency, @default_max_concurrency)
+    timeout = Keyword.get(opts, :timeout, @default_timeout)
+
+    items
+    |> Task.async_stream(fun, max_concurrency: max_concurrency, timeout: timeout)
+    |> Stream.run()
+
+    :ok
+  end
+
+  # ============================================
+  # Batch & Sequential
+  # ============================================
+
+  @doc """
+  Executes tasks in batches with optional delay between batches.
+
+  Useful for rate-limiting or when you need to process in chunks.
+
+  ## Options
+
+    * `:batch_size` - Tasks per batch (default: 10)
+    * `:delay_between_batches` - Milliseconds between batches (default: 0)
+    * `:timeout` - Per-task timeout (default: 5000)
+
+  ## Examples
+
+      AsyncResult.batch(tasks,
+        batch_size: 10,
+        delay_between_batches: 1000
+      )
+  """
+  @spec batch([task_fun(a)], keyword()) :: Result.t([a]) when a: term()
+  def batch(tasks, opts \\ []) when is_list(tasks) do
+    batch_size = Keyword.get(opts, :batch_size, 10)
+    delay = Keyword.get(opts, :delay_between_batches, 0)
+    timeout = Keyword.get(opts, :timeout, @default_timeout)
+
+    tasks
+    |> Enum.chunk_every(batch_size)
+    |> Enum.reduce_while({:ok, []}, fn batch, {:ok, acc} ->
+      case parallel(batch, timeout: timeout) do
+        {:ok, results} ->
+          if delay > 0, do: Process.sleep(delay)
+          {:cont, {:ok, acc ++ results}}
+
+        {:error, _} = error ->
+          {:halt, error}
+      end
+    end)
+  end
+
+  @doc """
+  Tries tasks sequentially until one succeeds.
+
+  Executes tasks one at a time, stopping at the first success.
+  Returns `{:error, :all_failed}` if all tasks fail.
+
+  ## Examples
+
+      {:ok, data} = AsyncResult.first_ok([
+        fn -> check_l1_cache() end,
+        fn -> check_l2_cache() end,
+        fn -> fetch_from_db() end
+      ])
+  """
+  @spec first_ok([task_fun(a)]) :: Result.t(a, :all_failed) when a: term()
+  def first_ok([]), do: {:error, :all_failed}
+
+  def first_ok([task | rest]) when is_function(task, 0) do
+    case safe_execute(task) do
+      {:ok, _} = success -> success
+      {:error, _} -> first_ok(rest)
+    end
+  end
+
+  # ============================================
+  # Lazy Execution
+  # ============================================
+
+  @doc """
+  Creates a lazy (deferred) computation.
+
+  The task is NOT started until you call `run_lazy/1`. Useful for building
+  up a collection of tasks before deciding to execute them.
+
+  ## Options
+
+    * `:timeout` - Timeout when executed (default: 5000)
+
+  ## Examples
+
+      lazy = AsyncResult.lazy(fn -> expensive_computation() end)
+      # Nothing has run yet
+
+      {:ok, result} = AsyncResult.run_lazy(lazy)
+      # Now it runs
+  """
+  @spec lazy(task_fun(a), keyword()) :: Lazy.t(a) when a: term()
+  def lazy(fun, opts \\ []) when is_function(fun, 0) do
+    %Lazy{fun: fun, opts: opts}
+  end
+
+  @doc """
+  Executes a lazy computation or list of lazy computations.
+
+  ## Options (when executing multiple)
+
+    * `:max_concurrency` - Maximum concurrent tasks (default: schedulers * 2)
+    * `:settle` - Collect all results (default: false)
+
+  ## Examples
+
+      {:ok, result} = AsyncResult.run_lazy(lazy)
+
+      {:ok, results} = AsyncResult.run_lazy([lazy1, lazy2, lazy3])
+
+      %{ok: [...], errors: [...]} = AsyncResult.run_lazy(lazies, settle: true)
+  """
+  @spec run_lazy(Lazy.t(a) | [Lazy.t(a)], keyword()) :: Result.t(a) | Result.t([a]) | settlement()
+        when a: term()
+  def run_lazy(lazy_or_lazies, opts \\ [])
+
+  def run_lazy(%Lazy{fun: fun, opts: lazy_opts}, _opts) do
+    timeout = Keyword.get(lazy_opts, :timeout, @default_timeout)
+
+    task = Task.async(fn -> safe_execute(fun) end)
+
+    case Task.await(task, timeout) do
+      {:ok, _} = ok -> ok
+      {:error, _} = error -> error
+    end
+  end
+
+  def run_lazy(lazies, opts) when is_list(lazies) do
+    tasks = Enum.map(lazies, fn %Lazy{fun: fun} -> fun end)
+    parallel(tasks, opts)
+  end
+
+  @doc """
+  Chains lazy computations.
+
+  The next function receives the result of the previous and returns a new Lazy.
+
+  ## Examples
+
+      lazy = AsyncResult.lazy(fn -> fetch_user(id) end)
+      |> AsyncResult.lazy_then(fn user ->
+        AsyncResult.lazy(fn -> fetch_orders(user.id) end)
+      end)
+
+      {:ok, orders} = AsyncResult.run_lazy(lazy)
+  """
+  @spec lazy_then(Lazy.t(a), (a -> Lazy.t(b))) :: Lazy.t(b) when a: term(), b: term()
+  def lazy_then(%Lazy{fun: fun, opts: opts}, next_fn) when is_function(next_fn, 1) do
+    %Lazy{
+      fun: fn ->
+        case safe_execute(fun) do
+          {:ok, value} ->
+            %Lazy{fun: next_fun} = next_fn.(value)
+            safe_execute(next_fun)
+
+          {:error, _} = error ->
+            error
+        end
+      end,
+      opts: opts
+    }
+  end
+
+  # ============================================
   # Utilities
   # ============================================
 
   @doc """
-  Wraps a potentially raising function in a result.
+  Wraps a potentially raising function, returning Result.
 
   ## Examples
 
-      AsyncResult.safe(fn -> dangerous_operation() end)
-      #=> {:ok, result} | {:error, %RuntimeError{...}}
+      AsyncResult.safe(fn -> String.to_integer("not a number") end)
+      #=> {:error, %ArgumentError{...}}
+
+      AsyncResult.safe(fn -> 1 + 1 end)
+      #=> {:ok, 2}
   """
   @spec safe((-> a)) :: Result.t(a, Exception.t()) when a: term()
   def safe(fun) when is_function(fun, 0) do
-    {:ok, fun.()}
-  rescue
-    e -> {:error, e}
+    try do
+      {:ok, fun.()}
+    rescue
+      e -> {:error, e}
+    end
   end
 
   @doc """
-  Executes with a timeout, returning error on timeout.
+  Executes a task with a timeout.
+
+  Returns `{:error, :timeout}` if the task doesn't complete in time.
 
   ## Examples
 
-      AsyncResult.with_timeout(fn -> slow_operation() end, 5000)
-      #=> {:ok, result} | {:error, :timeout}
+      {:ok, result} = AsyncResult.timeout(fn -> fast_op() end, 1000)
+      {:error, :timeout} = AsyncResult.timeout(fn -> slow_op() end, 100)
   """
-  @spec with_timeout(task_fun(a), timeout()) :: Result.t(a, :timeout | term()) when a: term()
-  def with_timeout(task, timeout) when is_integer(timeout) and timeout > 0 do
-    task_ref = Task.async(fn -> safe_execute(task) end)
+  @spec timeout(task_fun(a), timeout()) :: Result.t(a, :timeout) when a: term()
+  def timeout(task, timeout_ms) when is_function(task, 0) do
+    task_struct = Task.async(fn -> safe_execute(task) end)
 
-    case Task.yield(task_ref, timeout) || Task.shutdown(task_ref, :brutal_kill) do
+    case Task.yield(task_struct, timeout_ms) || Task.shutdown(task_struct) do
       {:ok, result} -> result
       nil -> {:error, :timeout}
     end
@@ -757,81 +1150,39 @@ defmodule Events.Types.AsyncResult do
   # Private Helpers
   # ============================================
 
-  defp safe_execute(fun) when is_function(fun, 0) do
-    fun.()
-  rescue
-    e -> {:error, {:exception, e}}
-  catch
-    kind, reason -> {:error, {kind, reason}}
+  defp safe_execute(fun) do
+    try do
+      case fun.() do
+        {:ok, _} = ok -> ok
+        {:error, _} = error -> error
+        other -> {:ok, other}
+      end
+    rescue
+      e -> {:error, {:exception, e, __STACKTRACE__}}
+    catch
+      kind, reason -> {:error, {kind, reason}}
+    end
   end
 
-  defp indexed_if_ordered(tasks, true), do: Enum.with_index(tasks)
-  defp indexed_if_ordered(tasks, false), do: tasks
-
-  defp execute_task({task, index}, true) when is_function(task, 0), do: {index, safe_execute(task)}
-  defp execute_task(task, false) when is_function(task, 0), do: safe_execute(task)
-
-  defp on_timeout_handler(:error), do: :kill_task
-  defp on_timeout_handler(:kill), do: :kill_task
-  defp on_timeout_handler({:default, _}), do: :kill_task
-
-  defp collect_stream_results(stream, ordered, on_timeout) do
-    stream
-    |> Enum.reduce_while({:ok, []}, fn
-      {:ok, result}, {:ok, acc} ->
-        handle_stream_result(result, acc, ordered)
-
-      {:exit, :timeout}, {:ok, _acc} ->
-        handle_timeout(on_timeout)
-
-      {:exit, reason}, {:ok, _acc} ->
-        {:halt, {:error, {:task_exit, reason}}}
-    end)
-    |> finalize_results(ordered)
-  end
-
-  defp handle_stream_result({index, {:ok, value}}, acc, true),
-    do: {:cont, {:ok, [{index, value} | acc]}}
-
-  defp handle_stream_result({_index, {:error, reason}}, _acc, true), do: {:halt, {:error, reason}}
-  defp handle_stream_result({:ok, value}, acc, false), do: {:cont, {:ok, [value | acc]}}
-  defp handle_stream_result({:error, reason}, _acc, false), do: {:halt, {:error, reason}}
-
-  defp handle_timeout(:error), do: {:halt, {:error, :timeout}}
-  defp handle_timeout(:kill), do: {:halt, {:error, :timeout}}
-  defp handle_timeout({:default, value}), do: {:cont, {:ok, [value]}}
-
-  defp finalize_results({:ok, results}, true) do
-    sorted =
-      results
-      |> Enum.sort_by(fn {index, _} -> index end)
-      |> Enum.map(fn {_, value} -> value end)
-
-    {:ok, sorted}
-  end
-
-  defp finalize_results({:ok, results}, false), do: {:ok, Enum.reverse(results)}
-  defp finalize_results(error, _ordered), do: error
-
-  defp extract_stream_result({:ok, {_index, result}}), do: result
   defp extract_stream_result({:ok, result}), do: result
-  defp extract_stream_result({:exit, :timeout}), do: {:error, :timeout}
-  defp extract_stream_result({:exit, reason}), do: {:error, {:task_exit, reason}}
+  defp extract_stream_result({:exit, reason}), do: {:error, {:exit, reason}}
 
-  defp maybe_reorder(results, true) do
-    results
-    |> Enum.with_index()
-    |> Enum.sort_by(fn {_, index} -> index end)
-    |> Enum.map(fn {result, _} -> result end)
+  defp collect_results(results) do
+    Enum.reduce_while(results, {:ok, []}, fn
+      {:ok, value}, {:ok, acc} -> {:cont, {:ok, [value | acc]}}
+      {:error, _} = error, _ -> {:halt, error}
+    end)
+    |> case do
+      {:ok, values} -> {:ok, Enum.reverse(values)}
+      error -> error
+    end
   end
-
-  defp maybe_reorder(results, false), do: results
 
   defp settle_results(results) do
     {oks, errors} =
       Enum.reduce(results, {[], []}, fn
-        {:ok, value}, {ok_acc, err_acc} -> {[value | ok_acc], err_acc}
-        {:error, reason}, {ok_acc, err_acc} -> {ok_acc, [reason | err_acc]}
+        {:ok, value}, {oks, errs} -> {[value | oks], errs}
+        {:error, reason}, {oks, errs} -> {oks, [reason | errs]}
       end)
 
     %{
@@ -841,24 +1192,40 @@ defmodule Events.Types.AsyncResult do
     }
   end
 
-  defp await_first_success(_ref, [], errors, _timeout), do: {:error, Enum.reverse(errors)}
+  defp settle_results_indexed(stream_results, items) do
+    indexed_results =
+      stream_results
+      |> Enum.with_index()
+      |> Enum.map(fn
+        {{:ok, result}, idx} -> {Enum.at(items, idx), result}
+        {{:exit, reason}, idx} -> {Enum.at(items, idx), {:error, {:exit, reason}}}
+      end)
 
-  defp await_first_success(ref, remaining_tasks, errors, timeout) do
-    receive do
-      {^ref, pid, {:ok, value}} ->
-        # Found success, cancel remaining
-        remaining_tasks
-        |> Enum.reject(fn task -> task.pid == pid end)
-        |> Enum.each(&Task.shutdown(&1, :brutal_kill))
+    {oks, errors} =
+      Enum.reduce(indexed_results, {[], []}, fn
+        {input, {:ok, value}}, {oks, errs} -> {[{input, value} | oks], errs}
+        {input, {:error, reason}}, {oks, errs} -> {oks, [{input, reason} | errs]}
+      end)
 
-        {:ok, value}
+    %{
+      ok: Enum.reverse(oks),
+      errors: Enum.reverse(errors),
+      results: indexed_results
+    }
+  end
 
-      {^ref, pid, {:error, reason}} ->
-        remaining = Enum.reject(remaining_tasks, fn task -> task.pid == pid end)
-        await_first_success(ref, remaining, [reason | errors], timeout)
-    after
-      timeout ->
-        {:error, :timeout}
-    end
+  defp count_results(results) do
+    Enum.reduce(results, {0, 0}, fn
+      {:ok, _}, {s, e} -> {s + 1, e}
+      {:error, _}, {s, e} -> {s, e + 1}
+    end)
+  end
+
+  defp emit_start(prefix, metadata) do
+    :telemetry.execute(prefix ++ [:start], %{system_time: System.system_time()}, metadata)
+  end
+
+  defp emit_stop(prefix, metadata) do
+    :telemetry.execute(prefix ++ [:stop], %{}, metadata)
   end
 end

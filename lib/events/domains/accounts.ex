@@ -1,4 +1,4 @@
-defmodule Events.Accounts do
+defmodule Events.Domains.Accounts do
   @moduledoc """
   Context module for managing accounts, users, memberships, roles, and user role mappings.
 
@@ -18,7 +18,7 @@ defmodule Events.Accounts do
   import Ecto.Query
   alias Events.Core.Repo
 
-  alias Events.Accounts.{
+  alias Events.Domains.Accounts.{
     Account,
     User,
     UserToken,

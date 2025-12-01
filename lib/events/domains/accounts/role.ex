@@ -1,4 +1,4 @@
-defmodule Events.Accounts.Role do
+defmodule Events.Domains.Accounts.Role do
   @moduledoc """
   Schema for roles.
 
@@ -31,8 +31,10 @@ defmodule Events.Accounts.Role do
     audit_fields()
     timestamps()
 
-    belongs_to :account, Events.Accounts.Account, on_delete: :cascade
-    has_many :user_role_mappings, Events.Accounts.UserRoleMapping, expect_on_delete: :cascade
+    belongs_to :account, Events.Domains.Accounts.Account, on_delete: :cascade
+
+    has_many :user_role_mappings, Events.Domains.Accounts.UserRoleMapping,
+      expect_on_delete: :cascade
 
     constraints do
       unique([:account_id, :name], name: :roles_account_id_name_index)

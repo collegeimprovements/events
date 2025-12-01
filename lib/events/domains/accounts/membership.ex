@@ -1,4 +1,4 @@
-defmodule Events.Accounts.Membership do
+defmodule Events.Domains.Accounts.Membership do
   @moduledoc """
   Schema for memberships (account-user join table).
 
@@ -24,8 +24,8 @@ defmodule Events.Accounts.Membership do
     audit_fields()
     timestamps()
 
-    belongs_to :account, Events.Accounts.Account, on_delete: :cascade
-    belongs_to :user, Events.Accounts.User, on_delete: :cascade
+    belongs_to :account, Events.Domains.Accounts.Account, on_delete: :cascade
+    belongs_to :user, Events.Domains.Accounts.User, on_delete: :cascade
 
     constraints do
       unique([:account_id, :user_id], name: :memberships_account_id_user_id_index)

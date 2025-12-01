@@ -1,4 +1,4 @@
-defmodule Events.Accounts.UserRoleMapping do
+defmodule Events.Domains.Accounts.UserRoleMapping do
   @moduledoc """
   Schema for user role mappings (URM).
 
@@ -21,9 +21,9 @@ defmodule Events.Accounts.UserRoleMapping do
     audit_fields()
     timestamps()
 
-    belongs_to :user, Events.Accounts.User, on_delete: :cascade
-    belongs_to :role, Events.Accounts.Role, on_delete: :cascade
-    belongs_to :account, Events.Accounts.Account, on_delete: :cascade
+    belongs_to :user, Events.Domains.Accounts.User, on_delete: :cascade
+    belongs_to :role, Events.Domains.Accounts.Role, on_delete: :cascade
+    belongs_to :account, Events.Domains.Accounts.Account, on_delete: :cascade
 
     constraints do
       unique([:user_id, :role_id, :account_id],

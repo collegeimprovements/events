@@ -58,6 +58,42 @@ defmodule Events.Types.AsyncResultTest do
       {:ok, results} = AsyncResult.parallel(tasks, ordered: true)
       assert results == [1, 2, 3, 4, 5]
     end
+
+    test "collects all results with settle: true" do
+      tasks = [
+        fn -> {:ok, 1} end,
+        fn -> {:error, :bad} end,
+        fn -> {:ok, 3} end
+      ]
+
+      result = AsyncResult.parallel(tasks, settle: true)
+
+      assert result.ok == [1, 3]
+      assert result.errors == [:bad]
+      assert length(result.results) == 3
+    end
+
+    test "returns empty collections for empty list with settle: true" do
+      result = AsyncResult.parallel([], settle: true)
+      assert result == %{ok: [], errors: [], results: []}
+    end
+
+    test "reports progress with on_progress callback" do
+      {:ok, progress_agent} = Agent.start_link(fn -> [] end)
+
+      tasks = Enum.map(1..3, fn i -> fn -> {:ok, i} end end)
+
+      callback = fn completed, total ->
+        Agent.update(progress_agent, fn list -> [{completed, total} | list] end)
+      end
+
+      {:ok, results} = AsyncResult.parallel(tasks, on_progress: callback, timeout: 5000)
+
+      assert results == [1, 2, 3]
+
+      progress = Agent.get(progress_agent, fn list -> Enum.reverse(list) end)
+      assert {3, 3} in progress
+    end
   end
 
   describe "parallel_map/3" do
@@ -75,26 +111,16 @@ defmodule Events.Types.AsyncResultTest do
 
       assert result == {:error, :bad}
     end
-  end
 
-  describe "parallel_settle/2" do
-    test "collects all results including failures" do
-      tasks = [
-        fn -> {:ok, 1} end,
-        fn -> {:error, :bad} end,
-        fn -> {:ok, 3} end
-      ]
+    test "collects all results with settle: true" do
+      result =
+        AsyncResult.parallel_map([1, 2, 3], fn
+          2 -> {:error, :bad}
+          x -> {:ok, x * 2}
+        end, settle: true)
 
-      result = AsyncResult.parallel_settle(tasks)
-
-      assert result.ok == [1, 3]
+      assert result.ok == [2, 6]
       assert result.errors == [:bad]
-      assert length(result.results) == 3
-    end
-
-    test "returns empty collections for empty list" do
-      result = AsyncResult.parallel_settle([])
-      assert result == %{ok: [], errors: [], results: []}
     end
   end
 
@@ -125,30 +151,10 @@ defmodule Events.Types.AsyncResultTest do
       assert Enum.sort(errors) == [:a, :b]
     end
 
-    test "returns error for empty list" do
-      assert AsyncResult.race([]) == {:error, :no_tasks}
-    end
-  end
-
-  describe "race_with_fallback/3" do
-    test "returns primary success without calling fallback" do
-      result =
-        AsyncResult.race_with_fallback(
-          [fn -> {:ok, :primary} end],
-          fn -> raise "should not be called" end
-        )
-
-      assert result == {:ok, :primary}
-    end
-
-    test "calls fallback when all primary fail" do
-      result =
-        AsyncResult.race_with_fallback(
-          [fn -> {:error, :a} end, fn -> {:error, :b} end],
-          fn -> {:ok, :fallback} end
-        )
-
-      assert result == {:ok, :fallback}
+    test "raises for empty list" do
+      assert_raise FunctionClauseError, fn ->
+        AsyncResult.race([])
+      end
     end
   end
 
@@ -170,28 +176,6 @@ defmodule Events.Types.AsyncResultTest do
       ]
 
       assert AsyncResult.first_ok(tasks) == {:error, :all_failed}
-    end
-  end
-
-  describe "until_error/1" do
-    test "returns all successful values until error" do
-      tasks = [
-        fn -> {:ok, 1} end,
-        fn -> {:ok, 2} end,
-        fn -> {:error, :bad} end,
-        fn -> {:ok, 4} end
-      ]
-
-      assert AsyncResult.until_error(tasks) == {:error, {:at_index, 2, :bad, [1, 2]}}
-    end
-
-    test "returns all values if no error" do
-      tasks = [
-        fn -> {:ok, 1} end,
-        fn -> {:ok, 2} end
-      ]
-
-      assert AsyncResult.until_error(tasks) == {:ok, [1, 2]}
     end
   end
 
@@ -241,55 +225,7 @@ defmodule Events.Types.AsyncResultTest do
       task = fn -> {:error, :always_fails} end
 
       result = AsyncResult.retry(task, max_attempts: 3, initial_delay: 1)
-      assert result == {:error, {:max_retries_exceeded, :always_fails}}
-    end
-  end
-
-  describe "combine/3" do
-    test "combines two parallel tasks" do
-      result =
-        AsyncResult.combine(
-          fn -> {:ok, 1} end,
-          fn -> {:ok, 2} end
-        )
-
-      assert result == {:ok, {1, 2}}
-    end
-
-    test "returns first error" do
-      result =
-        AsyncResult.combine(
-          fn -> {:error, :a} end,
-          fn -> {:ok, 2} end
-        )
-
-      assert result == {:error, :a}
-    end
-  end
-
-  describe "combine_with/4" do
-    test "combines with function" do
-      result =
-        AsyncResult.combine_with(
-          fn -> {:ok, 2} end,
-          fn -> {:ok, 3} end,
-          &(&1 + &2)
-        )
-
-      assert result == {:ok, 5}
-    end
-  end
-
-  describe "combine_all/4" do
-    test "combines all with reducer" do
-      tasks = [
-        fn -> {:ok, 1} end,
-        fn -> {:ok, 2} end,
-        fn -> {:ok, 3} end
-      ]
-
-      result = AsyncResult.combine_all(tasks, fn acc, val -> acc + val end, 0)
-      assert result == {:ok, 6}
+      assert result == {:error, {:max_retries, :always_fails}}
     end
   end
 
@@ -305,15 +241,15 @@ defmodule Events.Types.AsyncResultTest do
     end
   end
 
-  describe "with_timeout/2" do
+  describe "timeout/2" do
     test "returns result if within timeout" do
-      result = AsyncResult.with_timeout(fn -> {:ok, 42} end, 1000)
+      result = AsyncResult.timeout(fn -> {:ok, 42} end, 1000)
       assert result == {:ok, 42}
     end
 
     test "returns timeout error if exceeded" do
       result =
-        AsyncResult.with_timeout(
+        AsyncResult.timeout(
           fn ->
             Process.sleep(100)
             {:ok, 42}
@@ -325,78 +261,233 @@ defmodule Events.Types.AsyncResultTest do
     end
   end
 
-  describe "map/2" do
-    test "maps over successful result" do
+  describe "hedge/3" do
+    test "returns primary result if fast enough" do
       result =
-        AsyncResult.parallel([fn -> {:ok, 1} end, fn -> {:ok, 2} end])
-        |> AsyncResult.map(&Enum.sum/1)
+        AsyncResult.hedge(
+          fn -> {:ok, :primary} end,
+          fn -> {:ok, :backup} end,
+          delay: 100
+        )
 
-      assert result == {:ok, 3}
+      assert result == {:ok, :primary}
     end
 
-    test "returns error unchanged" do
+    test "returns backup if primary is slow" do
       result =
-        {:error, :bad}
-        |> AsyncResult.map(&Enum.sum/1)
+        AsyncResult.hedge(
+          fn ->
+            Process.sleep(200)
+            {:ok, :primary}
+          end,
+          fn -> {:ok, :backup} end,
+          delay: 10
+        )
 
-      assert result == {:error, :bad}
+      assert result == {:ok, :backup}
     end
   end
 
-  describe "and_then/2" do
-    test "chains operations" do
-      result =
-        AsyncResult.parallel([fn -> {:ok, 1} end])
-        |> AsyncResult.and_then(fn [x] -> {:ok, x * 2} end)
-
-      assert result == {:ok, 2}
+  describe "fire_and_forget/2" do
+    test "returns pid immediately" do
+      {:ok, pid} = AsyncResult.fire_and_forget(fn -> :ok end)
+      assert is_pid(pid)
     end
   end
 
-  describe "with_context/2" do
-    test "adds context to errors" do
-      task = AsyncResult.with_context(fn -> {:error, :not_found} end, user_id: 123)
-      result = task.()
+  describe "stream/3" do
+    test "processes items with backpressure" do
+      results =
+        1..5
+        |> AsyncResult.stream(fn x -> {:ok, x * 2} end, max_concurrency: 2)
+        |> Enum.to_list()
 
-      assert result == {:error, %{reason: :not_found, context: %{user_id: 123}}}
+      assert Enum.sort(results) == [{:ok, 2}, {:ok, 4}, {:ok, 6}, {:ok, 8}, {:ok, 10}]
     end
 
-    test "passes through success" do
-      task = AsyncResult.with_context(fn -> {:ok, 42} end, user_id: 123)
-      result = task.()
+    test "halts on error by default" do
+      results =
+        1..5
+        |> AsyncResult.stream(fn
+          3 -> {:error, :bad}
+          x -> {:ok, x}
+        end)
+        |> Enum.to_list()
 
-      assert result == {:ok, 42}
+      # Will include some results before the error, then halt
+      assert {:error, :bad} in results
+    end
+
+    test "skips errors with on_error: :skip" do
+      results =
+        1..5
+        |> AsyncResult.stream(
+          fn
+            3 -> {:error, :bad}
+            x -> {:ok, x}
+          end,
+          on_error: :skip
+        )
+        |> Enum.to_list()
+
+      assert results == [{:ok, 1}, {:ok, 2}, {:ok, 4}, {:ok, 5}]
     end
   end
 
-  describe "parallel_with_context/2" do
-    test "executes tasks with context attached" do
-      tasks = [
-        {fn -> {:ok, 1} end, id: 1},
-        {fn -> {:ok, 2} end, id: 2}
+  describe "lazy/1 and run_lazy/1" do
+    test "defers computation until run" do
+      {:ok, counter} = Agent.start_link(fn -> 0 end)
+
+      lazy = AsyncResult.lazy(fn ->
+        Agent.update(counter, &(&1 + 1))
+        {:ok, :done}
+      end)
+
+      # Not executed yet
+      assert Agent.get(counter, & &1) == 0
+
+      # Execute
+      assert AsyncResult.run_lazy(lazy) == {:ok, :done}
+      assert Agent.get(counter, & &1) == 1
+    end
+
+    test "run_lazy handles list of lazies" do
+      lazies = [
+        AsyncResult.lazy(fn -> {:ok, 1} end),
+        AsyncResult.lazy(fn -> {:ok, 2} end),
+        AsyncResult.lazy(fn -> {:ok, 3} end)
       ]
 
-      {:ok, results} = AsyncResult.parallel_with_context(tasks)
-      assert results == [1, 2]
+      assert AsyncResult.run_lazy(lazies) == {:ok, [1, 2, 3]}
     end
   end
 
-  describe "parallel_with_progress/3" do
-    test "reports progress" do
-      {:ok, progress_agent} = Agent.start_link(fn -> [] end)
+  describe "lazy_then/2" do
+    test "chains lazy computations" do
+      lazy =
+        AsyncResult.lazy(fn -> {:ok, 5} end)
+        |> AsyncResult.lazy_then(fn x ->
+          AsyncResult.lazy(fn -> {:ok, x * 2} end)
+        end)
 
-      tasks = Enum.map(1..3, fn i -> fn -> {:ok, i} end end)
+      assert AsyncResult.run_lazy(lazy) == {:ok, 10}
+    end
+  end
 
-      callback = fn completed, total ->
-        Agent.update(progress_agent, fn list -> [{completed, total} | list] end)
-      end
+  describe "async/1 and await/2" do
+    test "basic async/await" do
+      handle = AsyncResult.async(fn -> {:ok, 42} end)
+      assert AsyncResult.await(handle) == {:ok, 42}
+    end
 
-      {:ok, results} = AsyncResult.parallel_with_progress(tasks, callback, timeout: 5000)
+    test "await with timeout" do
+      handle = AsyncResult.async(fn ->
+        Process.sleep(100)
+        {:ok, 42}
+      end)
 
-      assert results == [1, 2, 3]
+      assert AsyncResult.await(handle, timeout: 10) == {:error, :timeout}
+    end
+  end
 
-      progress = Agent.get(progress_agent, fn list -> Enum.reverse(list) end)
-      assert {3, 3} in progress
+  describe "await_many/2" do
+    test "awaits multiple handles" do
+      handles = [
+        AsyncResult.async(fn -> {:ok, 1} end),
+        AsyncResult.async(fn -> {:ok, 2} end),
+        AsyncResult.async(fn -> {:ok, 3} end)
+      ]
+
+      assert AsyncResult.await_many(handles) == {:ok, [1, 2, 3]}
+    end
+
+    test "returns settlement with settle: true" do
+      handles = [
+        AsyncResult.async(fn -> {:ok, 1} end),
+        AsyncResult.async(fn -> {:error, :bad} end),
+        AsyncResult.async(fn -> {:ok, 3} end)
+      ]
+
+      result = AsyncResult.await_many(handles, settle: true)
+      assert result.ok == [1, 3]
+      assert result.errors == [:bad]
+    end
+  end
+
+  describe "yield/2" do
+    test "returns result if ready" do
+      handle = AsyncResult.async(fn -> {:ok, 42} end)
+      Process.sleep(10)
+      assert AsyncResult.yield(handle) == {:ok, {:ok, 42}}
+    end
+
+    test "returns nil if not ready" do
+      handle = AsyncResult.async(fn ->
+        Process.sleep(100)
+        {:ok, 42}
+      end)
+
+      assert AsyncResult.yield(handle, timeout: 0) == nil
+    end
+  end
+
+  describe "shutdown/2" do
+    test "terminates running task" do
+      handle = AsyncResult.async(fn ->
+        Process.sleep(1000)
+        {:ok, 42}
+      end)
+
+      result = AsyncResult.shutdown(handle)
+      # Either nil (no result) or the result if it finished
+      assert result in [nil, {:ok, 42}]
+    end
+  end
+
+  describe "completed/1" do
+    test "creates pre-computed handle" do
+      handle = AsyncResult.completed({:ok, 42})
+      assert AsyncResult.await(handle) == {:ok, 42}
+    end
+  end
+
+  describe "run_all/3" do
+    test "executes all functions ignoring results" do
+      {:ok, agent} = Agent.start_link(fn -> [] end)
+
+      items = [1, 2, 3]
+
+      :ok = AsyncResult.run_all(items, fn x ->
+        Agent.update(agent, fn list -> [x | list] end)
+      end)
+
+      Process.sleep(50)
+      values = Agent.get(agent, & &1)
+      assert Enum.sort(values) == [1, 2, 3]
+    end
+  end
+
+  describe "Settlement helpers" do
+    alias AsyncResult.Settlement
+
+    test "Settlement.ok/1 extracts successes" do
+      result = %{ok: [1, 2], errors: [:bad], results: []}
+      assert Settlement.ok(result) == [1, 2]
+    end
+
+    test "Settlement.errors/1 extracts failures" do
+      result = %{ok: [1, 2], errors: [:bad, :worse], results: []}
+      assert Settlement.errors(result) == [:bad, :worse]
+    end
+
+    test "Settlement.ok?/1 checks if all succeeded" do
+      assert Settlement.ok?(%{ok: [1, 2], errors: [], results: []})
+      refute Settlement.ok?(%{ok: [1], errors: [:bad], results: []})
+    end
+
+    test "Settlement.split/1 returns tuple" do
+      result = %{ok: [1, 2], errors: [:bad], results: []}
+      assert Settlement.split(result) == {[1, 2], [:bad]}
     end
   end
 end

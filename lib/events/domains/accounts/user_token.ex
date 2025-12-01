@@ -1,4 +1,4 @@
-defmodule Events.Accounts.UserToken do
+defmodule Events.Domains.Accounts.UserToken do
   @moduledoc """
   Schema for user authentication tokens.
 
@@ -25,7 +25,7 @@ defmodule Events.Accounts.UserToken do
     field :context, :string
     field :sent_to, :string
 
-    belongs_to :user, Events.Accounts.User
+    belongs_to :user, Events.Domains.Accounts.User
 
     timestamps(only: [:inserted_at])
   end

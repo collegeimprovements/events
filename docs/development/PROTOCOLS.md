@@ -206,7 +206,7 @@ end
 
 **Usage in schemas:**
 ```elixir
-defmodule Events.Accounts.User do
+defmodule Events.Domains.Accounts.User do
   @derive {Events.Protocols.Identifiable, type: :user}
   use Events.Schema
   # ...
@@ -312,7 +312,7 @@ end
 **Implementations:**
 
 ```elixir
-defimpl Events.Core.Cacheable, for: Events.Accounts.User do
+defimpl Events.Core.Cacheable, for: Events.Domains.Accounts.User do
   def cache_key(user) do
     {:user, user.id}
   end
@@ -330,7 +330,7 @@ defimpl Events.Core.Cacheable, for: Events.Accounts.User do
   end
 end
 
-defimpl Events.Core.Cacheable, for: Events.Accounts.Account do
+defimpl Events.Core.Cacheable, for: Events.Domains.Accounts.Account do
   def cache_key(account), do: {:account, account.id}
   def cache_ttl(_), do: 600  # 10 minutes
   def cacheable?(account), do: account.status == :active
@@ -457,7 +457,7 @@ end
 **Implementations:**
 
 ```elixir
-defimpl Events.Loggable, for: Events.Accounts.User do
+defimpl Events.Loggable, for: Events.Domains.Accounts.User do
   def log_context(user) do
     %{
       user_id: user.id,

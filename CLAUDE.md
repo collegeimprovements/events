@@ -8,6 +8,7 @@
 | `docs/EVENTS_REFERENCE.md` | Schema, Migration, Decorator reference |
 | `docs/claude/PATTERNS.md` | Code patterns with examples |
 | `docs/claude/FUNCTIONAL.md` | Result, Maybe, Pipeline, AsyncResult, Guards |
+| `docs/claude/ASYNC_RESULT.md` | AsyncResult comprehensive reference |
 | `docs/claude/EXAMPLES.md` | Real-world Pipeline + AsyncResult examples |
 | `docs/claude/SCHEMA.md` | Schema and Migration quick reference |
 | `docs/claude/DECORATORS.md` | Decorator quick reference |
@@ -53,7 +54,8 @@ lib/events/
 ├── support/         # Events.Support.*   - Dev utilities
 │   ├── behaviours/  #   Behavior definitions
 │   └── credo/       #   Custom Credo checks
-└── accounts/        # Events.Accounts.*  - Domain context
+└── domains/         # Events.Domains.*   - Business logic
+    └── accounts/    #   User accounts, auth, memberships
 ```
 
 ### Key Module Aliases
@@ -74,6 +76,9 @@ alias Events.Infra.{Decorator, KillSwitch, SystemHealth, Idempotency}
 # API
 alias Events.Api.Client
 alias Events.Api.Clients.{Google, Stripe}
+
+# Domains (business logic)
+alias Events.Domains.Accounts
 ```
 
 ---

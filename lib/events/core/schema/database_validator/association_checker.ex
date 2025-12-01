@@ -166,7 +166,7 @@ defmodule Events.Core.Schema.DatabaseValidator.AssociationChecker do
 
       AssociationChecker.validate_association(
         Events.Core.Repo,
-        Events.Accounts.Account,
+        Events.Domains.Accounts.Account,
         :memberships
       )
   """

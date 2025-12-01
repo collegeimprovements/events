@@ -140,6 +140,8 @@ end)
 
 **Use for:** Parallel API calls, concurrent queries, race conditions, retry with backoff.
 
+> **Full reference:** See `ASYNC_RESULT.md` for comprehensive documentation.
+
 ```elixir
 alias Events.Types.AsyncResult
 
@@ -154,12 +156,12 @@ AsyncResult.parallel([
 AsyncResult.parallel_map(user_ids, &fetch_user/1, max_concurrency: 10)
 
 # Settle all (collect successes and failures)
-AsyncResult.parallel_settle([
-  fn -> {:ok, 1} end,
-  fn -> {:error, :bad} end,
-  fn -> {:ok, 3} end
-])
+AsyncResult.parallel_settle([...])
 # %{ok: [1, 3], errors: [:bad], results: [...]}
+
+# Track which inputs failed
+AsyncResult.parallel_map_indexed(ids, &fetch/1)
+# %{ok: [{1, val1}], errors: [{2, :not_found}], ...}
 
 # Race - first success wins
 AsyncResult.race([
@@ -167,44 +169,49 @@ AsyncResult.race([
   fn -> fetch_from_db() end
 ])
 
-# Race with fallback
-AsyncResult.race_with_fallback(
-  [fn -> primary_api() end, fn -> replica_api() end],
-  fn -> {:ok, default_value()} end
-)
+# Explicit task handles
+handle = AsyncResult.async(fn -> expensive_op() end)
+do_other_work()
+{:ok, result} = AsyncResult.await(handle)
+
+# Pre-computed for mixed sync/async
+handles = Enum.map(items, fn item ->
+  case Cache.get(item) do
+    {:ok, v} -> AsyncResult.completed({:ok, v})
+    :miss -> AsyncResult.async(fn -> fetch(item) end)
+  end
+end)
+AsyncResult.await_many(handles)
+
+# Streaming large collections
+items
+|> AsyncResult.stream(&process/1, on_error: :skip)
+|> Stream.map(fn {:ok, v} -> v end)
+|> Enum.each(&save/1)
+
+# Supervised (crash isolation)
+AsyncResult.supervised(tasks, supervisor: MyApp.TaskSupervisor)
+
+# Fire and forget
+AsyncResult.fire_and_forget(fn -> send_analytics(event) end)
 
 # Retry with exponential backoff
 AsyncResult.retry(fn -> flaky_api() end,
-  max_attempts: 3,
-  initial_delay: 100,
-  max_delay: 5000,
-  multiplier: 2,
-  jitter: true
+  max_attempts: 3, initial_delay: 100
 )
-
-# Sequential until first success
-AsyncResult.first_ok([
-  fn -> check_cache() end,
-  fn -> check_db() end,
-  fn -> fetch_remote() end
-])
-
-# Batch with rate limiting
-AsyncResult.batch(tasks,
-  batch_size: 10,
-  delay_between_batches: 1000
-)
-
-# With timeout
-AsyncResult.with_timeout(fn -> slow_operation() end, 5000)
-
-# Progress tracking
-AsyncResult.parallel_with_progress(tasks, fn completed, total ->
-  IO.puts("#{completed}/#{total}")
-end)
 ```
 
-**Functions:** `parallel/2`, `parallel_map/2`, `parallel_settle/2`, `parallel_map_settle/2`, `parallel_with_progress/3`, `race/2`, `race_with_fallback/3`, `retry/2`, `first_ok/1`, `until_error/1`, `batch/2`, `combine/3`, `combine_with/4`, `combine_all/4`, `with_timeout/2`, `with_context/2`, `map/2`, `and_then/2`
+**Key Functions:**
+
+| Category | Functions |
+|----------|-----------|
+| Parallel | `parallel/2`, `parallel_map/3`, `parallel_settle/2`, `parallel_map_indexed/3` |
+| Handles | `async/1`, `await/2`, `await_many/2`, `yield/2`, `shutdown/2`, `completed/1` |
+| Racing | `race/2`, `race_with_fallback/3`, `first_ok/1` |
+| Streaming | `stream/3`, `stream_ok/3`, `stream_settle/3` |
+| Supervised | `supervised/2`, `supervised_map/3`, `async_nolink/2` |
+| Side Effects | `fire_and_forget/2`, `run_all/3`, `take_ok/4` |
+| Utilities | `retry/2`, `batch/2`, `combine/3`, `with_timeout/2` |
 
 ---
 

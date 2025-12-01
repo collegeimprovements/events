@@ -91,28 +91,28 @@ defmodule Events.Protocols.IdentifiableTest do
 
   describe "Ecto.Changeset implementation with real schemas" do
     test "entity_type/1 derives type from underlying schema" do
-      user = %Events.Accounts.User{id: "usr_123"}
+      user = %Events.Domains.Accounts.User{id: "usr_123"}
       changeset = Ecto.Changeset.change(user, %{})
 
       assert Identifiable.entity_type(changeset) == :user
     end
 
     test "id/1 returns id from changeset data" do
-      user = %Events.Accounts.User{id: "usr_123"}
+      user = %Events.Domains.Accounts.User{id: "usr_123"}
       changeset = Ecto.Changeset.change(user, %{})
 
       assert Identifiable.id(changeset) == "usr_123"
     end
 
     test "id/1 returns nil for new records" do
-      user = %Events.Accounts.User{}
+      user = %Events.Domains.Accounts.User{}
       changeset = Ecto.Changeset.change(user, %{})
 
       assert Identifiable.id(changeset) == nil
     end
 
     test "identity/1 works with changesets" do
-      user = %Events.Accounts.User{id: "usr_123"}
+      user = %Events.Domains.Accounts.User{id: "usr_123"}
       changeset = Ecto.Changeset.change(user, %{})
 
       assert Identifiable.identity(changeset) == {:user, "usr_123"}
@@ -455,9 +455,9 @@ defmodule Events.Protocols.IdentifiableTest do
   # Integration Tests with Real Schemas (if available)
   # =============================================================================
 
-  describe "integration with Events.Accounts.User" do
+  describe "integration with Events.Domains.Accounts.User" do
     test "identity extraction works with User schema" do
-      user = %Events.Accounts.User{id: "user_abc123", email: "test@example.com"}
+      user = %Events.Domains.Accounts.User{id: "user_abc123", email: "test@example.com"}
 
       assert Identifiable.entity_type(user) == :user
       assert Identifiable.id(user) == "user_abc123"
@@ -465,14 +465,14 @@ defmodule Events.Protocols.IdentifiableTest do
     end
 
     test "same_entity? works across different User instances" do
-      user1 = %Events.Accounts.User{id: "user_123", email: "old@example.com"}
-      user2 = %Events.Accounts.User{id: "user_123", email: "new@example.com"}
+      user1 = %Events.Domains.Accounts.User{id: "user_123", email: "old@example.com"}
+      user2 = %Events.Domains.Accounts.User{id: "user_123", email: "new@example.com"}
 
       assert Helpers.same_entity?(user1, user2)
     end
 
     test "cache_key generates correct format for User" do
-      user = %Events.Accounts.User{id: "user_abc123"}
+      user = %Events.Domains.Accounts.User{id: "user_abc123"}
 
       assert Helpers.cache_key(user) == "user:user_abc123"
     end

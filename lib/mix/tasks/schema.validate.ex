@@ -10,10 +10,10 @@ defmodule Mix.Tasks.Schema.Validate do
       mix schema.validate
 
       # Validate specific schema
-      mix schema.validate Events.Accounts.User
+      mix schema.validate Events.Domains.Accounts.User
 
       # Validate by pattern
-      mix schema.validate "Events.Accounts.*"
+      mix schema.validate "Events.Domains.Accounts.*"
 
       # With options
       mix schema.validate --fail-on-extra-db-columns
@@ -39,7 +39,7 @@ defmodule Mix.Tasks.Schema.Validate do
       mix schema.validate
 
       # Detailed output for debugging
-      mix schema.validate Events.Accounts.User --check-indexes
+      mix schema.validate Events.Domains.Accounts.User --check-indexes
 
       # JSON output for parsing
       mix schema.validate --format=json

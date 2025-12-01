@@ -13,7 +13,7 @@ defmodule Events.Core.Schema.DatabaseValidator do
       mix schema.validate
 
       # Validate specific schema
-      mix schema.validate Events.Accounts.User
+      mix schema.validate Events.Domains.Accounts.User
 
       # With options
       mix schema.validate --fail-on-extra-db-columns
@@ -26,10 +26,10 @@ defmodule Events.Core.Schema.DatabaseValidator do
       DatabaseValidator.validate_all()
 
       # Validate single schema
-      DatabaseValidator.validate(Events.Accounts.User)
+      DatabaseValidator.validate(Events.Domains.Accounts.User)
 
       # Get detailed report
-      DatabaseValidator.report(Events.Accounts.User)
+      DatabaseValidator.report(Events.Domains.Accounts.User)
 
   ### Startup Validation
 
@@ -320,8 +320,8 @@ defmodule Events.Core.Schema.DatabaseValidator do
 
   ## Examples
 
-      discover_schemas("Events.Accounts.*")
-      # => [Events.Accounts.User, Events.Accounts.Membership, ...]
+      discover_schemas("Events.Domains.Accounts.*")
+      # => [Events.Domains.Accounts.User, Events.Domains.Accounts.Membership, ...]
   """
   @spec discover_schemas(String.t()) :: [module()]
   def discover_schemas(pattern) do

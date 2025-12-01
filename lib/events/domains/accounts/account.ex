@@ -1,4 +1,4 @@
-defmodule Events.Accounts.Account do
+defmodule Events.Domains.Accounts.Account do
   @moduledoc """
   Schema for accounts (tenants).
 
@@ -25,10 +25,12 @@ defmodule Events.Accounts.Account do
     audit_fields()
     timestamps()
 
-    has_many :memberships, Events.Accounts.Membership, expect_on_delete: :cascade
+    has_many :memberships, Events.Domains.Accounts.Membership, expect_on_delete: :cascade
     has_many :users, through: [:memberships, :user]
-    has_many :roles, Events.Accounts.Role, expect_on_delete: :cascade
-    has_many :user_role_mappings, Events.Accounts.UserRoleMapping, expect_on_delete: :cascade
+    has_many :roles, Events.Domains.Accounts.Role, expect_on_delete: :cascade
+
+    has_many :user_role_mappings, Events.Domains.Accounts.UserRoleMapping,
+      expect_on_delete: :cascade
   end
 
   @doc """

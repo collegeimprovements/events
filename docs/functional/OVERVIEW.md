@@ -1,7 +1,7 @@
 # Functional Programming Utilities
 
 This guide covers the functional programming modules in the Events framework:
-**Maybe**, **Result**, **AsyncResult**, **Pipeline**, and **Guards**.
+**Maybe**, **Result**, **AsyncResult**, **Pipeline**, **Guards**, **Lens**, **Resource**, **RateLimiter**, and **Diff**.
 
 ## Quick Decision Guide
 
@@ -24,10 +24,24 @@ This guide covers the functional programming modules in the Events framework:
 │  Do you need pattern matching guards?                                   │
 │    YES → Use Guards                                                     │
 │                                                                         │
+│  Do you need to access/update nested data immutably?                    │
+│    YES → Use Lens                                                       │
+│                                                                         │
+│  Do you need guaranteed resource cleanup (files, connections)?          │
+│    YES → Use Resource                                                   │
+│                                                                         │
+│  Do you need rate limiting / throttling?                                │
+│    YES → Use RateLimiter                                                │
+│                                                                         │
+│  Do you need to track changes, merge, or undo?                          │
+│    YES → Use Diff                                                       │
+│                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Module Comparison
+
+### Core Monadic Types
 
 | Feature | Maybe | Result | AsyncResult | Pipeline |
 |---------|-------|--------|-------------|----------|
@@ -37,6 +51,21 @@ This guide covers the functional programming modules in the Events framework:
 | **Concurrency** | No | No | Yes | Optional |
 | **Context accumulation** | No | No | No | Yes |
 | **Rollback support** | No | No | No | Yes |
+
+### Utility Types
+
+| Feature | Lens | Resource | RateLimiter | Diff |
+|---------|------|----------|-------------|------|
+| **Purpose** | Nested data access | Safe cleanup | Rate limiting | Change tracking |
+| **Pure/Functional** | Yes | Yes | Yes | Yes |
+| **Composable** | Yes | Yes | Yes | Yes |
+| **State** | Stateless | Stateless | Returns new state | Returns diff |
+
+See dedicated documentation:
+- [Lens](LENS.md) - Functional lenses for immutable data
+- [Resource](RESOURCE.md) - Safe resource management
+- [RateLimiter](RATE_LIMITER.md) - Multiple rate limiting algorithms
+- [Diff](DIFF.md) - Diffing, patching, and merging
 
 ---
 
