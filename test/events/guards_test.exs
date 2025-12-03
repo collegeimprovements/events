@@ -3,6 +3,10 @@ defmodule Events.Types.GuardsTest do
 
   import Events.Types.Guards
 
+  # Helper to hide concrete types from the type checker
+  # This allows testing exhaustive pattern matching without type warnings
+  defp opaque(value), do: :erlang.binary_to_term(:erlang.term_to_binary(value))
+
   describe "result guards" do
     test "is_ok/1 returns true for ok tuples" do
       assert is_ok({:ok, 42})
@@ -69,7 +73,8 @@ defmodule Events.Types.GuardsTest do
 
   describe "pattern matching macros" do
     test "ok/1 pattern matches ok values" do
-      result = {:ok, 42}
+      # Use opaque/1 to hide concrete type from type checker
+      result = opaque({:ok, 42})
 
       value =
         case result do
@@ -81,7 +86,8 @@ defmodule Events.Types.GuardsTest do
     end
 
     test "error/1 pattern matches error values" do
-      result = {:error, :not_found}
+      # Use opaque/1 to hide concrete type from type checker
+      result = opaque({:error, :not_found})
 
       reason =
         case result do
@@ -93,7 +99,8 @@ defmodule Events.Types.GuardsTest do
     end
 
     test "some/1 pattern matches some values" do
-      maybe = {:some, "hello"}
+      # Use opaque/1 to hide concrete type from type checker
+      maybe = opaque({:some, "hello"})
 
       value =
         case maybe do
@@ -105,7 +112,8 @@ defmodule Events.Types.GuardsTest do
     end
 
     test "none/0 pattern matches none" do
-      maybe = :none
+      # Use opaque/1 to hide concrete type from type checker
+      maybe = opaque(:none)
 
       result =
         case maybe do

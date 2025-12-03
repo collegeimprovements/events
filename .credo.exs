@@ -18,12 +18,12 @@
       },
       plugins: [],
       requires: [
-        "lib/events/credo/checks/use_events_schema.ex",
-        "lib/events/credo/checks/use_events_migration.ex",
-        "lib/events/credo/checks/no_bang_repo_operations.ex",
-        "lib/events/credo/checks/require_result_tuples.ex",
-        "lib/events/credo/checks/prefer_pattern_matching.ex",
-        "lib/events/credo/checks/use_decorator.ex"
+        "lib/events/support/credo/checks/use_events_schema.ex",
+        "lib/events/support/credo/checks/use_events_migration.ex",
+        "lib/events/support/credo/checks/no_bang_repo_operations.ex",
+        "lib/events/support/credo/checks/require_result_tuples.ex",
+        "lib/events/support/credo/checks/prefer_pattern_matching.ex",
+        "lib/events/support/credo/checks/use_decorator.ex"
       ],
       strict: false,
       parse_timeout: 5000,
@@ -200,12 +200,12 @@
           #
           # Events Project Custom Checks
           #
-          {Events.Credo.Checks.UseEventsSchema, []},
-          {Events.Credo.Checks.UseEventsMigration, []},
-          {Events.Credo.Checks.NoBangRepoOperations, []},
-          {Events.Credo.Checks.RequireResultTuples, [priority: :normal]},
-          {Events.Credo.Checks.PreferPatternMatching, [priority: :low]},
-          {Events.Credo.Checks.UseDecorator, [priority: :low]}
+          {Events.Support.Credo.Checks.UseEventsSchema, []},
+          {Events.Support.Credo.Checks.UseEventsMigration, []},
+          {Events.Support.Credo.Checks.NoBangRepoOperations, []},
+          {Events.Support.Credo.Checks.RequireResultTuples, [priority: :normal]},
+          {Events.Support.Credo.Checks.PreferPatternMatching, [priority: :low]},
+          {Events.Support.Credo.Checks.UseDecorator, [priority: :low]}
         ],
         disabled: [
           # Disabled because we use multi-alias imports

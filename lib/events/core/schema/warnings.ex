@@ -235,8 +235,11 @@ defmodule Events.Core.Schema.Warnings do
   end
 
   defp warn(message) do
-    # Use IO.warn for compile-time warnings that show in mix compile
-    IO.warn(String.trim(message), [])
+    # Skip warnings in test environment - test schemas intentionally violate best practices
+    unless Mix.env() == :test do
+      # Use IO.warn for compile-time warnings that show in mix compile
+      IO.warn(String.trim(message), [])
+    end
   end
 
   @doc """

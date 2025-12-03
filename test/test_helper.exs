@@ -86,7 +86,10 @@ ExUnit.configure(
   # Enable colors
   colors: [enabled: true],
   # Show slowest tests
-  slowest: if(System.get_env("CI"), do: 10, else: 0)
+  slowest: if(System.get_env("CI"), do: 10, else: 0),
+  # Capture logs by default - only shown on test failure
+  # Override per-test with @tag capture_log: false
+  capture_log: true
 )
 
 ExUnit.start()

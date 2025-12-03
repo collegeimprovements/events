@@ -106,6 +106,7 @@ defmodule Events.Services.S3 do
   alias Events.Services.S3.Client
   alias Events.Services.S3.Request
   alias Events.Services.S3.URI, as: S3URI
+  alias Events.Types.AsyncResult
 
   @type config :: Config.t()
   @type request :: Request.t()
@@ -565,20 +566,22 @@ defmodule Events.Services.S3 do
     upload_opts = Keyword.drop(opts, [:to, :concurrency, :timeout])
 
     files
-    |> Task.async_stream(
+    |> AsyncResult.parallel_map(
       fn {key_or_uri, content} ->
         uri = resolve_uri(key_or_uri, base_uri)
         {bucket, key} = S3URI.parse!(uri)
 
         case Client.put_object(config, bucket, key, content, upload_opts) do
           :ok -> {:ok, uri}
-          {:error, reason} -> {:error, uri, reason}
+          {:error, reason} -> {:error, {uri, reason}}
         end
       end,
       max_concurrency: concurrency,
-      timeout: timeout
+      timeout: timeout,
+      settle: true,
+      indexed: true
     )
-    |> Enum.map(fn {:ok, result} -> result end)
+    |> settle_to_results()
   end
 
   @doc """
@@ -610,17 +613,19 @@ defmodule Events.Services.S3 do
 
     uris
     |> Enum.flat_map(&expand_uri_pattern(&1, config))
-    |> Task.async_stream(
+    |> AsyncResult.parallel_map(
       fn uri ->
         case get(uri, config) do
-          {:ok, content} -> {:ok, uri, content}
-          {:error, reason} -> {:error, uri, reason}
+          {:ok, content} -> {:ok, {uri, content}}
+          {:error, reason} -> {:error, {uri, reason}}
         end
       end,
       max_concurrency: concurrency,
-      timeout: timeout
+      timeout: timeout,
+      settle: true,
+      indexed: true
     )
-    |> Enum.map(fn {:ok, result} -> result end)
+    |> settle_to_results_with_content()
   end
 
   @doc """
@@ -658,17 +663,19 @@ defmodule Events.Services.S3 do
     timeout = Keyword.get(opts, :timeout, 60_000)
 
     pairs
-    |> Task.async_stream(
+    |> AsyncResult.parallel_map(
       fn {source_uri, dest_uri} ->
         case copy(source_uri, dest_uri, config) do
-          :ok -> {:ok, source_uri, dest_uri}
-          {:error, reason} -> {:error, source_uri, reason}
+          :ok -> {:ok, {source_uri, dest_uri}}
+          {:error, reason} -> {:error, {source_uri, reason}}
         end
       end,
       max_concurrency: concurrency,
-      timeout: timeout
+      timeout: timeout,
+      settle: true,
+      indexed: true
     )
-    |> Enum.map(fn {:ok, result} -> result end)
+    |> settle_to_copy_results()
   end
 
   def copy_all(source_pattern, config, opts) when is_binary(source_pattern) do
@@ -681,20 +688,22 @@ defmodule Events.Services.S3 do
     source_uris = expand_uri_pattern(source_pattern, config)
 
     source_uris
-    |> Task.async_stream(
+    |> AsyncResult.parallel_map(
       fn source_uri ->
         filename = S3URI.filename(source_uri)
         dest_uri = S3URI.build(dest_bucket, dest_prefix <> filename)
 
         case copy(source_uri, dest_uri, config) do
-          :ok -> {:ok, source_uri, dest_uri}
-          {:error, reason} -> {:error, source_uri, reason}
+          :ok -> {:ok, {source_uri, dest_uri}}
+          {:error, reason} -> {:error, {source_uri, reason}}
         end
       end,
       max_concurrency: concurrency,
-      timeout: timeout
+      timeout: timeout,
+      settle: true,
+      indexed: true
     )
-    |> Enum.map(fn {:ok, result} -> result end)
+    |> settle_to_copy_results()
   end
 
   @doc """
@@ -725,17 +734,19 @@ defmodule Events.Services.S3 do
 
     uris
     |> Enum.flat_map(&expand_uri_pattern(&1, config))
-    |> Task.async_stream(
+    |> AsyncResult.parallel_map(
       fn uri ->
         case delete(uri, config) do
           :ok -> {:ok, uri}
-          {:error, reason} -> {:error, uri, reason}
+          {:error, reason} -> {:error, {uri, reason}}
         end
       end,
       max_concurrency: concurrency,
-      timeout: timeout
+      timeout: timeout,
+      settle: true,
+      indexed: true
     )
-    |> Enum.map(fn {:ok, result} -> result end)
+    |> settle_to_results()
   end
 
   @doc """
@@ -953,4 +964,35 @@ defmodule Events.Services.S3 do
   defp normalize_expiration({n, :year}), do: n * 31_536_000
   defp normalize_expiration({n, :years}), do: n * 31_536_000
   defp normalize_expiration(seconds) when is_integer(seconds), do: seconds
+
+  # ============================================
+  # AsyncResult Settlement Helpers
+  # ============================================
+
+  # Converts settlement result to the expected return format for put_all/delete_all
+  # Input: %{ok: [{idx, uri}], errors: [{idx, {uri, reason}}], ...}
+  # Output: [{:ok, uri} | {:error, uri, reason}]
+  defp settle_to_results(%{ok: ok, errors: errors}) do
+    successes = Enum.map(ok, fn {_idx, uri} -> {:ok, uri} end)
+    failures = Enum.map(errors, fn {_idx, {uri, reason}} -> {:error, uri, reason} end)
+    successes ++ failures
+  end
+
+  # Converts settlement result to the expected return format for get_all
+  # Input: %{ok: [{idx, {uri, content}}], errors: [{idx, {uri, reason}}], ...}
+  # Output: [{:ok, uri, content} | {:error, uri, reason}]
+  defp settle_to_results_with_content(%{ok: ok, errors: errors}) do
+    successes = Enum.map(ok, fn {_idx, {uri, content}} -> {:ok, uri, content} end)
+    failures = Enum.map(errors, fn {_idx, {uri, reason}} -> {:error, uri, reason} end)
+    successes ++ failures
+  end
+
+  # Converts settlement result to the expected return format for copy_all
+  # Input: %{ok: [{idx, {src, dst}}], errors: [{idx, {src, reason}}], ...}
+  # Output: [{:ok, src, dst} | {:error, src, reason}]
+  defp settle_to_copy_results(%{ok: ok, errors: errors}) do
+    successes = Enum.map(ok, fn {_idx, {src, dst}} -> {:ok, src, dst} end)
+    failures = Enum.map(errors, fn {_idx, {src, reason}} -> {:error, src, reason} end)
+    successes ++ failures
+  end
 end

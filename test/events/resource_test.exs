@@ -254,7 +254,7 @@ defmodule Events.Types.ResourceTest do
 
       result =
         Resource.with_file(path, [:read], fn file ->
-          IO.read(file, :all)
+          IO.read(file, :eof)
         end)
 
       assert result == {:ok, "hello"}
@@ -384,8 +384,6 @@ defmodule Events.Types.ResourceTest do
     end
 
     test "agent is stopped after use" do
-      {:ok, agent_pid} = {:ok, nil}
-
       Resource.with_agent(fn -> :state end, fn agent ->
         send(self(), {:agent_pid, agent})
         :ok
@@ -534,7 +532,7 @@ defmodule Events.Types.ResourceTest do
             {fn -> File.open!(dest, [:write]) end, &File.close/1}
           ],
           fn [input, output] ->
-            data = IO.read(input, :all)
+            data = IO.read(input, :eof)
             IO.write(output, String.upcase(data))
           end
         )

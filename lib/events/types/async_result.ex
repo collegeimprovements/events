@@ -861,6 +861,7 @@ defmodule Events.Types.AsyncResult do
   end
 
   defp add_jitter(delay) when delay < 4, do: delay
+
   defp add_jitter(delay) do
     variance = div(delay, 4)
     delay + :rand.uniform(max(1, variance * 2)) - variance

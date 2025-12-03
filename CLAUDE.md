@@ -12,6 +12,7 @@
 | `docs/claude/EXAMPLES.md` | Real-world Pipeline + AsyncResult examples |
 | `docs/claude/SCHEMA.md` | Schema and Migration quick reference |
 | `docs/claude/DECORATORS.md` | Decorator quick reference |
+| `docs/claude/CRUD.md` | CRUD system, Multi, Merge, options reference |
 | `docs/claude/S3.md` | S3 API reference |
 
 ---
@@ -39,6 +40,7 @@ lib/events/
 │   ├── schema/      #   Schema macros and helpers
 │   ├── migration/   #   Migration DSL
 │   ├── query/       #   Query builder
+│   ├── crud/        #   CRUD operations (Multi, Merge, Context)
 │   ├── repo/        #   Repository + SQL scope
 │   └── cache/       #   Caching layer
 ├── api/             # Events.Api.*       - External APIs
@@ -68,7 +70,8 @@ alias Events.Types.{Result, Maybe, Pipeline, AsyncResult, Validation, Guards, Er
 alias Events.Protocols.{Normalizable, Recoverable, Identifiable}
 
 # Core (database)
-alias Events.Core.{Schema, Migration, Query, Repo, Cache}
+alias Events.Core.{Schema, Migration, Query, Crud, Repo, Cache}
+alias Events.Core.Crud.{Multi, Merge, Op}
 
 # Infrastructure
 alias Events.Infra.{Decorator, KillSwitch, SystemHealth, Idempotency}
@@ -174,6 +177,65 @@ def get_user(id), do: ...
 | Batch | `batch/2` | Use inside step |
 | Context | — | `step/3`, `assign/3` |
 | Rollback | — | `run_with_rollback/1` |
+
+### CRUD System
+
+| Module | Purpose |
+|--------|---------|
+| `Events.Core.Crud` | Unified execution API (`run/1`, `create/3`, `fetch/3`) |
+| `Events.Core.Crud.Multi` | Transaction composer (atomic multi-step operations) |
+| `Events.Core.Crud.Merge` | PostgreSQL MERGE for complex upserts |
+| `Events.Core.Crud.Op` | Pure changeset/options builders |
+| `Events.Core.Crud.Context` | Context-level `crud User` macro |
+
+**Common Options (all operations):**
+- `:repo` - Custom repo module
+- `:prefix` - Multi-tenant schema prefix
+- `:timeout` - Query timeout (default: 15_000ms)
+- `:log` - Logger level or `false` to disable
+
+**Write Options:** `:changeset`, `:returning`, `:stale_error_field`, `:allow_stale`
+**Update Options:** `:force` (mark fields as changed)
+**Bulk Options:** `:placeholders` (reduce data transfer), `:conflict_target`, `:on_conflict`
+
+```elixir
+# Simple CRUD
+Crud.create(User, attrs)
+Crud.fetch(User, id, preload: [:account])
+Crud.update(user, attrs, changeset: :admin_changeset)
+
+# With options
+Crud.create(User, attrs, timeout: 30_000, returning: true)
+Crud.fetch(User, id, repo: MyApp.ReadOnlyRepo)
+
+# Bulk with placeholders
+placeholders = %{now: DateTime.utc_now(), org_id: org_id}
+entries = Enum.map(data, &Map.put(&1, :org_id, {:placeholder, :org_id}))
+Crud.create_all(User, entries, placeholders: placeholders, timeout: 120_000)
+
+# Transactions with Multi
+Multi.new()
+|> Multi.create(:user, User, user_attrs)
+|> Multi.create(:account, Account, fn %{user: u} -> %{owner_id: u.id} end)
+|> Crud.run(timeout: 60_000)
+
+# PostgreSQL MERGE
+User
+|> Merge.new(users_data)
+|> Merge.match_on(:email)
+|> Merge.when_matched(:update, [:name])
+|> Merge.when_not_matched(:insert)
+|> Crud.run(timeout: 60_000)
+
+# Context macro (generates overridable CRUD functions)
+defmodule MyApp.Accounts do
+  use Events.Core.Crud.Context
+  crud User                           # All CRUD functions
+  crud Role, only: [:create, :fetch]  # Specific functions
+end
+```
+
+See `docs/claude/CRUD.md` for complete options reference.
 
 ### Schema
 

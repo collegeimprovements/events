@@ -114,10 +114,14 @@ defmodule Events.Types.AsyncResultTest do
 
     test "collects all results with settle: true" do
       result =
-        AsyncResult.parallel_map([1, 2, 3], fn
-          2 -> {:error, :bad}
-          x -> {:ok, x * 2}
-        end, settle: true)
+        AsyncResult.parallel_map(
+          [1, 2, 3],
+          fn
+            2 -> {:error, :bad}
+            x -> {:ok, x * 2}
+          end,
+          settle: true
+        )
 
       assert result.ok == [2, 6]
       assert result.errors == [:bad]
@@ -126,6 +130,9 @@ defmodule Events.Types.AsyncResultTest do
 
   describe "race/2" do
     test "returns first successful result" do
+      # Trap exits to handle shutdown signals from spawned tasks
+      Process.flag(:trap_exit, true)
+
       tasks = [
         fn ->
           Process.sleep(50)
@@ -274,6 +281,9 @@ defmodule Events.Types.AsyncResultTest do
     end
 
     test "returns backup if primary is slow" do
+      # Trap exits to handle shutdown signals from spawned tasks
+      Process.flag(:trap_exit, true)
+
       result =
         AsyncResult.hedge(
           fn ->
@@ -338,10 +348,11 @@ defmodule Events.Types.AsyncResultTest do
     test "defers computation until run" do
       {:ok, counter} = Agent.start_link(fn -> 0 end)
 
-      lazy = AsyncResult.lazy(fn ->
-        Agent.update(counter, &(&1 + 1))
-        {:ok, :done}
-      end)
+      lazy =
+        AsyncResult.lazy(fn ->
+          Agent.update(counter, &(&1 + 1))
+          {:ok, :done}
+        end)
 
       # Not executed yet
       assert Agent.get(counter, & &1) == 0
@@ -381,10 +392,11 @@ defmodule Events.Types.AsyncResultTest do
     end
 
     test "await with timeout" do
-      handle = AsyncResult.async(fn ->
-        Process.sleep(100)
-        {:ok, 42}
-      end)
+      handle =
+        AsyncResult.async(fn ->
+          Process.sleep(100)
+          {:ok, 42}
+        end)
 
       assert AsyncResult.await(handle, timeout: 10) == {:error, :timeout}
     end
@@ -422,10 +434,11 @@ defmodule Events.Types.AsyncResultTest do
     end
 
     test "returns nil if not ready" do
-      handle = AsyncResult.async(fn ->
-        Process.sleep(100)
-        {:ok, 42}
-      end)
+      handle =
+        AsyncResult.async(fn ->
+          Process.sleep(100)
+          {:ok, 42}
+        end)
 
       assert AsyncResult.yield(handle, timeout: 0) == nil
     end
@@ -433,10 +446,11 @@ defmodule Events.Types.AsyncResultTest do
 
   describe "shutdown/2" do
     test "terminates running task" do
-      handle = AsyncResult.async(fn ->
-        Process.sleep(1000)
-        {:ok, 42}
-      end)
+      handle =
+        AsyncResult.async(fn ->
+          Process.sleep(1000)
+          {:ok, 42}
+        end)
 
       result = AsyncResult.shutdown(handle)
       # Either nil (no result) or the result if it finished
@@ -457,9 +471,10 @@ defmodule Events.Types.AsyncResultTest do
 
       items = [1, 2, 3]
 
-      :ok = AsyncResult.run_all(items, fn x ->
-        Agent.update(agent, fn list -> [x | list] end)
-      end)
+      :ok =
+        AsyncResult.run_all(items, fn x ->
+          Agent.update(agent, fn list -> [x | list] end)
+        end)
 
       Process.sleep(50)
       values = Agent.get(agent, & &1)

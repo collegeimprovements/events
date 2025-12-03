@@ -214,8 +214,8 @@ case env do
       on_startup: true,
       fail_on_error: true
 
-    # Print only warnings and errors during test
-    config :logger, level: :warning
+    # Print only errors during test (warnings captured by ExUnit.CaptureLog)
+    config :logger, level: :error
 
     # Initialize plugs at runtime for faster test compilation
     config :phoenix, :plug_init_mode, :runtime

@@ -370,15 +370,18 @@ defmodule Events.Protocols.RecoverableTest do
       {:ok, counter} = Agent.start_link(fn -> 0 end)
 
       result =
-        Helpers.with_retry(fn ->
-          count = Agent.get_and_update(counter, fn n -> {n + 1, n + 1} end)
+        Helpers.with_retry(
+          fn ->
+            count = Agent.get_and_update(counter, fn n -> {n + 1, n + 1} end)
 
-          if count < 2 do
-            {:error, Error.new(:timeout, :request_timeout)}
-          else
-            {:ok, :success}
-          end
-        end)
+            if count < 2 do
+              {:error, Error.new(:timeout, :request_timeout)}
+            else
+              {:ok, :success}
+            end
+          end,
+          delay: 0
+        )
 
       assert result == {:ok, :success}
       assert Agent.get(counter, & &1) == 2
@@ -389,10 +392,13 @@ defmodule Events.Protocols.RecoverableTest do
       {:ok, counter} = Agent.start_link(fn -> 0 end)
 
       result =
-        Helpers.with_retry(fn ->
-          Agent.update(counter, &(&1 + 1))
-          {:error, Error.new(:timeout, :request_timeout)}
-        end)
+        Helpers.with_retry(
+          fn ->
+            Agent.update(counter, &(&1 + 1))
+            {:error, Error.new(:timeout, :request_timeout)}
+          end,
+          delay: 0
+        )
 
       assert {:error, %Error{type: :timeout}} = result
       # Should try 3 times (max_attempts for timeout)
@@ -423,6 +429,7 @@ defmodule Events.Protocols.RecoverableTest do
           {:error, Error.new(:network, :failed)}
         end,
         max_attempts: 2,
+        delay: 0,
         on_retry: fn error, attempt, delay ->
           Agent.update(callbacks, fn list ->
             [{error.type, attempt, delay} | list]

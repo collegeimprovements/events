@@ -40,8 +40,23 @@ defmodule Events.Domains.Accounts do
 
   @doc """
   Gets a single account by ID.
+
+  Returns `nil` if not found. For result tuple, use `fetch_account/1`.
   """
   def get_account(id), do: Repo.get(Account, id)
+
+  @doc """
+  Fetches a single account by ID.
+
+  Returns `{:ok, account}` if found, `{:error, :not_found}` otherwise.
+  """
+  @spec fetch_account(binary()) :: {:ok, Account.t()} | {:error, :not_found}
+  def fetch_account(id) do
+    case Repo.get(Account, id) do
+      %Account{} = account -> {:ok, account}
+      nil -> {:error, :not_found}
+    end
+  end
 
   @doc """
   Gets a single account by ID.
@@ -121,8 +136,23 @@ defmodule Events.Domains.Accounts do
 
   @doc """
   Gets a single user by ID.
+
+  Returns `nil` if not found. For result tuple, use `fetch_user/1`.
   """
   def get_user(id), do: Repo.get(User, id)
+
+  @doc """
+  Fetches a single user by ID.
+
+  Returns `{:ok, user}` if found, `{:error, :not_found}` otherwise.
+  """
+  @spec fetch_user(binary()) :: {:ok, User.t()} | {:error, :not_found}
+  def fetch_user(id) do
+    case Repo.get(User, id) do
+      %User{} = user -> {:ok, user}
+      nil -> {:error, :not_found}
+    end
+  end
 
   @doc """
   Gets a single user by ID.
@@ -148,21 +178,17 @@ defmodule Events.Domains.Accounts do
   @doc """
   Gets a user by email and password.
 
-  Returns the user if found and password is valid, `nil` otherwise.
+  Returns `{:ok, user}` if found and password is valid, `{:error, :invalid_credentials}` otherwise.
   """
+  @spec get_user_by_email_and_password(binary(), binary()) ::
+          {:ok, User.t()} | {:error, :invalid_credentials}
   def get_user_by_email_and_password(email, password)
       when is_binary(email) and is_binary(password) do
-    email
-    |> get_user_by_email()
-    |> validate_user_password(password)
-  end
-
-  defp validate_user_password(nil, _password), do: nil
-
-  defp validate_user_password(%User{} = user, password) do
-    case User.valid_password?(user, password) do
-      true -> user
-      false -> nil
+    with %User{} = user <- get_user_by_email(email),
+         true <- User.valid_password?(user, password) do
+      {:ok, user}
+    else
+      _ -> {:error, :invalid_credentials}
     end
   end
 
@@ -345,13 +371,16 @@ defmodule Events.Domains.Accounts do
 
   @doc """
   Gets the user by reset password token.
+
+  Returns `{:ok, user}` if token is valid, `{:error, :invalid_token}` otherwise.
   """
+  @spec get_user_by_reset_password_token(binary()) :: {:ok, User.t()} | {:error, :invalid_token}
   def get_user_by_reset_password_token(token) do
     with {:ok, query} <- UserToken.verify_email_token_query(token, "reset_password"),
          %User{} = user <- Repo.one(query) do
-      user
+      {:ok, user}
     else
-      _ -> nil
+      _ -> {:error, :invalid_token}
     end
   end
 
@@ -404,8 +433,23 @@ defmodule Events.Domains.Accounts do
 
   @doc """
   Gets a single membership by ID.
+
+  Returns `nil` if not found. For result tuple, use `fetch_membership/1`.
   """
   def get_membership(id), do: Repo.get(Membership, id)
+
+  @doc """
+  Fetches a single membership by ID.
+
+  Returns `{:ok, membership}` if found, `{:error, :not_found}` otherwise.
+  """
+  @spec fetch_membership(binary()) :: {:ok, Membership.t()} | {:error, :not_found}
+  def fetch_membership(id) do
+    case Repo.get(Membership, id) do
+      %Membership{} = membership -> {:ok, membership}
+      nil -> {:error, :not_found}
+    end
+  end
 
   @doc """
   Gets a single membership by ID.
@@ -521,8 +565,23 @@ defmodule Events.Domains.Accounts do
 
   @doc """
   Gets a single role by ID.
+
+  Returns `nil` if not found. For result tuple, use `fetch_role/1`.
   """
   def get_role(id), do: Repo.get(Role, id)
+
+  @doc """
+  Fetches a single role by ID.
+
+  Returns `{:ok, role}` if found, `{:error, :not_found}` otherwise.
+  """
+  @spec fetch_role(binary()) :: {:ok, Role.t()} | {:error, :not_found}
+  def fetch_role(id) do
+    case Repo.get(Role, id) do
+      %Role{} = role -> {:ok, role}
+      nil -> {:error, :not_found}
+    end
+  end
 
   @doc """
   Gets a single role by ID.
@@ -639,8 +698,23 @@ defmodule Events.Domains.Accounts do
 
   @doc """
   Gets a single user role mapping by ID.
+
+  Returns `nil` if not found. For result tuple, use `fetch_urm/1`.
   """
   def get_urm(id), do: Repo.get(UserRoleMapping, id)
+
+  @doc """
+  Fetches a single user role mapping by ID.
+
+  Returns `{:ok, urm}` if found, `{:error, :not_found}` otherwise.
+  """
+  @spec fetch_urm(binary()) :: {:ok, UserRoleMapping.t()} | {:error, :not_found}
+  def fetch_urm(id) do
+    case Repo.get(UserRoleMapping, id) do
+      %UserRoleMapping{} = urm -> {:ok, urm}
+      nil -> {:error, :not_found}
+    end
+  end
 
   @doc """
   Gets a single user role mapping by ID.

@@ -464,40 +464,22 @@ defmodule Events.Protocols.NormalizableTest do
   describe "@derive support" do
     # NOTE: @derive for protocols only works before protocol consolidation.
     # In tests, the protocol is already consolidated, so derived implementations
-    # fall back to the Any implementation. To test @derive, you would need to
-    # either disable consolidation in test or define the struct before compilation.
-    #
-    # This test verifies that the Any fallback handles unknown structs gracefully.
+    # fall back to the Any implementation. The test below verifies the fallback.
 
-    defmodule DerivedError do
-      # This derive won't take effect because protocol is already consolidated
-      @derive {Events.Protocols.Normalizable,
-               type: :business, code: :derived_error, recoverable: true}
+    defmodule UnknownError do
+      # No @derive - tests the Any fallback behavior
       defstruct [:message, :details]
     end
 
-    @tag :skip
-    test "derived implementation works (only before consolidation)" do
-      custom_error = %DerivedError{message: "Derived error message", details: %{foo: "bar"}}
-
-      error = Normalizable.normalize(custom_error)
-
-      assert error.type == :business
-      assert error.code == :derived_error
-      assert error.message == "Derived error message"
-      assert error.details == %{foo: "bar"}
-      assert error.recoverable == true
-    end
-
-    test "Any fallback handles unknown struct when derived is not available" do
-      custom_error = %DerivedError{message: "Derived error message", details: %{foo: "bar"}}
+    test "Any fallback handles unknown struct" do
+      custom_error = %UnknownError{message: "Unknown error message", details: %{foo: "bar"}}
 
       error = Normalizable.normalize(custom_error)
 
       # Falls back to Any implementation since protocol is consolidated
       assert %Error{} = error
       assert error.type == :internal
-      assert error.message == "Derived error message"
+      assert error.message == "Unknown error message"
     end
   end
 

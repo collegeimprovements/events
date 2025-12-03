@@ -122,6 +122,8 @@ defmodule Events.Protocols.Recoverable.Helpers do
   - `:max_attempts` - Override max attempts (default: from protocol)
   - `:on_retry` - Callback `fn error, attempt, delay -> :ok end`
   - `:on_error` - Callback `fn error, attempt -> :ok end`
+  - `:delay` - Override delay entirely (useful for tests, set to 0 for instant)
+  - `:delay_multiplier` - Scale delay (0.0 = instant, 1.0 = normal)
 
   ## Examples
 
@@ -133,6 +135,9 @@ defmodule Events.Protocols.Recoverable.Helpers do
           Logger.warning("Retry \#{attempt}, waiting \#{delay}ms: \#{inspect(error)}")
         end
       )
+
+      # For testing - no delays
+      Helpers.with_retry(fn -> flaky_call() end, delay: 0)
   """
   @spec with_retry((-> {:ok, term()} | {:error, term()}), keyword()) ::
           {:ok, term()} | {:error, term()}
@@ -157,14 +162,16 @@ defmodule Events.Protocols.Recoverable.Helpers do
             on_retry = Keyword.get(opts, :on_retry)
             if on_retry, do: on_retry.(error, attempt, delay)
 
-            if delay > 0, do: Process.sleep(delay)
+            actual_delay = apply_delay_opts(delay, opts)
+            if actual_delay > 0, do: Process.sleep(actual_delay)
             do_retry(fun, attempt + 1, opts)
 
           {:wait, delay: delay, remaining: _} when attempt < max_attempts ->
             on_retry = Keyword.get(opts, :on_retry)
             if on_retry, do: on_retry.(error, attempt, delay)
 
-            if delay > 0, do: Process.sleep(delay)
+            actual_delay = apply_delay_opts(delay, opts)
+            if actual_delay > 0, do: Process.sleep(actual_delay)
             do_retry(fun, attempt + 1, opts)
 
           {:fallback, value: value} ->
@@ -287,5 +294,22 @@ defmodule Events.Protocols.Recoverable.Helpers do
   @spec partition_recoverable([term()]) :: {[term()], [term()]}
   def partition_recoverable(errors) do
     Enum.split_with(errors, &Recoverable.recoverable?/1)
+  end
+
+  # Applies delay options for testing purposes
+  # Options:
+  #   - :delay - Override delay entirely (useful for tests)
+  #   - :delay_multiplier - Scale delay (0.0 = instant, 1.0 = normal)
+  defp apply_delay_opts(delay, opts) do
+    cond do
+      override = Keyword.get(opts, :delay) ->
+        override
+
+      multiplier = Keyword.get(opts, :delay_multiplier) ->
+        round(delay * multiplier)
+
+      true ->
+        delay
+    end
   end
 end

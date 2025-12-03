@@ -268,7 +268,11 @@ defmodule Events.Core.Schema.DatabaseValidator do
           error_msg = format_startup_errors(results)
 
           if Keyword.get(config, :fail_on_error, false) do
-            Logger.error("Schema validation failed:\n#{error_msg}")
+            # In test env, skip logging (errors still returned, ExUnit handles output)
+            unless Mix.env() == :test do
+              Logger.error("Schema validation failed:\n#{error_msg}")
+            end
+
             {:error, "Schema validation failed: #{summary.invalid} schema(s) invalid"}
           else
             Logger.warning("Schema validation issues:\n#{error_msg}")
