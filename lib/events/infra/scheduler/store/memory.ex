@@ -13,12 +13,14 @@ defmodule Events.Infra.Scheduler.Store.Memory do
   require Logger
 
   alias Events.Infra.Scheduler.{Job, Execution}
+  alias Events.Infra.Scheduler.Workflow
 
   @behaviour Events.Infra.Scheduler.Store.Behaviour
 
   @jobs_table :scheduler_jobs_memory
   @executions_table :scheduler_executions_memory
   @locks_table :scheduler_locks_memory
+  @workflows_table :scheduler_workflows_memory
 
   # ============================================
   # Client API
@@ -430,6 +432,69 @@ defmodule Events.Infra.Scheduler.Store.Memory do
   end
 
   # ============================================
+  # Workflow Operations
+  # ============================================
+
+  @impl Events.Infra.Scheduler.Store.Behaviour
+  def register_workflow(%Workflow{} = workflow) do
+    case :ets.insert_new(@workflows_table, {workflow.name, workflow}) do
+      true -> {:ok, workflow}
+      false -> {:error, :already_exists}
+    end
+  end
+
+  @impl Events.Infra.Scheduler.Store.Behaviour
+  def get_workflow(name) when is_atom(name) do
+    case :ets.lookup(@workflows_table, name) do
+      [{^name, workflow}] -> {:ok, workflow}
+      [] -> {:error, :not_found}
+    end
+  end
+
+  @impl Events.Infra.Scheduler.Store.Behaviour
+  def list_workflows(opts \\ []) do
+    tags = Keyword.get(opts, :tags, [])
+    trigger_type = Keyword.get(opts, :trigger_type)
+
+    :ets.tab2list(@workflows_table)
+    |> Enum.map(fn {_name, workflow} ->
+      %{
+        name: workflow.name,
+        steps: map_size(workflow.steps),
+        trigger_type: workflow.trigger_type,
+        schedule: workflow.schedule,
+        tags: workflow.tags,
+        state: workflow.state
+      }
+    end)
+    |> Enum.filter(fn workflow_info ->
+      (tags == [] or Enum.any?(tags, &(&1 in workflow_info.tags))) and
+        (is_nil(trigger_type) or workflow_info.trigger_type == trigger_type)
+    end)
+  end
+
+  @impl Events.Infra.Scheduler.Store.Behaviour
+  def update_workflow(name, attrs) when is_atom(name) and is_map(attrs) do
+    case get_workflow(name) do
+      {:ok, workflow} ->
+        updated = struct(workflow, Map.to_list(attrs))
+        :ets.insert(@workflows_table, {name, updated})
+        {:ok, updated}
+
+      error ->
+        error
+    end
+  end
+
+  @impl Events.Infra.Scheduler.Store.Behaviour
+  def delete_workflow(name) when is_atom(name) do
+    case :ets.delete(@workflows_table, name) do
+      true -> :ok
+      false -> {:error, :not_found}
+    end
+  end
+
+  # ============================================
   # GenServer Callbacks
   # ============================================
 
@@ -439,6 +504,7 @@ defmodule Events.Infra.Scheduler.Store.Memory do
     create_table_if_not_exists(@jobs_table)
     create_table_if_not_exists(@executions_table)
     create_table_if_not_exists(@locks_table)
+    create_table_if_not_exists(@workflows_table)
 
     {:ok, %{}}
   end

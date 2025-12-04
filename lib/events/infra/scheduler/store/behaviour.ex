@@ -11,11 +11,56 @@ defmodule Events.Infra.Scheduler.Store.Behaviour do
   """
 
   alias Events.Infra.Scheduler.{Job, Execution}
+  alias Events.Infra.Scheduler.Workflow
 
   @type job :: Job.t()
+  @type workflow :: Workflow.t()
   @type execution :: Execution.t()
   @type job_name :: String.t()
+  @type workflow_name :: atom()
   @type opts :: keyword()
+
+  # ============================================
+  # Workflow Operations
+  # ============================================
+
+  @doc """
+  Registers a workflow definition in the store.
+
+  Returns `{:ok, workflow}` on success, `{:error, reason}` if the workflow name already exists.
+  """
+  @callback register_workflow(workflow()) :: {:ok, workflow()} | {:error, term()}
+
+  @doc """
+  Fetches a workflow by name.
+
+  Returns `{:ok, workflow}` if found, `{:error, :not_found}` otherwise.
+  """
+  @callback get_workflow(workflow_name()) :: {:ok, workflow()} | {:error, :not_found}
+
+  @doc """
+  Lists all registered workflows.
+
+  ## Options
+
+  - `:tags` - Filter by tags (any match)
+  - `:trigger_type` - Filter by trigger type (:manual, :scheduled, :event)
+  """
+  @callback list_workflows(opts()) :: [map()]
+
+  @doc """
+  Updates a workflow by name.
+
+  Returns `{:ok, updated_workflow}` on success.
+  """
+  @callback update_workflow(workflow_name(), map()) :: {:ok, workflow()} | {:error, term()}
+
+  @doc """
+  Deletes a workflow by name.
+
+  Returns `:ok` on success, `{:error, :not_found}` if the workflow doesn't exist.
+  """
+  @callback delete_workflow(workflow_name()) :: :ok | {:error, term()}
 
   # ============================================
   # Job Operations

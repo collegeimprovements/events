@@ -5,6 +5,7 @@ defmodule Events.Infra.Scheduler.Supervisor do
   Starts and manages:
   - Store (Memory or Database)
   - Peer election
+  - Workflow Registry (workflow definitions and execution tracking)
   - Queue producers
   - Plugins (Cron, Pruner, etc.)
 
@@ -44,6 +45,7 @@ defmodule Events.Infra.Scheduler.Supervisor do
   alias Events.Infra.Scheduler.{Config, Plugin, CircuitBreaker, DeadLetter}
   alias Events.Infra.Scheduler.Store.{Memory, Database}
   alias Events.Infra.Scheduler.Queue
+  alias Events.Infra.Scheduler.Workflow.Registry, as: WorkflowRegistry
 
   @doc """
   Starts the scheduler supervisor.
@@ -98,6 +100,7 @@ defmodule Events.Infra.Scheduler.Supervisor do
     peer_child = build_peer_child(conf)
     circuit_breaker_child = build_circuit_breaker_child(conf)
     dead_letter_child = build_dead_letter_child(conf)
+    workflow_registry_child = build_workflow_registry_child(conf)
     queue_child = build_queue_child(conf)
     plugin_children = build_plugin_children(conf)
 
@@ -106,6 +109,7 @@ defmodule Events.Infra.Scheduler.Supervisor do
       peer_child,
       circuit_breaker_child,
       dead_letter_child,
+      workflow_registry_child,
       queue_child | plugin_children
     ]
     |> Enum.reject(&is_nil/1)
@@ -170,6 +174,19 @@ defmodule Events.Infra.Scheduler.Supervisor do
         else
           nil
         end
+    end
+  end
+
+  defp build_workflow_registry_child(conf) do
+    workflow_config = conf[:workflow]
+
+    case workflow_config do
+      false ->
+        nil
+
+      _ ->
+        # Workflow registry is enabled by default
+        {WorkflowRegistry, conf: conf}
     end
   end
 

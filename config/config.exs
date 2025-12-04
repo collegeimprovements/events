@@ -27,7 +27,7 @@ config :events, EventsWeb.Endpoint,
     formats: [html: EventsWeb.ErrorHTML, json: EventsWeb.ErrorJSON],
     layout: false
   ],
-  pubsub_server: Events.PubSub.Server,
+  pubsub_server: Events.Infra.PubSub.Server,
   live_view: [signing_salt: "bADKq9rD"]
 
 # Mailer configuration

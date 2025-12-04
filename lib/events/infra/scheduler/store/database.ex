@@ -16,8 +16,12 @@ defmodule Events.Infra.Scheduler.Store.Database do
   require Logger
 
   alias Events.Infra.Scheduler.{Job, Execution, Config}
+  alias Events.Infra.Scheduler.Workflow
 
   @behaviour Events.Infra.Scheduler.Store.Behaviour
+
+  # ETS table for workflow definitions (workflows are stored in memory only for now)
+  @workflows_table :scheduler_workflows_database
 
   # ============================================
   # Configuration
@@ -29,6 +33,93 @@ defmodule Events.Infra.Scheduler.Store.Database do
 
   defp prefix do
     Config.get()[:prefix] || "public"
+  end
+
+  defp ensure_workflows_table do
+    case :ets.whereis(@workflows_table) do
+      :undefined ->
+        :ets.new(@workflows_table, [
+          :set,
+          :public,
+          :named_table,
+          read_concurrency: true,
+          write_concurrency: true
+        ])
+
+      _ref ->
+        :ok
+    end
+  end
+
+  # ============================================
+  # Workflow Operations (stored in ETS, not database for now)
+  # ============================================
+
+  @impl Events.Infra.Scheduler.Store.Behaviour
+  def register_workflow(%Workflow{} = workflow) do
+    ensure_workflows_table()
+
+    case :ets.insert_new(@workflows_table, {workflow.name, workflow}) do
+      true -> {:ok, workflow}
+      false -> {:error, :already_exists}
+    end
+  end
+
+  @impl Events.Infra.Scheduler.Store.Behaviour
+  def get_workflow(name) when is_atom(name) do
+    ensure_workflows_table()
+
+    case :ets.lookup(@workflows_table, name) do
+      [{^name, workflow}] -> {:ok, workflow}
+      [] -> {:error, :not_found}
+    end
+  end
+
+  @impl Events.Infra.Scheduler.Store.Behaviour
+  def list_workflows(opts \\ []) do
+    ensure_workflows_table()
+
+    tags = Keyword.get(opts, :tags, [])
+    trigger_type = Keyword.get(opts, :trigger_type)
+
+    :ets.tab2list(@workflows_table)
+    |> Enum.map(fn {_name, workflow} ->
+      %{
+        name: workflow.name,
+        steps: map_size(workflow.steps),
+        trigger_type: workflow.trigger_type,
+        schedule: workflow.schedule,
+        tags: workflow.tags,
+        state: workflow.state
+      }
+    end)
+    |> Enum.filter(fn workflow_info ->
+      (tags == [] or Enum.any?(tags, &(&1 in workflow_info.tags))) and
+        (is_nil(trigger_type) or workflow_info.trigger_type == trigger_type)
+    end)
+  end
+
+  @impl Events.Infra.Scheduler.Store.Behaviour
+  def update_workflow(name, attrs) when is_atom(name) and is_map(attrs) do
+    case get_workflow(name) do
+      {:ok, workflow} ->
+        updated = struct(workflow, Map.to_list(attrs))
+        :ets.insert(@workflows_table, {name, updated})
+        {:ok, updated}
+
+      error ->
+        error
+    end
+  end
+
+  @impl Events.Infra.Scheduler.Store.Behaviour
+  def delete_workflow(name) when is_atom(name) do
+    ensure_workflows_table()
+
+    case :ets.delete(@workflows_table, name) do
+      true -> :ok
+      false -> {:error, :not_found}
+    end
   end
 
   # ============================================

@@ -15,6 +15,7 @@
 | `docs/claude/CRUD.md` | CRUD system, Multi, Merge, options reference |
 | `docs/claude/S3.md` | S3 API reference |
 | `docs/claude/SCHEDULER.md` | Cron scheduler quick reference |
+| `docs/claude/WORKFLOW.md` | Workflow system with DAG, dependencies, rollbacks |
 
 ---
 
@@ -49,6 +50,8 @@ lib/events/
 │   └── clients/     #   Specific clients (Google, Stripe)
 ├── infra/           # Events.Infra.*     - Infrastructure
 │   ├── decorator/   #   Decorator system
+│   ├── scheduler/   #   Cron scheduler + workflow system
+│   │   └── workflow/    #   DAG-based workflow orchestration
 │   ├── kill_switch/ #   Service kill switches
 │   ├── idempotency/ #   Idempotency support
 │   └── system_health/   # Health checks
@@ -76,6 +79,7 @@ alias Events.Core.Crud.{Multi, Merge, Op}
 
 # Infrastructure
 alias Events.Infra.{Decorator, KillSwitch, SystemHealth, Idempotency}
+alias Events.Infra.Scheduler.Workflow
 
 # API
 alias Events.Api.Client
@@ -178,6 +182,49 @@ def get_user(id), do: ...
 | Batch | `batch/2` | Use inside step |
 | Context | — | `step/3`, `assign/3` |
 | Rollback | — | `run_with_rollback/1` |
+
+### Workflow System
+
+| Feature | Builder API | Decorator API |
+|---------|-------------|---------------|
+| Create workflow | `Workflow.new(:name)` | `use Workflow, name: :name` |
+| Add step | `Workflow.step(w, :name, &fn/1)` | `@decorate step()` |
+| Dependencies | `after: :step_a` | `@decorate step(after: :step_a)` |
+| Parallel | `Workflow.parallel/3` | `group: :parallel_group` |
+| Fan-in | `Workflow.fan_in/4` | `after_group: :group_name` |
+| Conditional | `Workflow.branch/3` | `when: &condition/1` |
+| Rollback | `rollback: &rollback_fn/1` | `@decorate step(rollback: :fn)` |
+| Human approval | — | `await_approval: true` |
+| Nested workflow | `Workflow.add_workflow/4` | `@decorate workflow(:name)` |
+| Dynamic steps | `Workflow.add_graft/3` | `@decorate graft()` |
+| Schedule | `Workflow.schedule(cron: "...")` | `schedule: [cron: "..."]` |
+
+```elixir
+# Decorator API (recommended)
+defmodule MyApp.OrderWorkflow do
+  use Events.Infra.Scheduler.Workflow, name: :order_processing
+
+  @decorate step()
+  def validate(ctx), do: {:ok, %{order: Orders.get!(ctx.order_id)}}
+
+  @decorate step(after: :validate, rollback: :release_inventory)
+  def reserve_inventory(ctx), do: {:ok, %{reservation: Inventory.reserve(ctx.order)}}
+
+  @decorate step(after: :reserve_inventory, rollback: :refund)
+  def charge_payment(ctx), do: {:ok, %{payment: Payments.charge(ctx.order)}}
+
+  @decorate step(after: :charge_payment)
+  def send_confirmation(ctx), do: Mailer.send_confirmation(ctx.order)
+
+  def release_inventory(ctx), do: Inventory.release(ctx.reservation)
+  def refund(ctx), do: Payments.refund(ctx.payment)
+end
+
+# Start workflow
+{:ok, execution_id} = Workflow.start(:order_processing, %{order_id: 123})
+```
+
+See `docs/claude/WORKFLOW.md` for complete reference with real-world examples.
 
 ### CRUD System
 
@@ -323,6 +370,28 @@ AsyncResult.retry(fn -> api_call() end,
 )
 ```
 
+### Scheduled Workflow with Dependencies
+
+```elixir
+defmodule MyApp.DailyReport do
+  use Events.Infra.Scheduler.Workflow,
+    name: :daily_report,
+    schedule: [cron: "0 6 * * *"]
+
+  @decorate step()
+  def fetch_data(ctx), do: {:ok, %{data: Reports.fetch(ctx.date)}}
+
+  @decorate step(after: :fetch_data, group: :process)
+  def generate_pdf(ctx), do: {:ok, %{pdf: Reports.to_pdf(ctx.data)}}
+
+  @decorate step(after: :fetch_data, group: :process)
+  def generate_csv(ctx), do: {:ok, %{csv: Reports.to_csv(ctx.data)}}
+
+  @decorate step(after_group: :process)
+  def send_email(ctx), do: Mailer.send_report(ctx.pdf, ctx.csv)
+end
+```
+
 ---
 
 ## Anti-Patterns
@@ -349,7 +418,9 @@ docs/
 │   ├── EXAMPLES.md           # Real-world examples
 │   ├── SCHEMA.md             # Schema/Migration reference
 │   ├── DECORATORS.md         # Decorator reference
-│   └── S3.md                 # S3 API reference
+│   ├── S3.md                 # S3 API reference
+│   ├── SCHEDULER.md          # Cron scheduler reference
+│   └── WORKFLOW.md           # Workflow system (DAG, dependencies, rollbacks)
 ├── development/
 │   ├── AGENTS.md             # Full conventions guide
 │   ├── ARCHITECTURE.md       # System architecture

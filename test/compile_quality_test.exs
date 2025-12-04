@@ -4,10 +4,13 @@ defmodule Events.CompileQualityTest do
 
   These tests ensure the codebase compiles cleanly without warnings
   and has reasonable compile-time dependencies.
+
+  These are slow tests that shell out to mix commands.
+  Run with: mix test --include slow
   """
   use ExUnit.Case, async: false
 
-  @moduletag :compile_quality
+  @moduletag :slow
 
   describe "compile warnings" do
     @tag timeout: 120_000

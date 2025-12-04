@@ -1119,3 +1119,148 @@ DeadLetter.prune(before: ~U[2024-01-01 00:00:00Z])
 [:scheduler, :dead_letter, :prune]
 # Measurements: %{count: 150}
 ```
+
+---
+
+## Workflow System
+
+Multi-step DAG workflows with dependencies, conditions, and scheduling.
+
+### Quick Start
+
+```elixir
+# Decorator API (Recommended)
+defmodule MyApp.Onboarding do
+  use Events.Infra.Scheduler.Workflow, name: :user_onboarding
+
+  @decorate step()
+  def create_account(ctx), do: {:ok, %{user_id: Users.create!(ctx.email)}}
+
+  @decorate step(after: :create_account)
+  def send_welcome(ctx), do: Mailer.send_welcome(ctx.user_id)
+
+  @decorate step(after: :send_welcome)
+  def notify_team(ctx), do: Slack.notify(ctx.user_id)
+end
+
+# Builder API
+alias Events.Infra.Scheduler.Workflow
+
+Workflow.new(:data_pipeline)
+|> Workflow.step(:fetch, &fetch/1)
+|> Workflow.step(:transform, &transform/1, after: :fetch)
+|> Workflow.step(:upload, &upload/1, after: :transform)
+|> Workflow.schedule(cron: "0 6 * * *")
+|> Workflow.register()
+```
+
+### Workflow Scheduling
+
+```elixir
+# Enable the workflow scheduler plugin
+config :events, Events.Infra.Scheduler,
+  plugins: [
+    Events.Infra.Scheduler.Plugins.Cron,
+    {Events.Infra.Scheduler.Workflow.Scheduler,
+      interval: {1, :minute},  # Check frequency
+      limit: 50}               # Max workflows per tick
+  ]
+
+# Define scheduled workflow
+defmodule MyApp.DailyExport do
+  use Events.Infra.Scheduler.Workflow,
+    name: :daily_export,
+    schedule: [cron: "0 6 * * *"]  # Daily at 6 AM
+
+  @decorate step()
+  def fetch_data(ctx), do: ...
+end
+
+# Schedule options
+schedule: [cron: "0 6 * * *"]              # Cron expression
+schedule: [cron: ["0 6 * * *", "0 18 * * *"]]  # Multiple
+schedule: [every: {30, :minutes}]           # Interval
+schedule: [at: ~U[2025-12-25 00:00:00Z]]   # One-time
+schedule: [
+  every: {1, :hour},
+  start_at: ~U[2025-01-01 00:00:00Z],
+  end_at: ~U[2025-01-31 23:59:59Z]
+]
+```
+
+### Step Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `after` | atom/list | nil | Dependencies (all must complete) |
+| `after_any` | list | nil | Any dependency (first wins) |
+| `when` | function | nil | Condition `fn ctx -> bool end` |
+| `rollback` | atom | nil | Compensation function |
+| `timeout` | duration | 5 min | Step timeout |
+| `max_retries` | int | 3 | Max retry attempts |
+| `on_error` | atom | `:fail` | `:fail`, `:skip`, `:continue` |
+
+### Runtime API
+
+```elixir
+alias Events.Infra.Scheduler.Workflow
+
+# Start workflow
+{:ok, exec_id} = Workflow.start(:user_onboarding, %{email: "user@example.com"})
+
+# Schedule for later
+{:ok, exec_id} = Workflow.schedule_execution(:user_onboarding,
+  context: %{email: "user@example.com"},
+  at: ~U[2025-12-25 00:00:00Z]
+)
+
+# Control
+Workflow.pause(exec_id)
+Workflow.resume(exec_id, context: %{approved: true})
+Workflow.cancel(exec_id, reason: :user_requested, rollback: true)
+
+# Query
+{:ok, state} = Workflow.get_state(exec_id)
+running = Workflow.list_running(:user_onboarding)
+```
+
+### Workflow Telemetry
+
+```elixir
+# Workflow lifecycle
+[:events, :scheduler, :workflow, :start]
+[:events, :scheduler, :workflow, :stop]
+[:events, :scheduler, :workflow, :exception]
+[:events, :scheduler, :workflow, :pause]
+[:events, :scheduler, :workflow, :resume]
+[:events, :scheduler, :workflow, :cancel]
+[:events, :scheduler, :workflow, :fail]
+
+# Step lifecycle
+[:events, :scheduler, :workflow, :step, :start]
+[:events, :scheduler, :workflow, :step, :stop]
+[:events, :scheduler, :workflow, :step, :exception]
+[:events, :scheduler, :workflow, :step, :skip]
+[:events, :scheduler, :workflow, :step, :retry]
+
+# Rollback
+[:events, :scheduler, :workflow, :rollback, :start]
+[:events, :scheduler, :workflow, :rollback, :stop]
+[:events, :scheduler, :workflow, :rollback, :exception]
+```
+
+### Introspection
+
+```elixir
+# Summary
+Workflow.summary(:user_onboarding)
+
+# Generate Mermaid diagram
+Workflow.to_mermaid(:user_onboarding)
+
+# ASCII table
+Workflow.to_table(:user_onboarding)
+
+# List all workflows
+Workflow.list_all()
+```

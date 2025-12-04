@@ -89,7 +89,14 @@ defmodule Events.Infra.Decorator.Define do
     returns_pipeline: 1,
     normalize_result: 1,
     # Scheduler
-    scheduled: 1
+    scheduled: 1,
+    # Workflow
+    step: 0,
+    step: 1,
+    graft: 0,
+    graft: 1,
+    subworkflow: 1,
+    subworkflow: 2
 
   # Caching decorators
   defdelegate cacheable(opts, body, context), to: Events.Infra.Decorator.Caching
@@ -151,4 +158,25 @@ defmodule Events.Infra.Decorator.Define do
 
   # Scheduler decorator
   defdelegate scheduled(opts, body, context), to: Events.Infra.Scheduler.Decorator.Scheduled
+
+  # Workflow decorators
+  def step(body, context), do: step([], body, context)
+
+  def step(opts, body, context) do
+    Events.Infra.Scheduler.Workflow.Decorator.Step.step(opts, body, context)
+  end
+
+  def graft(body, context), do: graft([], body, context)
+
+  def graft(opts, body, context) do
+    Events.Infra.Scheduler.Workflow.Decorator.Graft.graft(opts, body, context)
+  end
+
+  def subworkflow(name, body, context) do
+    Events.Infra.Scheduler.Workflow.Decorator.Workflow.workflow(name, [], body, context)
+  end
+
+  def subworkflow(name, opts, body, context) do
+    Events.Infra.Scheduler.Workflow.Decorator.Workflow.workflow(name, opts, body, context)
+  end
 end

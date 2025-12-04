@@ -33,6 +33,16 @@ defmodule EventsWeb.Router do
   #   pipe_through :api
   # end
 
+  # Workflow Dashboard (admin routes)
+  # In production, you should add authentication middleware
+  scope "/workflows", EventsWeb do
+    pipe_through :browser
+
+    live "/", WorkflowDashboardLive, :index
+    live "/executions/:id", WorkflowDashboardLive, :execution
+    live "/:name", WorkflowDashboardLive, :workflow
+  end
+
   # Enable LiveDashboard and Swoosh mailbox preview in development
   if Application.compile_env(:events, :dev_routes) do
     # If you want to use the LiveDashboard in production, you should put
