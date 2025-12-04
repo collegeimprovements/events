@@ -232,7 +232,9 @@ defmodule Events.Infra.Scheduler.WorkflowTest do
           [
             {:a, fn _ -> :ok end},
             {:b, fn _ -> :ok end}
-          ], group: :custom_group)
+          ],
+          group: :custom_group
+        )
 
       assert workflow.groups[:custom_group] == [:b, :a]
     end

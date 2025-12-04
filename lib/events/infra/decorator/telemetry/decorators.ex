@@ -648,7 +648,7 @@ defmodule Events.Infra.Decorator.Telemetry do
     slow_threshold = validated_opts[:slow_threshold]
     level = validate_log_level!(validated_opts[:level])
     slow_level = validate_log_level!(validated_opts[:slow_level])
-    # TODO: include_query option is validated but not yet implemented in query logging
+    include_query? = validated_opts[:include_query]
 
     quote do
       require Logger
@@ -660,18 +660,51 @@ defmodule Events.Infra.Decorator.Telemetry do
       duration = System.monotonic_time() - start_time
       duration_ms = System.convert_time_unit(duration, :native, :millisecond)
 
+      # Extract query string if result is an Ecto query or has a query
+      query_info =
+        if unquote(include_query?) do
+          case result do
+            %Ecto.Query{} = q ->
+              try do
+                {sql, _params} = Ecto.Adapters.SQL.to_sql(:all, Events.Core.Repo, q)
+                sql
+              rescue
+                _ -> inspect(q, limit: 200)
+              end
+
+            {:ok, %{__struct__: _} = struct} ->
+              struct.__struct__ |> to_string() |> String.split(".") |> List.last()
+
+            {:ok, list} when is_list(list) ->
+              "#{length(list)} records"
+
+            _ ->
+              nil
+          end
+        end
+
       cond do
         duration_ms > unquote(slow_threshold) ->
+          message =
+            if query_info,
+              do: "SLOW QUERY (#{duration_ms}ms): #{query_info}",
+              else: "SLOW QUERY (#{duration_ms}ms)"
+
           Logger.unquote(slow_level)(
-            "SLOW QUERY (#{duration_ms}ms)",
+            message,
             module: unquote(context.module),
             function: unquote(context.name),
             duration_ms: duration_ms
           )
 
         true ->
+          message =
+            if query_info && unquote(include_query?),
+              do: "Query executed in #{duration_ms}ms: #{query_info}",
+              else: "Query executed in #{duration_ms}ms"
+
           Logger.unquote(level)(
-            "Query executed in #{duration_ms}ms",
+            message,
             module: unquote(context.module),
             function: unquote(context.name),
             duration_ms: duration_ms

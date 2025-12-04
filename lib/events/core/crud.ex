@@ -11,6 +11,7 @@ defmodule Events.Core.Crud do
   - **Explicit** - Tokens are data, execution is a separate step
   - **Result tuples** - All operations return `{:ok, result}` or `{:error, reason}`
   - **Composable** - Build complex operations from simple parts
+  - **Observable** - All operations emit telemetry events
 
   ## Token Execution
 
@@ -39,9 +40,45 @@ defmodule Events.Core.Crud do
       Crud.fetch(User, id)
       Crud.update(user, attrs)
       Crud.delete(user)
+
+  ## Telemetry Events
+
+  All database operations emit a single telemetry event at execution time:
+
+      [:events, :crud, :execute, :start/:stop/:exception]
+
+  ### Measurements
+
+  - `:duration` - Operation duration in native time units
+  - `:duration_ms` - Operation duration in milliseconds
+  - `:system_time` - Absolute timestamp (on start events)
+
+  ### Metadata
+
+  - `:type` - Execution type (`:transaction`, `:merge`, `:query`)
+  - `:operation` - High-level operation (`:create`, `:update`, `:delete`, `:fetch`, etc.)
+  - `:schema` - Schema module (when applicable)
+  - `:id` - Record ID (for single record operations)
+  - `:count` - Number of records (for bulk operations)
+  - `:source` - Where the call originated (`:convenience`, `:direct`)
+  - `:result` - Operation result type (`:ok`, `:error`) on stop events
+
+  ### Example Telemetry Handler
+
+      :telemetry.attach(
+        "crud-logger",
+        [:events, :crud, :execute, :stop],
+        fn _event, %{duration_ms: ms}, %{operation: op, schema: schema}, _config ->
+          Logger.info("CRUD \#{op} on \#{schema} took \#{ms}ms")
+        end,
+        nil
+      )
   """
 
   alias Events.Core.Crud.{Op, Multi, Merge, Validatable}
+
+  # Telemetry event name
+  @telemetry_event [:events, :crud, :execute]
 
   # ─────────────────────────────────────────────────────────────
   # Unified Execution API
@@ -143,12 +180,19 @@ defmodule Events.Core.Crud do
   def transaction(multi_or_fun, opts \\ [])
 
   def transaction(%Multi{} = multi, opts) do
-    with :ok <- validate_token(multi) do
-      repo = Op.repo(opts)
-      sql_opts = Op.sql_opts(opts)
-      ecto_multi = Multi.to_ecto_multi(multi)
-      repo.transaction(ecto_multi, sql_opts)
-    end
+    meta =
+      build_telemetry_meta(:transaction, opts, %{
+        operations: Multi.operation_count(multi)
+      })
+
+    emit_telemetry(meta, fn ->
+      with :ok <- validate_token(multi) do
+        repo = Op.repo(opts)
+        sql_opts = Op.sql_opts(opts)
+        ecto_multi = Multi.to_ecto_multi(multi)
+        repo.transaction(ecto_multi, sql_opts)
+      end
+    end)
   end
 
   def transaction(fun, opts) when is_function(fun, 0) do
@@ -176,19 +220,27 @@ defmodule Events.Core.Crud do
   """
   @spec execute_merge(Merge.t(), keyword()) :: {:ok, [struct()]} | {:error, any()}
   def execute_merge(%Merge{} = merge, opts \\ []) do
-    with :ok <- validate_token(merge) do
-      repo = Op.repo(opts)
-      sql_opts = Op.sql_opts(opts)
-      {sql, params} = Merge.to_sql(merge)
+    meta =
+      build_telemetry_meta(:merge, opts, %{
+        schema: merge.schema,
+        count: length(merge.source)
+      })
 
-      case repo.query(sql, params, sql_opts) do
-        {:ok, %{rows: rows, columns: columns}} ->
-          {:ok, rows_to_structs(merge.schema, columns, rows)}
+    emit_telemetry(meta, fn ->
+      with :ok <- validate_token(merge) do
+        repo = Op.repo(opts)
+        sql_opts = Op.sql_opts(opts)
+        {sql, params} = Merge.to_sql(merge)
 
-        {:error, reason} ->
-          {:error, reason}
+        case repo.query(sql, params, sql_opts) do
+          {:ok, %{rows: rows, columns: columns}} ->
+            {:ok, rows_to_structs(merge.schema, columns, rows)}
+
+          {:error, reason} ->
+            {:error, reason}
+        end
       end
-    end
+    end)
   end
 
   defp rows_to_structs(schema, columns, rows) do
@@ -221,6 +273,8 @@ defmodule Events.Core.Crud do
   """
   @spec create(module(), map(), keyword()) :: {:ok, struct()} | {:error, Ecto.Changeset.t()}
   def create(schema, attrs, opts \\ []) when is_atom(schema) and is_map(attrs) do
+    opts = put_crud_context(opts, :create, schema: schema)
+
     Multi.new()
     |> Multi.create(:record, schema, attrs, opts)
     |> transaction(opts)
@@ -239,6 +293,8 @@ defmodule Events.Core.Crud do
   """
   @spec update(struct(), map(), keyword()) :: {:ok, struct()} | {:error, Ecto.Changeset.t()}
   def update(%{__struct__: schema} = struct, attrs, opts \\ []) when is_map(attrs) do
+    opts = put_crud_context(opts, :update, schema: schema)
+
     Multi.new()
     |> Multi.update(:record, struct, attrs, opts)
     |> transaction(opts)
@@ -248,6 +304,8 @@ defmodule Events.Core.Crud do
   @spec update(module(), binary(), map(), keyword()) ::
           {:ok, struct()} | {:error, Ecto.Changeset.t() | :not_found}
   def update(schema, id, attrs, opts) when is_atom(schema) and is_binary(id) and is_map(attrs) do
+    opts = put_crud_context(opts, :update, schema: schema, id: id)
+
     Multi.new()
     |> Multi.update(:record, {schema, id}, attrs, opts)
     |> transaction(opts)
@@ -264,6 +322,8 @@ defmodule Events.Core.Crud do
   """
   @spec delete(struct(), keyword()) :: {:ok, struct()} | {:error, Ecto.Changeset.t()}
   def delete(%{__struct__: schema} = struct, opts \\ []) do
+    opts = put_crud_context(opts, :delete, schema: schema)
+
     Multi.new()
     |> Multi.delete(:record, struct, opts)
     |> transaction(opts)
@@ -272,6 +332,8 @@ defmodule Events.Core.Crud do
 
   @spec delete(module(), binary(), keyword()) :: {:ok, struct()} | {:error, :not_found}
   def delete(schema, id, opts) when is_atom(schema) and is_binary(id) do
+    opts = put_crud_context(opts, :delete, schema: schema, id: id)
+
     Multi.new()
     |> Multi.delete(:record, {schema, id}, opts)
     |> transaction(opts)
@@ -306,22 +368,39 @@ defmodule Events.Core.Crud do
   def fetch(schema_or_token, id_or_opts \\ [], opts \\ [])
 
   def fetch(schema, id, opts) when is_atom(schema) and is_binary(id) do
-    repo = Op.repo(opts)
-    query_opts = Op.query_opts(opts)
-    preloads = Op.preloads(opts)
+    meta =
+      build_telemetry_meta(:query, opts, %{
+        operation: :fetch,
+        schema: schema,
+        id: id
+      })
 
-    case repo.get(schema, id, query_opts) do
-      nil ->
-        {:error, :not_found}
+    emit_telemetry(meta, fn ->
+      repo = Op.repo(opts)
+      query_opts = Op.query_opts(opts)
+      preloads = Op.preloads(opts)
 
-      record ->
-        record = maybe_preload(record, preloads, repo)
-        {:ok, record}
-    end
+      case repo.get(schema, id, query_opts) do
+        nil ->
+          {:error, :not_found}
+
+        record ->
+          record = maybe_preload(record, preloads, repo)
+          {:ok, record}
+      end
+    end)
   end
 
   def fetch(query_token, opts, _) when is_struct(query_token) and is_list(opts) do
-    run(query_token, Keyword.put(opts, :mode, :one))
+    meta =
+      build_telemetry_meta(:query, opts, %{
+        operation: :fetch,
+        token: query_token.__struct__
+      })
+
+    emit_telemetry(meta, fn ->
+      run(query_token, Keyword.put(opts, :mode, :one))
+    end)
   end
 
   @doc """
@@ -343,17 +422,27 @@ defmodule Events.Core.Crud do
   def get(schema_or_token, id_or_opts \\ [], opts \\ [])
 
   def get(schema, id, opts) when is_atom(schema) and is_binary(id) do
-    repo = Op.repo(opts)
-    query_opts = Op.query_opts(opts)
-    preloads = Op.preloads(opts)
+    meta =
+      build_telemetry_meta(:query, opts, %{
+        operation: :get,
+        schema: schema,
+        id: id
+      })
 
-    case repo.get(schema, id, query_opts) do
-      nil -> nil
-      record -> maybe_preload(record, preloads, repo)
-    end
+    emit_telemetry(meta, fn ->
+      repo = Op.repo(opts)
+      query_opts = Op.query_opts(opts)
+      preloads = Op.preloads(opts)
+
+      case repo.get(schema, id, query_opts) do
+        nil -> nil
+        record -> maybe_preload(record, preloads, repo)
+      end
+    end)
   end
 
   def get(query_token, opts, _) when is_struct(query_token) and is_list(opts) do
+    # get via query token delegates to fetch, which has its own telemetry
     case fetch(query_token, opts) do
       {:ok, record} -> record
       {:error, :not_found} -> nil
@@ -377,17 +466,34 @@ defmodule Events.Core.Crud do
   """
   @spec exists?(module(), binary(), keyword()) :: boolean()
   def exists?(schema, id, opts \\ []) when is_atom(schema) and is_binary(id) do
-    repo = Op.repo(opts)
-    query_opts = Op.query_opts(opts)
-    repo.exists?(schema, [id: id] ++ query_opts)
+    meta =
+      build_telemetry_meta(:query, opts, %{
+        operation: :exists,
+        schema: schema,
+        id: id
+      })
+
+    emit_telemetry(meta, fn ->
+      repo = Op.repo(opts)
+      query_opts = Op.query_opts(opts)
+      repo.exists?(schema, [id: id] ++ query_opts)
+    end)
   end
 
   @spec exists?(struct()) :: boolean()
   def exists?(query_token) when is_struct(query_token) do
-    case run(query_token, mode: :exists) do
-      {:ok, exists} -> exists
-      _ -> false
-    end
+    meta =
+      build_telemetry_meta(:query, [], %{
+        operation: :exists,
+        token: query_token.__struct__
+      })
+
+    emit_telemetry(meta, fn ->
+      case run(query_token, mode: :exists) do
+        {:ok, exists} -> exists
+        _ -> false
+      end
+    end)
   end
 
   @doc """
@@ -403,7 +509,15 @@ defmodule Events.Core.Crud do
   """
   @spec fetch_all(struct(), keyword()) :: {:ok, [struct()]}
   def fetch_all(query_token, opts \\ []) when is_struct(query_token) do
-    run(query_token, Keyword.put(opts, :mode, :all))
+    meta =
+      build_telemetry_meta(:query, opts, %{
+        operation: :fetch_all,
+        token: query_token.__struct__
+      })
+
+    emit_telemetry(meta, fn ->
+      run(query_token, Keyword.put(opts, :mode, :all))
+    end)
   end
 
   @doc """
@@ -419,10 +533,18 @@ defmodule Events.Core.Crud do
   """
   @spec count(struct()) :: non_neg_integer()
   def count(query_token) when is_struct(query_token) do
-    case run(query_token, mode: :count) do
-      {:ok, count} -> count
-      _ -> 0
-    end
+    meta =
+      build_telemetry_meta(:query, [], %{
+        operation: :count,
+        token: query_token.__struct__
+      })
+
+    emit_telemetry(meta, fn ->
+      case run(query_token, mode: :count) do
+        {:ok, count} -> count
+        _ -> 0
+      end
+    end)
   end
 
   # ─────────────────────────────────────────────────────────────
@@ -447,6 +569,8 @@ defmodule Events.Core.Crud do
   @spec create_all(module(), [map()], keyword()) :: {:ok, [struct()]} | {:error, any()}
   def create_all(schema, list_of_attrs, opts \\ [])
       when is_atom(schema) and is_list(list_of_attrs) do
+    opts = put_crud_context(opts, :create_all, schema: schema, count: length(list_of_attrs))
+
     Multi.new()
     |> Multi.create_all(:records, schema, list_of_attrs, opts)
     |> transaction(opts)
@@ -476,6 +600,8 @@ defmodule Events.Core.Crud do
   @spec upsert_all(module(), [map()], keyword()) :: {:ok, [struct()]}
   def upsert_all(schema, list_of_attrs, opts)
       when is_atom(schema) and is_list(list_of_attrs) do
+    opts = put_crud_context(opts, :upsert_all, schema: schema, count: length(list_of_attrs))
+
     Multi.new()
     |> Multi.upsert_all(:records, schema, list_of_attrs, opts)
     |> transaction(opts)
@@ -499,6 +625,8 @@ defmodule Events.Core.Crud do
   """
   @spec update_all(struct(), keyword(), keyword()) :: {:ok, non_neg_integer()}
   def update_all(query_token, updates, opts \\ []) when is_struct(query_token) do
+    opts = put_crud_context(opts, :update_all, token: query_token.__struct__)
+
     Multi.new()
     |> Multi.update_all(:update, query_to_ecto(query_token), updates, opts)
     |> transaction(opts)
@@ -522,6 +650,8 @@ defmodule Events.Core.Crud do
   """
   @spec delete_all(struct(), keyword()) :: {:ok, non_neg_integer()}
   def delete_all(query_token, opts \\ []) when is_struct(query_token) do
+    opts = put_crud_context(opts, :delete_all, token: query_token.__struct__)
+
     Multi.new()
     |> Multi.delete_all(:delete, query_to_ecto(query_token), opts)
     |> transaction(opts)
@@ -573,4 +703,104 @@ defmodule Events.Core.Crud do
       raise ArgumentError, "Token #{inspect(query_token.__struct__)} does not implement to_query/1"
     end
   end
+
+  # ─────────────────────────────────────────────────────────────
+  # CRUD Context (for telemetry metadata)
+  # ─────────────────────────────────────────────────────────────
+
+  # Internal key for storing CRUD operation context
+  @crud_context_key :__crud_context__
+
+  defp put_crud_context(opts, operation, extra) do
+    context = %{operation: operation, source: :convenience}
+    context = Enum.into(extra, context)
+    Keyword.put(opts, @crud_context_key, context)
+  end
+
+  defp get_crud_context(opts) do
+    Keyword.get(opts, @crud_context_key, %{source: :direct})
+  end
+
+  # ─────────────────────────────────────────────────────────────
+  # Telemetry
+  # ─────────────────────────────────────────────────────────────
+
+  defp build_telemetry_meta(type, opts, extra) do
+    crud_context = get_crud_context(opts)
+
+    %{type: type}
+    |> Map.merge(crud_context)
+    |> Map.merge(extra)
+  end
+
+  defp emit_telemetry(metadata, fun) when is_function(fun, 0) do
+    start_time = System.monotonic_time()
+
+    :telemetry.execute(
+      @telemetry_event ++ [:start],
+      %{system_time: System.system_time()},
+      metadata
+    )
+
+    try do
+      result = fun.()
+
+      duration = System.monotonic_time() - start_time
+      duration_ms = System.convert_time_unit(duration, :native, :millisecond)
+
+      stop_meta = Map.put(metadata, :result, result_type(result))
+
+      :telemetry.execute(
+        @telemetry_event ++ [:stop],
+        %{duration: duration, duration_ms: duration_ms},
+        stop_meta
+      )
+
+      result
+    rescue
+      e ->
+        duration = System.monotonic_time() - start_time
+        duration_ms = System.convert_time_unit(duration, :native, :millisecond)
+
+        exception_meta =
+          metadata
+          |> Map.put(:kind, :error)
+          |> Map.put(:reason, e)
+          |> Map.put(:stacktrace, __STACKTRACE__)
+
+        :telemetry.execute(
+          @telemetry_event ++ [:exception],
+          %{duration: duration, duration_ms: duration_ms},
+          exception_meta
+        )
+
+        reraise e, __STACKTRACE__
+    catch
+      kind, reason ->
+        duration = System.monotonic_time() - start_time
+        duration_ms = System.convert_time_unit(duration, :native, :millisecond)
+
+        exception_meta =
+          metadata
+          |> Map.put(:kind, kind)
+          |> Map.put(:reason, reason)
+          |> Map.put(:stacktrace, __STACKTRACE__)
+
+        :telemetry.execute(
+          @telemetry_event ++ [:exception],
+          %{duration: duration, duration_ms: duration_ms},
+          exception_meta
+        )
+
+        :erlang.raise(kind, reason, __STACKTRACE__)
+    end
+  end
+
+  # Classify result for telemetry metadata
+  defp result_type({:ok, _}), do: :ok
+  defp result_type({:error, _}), do: :error
+  defp result_type({:error, _, _, _}), do: :error
+  defp result_type(nil), do: :not_found
+  defp result_type(false), do: :not_found
+  defp result_type(_), do: :ok
 end

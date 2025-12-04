@@ -68,7 +68,7 @@ defmodule Events.Infra.Scheduler.Config do
         """
       ],
       queues: [
-        type: {:or, [{:in, [false]}, {:keyword_list, [*: :pos_integer]}]},
+        type: {:or, [{:in, [false]}, :keyword_list]},
         default: [default: 10],
         doc: """
         Queue configurations as keyword list of {queue_name, concurrency}.
@@ -76,7 +76,7 @@ defmodule Events.Infra.Scheduler.Config do
         """
       ],
       plugins: [
-        type: {:or, [{:in, [false]}, {:list, {:or, [:atom, :tuple]}}]},
+        type: {:or, [{:in, [false]}, {:list, {:or, [:atom, {:tuple, [:atom, :keyword_list]}]}}]},
         default: [],
         doc: """
         List of plugins to enable. Each plugin can be a module or {module, opts} tuple.
@@ -84,17 +84,17 @@ defmodule Events.Infra.Scheduler.Config do
         """
       ],
       poll_interval: [
-        type: {:or, [:pos_integer, :tuple]},
+        type: {:or, [:pos_integer, {:tuple, [:pos_integer, :atom]}]},
         default: {1, :second},
         doc: "How often to poll for due jobs. Either milliseconds or {n, unit} tuple."
       ],
       stage_interval: [
-        type: {:or, [:pos_integer, :tuple]},
+        type: {:or, [:pos_integer, {:tuple, [:pos_integer, :atom]}]},
         default: {1, :second},
         doc: "How often to stage jobs from the store to queues."
       ],
       shutdown_grace_period: [
-        type: {:or, [:pos_integer, :tuple]},
+        type: {:or, [:pos_integer, {:tuple, [:pos_integer, :atom]}]},
         default: {15, :seconds},
         doc: "Grace period for running jobs during shutdown."
       ],
@@ -119,7 +119,7 @@ defmodule Events.Infra.Scheduler.Config do
         """
       ],
       middleware: [
-        type: {:or, [{:in, [false]}, {:list, {:or, [:atom, :tuple]}}]},
+        type: {:or, [{:in, [false]}, {:list, {:or, [:atom, {:tuple, [:atom, :keyword_list]}]}}]},
         default: [],
         doc: """
         List of middleware modules for job lifecycle interception.

@@ -222,6 +222,9 @@ case env do
     # Test mailer
     config :events, Events.Infra.Mailer, adapter: Swoosh.Adapters.Test
 
+    # Disable scheduler in tests (start manually when needed)
+    config :events, Events.Infra.Scheduler, enabled: false
+
     # Schema validation (validates schemas against DB on startup)
     # Fails fast in tests if schemas don't match DB
     config :events, :schema_validation,

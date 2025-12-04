@@ -816,6 +816,137 @@ defmodule Events.Types.AsyncResult do
     )
   end
 
+  @doc """
+  Retries a task using the `Events.Protocols.Recoverable` protocol to determine
+  retry behavior based on the error type.
+
+  This is a smarter retry that automatically:
+  - Checks if the error is recoverable via `Recoverable.recoverable?/1`
+  - Uses the strategy from `Recoverable.strategy/1`
+  - Calculates delays via `Recoverable.retry_delay/2`
+  - Limits attempts via `Recoverable.max_attempts/1`
+
+  ## Options
+
+    * `:normalize` - If true, normalizes errors to `Events.Types.Error` first (default: true)
+    * `:on_retry` - Callback `fn(attempt, error, delay, strategy) -> any()` between attempts
+    * `:telemetry` - Telemetry event prefix (e.g., `[:myapp, :retry]`)
+
+  ## Examples
+
+      # Automatic retry based on error type
+      AsyncResult.retry_from_error(fn -> api_call() end)
+
+      # Rate limit errors will wait using Retry-After
+      # Timeout errors will use fixed delay retry
+      # Network errors will use exponential backoff
+      # Validation errors will NOT retry (fail fast)
+
+      # With telemetry
+      AsyncResult.retry_from_error(fn -> api_call() end,
+        telemetry: [:myapp, :external_api]
+      )
+
+      # With logging callback
+      AsyncResult.retry_from_error(fn -> api_call() end,
+        on_retry: fn attempt, error, delay, strategy ->
+          Logger.warning("Retry \#{attempt}: \#{strategy}, waiting \#{delay}ms",
+            error: error
+          )
+        end
+      )
+  """
+  @spec retry_from_error(task_fun(a), keyword()) :: Result.t(a, term()) when a: term()
+  def retry_from_error(task, opts \\ []) when is_function(task, 0) do
+    normalize = Keyword.get(opts, :normalize, true)
+    on_retry = Keyword.get(opts, :on_retry)
+    telemetry_prefix = Keyword.get(opts, :telemetry)
+
+    if telemetry_prefix do
+      :telemetry.execute(telemetry_prefix ++ [:start], %{system_time: System.system_time()}, %{})
+    end
+
+    result = do_retry_from_error(task, 1, normalize, on_retry, telemetry_prefix)
+
+    if telemetry_prefix do
+      status = if match?({:ok, _}, result), do: :ok, else: :error
+      :telemetry.execute(telemetry_prefix ++ [:stop], %{}, %{result: status})
+    end
+
+    result
+  end
+
+  defp do_retry_from_error(task, attempt, normalize, on_retry, telemetry_prefix) do
+    case safe_execute(task) do
+      {:ok, _} = success ->
+        success
+
+      {:error, reason} = error ->
+        # Normalize the error if requested
+        normalized =
+          if normalize do
+            Events.Protocols.Normalizable.normalize(reason, [])
+          else
+            reason
+          end
+
+        # Check if recoverable using the protocol
+        recoverable = Events.Protocols.Recoverable.recoverable?(normalized)
+        max_attempts = Events.Protocols.Recoverable.max_attempts(normalized)
+
+        cond do
+          not recoverable ->
+            # Not recoverable, fail immediately
+            if telemetry_prefix do
+              emit_retry_telemetry(telemetry_prefix, attempt, normalized, 0, :fail_fast, false)
+            end
+
+            error
+
+          attempt >= max_attempts ->
+            # Max attempts reached
+            if telemetry_prefix do
+              emit_retry_telemetry(telemetry_prefix, attempt, normalized, 0, :max_retries, false)
+            end
+
+            {:error, {:max_retries, reason}}
+
+          true ->
+            # Calculate delay and retry
+            strategy = Events.Protocols.Recoverable.strategy(normalized)
+            delay = Events.Protocols.Recoverable.retry_delay(normalized, attempt)
+
+            # Emit telemetry
+            if telemetry_prefix do
+              emit_retry_telemetry(telemetry_prefix, attempt, normalized, delay, strategy, true)
+            end
+
+            # Call on_retry callback
+            if on_retry do
+              on_retry.(attempt, normalized, delay, strategy)
+            end
+
+            # Wait and retry
+            if delay > 0, do: Process.sleep(delay)
+
+            do_retry_from_error(task, attempt + 1, normalize, on_retry, telemetry_prefix)
+        end
+    end
+  end
+
+  defp emit_retry_telemetry(prefix, attempt, error, delay, strategy, will_retry) do
+    :telemetry.execute(
+      prefix ++ [:retry],
+      %{attempt: attempt, delay_ms: delay},
+      %{
+        error: error,
+        strategy: strategy,
+        recoverable: will_retry,
+        severity: Events.Protocols.Recoverable.severity(error)
+      }
+    )
+  end
+
   defp do_retry(
          task,
          attempt,

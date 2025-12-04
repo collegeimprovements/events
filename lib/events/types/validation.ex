@@ -1575,12 +1575,28 @@ defmodule Events.Types.Validation do
   @doc """
   Converts to Result, transforming errors with Events.Types.Error.
 
+  ## Options
+
+  - `:message` - Custom error message (default: "Validation failed")
+  - `:code` - Custom error code (default: :validation_error)
+  - `:context` - Additional context to attach to the error
+  - `:include_summary` - Include a summary of failed fields (default: true)
+
   ## Examples
 
       Validation.new(params)
       |> Validation.field(:email, [required()])
       |> Validation.to_error()
       #=> {:ok, params} | {:error, %Error{type: :validation, details: %{...}}}
+
+      # With custom options
+      Validation.new(params)
+      |> Validation.field(:email, [required()])
+      |> Validation.to_error(
+        message: "User registration failed",
+        code: :registration_validation_failed,
+        context: %{form: :registration}
+      )
   """
   @spec to_error({:context, map(), field_errors()} | t(), keyword()) :: Result.t(term(), Error.t())
   def to_error(validation, opts \\ [])
@@ -1591,11 +1607,26 @@ defmodule Events.Types.Validation do
 
   def to_error({:context, _data, errors}, opts) do
     message = Keyword.get(opts, :message, "Validation failed")
+    code = Keyword.get(opts, :code, :validation_error)
+    context = Keyword.get(opts, :context, %{})
+    include_summary = Keyword.get(opts, :include_summary, true)
+
+    details =
+      if include_summary do
+        %{
+          errors: errors,
+          fields: Map.keys(errors),
+          error_count: errors |> Map.values() |> List.flatten() |> length()
+        }
+      else
+        %{errors: errors}
+      end
 
     {:error,
-     Error.new(:validation, :validation_error,
+     Error.new(:validation, code,
        message: message,
-       details: errors
+       details: details,
+       context: context
      )}
   end
 
@@ -1603,13 +1634,192 @@ defmodule Events.Types.Validation do
 
   def to_error({:error, errors}, opts) do
     message = Keyword.get(opts, :message, "Validation failed")
+    code = Keyword.get(opts, :code, :validation_error)
+    context = Keyword.get(opts, :context, %{})
 
     {:error,
-     Error.new(:validation, :validation_error,
+     Error.new(:validation, code,
        message: message,
-       details: %{base: errors}
+       details: %{base: errors, error_count: length(errors)},
+       context: context
      )}
   end
+
+  @doc """
+  Converts field errors to a list of individual Error structs.
+
+  Useful when you need to process each validation error separately,
+  for example, to display inline errors in a UI.
+
+  ## Options
+
+  - `:context` - Additional context to attach to each error
+
+  ## Examples
+
+      Validation.new(%{email: "", age: 15})
+      |> Validation.field(:email, [required()])
+      |> Validation.field(:age, [min(18)])
+      |> Validation.to_error_list()
+      #=> [
+      #=>   %Error{type: :validation, code: :email_required, details: %{field: :email}},
+      #=>   %Error{type: :validation, code: :age_min, details: %{field: :age, constraint: 18}}
+      #=> ]
+  """
+  @spec to_error_list({:context, map(), field_errors()} | t(), keyword()) :: [Error.t()]
+  def to_error_list(validation, opts \\ [])
+
+  def to_error_list({:context, _data, errors}, opts) when map_size(errors) == 0 do
+    _ = opts
+    []
+  end
+
+  def to_error_list({:context, _data, errors}, opts) do
+    context = Keyword.get(opts, :context, %{})
+
+    Enum.flat_map(errors, fn {field, field_errors} ->
+      Enum.map(field_errors, fn error ->
+        {code, message, details} = parse_validation_error(field, error)
+
+        Error.new(:validation, code,
+          message: message,
+          details: Map.merge(details, %{field: field}),
+          context: context
+        )
+      end)
+    end)
+  end
+
+  def to_error_list({:ok, _}, _opts), do: []
+
+  def to_error_list({:error, errors}, opts) do
+    context = Keyword.get(opts, :context, %{})
+
+    Enum.map(errors, fn error ->
+      {code, message, details} = parse_validation_error(:base, error)
+
+      Error.new(:validation, code,
+        message: message,
+        details: details,
+        context: context
+      )
+    end)
+  end
+
+  # Parse validation errors into code, message, and details
+  defp parse_validation_error(field, :required) do
+    {:required, "#{field} is required", %{}}
+  end
+
+  defp parse_validation_error(field, {:min, value}) do
+    {:min_constraint, "#{field} must be at least #{value}", %{constraint: value}}
+  end
+
+  defp parse_validation_error(field, {:max, value}) do
+    {:max_constraint, "#{field} must be at most #{value}", %{constraint: value}}
+  end
+
+  defp parse_validation_error(field, {:min_length, value}) do
+    {:min_length, "#{field} must be at least #{value} characters", %{constraint: value}}
+  end
+
+  defp parse_validation_error(field, {:max_length, value}) do
+    {:max_length, "#{field} must be at most #{value} characters", %{constraint: value}}
+  end
+
+  defp parse_validation_error(field, {:format, format_type}) do
+    {:invalid_format, "#{field} has invalid format", %{expected_format: format_type}}
+  end
+
+  defp parse_validation_error(field, {:inclusion, allowed}) do
+    {:invalid_value, "#{field} must be one of: #{inspect(allowed)}", %{allowed: allowed}}
+  end
+
+  defp parse_validation_error(field, {:exclusion, disallowed}) do
+    {:forbidden_value, "#{field} cannot be one of: #{inspect(disallowed)}",
+     %{disallowed: disallowed}}
+  end
+
+  defp parse_validation_error(field, {:type, expected_type}) do
+    {:invalid_type, "#{field} must be of type #{expected_type}", %{expected_type: expected_type}}
+  end
+
+  defp parse_validation_error(field, {:between, min_val, max_val}) do
+    {:out_of_range, "#{field} must be between #{min_val} and #{max_val}",
+     %{min: min_val, max: max_val}}
+  end
+
+  defp parse_validation_error(field, {:must_match, other_field}) do
+    {:mismatch, "#{field} must match #{other_field}", %{must_match: other_field}}
+  end
+
+  defp parse_validation_error(field, message) when is_binary(message) do
+    code = field |> to_string() |> Kernel.<>("_invalid") |> String.to_atom()
+    {code, message, %{}}
+  end
+
+  defp parse_validation_error(field, code) when is_atom(code) do
+    message = code |> to_string() |> String.replace("_", " ")
+    {code, "#{field} #{message}", %{}}
+  end
+
+  defp parse_validation_error(field, other) do
+    {:validation_error, "#{field} is invalid: #{inspect(other)}", %{raw_error: other}}
+  end
+
+  @doc """
+  Checks if there are errors for a specific field.
+
+  ## Examples
+
+      ctx = Validation.new(%{email: ""}) |> Validation.field(:email, [required()])
+      Validation.has_error?(ctx, :email)
+      #=> true
+  """
+  @spec has_error?({:context, map(), field_errors()}, atom()) :: boolean()
+  def has_error?({:context, _data, errors}, field) do
+    case Map.get(errors, field) do
+      nil -> false
+      [] -> false
+      _ -> true
+    end
+  end
+
+  @doc """
+  Gets errors for a specific field.
+
+  ## Examples
+
+      ctx = Validation.new(%{email: ""}) |> Validation.field(:email, [required()])
+      Validation.errors_for(ctx, :email)
+      #=> [:required]
+  """
+  @spec errors_for({:context, map(), field_errors()}, atom()) :: errors()
+  def errors_for({:context, _data, errors}, field) do
+    Map.get(errors, field, [])
+  end
+
+  @doc """
+  Returns a count of total validation errors.
+
+  ## Examples
+
+      ctx = Validation.new(%{email: "", name: ""})
+      |> Validation.field(:email, [required()])
+      |> Validation.field(:name, [required()])
+      Validation.error_count(ctx)
+      #=> 2
+  """
+  @spec error_count({:context, map(), field_errors()} | t()) :: non_neg_integer()
+  def error_count({:context, _data, errors}) do
+    errors
+    |> Map.values()
+    |> List.flatten()
+    |> length()
+  end
+
+  def error_count({:error, errors}) when is_list(errors), do: length(errors)
+  def error_count({:ok, _}), do: 0
 
   @doc """
   Creates validation from a Result.

@@ -135,11 +135,39 @@ defmodule Events.Types.Error do
   dispatch. You can extend normalization for custom types by implementing the
   protocol.
 
+  ## Telemetry
+
+  Error normalization emits telemetry events for observability:
+
+      [:events, :error, :normalized]
+      - measurements: %{duration: native_time}
+      - metadata: %{
+          error_type: :validation,
+          error_code: :invalid_email,
+          source_type: Ecto.Changeset,
+          recoverable: false
+        }
+
+  To attach a handler:
+
+      :telemetry.attach("error-logger", [:events, :error, :normalized], fn _event, measurements, metadata, _config ->
+        Logger.info("Error normalized: \#{metadata.error_type}/\#{metadata.error_code}")
+      end, nil)
+
+  ## Options
+
+  - `:telemetry` - Set to `false` to disable telemetry emission (default: true)
+  - `:context` - Additional context to attach to the error
+  - `:step` - Pipeline step where error occurred
+
   ## Examples
 
       Error.normalize({:error, :not_found})
       Error.normalize(%Ecto.Changeset{valid?: false})
       Error.normalize(%RuntimeError{message: "boom"})
+
+      # Without telemetry
+      Error.normalize(error, telemetry: false)
 
   ## Extending
 
@@ -162,10 +190,39 @@ defmodule Events.Types.Error do
     normalize(reason, opts)
   end
 
-  # Delegate to Normalizable protocol
+  # Delegate to Normalizable protocol with telemetry
   def normalize(error, opts) do
-    Events.Protocols.Normalizable.normalize(error, opts)
+    emit_telemetry = Keyword.get(opts, :telemetry, true)
+    start_time = if emit_telemetry, do: System.monotonic_time(), else: nil
+    source_type = get_source_type(error)
+
+    normalized = Events.Protocols.Normalizable.normalize(error, opts)
+
+    if emit_telemetry do
+      duration = System.monotonic_time() - start_time
+
+      :telemetry.execute(
+        [:events, :error, :normalized],
+        %{duration: duration},
+        %{
+          error_type: normalized.type,
+          error_code: normalized.code,
+          source_type: source_type,
+          recoverable: normalized.recoverable
+        }
+      )
+    end
+
+    normalized
   end
+
+  # Get the source type for telemetry metadata
+  defp get_source_type(%{__struct__: module}), do: module
+  defp get_source_type(atom) when is_atom(atom), do: :atom
+  defp get_source_type(binary) when is_binary(binary), do: :string
+  defp get_source_type(tuple) when is_tuple(tuple), do: :tuple
+  defp get_source_type(map) when is_map(map), do: :map
+  defp get_source_type(_), do: :unknown
 
   @doc """
   Normalizes a result tuple.
@@ -327,25 +384,125 @@ defmodule Events.Types.Error do
 
   ## Error Registry
 
+  # Default error codes per type
+  @default_codes %{
+    validation: [:invalid_email, :required, :too_long, :too_short, :invalid_format],
+    not_found: [:not_found, :resource_not_found, :file_not_found],
+    unauthorized: [:unauthorized, :invalid_credentials, :token_expired],
+    forbidden: [:forbidden, :insufficient_permissions],
+    conflict: [:conflict, :already_exists, :duplicate],
+    rate_limited: [:rate_limited, :too_many_requests],
+    internal: [:internal, :exception, :unknown],
+    external: [:external_service, :api_error, :integration_failed],
+    timeout: [:timeout, :request_timeout, :operation_timeout],
+    network: [:connection_failed, :dns_error, :ssl_error],
+    business: [:business_rule_violation, :invalid_state]
+  }
+
   @doc """
   Returns all known error codes for a type.
+
+  Error codes can be extended via application config:
+
+      # In config.exs
+      config :events, Events.Types.Error,
+        codes: %{
+          validation: [:custom_validation_error],
+          payment: [:card_declined, :insufficient_funds]
+        }
+
+  Or at runtime via `register_codes/2`.
+
+  ## Examples
+
+      Error.codes_for_type(:validation)
+      #=> [:invalid_email, :required, :too_long, :too_short, :invalid_format, :custom_validation_error]
   """
   @spec codes_for_type(error_type()) :: [atom()]
   def codes_for_type(type) do
-    case type do
-      :validation -> [:invalid_email, :required, :too_long, :too_short, :invalid_format]
-      :not_found -> [:not_found, :resource_not_found, :file_not_found]
-      :unauthorized -> [:unauthorized, :invalid_credentials, :token_expired]
-      :forbidden -> [:forbidden, :insufficient_permissions]
-      :conflict -> [:conflict, :already_exists, :duplicate]
-      :rate_limited -> [:rate_limited, :too_many_requests]
-      :internal -> [:internal, :exception, :unknown]
-      :external -> [:external_service, :api_error, :integration_failed]
-      :timeout -> [:timeout, :request_timeout, :operation_timeout]
-      :network -> [:connection_failed, :dns_error, :ssl_error]
-      :business -> [:business_rule_violation, :invalid_state]
-      _ -> []
+    default = Map.get(@default_codes, type, [])
+    config = get_configured_codes(type)
+    runtime = get_runtime_codes(type)
+
+    Enum.uniq(default ++ config ++ runtime)
+  end
+
+  @doc """
+  Registers additional error codes for a type at runtime.
+
+  These codes are stored in a persistent term for fast access.
+
+  ## Examples
+
+      Error.register_codes(:payment, [:card_declined, :insufficient_funds])
+      Error.codes_for_type(:payment)
+      #=> [:card_declined, :insufficient_funds]
+  """
+  @spec register_codes(error_type(), [atom()]) :: :ok
+  def register_codes(type, codes) when is_atom(type) and is_list(codes) do
+    current = get_all_runtime_codes()
+    existing = Map.get(current, type, [])
+    updated = Map.put(current, type, Enum.uniq(existing ++ codes))
+    :persistent_term.put({__MODULE__, :runtime_codes}, updated)
+    :ok
+  end
+
+  @doc """
+  Returns all registered error types (both default and custom).
+
+  ## Examples
+
+      Error.registered_types()
+      #=> [:validation, :not_found, :unauthorized, :forbidden, :conflict, ...]
+  """
+  @spec registered_types() :: [error_type()]
+  def registered_types do
+    default_types = Map.keys(@default_codes)
+    config_types = get_configured_codes() |> Map.keys()
+    runtime_types = get_all_runtime_codes() |> Map.keys()
+
+    Enum.uniq(default_types ++ config_types ++ runtime_types)
+  end
+
+  @doc """
+  Checks if an error code is valid for a given type.
+
+  ## Examples
+
+      Error.valid_code?(:validation, :required)
+      #=> true
+
+      Error.valid_code?(:validation, :unknown_code)
+      #=> false
+  """
+  @spec valid_code?(error_type(), atom()) :: boolean()
+  def valid_code?(type, code) do
+    code in codes_for_type(type)
+  end
+
+  # Get codes from application config
+  defp get_configured_codes do
+    Application.get_env(:events, __MODULE__, [])
+    |> Keyword.get(:codes, %{})
+  end
+
+  defp get_configured_codes(type) do
+    get_configured_codes()
+    |> Map.get(type, [])
+  end
+
+  # Get runtime-registered codes
+  defp get_all_runtime_codes do
+    try do
+      :persistent_term.get({__MODULE__, :runtime_codes})
+    rescue
+      ArgumentError -> %{}
     end
+  end
+
+  defp get_runtime_codes(type) do
+    get_all_runtime_codes()
+    |> Map.get(type, [])
   end
 
   ## JSON Serialization

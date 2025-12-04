@@ -16,6 +16,9 @@ defmodule Events.Application do
       Events.Infra.PubSub,
       # Task supervisor for async operations (error storage, telemetry, etc.)
       {Task.Supervisor, name: Events.TaskSupervisor},
+      # Scheduler for background jobs and workflows (disabled by default in test)
+      # Configure via: config :events, Events.Infra.Scheduler, enabled: true/false
+      Events.Infra.Scheduler.Supervisor,
       # Start to serve requests, typically the last entry
       EventsWeb.Endpoint
     ]
@@ -76,6 +79,11 @@ defmodule Events.Application do
 
     # Handle UndefinedFunctionError when Ecto.Repo.Registry not available
     UndefinedFunctionError ->
+      Process.sleep(interval)
+      wait_for_repo(attempts - 1, interval)
+
+    # Ecto 3.13+ throws RuntimeError when repo not started
+    RuntimeError ->
       Process.sleep(interval)
       wait_for_repo(attempts - 1, interval)
   end
