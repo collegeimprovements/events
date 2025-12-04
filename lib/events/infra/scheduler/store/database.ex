@@ -1,0 +1,496 @@
+defmodule Events.Infra.Scheduler.Store.Database do
+  @moduledoc """
+  PostgreSQL-based store for the scheduler.
+
+  Suitable for production deployments with persistence and clustering.
+
+  ## Usage
+
+      # In config
+      config :events, Events.Infra.Scheduler,
+        store: :database,
+        repo: Events.Core.Repo
+  """
+
+  import Ecto.Query
+  require Logger
+
+  alias Events.Infra.Scheduler.{Job, Execution, Config}
+
+  @behaviour Events.Infra.Scheduler.Store.Behaviour
+
+  # ============================================
+  # Configuration
+  # ============================================
+
+  defp repo do
+    Config.get()[:repo] || Events.Core.Repo
+  end
+
+  defp prefix do
+    Config.get()[:prefix] || "public"
+  end
+
+  # ============================================
+  # Job Operations
+  # ============================================
+
+  @impl Events.Infra.Scheduler.Store.Behaviour
+  def register_job(%Job{} = job) do
+    job
+    |> Job.changeset(Map.from_struct(job))
+    |> repo().insert(prefix: prefix())
+  end
+
+  @impl Events.Infra.Scheduler.Store.Behaviour
+  def get_job(name) when is_binary(name) do
+    query = from(j in Job, where: j.name == ^name)
+
+    case repo().one(query, prefix: prefix()) do
+      nil -> {:error, :not_found}
+      job -> {:ok, job}
+    end
+  end
+
+  @impl Events.Infra.Scheduler.Store.Behaviour
+  def list_jobs(opts \\ []) do
+    query = build_jobs_query(opts)
+    jobs = repo().all(query, prefix: prefix())
+    {:ok, jobs}
+  end
+
+  @impl Events.Infra.Scheduler.Store.Behaviour
+  def update_job(name, attrs) when is_binary(name) and is_map(attrs) do
+    case get_job(name) do
+      {:ok, job} ->
+        job
+        |> Job.changeset(attrs)
+        |> repo().update(prefix: prefix())
+
+      error ->
+        error
+    end
+  end
+
+  @impl Events.Infra.Scheduler.Store.Behaviour
+  def delete_job(name) when is_binary(name) do
+    query = from(j in Job, where: j.name == ^name)
+
+    case repo().delete_all(query, prefix: prefix()) do
+      {0, _} -> {:error, :not_found}
+      {_, _} -> :ok
+    end
+  end
+
+  # ============================================
+  # Scheduling Operations
+  # ============================================
+
+  @impl Events.Infra.Scheduler.Store.Behaviour
+  def get_due_jobs(now, opts \\ []) do
+    limit = Keyword.get(opts, :limit, 100)
+
+    query =
+      from(j in Job,
+        where: j.enabled == true,
+        where: j.paused == false,
+        where: j.state == :active,
+        where: j.next_run_at <= ^now,
+        order_by: [asc: j.priority, asc: j.next_run_at],
+        limit: ^limit
+      )
+      |> maybe_filter_queue(opts[:queue])
+
+    {:ok, repo().all(query, prefix: prefix())}
+  end
+
+  defp maybe_filter_queue(query, nil), do: query
+  defp maybe_filter_queue(query, queue), do: from(j in query, where: j.queue == ^to_string(queue))
+
+  @impl Events.Infra.Scheduler.Store.Behaviour
+  def mark_running(name, node) do
+    with {:ok, job} <- get_job(name),
+         :ok <- maybe_acquire_lock(job, node) do
+      do_mark_running(job)
+    end
+  end
+
+  defp maybe_acquire_lock(%Job{unique: false}, _node), do: :ok
+
+  defp maybe_acquire_lock(%Job{unique: true, name: name, timeout: timeout}, node) do
+    case acquire_unique_lock(name, to_string(node), timeout) do
+      {:ok, _} -> :ok
+      {:error, :locked} = error -> error
+    end
+  end
+
+  defp do_mark_running(job) do
+    job
+    |> Job.execution_changeset(%{last_run_at: DateTime.utc_now()})
+    |> repo().update(prefix: prefix())
+  end
+
+  @impl Events.Infra.Scheduler.Store.Behaviour
+  def mark_completed(name, result, next_run_at) do
+    with {:ok, job} <- get_job(name) do
+      attrs = %{
+        run_count: job.run_count + 1,
+        last_result: truncate_string(inspect(result), 255),
+        next_run_at: next_run_at
+      }
+
+      update_result =
+        job
+        |> Job.execution_changeset(attrs)
+        |> repo().update(prefix: prefix())
+
+      maybe_release_lock(job)
+      update_result
+    end
+  end
+
+  @impl Events.Infra.Scheduler.Store.Behaviour
+  def mark_failed(name, reason, next_run_at) do
+    with {:ok, job} <- get_job(name) do
+      attrs = %{
+        error_count: job.error_count + 1,
+        last_error: truncate_string(inspect(reason), 1000),
+        next_run_at: next_run_at
+      }
+
+      update_result =
+        job
+        |> Job.execution_changeset(attrs)
+        |> repo().update(prefix: prefix())
+
+      maybe_release_lock(job)
+      update_result
+    end
+  end
+
+  defp maybe_release_lock(%Job{unique: true, name: name}) do
+    release_unique_lock(name, to_string(node()))
+  end
+
+  defp maybe_release_lock(%Job{unique: false}), do: :ok
+
+  @impl Events.Infra.Scheduler.Store.Behaviour
+  def release_lock(name) do
+    case get_job(name) do
+      {:ok, job} -> maybe_release_lock(job)
+      {:error, _} -> :ok
+    end
+  end
+
+  @impl Events.Infra.Scheduler.Store.Behaviour
+  def mark_cancelled(name, reason) do
+    with {:ok, job} <- get_job(name) do
+      next_run = calculate_next_run(job)
+
+      attrs = %{
+        last_error: truncate_string("Cancelled: #{inspect(reason)}", 1000),
+        next_run_at: next_run
+      }
+
+      update_result =
+        job
+        |> Job.execution_changeset(attrs)
+        |> repo().update(prefix: prefix())
+
+      maybe_release_lock(job)
+      update_result
+    end
+  end
+
+  defp calculate_next_run(job) do
+    case Job.calculate_next_run(job, DateTime.utc_now()) do
+      {:ok, next} -> next
+      {:error, _} -> nil
+    end
+  end
+
+  # ============================================
+  # Execution History
+  # ============================================
+
+  @impl Events.Infra.Scheduler.Store.Behaviour
+  def record_execution_start(%Execution{} = execution) do
+    execution
+    |> Execution.changeset(Map.from_struct(execution))
+    |> repo().insert(prefix: prefix())
+  end
+
+  @impl Events.Infra.Scheduler.Store.Behaviour
+  def record_execution_complete(%Execution{id: id} = execution) when not is_nil(id) do
+    query = from(e in Execution, where: e.id == ^id)
+
+    case repo().one(query, prefix: prefix()) do
+      nil ->
+        # If not found, insert as new
+        record_execution_start(execution)
+
+      existing ->
+        existing
+        |> Execution.complete_changeset(Map.from_struct(execution))
+        |> repo().update(prefix: prefix())
+    end
+  end
+
+  def record_execution_complete(%Execution{} = execution) do
+    record_execution_start(execution)
+  end
+
+  @impl Events.Infra.Scheduler.Store.Behaviour
+  def get_executions(job_name, opts \\ []) do
+    limit = Keyword.get(opts, :limit, 100)
+
+    query =
+      from(e in Execution,
+        where: e.job_name == ^job_name,
+        order_by: [desc: e.started_at],
+        limit: ^limit
+      )
+      |> maybe_filter_since(opts[:since])
+      |> maybe_filter_result(opts[:result])
+
+    {:ok, repo().all(query, prefix: prefix())}
+  end
+
+  defp maybe_filter_since(query, nil), do: query
+  defp maybe_filter_since(query, since), do: from(e in query, where: e.started_at > ^since)
+
+  defp maybe_filter_result(query, nil), do: query
+  defp maybe_filter_result(query, result), do: from(e in query, where: e.result == ^result)
+
+  @impl Events.Infra.Scheduler.Store.Behaviour
+  def prune_executions(opts \\ []) do
+    before = Keyword.get(opts, :before, DateTime.add(DateTime.utc_now(), -7, :day))
+    limit = Keyword.get(opts, :limit, 10_000)
+
+    # Get IDs to delete
+    subquery =
+      from(e in Execution,
+        where: e.inserted_at < ^before,
+        select: e.id,
+        limit: ^limit
+      )
+
+    # Delete by IDs
+    query = from(e in Execution, where: e.id in subquery(subquery))
+
+    case repo().delete_all(query, prefix: prefix()) do
+      {count, _} -> {:ok, count}
+    end
+  end
+
+  # ============================================
+  # Unique Job Enforcement
+  # ============================================
+
+  @impl Events.Infra.Scheduler.Store.Behaviour
+  def acquire_unique_lock(key, owner, ttl_ms) do
+    now = DateTime.utc_now()
+    expires_at = DateTime.add(now, ttl_ms, :millisecond)
+
+    # Try to insert, or update if expired
+    sql = """
+    INSERT INTO scheduler_locks (id, key, owner, expires_at, inserted_at)
+    VALUES (gen_random_uuid(), $1, $2, $3, $4)
+    ON CONFLICT (key) DO UPDATE
+    SET owner = EXCLUDED.owner,
+        expires_at = EXCLUDED.expires_at
+    WHERE scheduler_locks.expires_at < $4
+    RETURNING key
+    """
+
+    case repo().query(sql, [key, owner, expires_at, now], prefix: prefix()) do
+      {:ok, %{num_rows: 1}} ->
+        {:ok, key}
+
+      {:ok, %{num_rows: 0}} ->
+        {:error, :locked}
+
+      {:error, reason} ->
+        Logger.warning("Failed to acquire lock #{key}: #{inspect(reason)}")
+        {:error, :locked}
+    end
+  end
+
+  @impl Events.Infra.Scheduler.Store.Behaviour
+  def release_unique_lock(key, owner) do
+    sql = """
+    DELETE FROM scheduler_locks
+    WHERE key = $1 AND owner = $2
+    """
+
+    repo().query(sql, [key, owner], prefix: prefix())
+    :ok
+  end
+
+  @impl Events.Infra.Scheduler.Store.Behaviour
+  def cleanup_expired_locks do
+    now = DateTime.utc_now()
+
+    sql = """
+    DELETE FROM scheduler_locks
+    WHERE expires_at < $1
+    """
+
+    case repo().query(sql, [now], prefix: prefix()) do
+      {:ok, %{num_rows: count}} -> {:ok, count}
+      {:error, _} -> {:ok, 0}
+    end
+  end
+
+  @impl Events.Infra.Scheduler.Store.Behaviour
+  def check_unique_conflict(key, states, cutoff) do
+    now = DateTime.utc_now()
+
+    # First check locks table
+    lock_sql = """
+    SELECT 1 FROM scheduler_locks
+    WHERE key = $1 AND expires_at > $2
+    LIMIT 1
+    """
+
+    case repo().query(lock_sql, [key, now], prefix: prefix()) do
+      {:ok, %{num_rows: 1}} ->
+        # Lock exists and is valid - conflict
+        {:ok, true}
+
+      {:ok, %{num_rows: 0}} ->
+        # Check executions table
+        check_execution_conflict(key, states, cutoff)
+
+      {:error, _} ->
+        {:error, :not_implemented}
+    end
+  end
+
+  defp check_execution_conflict(key, states, cutoff) do
+    state_strings = Enum.map(states, &to_string/1)
+
+    base_query =
+      from(e in Execution,
+        where: e.job_name == ^key,
+        where: e.state in ^state_strings,
+        limit: 1
+      )
+
+    query =
+      case cutoff do
+        nil -> base_query
+        cutoff_dt -> from(e in base_query, where: e.started_at >= ^cutoff_dt)
+      end
+
+    case repo().one(query, prefix: prefix()) do
+      nil -> {:ok, false}
+      _exec -> {:ok, true}
+    end
+  end
+
+  # ============================================
+  # Lifeline / Heartbeat Operations
+  # ============================================
+
+  @impl Events.Infra.Scheduler.Store.Behaviour
+  def record_heartbeat(job_name, _node) do
+    now = DateTime.utc_now()
+
+    query =
+      from(e in Execution,
+        where: e.job_name == ^job_name,
+        where: e.state == :running,
+        order_by: [desc: e.started_at],
+        limit: 1
+      )
+
+    case repo().one(query, prefix: prefix()) do
+      nil ->
+        {:error, :not_found}
+
+      execution ->
+        execution
+        |> Ecto.Changeset.change(%{heartbeat_at: now})
+        |> repo().update(prefix: prefix())
+
+        :ok
+    end
+  end
+
+  @impl Events.Infra.Scheduler.Store.Behaviour
+  def get_stuck_executions(cutoff) do
+    query =
+      from(e in Execution,
+        where: e.state == :running,
+        where: not is_nil(e.heartbeat_at),
+        where: e.heartbeat_at < ^cutoff,
+        order_by: [asc: e.heartbeat_at]
+      )
+
+    {:ok, repo().all(query, prefix: prefix())}
+  end
+
+  @impl Events.Infra.Scheduler.Store.Behaviour
+  def mark_execution_rescued(execution_id) do
+    now = DateTime.utc_now()
+
+    query = from(e in Execution, where: e.id == ^execution_id)
+
+    case repo().one(query, prefix: prefix()) do
+      nil ->
+        {:error, :not_found}
+
+      execution ->
+        duration = DateTime.diff(now, execution.started_at, :millisecond)
+
+        execution
+        |> Ecto.Changeset.change(%{
+          state: :rescued,
+          result: :rescued,
+          completed_at: now,
+          duration_ms: duration,
+          error: "Rescued by lifeline (stuck)"
+        })
+        |> repo().update(prefix: prefix())
+
+        :ok
+    end
+  end
+
+  # ============================================
+  # Private Helpers
+  # ============================================
+
+  defp build_jobs_query(opts) do
+    limit = Keyword.get(opts, :limit, 100)
+    offset = Keyword.get(opts, :offset, 0)
+
+    from(j in Job,
+      order_by: [asc: j.name],
+      limit: ^limit,
+      offset: ^offset
+    )
+    |> maybe_filter_queue(opts[:queue])
+    |> maybe_filter_state(opts[:state])
+    |> maybe_filter_tags(Keyword.get(opts, :tags, []))
+  end
+
+  defp maybe_filter_state(query, nil), do: query
+  defp maybe_filter_state(query, state), do: from(j in query, where: j.state == ^state)
+
+  defp maybe_filter_tags(query, []), do: query
+
+  defp maybe_filter_tags(query, tags),
+    do: from(j in query, where: fragment("? && ?", j.tags, ^tags))
+
+  defp truncate_string(str, max_length) when is_binary(str) and byte_size(str) <= max_length do
+    str
+  end
+
+  defp truncate_string(str, max_length) when is_binary(str) do
+    String.slice(str, 0, max_length - 3) <> "..."
+  end
+
+  defp truncate_string(other, _max_length), do: inspect(other)
+end

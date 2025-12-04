@@ -87,7 +87,9 @@ defmodule Events.Infra.Decorator.Define do
     returns_list: 1,
     returns_union: 1,
     returns_pipeline: 1,
-    normalize_result: 1
+    normalize_result: 1,
+    # Scheduler
+    scheduled: 1
 
   # Caching decorators
   defdelegate cacheable(opts, body, context), to: Events.Infra.Decorator.Caching
@@ -146,4 +148,7 @@ defmodule Events.Infra.Decorator.Define do
   defdelegate returns_union(opts, body, context), to: Events.Infra.Decorator.Types
   defdelegate returns_pipeline(opts, body, context), to: Events.Infra.Decorator.Types
   defdelegate normalize_result(opts, body, context), to: Events.Infra.Decorator.Types
+
+  # Scheduler decorator
+  defdelegate scheduled(opts, body, context), to: Events.Infra.Scheduler.Decorator.Scheduled
 end

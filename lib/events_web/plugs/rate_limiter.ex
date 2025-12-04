@@ -52,13 +52,13 @@ defmodule EventsWeb.Plugs.RateLimiter do
       max_requests: Keyword.get(opts, :max_requests, @default_max_requests),
       interval_ms: Keyword.get(opts, :interval_ms, @default_interval_ms),
       id_prefix: Keyword.get(opts, :id_prefix, @default_id_prefix),
-      identifier: Keyword.get(opts, :identifier, &get_ip/1)
+      identifier: Keyword.get(opts, :identifier, nil)
     }
   end
 
   @impl true
   def call(conn, opts) do
-    identifier = opts.identifier.(conn)
+    identifier = get_identifier(conn, opts.identifier)
     bucket_id = "#{opts.id_prefix}:#{identifier}"
 
     case Hammer.check_rate(bucket_id, opts.interval_ms, opts.max_requests) do
@@ -83,6 +83,9 @@ defmodule EventsWeb.Plugs.RateLimiter do
         conn
     end
   end
+
+  defp get_identifier(conn, nil), do: get_ip(conn)
+  defp get_identifier(conn, fun) when is_function(fun, 1), do: fun.(conn)
 
   # Extracts IP address from the connection
   defp get_ip(conn) do

@@ -22,7 +22,7 @@ defmodule EventsWeb.Plugs.RateLimiterTest do
       assert opts.max_requests == 60
       assert opts.interval_ms == 60_000
       assert opts.id_prefix == "rl"
-      assert is_function(opts.identifier, 1)
+      assert is_nil(opts.identifier)
     end
 
     test "accepts custom max_requests" do

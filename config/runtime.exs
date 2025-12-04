@@ -102,6 +102,21 @@ config :events, Events.Core.Repo, repo_config
 config :events, Events.Core.Cache, ConfigHelper.get_cache_config()
 
 # ==============================================================================
+# HAMMER RATE LIMITER CONFIGURATION
+# ==============================================================================
+
+config :hammer,
+  backend:
+    {Hammer.Backend.Redis,
+     [
+       expiry_ms: :timer.hours(2),
+       redix_config: [
+         host: ConfigHelper.get_env("REDIS_HOST", "localhost"),
+         port: ConfigHelper.get_env_integer("REDIS_PORT", 6379)
+       ]
+     ]}
+
+# ==============================================================================
 # PHOENIX ENDPOINT CONFIGURATION
 # ==============================================================================
 

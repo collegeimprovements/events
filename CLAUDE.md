@@ -14,6 +14,7 @@
 | `docs/claude/DECORATORS.md` | Decorator quick reference |
 | `docs/claude/CRUD.md` | CRUD system, Multi, Merge, options reference |
 | `docs/claude/S3.md` | S3 API reference |
+| `docs/claude/SCHEDULER.md` | Cron scheduler quick reference |
 
 ---
 

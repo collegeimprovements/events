@@ -64,16 +64,7 @@ config :tailwind,
 # Adapter-specific configuration is set in runtime.exs based on the selected adapter.
 
 # Hammer rate limiter configuration
-config :hammer,
-  backend:
-    {Hammer.Backend.Redis,
-     [
-       expiry_ms: :timer.hours(2),
-       redix_config: [
-         host: ConfigHelper.get_env("REDIS_HOST", "localhost"),
-         port: ConfigHelper.get_env_integer("REDIS_PORT", 6379)
-       ]
-     ]}
+# NOTE: Backend is configured at runtime in config/runtime.exs
 
 # Logger configuration
 config :logger, :default_formatter,
@@ -83,6 +74,14 @@ config :logger, :default_formatter,
 # Use Jason for JSON parsing in Phoenix
 config :phoenix, :json_library, Jason
 
-# Load runtime configuration
-# This will load environment-specific settings from runtime.exs
-import_config "runtime.exs"
+# Scheduler configuration (defaults for development)
+# Production settings should be configured in runtime.exs
+config :events, Events.Infra.Scheduler,
+  enabled: true,
+  store: :memory,
+  peer: Events.Infra.Scheduler.Peer.Global,
+  queues: [default: 5],
+  plugins: []
+
+# NOTE: runtime.exs is automatically loaded at application startup
+# Do NOT use import_config "runtime.exs" - that would run it at compile time
