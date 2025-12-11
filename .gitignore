@@ -42,3 +42,10 @@ npm-debug.log
 .env.local
 .env.*.local
 node_modules
+
+# Ignore build artifacts and dependencies in libs subdirectories
+libs/*/_build/
+libs/*/deps/
+libs/*/doc/
+libs/*/.fetch
+libs/*/cover/

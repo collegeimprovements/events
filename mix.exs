@@ -75,6 +75,7 @@ defmodule Events.MixProject do
       {:om_schema, path: "libs/om_schema"},
       {:om_migration, path: "libs/om_migration"},
       {:om_query, path: "libs/om_query"},
+      {:om_crud, path: "libs/om_crud"},
 
       # ============================================
       # Phoenix & Web

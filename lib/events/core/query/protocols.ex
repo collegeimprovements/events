@@ -1,4 +1,4 @@
-defimpl Events.Core.Crud.Executable, for: Events.Core.Query.Token do
+defimpl OmCrud.Executable, for: Events.Core.Query.Token do
   @moduledoc """
   Executable implementation for Query.Token.
 
@@ -31,7 +31,7 @@ defimpl Events.Core.Crud.Executable, for: Events.Core.Query.Token do
   end
 end
 
-defimpl Events.Core.Crud.Validatable, for: Events.Core.Query.Token do
+defimpl OmCrud.Validatable, for: Events.Core.Query.Token do
   @moduledoc """
   Validatable implementation for Query.Token.
 
@@ -66,7 +66,7 @@ defimpl Events.Core.Crud.Validatable, for: Events.Core.Query.Token do
   end
 end
 
-defimpl Events.Core.Crud.Debuggable, for: Events.Core.Query.Token do
+defimpl OmCrud.Debuggable, for: Events.Core.Query.Token do
   @moduledoc """
   Debuggable implementation for Query.Token.
 

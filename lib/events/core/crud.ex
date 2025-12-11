@@ -2,853 +2,253 @@ defmodule Events.Core.Crud do
   @moduledoc """
   Unified CRUD execution API.
 
-  Provides a consistent interface for executing all CRUD operations.
-  All write operations use Multi internally for future audit integration.
+  This module delegates to `OmCrud` - a standalone library for CRUD operations.
+  See `OmCrud` for full documentation.
 
-  ## Design Principles
+  ## Quick Reference
 
-  - **Unified execution** - `run/1` works with any Executable token
-  - **Explicit** - Tokens are data, execution is a separate step
-  - **Result tuples** - All operations return `{:ok, result}` or `{:error, reason}`
-  - **Composable** - Build complex operations from simple parts
-  - **Observable** - All operations emit telemetry events
+  ### Token Execution
 
-  ## Token Execution
-
-      # Multi transactions
       Multi.new()
       |> Multi.create(:user, User, attrs)
       |> Crud.run()
 
-      # Merge operations
-      User
-      |> Merge.new(data)
-      |> Merge.match_on(:email)
-      |> Crud.run()
-
-      # Query execution
-      User
-      |> Query.new()
-      |> Query.where(:active, true)
-      |> Crud.run()
-
-  ## Convenience Functions
-
-  For simple operations, use the convenience functions:
+  ### Convenience Functions
 
       Crud.create(User, attrs)
       Crud.fetch(User, id)
       Crud.update(user, attrs)
       Crud.delete(user)
 
-  ## Telemetry Events
+  ## Configuration
 
-  All database operations emit a single telemetry event at execution time:
+  OmCrud is configured in `config/config.exs`:
 
-      [:events, :crud, :execute, :start/:stop/:exception]
-
-  ### Measurements
-
-  - `:duration` - Operation duration in native time units
-  - `:duration_ms` - Operation duration in milliseconds
-  - `:system_time` - Absolute timestamp (on start events)
-
-  ### Metadata
-
-  - `:type` - Execution type (`:transaction`, `:merge`, `:query`)
-  - `:operation` - High-level operation (`:create`, `:update`, `:delete`, `:fetch`, etc.)
-  - `:schema` - Schema module (when applicable)
-  - `:id` - Record ID (for single record operations)
-  - `:count` - Number of records (for bulk operations)
-  - `:source` - Where the call originated (`:convenience`, `:direct`)
-  - `:result` - Operation result type (`:ok`, `:error`) on stop events
-
-  ### Example Telemetry Handler
-
-      :telemetry.attach(
-        "crud-logger",
-        [:events, :crud, :execute, :stop],
-        fn _event, %{duration_ms: ms}, %{operation: op, schema: schema}, _config ->
-          Logger.info("CRUD \#{op} on \#{schema} took \#{ms}ms")
-        end,
-        nil
-      )
+      config :om_crud,
+        default_repo: Events.Core.Repo,
+        telemetry_prefix: [:events, :crud, :execute]
   """
 
-  alias Events.Core.Crud.{Options, Multi, Merge, Validatable}
+  # Re-export types and modules for convenience
+  defdelegate run(token, opts \\ []), to: OmCrud
+  defdelegate execute(token, opts \\ []), to: OmCrud
+  defdelegate transaction(multi_or_fun, opts \\ []), to: OmCrud
+  defdelegate execute_merge(merge, opts \\ []), to: OmCrud
 
-  # Telemetry event name
-  @telemetry_event [:events, :crud, :execute]
+  # Single record operations
+  defdelegate create(schema, attrs, opts \\ []), to: OmCrud
+  defdelegate update(struct_or_schema, attrs_or_id, opts_or_attrs \\ []), to: OmCrud
+  defdelegate delete(struct_or_schema, opts_or_id \\ []), to: OmCrud
 
-  # ─────────────────────────────────────────────────────────────
-  # Unified Execution API
-  # ─────────────────────────────────────────────────────────────
+  # Read operations
+  defdelegate fetch(schema_or_token, id_or_opts \\ [], opts \\ []), to: OmCrud
+  defdelegate get(schema_or_token, id_or_opts \\ [], opts \\ []), to: OmCrud
+  defdelegate exists?(schema_or_token, id_or_opts \\ []), to: OmCrud
+  defdelegate fetch_all(query_token, opts \\ []), to: OmCrud
+  defdelegate count(query_token), to: OmCrud
 
-  @doc """
-  Execute any Executable token.
+  # Bulk operations
+  defdelegate create_all(schema, list_of_attrs, opts \\ []), to: OmCrud
+  defdelegate upsert_all(schema, list_of_attrs, opts), to: OmCrud
+  defdelegate update_all(query_token, updates, opts \\ []), to: OmCrud
+  defdelegate delete_all(query_token, opts \\ []), to: OmCrud
+end
 
-  This is the primary entry point for executing CRUD operations.
-  Works with Multi, Merge, and Query tokens.
+defmodule Events.Core.Crud.Multi do
+  @moduledoc """
+  Transaction builder for composable CRUD operations.
 
-  ## Examples
-
-      # Execute a Multi
-      Multi.new()
-      |> Multi.create(:user, User, attrs)
-      |> Crud.run()
-
-      # Execute a Merge
-      User
-      |> Merge.new(data)
-      |> Merge.match_on(:email)
-      |> Merge.when_matched(:update)
-      |> Crud.run()
+  This module delegates to `OmCrud.Multi` - see that module for full documentation.
   """
-  @spec run(struct(), keyword()) :: {:ok, any()} | {:error, any()}
-  def run(token, opts \\ [])
+  defdelegate new(), to: OmCrud.Multi
+  defdelegate new(schema), to: OmCrud.Multi
+  defdelegate create(multi, name, schema, attrs, opts \\ []), to: OmCrud.Multi
+  defdelegate update(multi, name, target, attrs, opts \\ []), to: OmCrud.Multi
+  defdelegate delete(multi, name, target, opts \\ []), to: OmCrud.Multi
+  defdelegate upsert(multi, name, schema, attrs, opts), to: OmCrud.Multi
+  defdelegate merge(multi, name, merge_token), to: OmCrud.Multi
+  defdelegate create_all(multi, name, schema, list_of_attrs, opts \\ []), to: OmCrud.Multi
+  defdelegate upsert_all(multi, name, schema, list_of_attrs, opts), to: OmCrud.Multi
+  defdelegate update_all(multi, name, query, updates, opts \\ []), to: OmCrud.Multi
+  defdelegate delete_all(multi, name, query, opts \\ []), to: OmCrud.Multi
+  defdelegate merge_all(multi, name, merge_token), to: OmCrud.Multi
+  defdelegate run(multi, name, fun), to: OmCrud.Multi
+  defdelegate run(multi, name, mod, fun, args), to: OmCrud.Multi
+  defdelegate inspect_results(multi, name, fun), to: OmCrud.Multi
+  defdelegate when_ok(multi, name, fun), to: OmCrud.Multi
+  defdelegate append(multi1, multi2), to: OmCrud.Multi
+  defdelegate prepend(multi1, multi2), to: OmCrud.Multi
+  defdelegate embed(multi1, multi2, opts \\ []), to: OmCrud.Multi
+  defdelegate names(multi), to: OmCrud.Multi
+  defdelegate operation_count(multi), to: OmCrud.Multi
+  defdelegate has_operation?(multi, name), to: OmCrud.Multi
+  defdelegate empty?(multi), to: OmCrud.Multi
+  defdelegate to_ecto_multi(multi), to: OmCrud.Multi
+end
 
-  def run(%Multi{} = multi, opts) do
-    transaction(multi, opts)
-  end
+defmodule Events.Core.Crud.Merge do
+  @moduledoc """
+  PostgreSQL MERGE operation builder.
 
-  def run(%Merge{} = merge, opts) do
-    execute_merge(merge, opts)
-  end
-
-  # For Query.Token - will be implemented when Query integration is added
-  def run(token, opts) when is_struct(token) do
-    # Check if the token implements Executable protocol
-    if function_exported?(Events.Core.Crud.Executable, :execute, 2) do
-      Events.Core.Crud.Executable.execute(token, opts)
-    else
-      {:error, {:not_executable, token}}
-    end
-  end
-
-  @doc """
-  Alias for `run/2` for pipe-friendliness.
+  This module delegates to `OmCrud.Merge` - see that module for full documentation.
   """
-  @spec execute(struct(), keyword()) :: {:ok, any()} | {:error, any()}
-  defdelegate execute(token, opts \\ []), to: __MODULE__, as: :run
+  defdelegate new(schema), to: OmCrud.Merge
+  defdelegate new(schema, source), to: OmCrud.Merge
+  defdelegate source(merge, source), to: OmCrud.Merge
+  defdelegate match_on(merge, columns), to: OmCrud.Merge
+  defdelegate when_matched(merge, action), to: OmCrud.Merge
+  defdelegate when_matched(merge, action_or_condition, fields_or_action), to: OmCrud.Merge
+  defdelegate when_not_matched(merge, action), to: OmCrud.Merge
+  defdelegate when_not_matched(merge, action_or_condition, attrs_or_action), to: OmCrud.Merge
+  defdelegate returning(merge, fields), to: OmCrud.Merge
+  defdelegate opts(merge, opts), to: OmCrud.Merge
+  defdelegate to_sql(merge, opts \\ []), to: OmCrud.Merge
+  defdelegate has_matched_clauses?(merge), to: OmCrud.Merge
+  defdelegate has_not_matched_clauses?(merge), to: OmCrud.Merge
+  defdelegate source_count(merge), to: OmCrud.Merge
+end
 
-  # ─────────────────────────────────────────────────────────────
-  # Transaction Execution
-  # ─────────────────────────────────────────────────────────────
+defmodule Events.Core.Crud.Options do
+  @moduledoc """
+  Option handling for CRUD operations.
 
-  @doc """
-  Execute a Multi or function returning Multi as a transaction.
-
-  All operations in the Multi are executed atomically.
-  If any operation fails, all previous operations are rolled back.
-
-  ## Options
-
-  - `:repo` - Custom repo module (defaults to Events.Core.Repo)
-  - `:timeout` - Transaction timeout in milliseconds
-  - `:prefix` - Database schema prefix
-  - `:log` - Log level for queries (false to disable)
-
-  ## Returns
-
-  - `{:ok, results}` - Map of operation names to results
-  - `{:error, failed_operation, failed_value, changes_so_far}` - Transaction failed
-
-  ## Examples
-
-      # Direct Multi
-      multi =
-        Multi.new()
-        |> Multi.create(:user, User, user_attrs)
-        |> Multi.create(:account, Account, fn %{user: u} -> %{owner_id: u.id} end)
-
-      {:ok, %{user: user, account: account}} = Crud.transaction(multi)
-
-      # With custom timeout for long operations
-      Crud.transaction(multi, timeout: 60_000)
-
-      # With custom repo
-      Crud.transaction(multi, repo: MyApp.ReadOnlyRepo)
-
-      # Lazy Multi via function
-      Crud.transaction(fn ->
-        Multi.new()
-        |> Multi.create(:user, User, attrs)
-      end)
+  This module delegates to `OmCrud.Options` - see that module for full documentation.
   """
-  @spec transaction(Multi.t() | (-> Multi.t()), keyword()) ::
-          {:ok, map()} | {:error, atom(), any(), map()}
-  def transaction(multi_or_fun, opts \\ [])
+  defdelegate valid_opts(operation), to: OmCrud.Options
+  defdelegate extract(opts, operation), to: OmCrud.Options
+  defdelegate repo_opts(opts), to: OmCrud.Options
+  defdelegate sql_opts(opts), to: OmCrud.Options
+  defdelegate normalize(opts), to: OmCrud.Options
+  defdelegate validate(opts, operation), to: OmCrud.Options
+  defdelegate repo(opts), to: OmCrud.Options
+  defdelegate preloads(opts), to: OmCrud.Options
+  defdelegate timeout(opts), to: OmCrud.Options
+  defdelegate prefix(opts), to: OmCrud.Options
+  defdelegate insert_opts(opts \\ []), to: OmCrud.Options
+  defdelegate upsert_opts(opts), to: OmCrud.Options
+  defdelegate update_opts(opts \\ []), to: OmCrud.Options
+  defdelegate delete_opts(opts \\ []), to: OmCrud.Options
+  defdelegate query_opts(opts \\ []), to: OmCrud.Options
+  defdelegate insert_all_opts(opts \\ []), to: OmCrud.Options
+  defdelegate update_all_opts(opts \\ []), to: OmCrud.Options
+  defdelegate delete_all_opts(opts \\ []), to: OmCrud.Options
+  defdelegate merge_opts(opts \\ []), to: OmCrud.Options
+end
 
-  def transaction(%Multi{} = multi, opts) do
-    meta =
-      build_telemetry_meta(:transaction, opts, %{
-        operations: Multi.operation_count(multi)
-      })
+defmodule Events.Core.Crud.ChangesetBuilder do
+  @moduledoc """
+  Changeset building utilities.
 
-    emit_telemetry(meta, fn ->
-      with :ok <- validate_token(multi) do
-        repo = Options.repo(opts)
-        sql_opts = Options.sql_opts(opts)
-        ecto_multi = Multi.to_ecto_multi(multi)
-        repo.transaction(ecto_multi, sql_opts)
+  This module delegates to `OmCrud.ChangesetBuilder` - see that module for full documentation.
+  """
+  defdelegate build(schema_or_struct, attrs, opts \\ []), to: OmCrud.ChangesetBuilder
+  defdelegate resolve(schema, action, opts), to: OmCrud.ChangesetBuilder
+end
+
+defmodule Events.Core.Crud.Context do
+  @moduledoc """
+  Context-level CRUD generation.
+
+  This module delegates to `OmCrud.Context` - see that module for full documentation.
+
+  ## Usage
+
+      defmodule MyApp.Accounts do
+        use Events.Core.Crud.Context
+
+        crud User
+        crud Role, only: [:create, :fetch]
       end
-    end)
-  end
-
-  def transaction(fun, opts) when is_function(fun, 0) do
-    transaction(fun.(), opts)
-  end
-
-  # ─────────────────────────────────────────────────────────────
-  # Merge Execution
-  # ─────────────────────────────────────────────────────────────
-
-  @doc """
-  Execute a Merge token.
-
-  This executes the PostgreSQL MERGE operation and returns the affected rows.
-
-  ## Options
-
-  Options can be passed directly to this function or stored in the Merge token
-  via `Merge.opts/2`. Direct options take precedence over token options.
-
-  - `:repo` - Custom repo module (defaults to Events.Core.Repo)
-  - `:timeout` - Query timeout
-  - `:prefix` - Database schema prefix
-  - `:log` - Log level for queries (false to disable)
-
-  ## Returns
-
-  - `{:ok, results}` - List of affected records (if returning is enabled)
-  - `{:error, reason}` - Operation failed
   """
-  @spec execute_merge(Merge.t(), keyword()) :: {:ok, [struct()]} | {:error, any()}
-  def execute_merge(%Merge{} = merge, opts \\ []) do
-    # Merge token opts with call-time opts (call-time takes precedence)
-    merged_opts = Keyword.merge(merge.opts, opts)
+  defmacro __using__(opts) do
+    quote do
+      use OmCrud.Context, unquote(opts)
+    end
+  end
+end
 
-    meta =
-      build_telemetry_meta(:merge, merged_opts, %{
-        schema: merge.schema,
-        count: source_count(merge.source)
-      })
+defmodule Events.Core.Crud.Schema do
+  @moduledoc """
+  Schema-level CRUD configuration.
 
-    emit_telemetry(meta, fn ->
-      with :ok <- validate_token(merge) do
-        repo = Options.repo(merged_opts)
-        sql_opts = Options.sql_opts(merged_opts)
-        {sql, params} = Merge.to_sql(merge)
+  This module delegates to `OmCrud.Schema` - see that module for full documentation.
 
-        case repo.query(sql, params, sql_opts) do
-          {:ok, %{rows: rows, columns: columns}} ->
-            {:ok, rows_to_structs(merge.schema, columns, rows)}
+  ## Usage
 
-          {:error, reason} ->
-            {:error, reason}
-        end
+      defmodule MyApp.User do
+        use Events.Core.Schema
+        use Events.Core.Crud.Schema
+
+        @crud_changeset :registration_changeset
       end
-    end)
-  end
-
-  defp source_count(nil), do: 0
-  defp source_count(source) when is_map(source), do: 1
-  defp source_count(source) when is_list(source), do: length(source)
-  defp source_count(_), do: 0
-
-  defp rows_to_structs(schema, columns, rows) do
-    fields = Enum.map(columns, &String.to_existing_atom/1)
-
-    Enum.map(rows, fn row ->
-      attrs = Enum.zip(fields, row) |> Map.new()
-      struct(schema, attrs)
-    end)
-  end
-
-  # ─────────────────────────────────────────────────────────────
-  # Single Record Convenience Functions
-  # ─────────────────────────────────────────────────────────────
-
-  @doc """
-  Create a new record.
-
-  Uses Multi internally for audit integration.
-
-  ## Options
-
-  - `:changeset` - Changeset function name
-  - `:preload` - Associations to preload after creation
-
-  ## Examples
-
-      {:ok, user} = Crud.create(User, %{email: "test@example.com"})
-      {:ok, user} = Crud.create(User, attrs, changeset: :registration_changeset)
   """
-  @spec create(module(), map(), keyword()) :: {:ok, struct()} | {:error, Ecto.Changeset.t()}
-  def create(schema, attrs, opts \\ []) when is_atom(schema) and is_map(attrs) do
-    opts = put_crud_context(opts, :create, schema: schema)
-
-    Multi.new()
-    |> Multi.create(:record, schema, attrs, opts)
-    |> transaction(opts)
-    |> unwrap_single(:record, schema, opts)
-  end
-
-  @doc """
-  Update an existing record.
-
-  Accepts either a struct or {schema, id} tuple.
-
-  ## Examples
-
-      {:ok, user} = Crud.update(user, %{name: "Updated"})
-      {:ok, user} = Crud.update(User, user_id, %{name: "Updated"})
-  """
-  @spec update(struct(), map(), keyword()) :: {:ok, struct()} | {:error, Ecto.Changeset.t()}
-  def update(%{__struct__: schema} = struct, attrs, opts \\ []) when is_map(attrs) do
-    opts = put_crud_context(opts, :update, schema: schema)
-
-    Multi.new()
-    |> Multi.update(:record, struct, attrs, opts)
-    |> transaction(opts)
-    |> unwrap_single(:record, schema, opts)
-  end
-
-  @spec update(module(), binary(), map(), keyword()) ::
-          {:ok, struct()} | {:error, Ecto.Changeset.t() | :not_found}
-  def update(schema, id, attrs, opts) when is_atom(schema) and is_binary(id) and is_map(attrs) do
-    opts = put_crud_context(opts, :update, schema: schema, id: id)
-
-    Multi.new()
-    |> Multi.update(:record, {schema, id}, attrs, opts)
-    |> transaction(opts)
-    |> unwrap_single(:record, schema, opts)
-  end
-
-  @doc """
-  Delete a record.
-
-  ## Examples
-
-      {:ok, user} = Crud.delete(user)
-      {:ok, user} = Crud.delete(User, user_id)
-  """
-  @spec delete(struct(), keyword()) :: {:ok, struct()} | {:error, Ecto.Changeset.t()}
-  def delete(%{__struct__: schema} = struct, opts \\ []) do
-    opts = put_crud_context(opts, :delete, schema: schema)
-
-    Multi.new()
-    |> Multi.delete(:record, struct, opts)
-    |> transaction(opts)
-    |> unwrap_single(:record, schema, opts)
-  end
-
-  @spec delete(module(), binary(), keyword()) :: {:ok, struct()} | {:error, :not_found}
-  def delete(schema, id, opts) when is_atom(schema) and is_binary(id) do
-    opts = put_crud_context(opts, :delete, schema: schema, id: id)
-
-    Multi.new()
-    |> Multi.delete(:record, {schema, id}, opts)
-    |> transaction(opts)
-    |> unwrap_single(:record, schema, opts)
-  end
-
-  # ─────────────────────────────────────────────────────────────
-  # Read Operations
-  # ─────────────────────────────────────────────────────────────
-
-  @doc """
-  Fetch a record by ID, returning `{:ok, record}` or `{:error, :not_found}`.
-
-  ## Options
-
-  - `:preload` - Associations to preload
-
-  ## Examples
-
-      {:ok, user} = Crud.fetch(User, id)
-      {:ok, user} = Crud.fetch(User, id, preload: [:account])
-
-      # Using Query token
-      {:ok, user} =
-        User
-        |> Query.new()
-        |> Query.where(:email, email)
-        |> Crud.fetch()
-  """
-  @spec fetch(module() | struct(), binary() | keyword(), keyword()) ::
-          {:ok, struct()} | {:error, :not_found}
-  def fetch(schema_or_token, id_or_opts \\ [], opts \\ [])
-
-  def fetch(schema, id, opts) when is_atom(schema) and is_binary(id) do
-    meta =
-      build_telemetry_meta(:query, opts, %{
-        operation: :fetch,
-        schema: schema,
-        id: id
-      })
-
-    emit_telemetry(meta, fn ->
-      repo = Options.repo(opts)
-      query_opts = Options.query_opts(opts)
-      preloads = Options.preloads(opts)
-
-      case repo.get(schema, id, query_opts) do
-        nil ->
-          {:error, :not_found}
-
-        record ->
-          record = maybe_preload(record, preloads, repo)
-          {:ok, record}
-      end
-    end)
-  end
-
-  def fetch(query_token, opts, _) when is_struct(query_token) and is_list(opts) do
-    meta =
-      build_telemetry_meta(:query, opts, %{
-        operation: :fetch,
-        token: query_token.__struct__
-      })
-
-    emit_telemetry(meta, fn ->
-      run(query_token, Keyword.put(opts, :mode, :one))
-    end)
-  end
-
-  @doc """
-  Get a record by ID or using a Query token, returning the record or nil.
-
-  ## Examples
-
-      user = Crud.get(User, id)
-      user = Crud.get(User, id, preload: [:account])
-
-      # Using Query token
-      user =
-        User
-        |> Query.new()
-        |> Query.where(:email, email)
-        |> Crud.get()
-  """
-  @spec get(module() | struct(), binary() | keyword(), keyword()) :: struct() | nil
-  def get(schema_or_token, id_or_opts \\ [], opts \\ [])
-
-  def get(schema, id, opts) when is_atom(schema) and is_binary(id) do
-    meta =
-      build_telemetry_meta(:query, opts, %{
-        operation: :get,
-        schema: schema,
-        id: id
-      })
-
-    emit_telemetry(meta, fn ->
-      repo = Options.repo(opts)
-      query_opts = Options.query_opts(opts)
-      preloads = Options.preloads(opts)
-
-      case repo.get(schema, id, query_opts) do
-        nil -> nil
-        record -> maybe_preload(record, preloads, repo)
-      end
-    end)
-  end
-
-  def get(query_token, opts, _) when is_struct(query_token) and is_list(opts) do
-    # get via query token delegates to fetch, which has its own telemetry
-    case fetch(query_token, opts) do
-      {:ok, record} -> record
-      {:error, :not_found} -> nil
+  defmacro __using__(opts) do
+    quote do
+      use OmCrud.Schema, unquote(opts)
     end
   end
+end
 
-  @doc """
-  Check if a record exists.
+# Protocol wrappers - these re-export the OmCrud protocols for backwards compatibility.
+# Code that implements these protocols should use OmCrud.* directly.
+# These wrapper modules allow calling the protocol functions via Events.Core.Crud.* namespace.
 
-  ## Options
+defmodule Events.Core.Crud.Executable do
+  @moduledoc """
+  Protocol for executable tokens.
 
-  - `:repo` - Custom repo module
-  - `:prefix` - Database schema prefix
-  - `:timeout` - Query timeout
-
-  ## Examples
-
-      true = Crud.exists?(User, user_id)
-      false = Crud.exists?(User, "nonexistent")
-      Crud.exists?(User, id, repo: MyApp.ReadOnlyRepo)
+  **Note:** This module wraps `OmCrud.Executable`. For protocol implementations,
+  use `defimpl OmCrud.Executable, for: YourModule`.
   """
-  @spec exists?(module(), binary(), keyword()) :: boolean()
-  def exists?(schema, id, opts \\ []) when is_atom(schema) and is_binary(id) do
-    meta =
-      build_telemetry_meta(:query, opts, %{
-        operation: :exists,
-        schema: schema,
-        id: id
-      })
 
-    emit_telemetry(meta, fn ->
-      repo = Options.repo(opts)
-      query_opts = Options.query_opts(opts)
-      repo.exists?(schema, [id: id] ++ query_opts)
-    end)
-  end
+  @doc "Execute a token. See `OmCrud.Executable.execute/2`."
+  @spec execute(any(), keyword()) :: {:ok, any()} | {:error, any()}
+  def execute(token, opts \\ []), do: OmCrud.Executable.execute(token, opts)
+end
 
-  @spec exists?(struct()) :: boolean()
-  def exists?(query_token) when is_struct(query_token) do
-    meta =
-      build_telemetry_meta(:query, [], %{
-        operation: :exists,
-        token: query_token.__struct__
-      })
+defmodule Events.Core.Crud.Validatable do
+  @moduledoc """
+  Protocol for validating tokens.
 
-    emit_telemetry(meta, fn ->
-      case run(query_token, mode: :exists) do
-        {:ok, exists} -> exists
-        _ -> false
-      end
-    end)
-  end
-
-  @doc """
-  Fetch all records matching a Query token.
-
-  ## Examples
-
-      {:ok, users} =
-        User
-        |> Query.new()
-        |> Query.where(:status, :active)
-        |> Crud.fetch_all()
+  **Note:** This module wraps `OmCrud.Validatable`. For protocol implementations,
+  use `defimpl OmCrud.Validatable, for: YourModule`.
   """
-  @spec fetch_all(struct(), keyword()) :: {:ok, [struct()]}
-  def fetch_all(query_token, opts \\ []) when is_struct(query_token) do
-    meta =
-      build_telemetry_meta(:query, opts, %{
-        operation: :fetch_all,
-        token: query_token.__struct__
-      })
 
-    emit_telemetry(meta, fn ->
-      run(query_token, Keyword.put(opts, :mode, :all))
-    end)
-  end
+  @doc "Validate a token. See `OmCrud.Validatable.validate/1`."
+  @spec validate(any()) :: :ok | {:error, [String.t()]}
+  def validate(token), do: OmCrud.Validatable.validate(token)
+end
 
-  @doc """
-  Count records matching a Query token.
+defmodule Events.Core.Crud.Debuggable do
+  @moduledoc """
+  Protocol for debugging tokens.
 
-  ## Examples
-
-      count =
-        User
-        |> Query.new()
-        |> Query.where(:status, :active)
-        |> Crud.count()
+  **Note:** This module wraps `OmCrud.Debuggable`. For protocol implementations,
+  use `defimpl OmCrud.Debuggable, for: YourModule`.
   """
-  @spec count(struct()) :: non_neg_integer()
-  def count(query_token) when is_struct(query_token) do
-    meta =
-      build_telemetry_meta(:query, [], %{
-        operation: :count,
-        token: query_token.__struct__
-      })
 
-    emit_telemetry(meta, fn ->
-      case run(query_token, mode: :count) do
-        {:ok, count} -> count
-        _ -> 0
-      end
-    end)
-  end
+  @doc "Get debug info for a token. See `OmCrud.Debuggable.to_debug/1`."
+  @spec to_debug(any()) :: map()
+  def to_debug(token), do: OmCrud.Debuggable.to_debug(token)
+end
 
-  # ─────────────────────────────────────────────────────────────
-  # Bulk Operations
-  # ─────────────────────────────────────────────────────────────
+defmodule Events.Core.Crud.Op do
+  @moduledoc """
+  Backwards-compatibility module.
 
-  @doc """
-  Create multiple records in a single transaction.
-
-  ## Options
-
-  - `:returning` - Fields to return (required for preload to work)
-  - `:preload` - Associations to preload after creation
-  - `:changeset` - Changeset function for validation
-  - `:placeholders` - Map of reusable values to reduce data transmission
-
-  ## Examples
-
-      {:ok, users} = Crud.create_all(User, [
-        %{email: "a@test.com"},
-        %{email: "b@test.com"}
-      ])
-
-      # With preload
-      {:ok, users} = Crud.create_all(User, attrs_list,
-        returning: true,
-        preload: [:account]
-      )
+  **Deprecated**: Use `OmCrud.ChangesetBuilder` and `OmCrud.Options` instead.
   """
-  @spec create_all(module(), [map()], keyword()) :: {:ok, [struct()]} | {:error, any()}
-  def create_all(schema, list_of_attrs, opts \\ [])
-      when is_atom(schema) and is_list(list_of_attrs) do
-    opts = put_crud_context(opts, :create_all, schema: schema, count: length(list_of_attrs))
-
-    Multi.new()
-    |> Multi.create_all(:records, schema, list_of_attrs, opts)
-    |> transaction(opts)
-    |> case do
-      {:ok, %{records: {_count, records}}} ->
-        records = records || []
-        repo = Options.repo(opts)
-        {:ok, maybe_preload_list(records, Options.preloads(opts), repo)}
-
-      {:error, :records, reason, _} ->
-        {:error, reason}
-
-      error ->
-        error
-    end
-  end
-
-  @doc """
-  Upsert multiple records in a single transaction.
-
-  ## Options
-
-  - `:conflict_target` - Column(s) for conflict detection (required)
-  - `:on_conflict` - Action on conflict
-  - `:returning` - Fields to return (required for preload to work)
-  - `:preload` - Associations to preload after upsert
-  - `:placeholders` - Map of reusable values to reduce data transmission
-
-  ## Examples
-
-      {:ok, users} = Crud.upsert_all(User, users_data,
-        conflict_target: :email,
-        on_conflict: {:replace, [:name]}
-      )
-
-      # With preload
-      {:ok, users} = Crud.upsert_all(User, users_data,
-        conflict_target: :email,
-        on_conflict: :replace_all,
-        returning: true,
-        preload: [:profile]
-      )
-  """
-  @spec upsert_all(module(), [map()], keyword()) :: {:ok, [struct()]}
-  def upsert_all(schema, list_of_attrs, opts)
-      when is_atom(schema) and is_list(list_of_attrs) do
-    opts = put_crud_context(opts, :upsert_all, schema: schema, count: length(list_of_attrs))
-
-    Multi.new()
-    |> Multi.upsert_all(:records, schema, list_of_attrs, opts)
-    |> transaction(opts)
-    |> case do
-      {:ok, %{records: {_count, records}}} ->
-        records = records || []
-        repo = Options.repo(opts)
-        {:ok, maybe_preload_list(records, Options.preloads(opts), repo)}
-
-      {:error, :records, reason, _} ->
-        {:error, reason}
-
-      error ->
-        error
-    end
-  end
-
-  @doc """
-  Update all records matching a query.
-
-  ## Examples
-
-      {:ok, count} =
-        User
-        |> Query.new()
-        |> Query.where(:status, :inactive)
-        |> Crud.update_all(set: [archived_at: DateTime.utc_now()])
-  """
-  @spec update_all(struct(), keyword(), keyword()) :: {:ok, non_neg_integer()}
-  def update_all(query_token, updates, opts \\ []) when is_struct(query_token) do
-    opts = put_crud_context(opts, :update_all, token: query_token.__struct__)
-
-    Multi.new()
-    |> Multi.update_all(:update, query_to_ecto(query_token), updates, opts)
-    |> transaction(opts)
-    |> case do
-      {:ok, %{update: {count, _}}} -> {:ok, count}
-      {:error, :update, reason, _} -> {:error, reason}
-      error -> error
-    end
-  end
-
-  @doc """
-  Delete all records matching a query.
-
-  ## Examples
-
-      {:ok, count} =
-        Token
-        |> Query.new()
-        |> Query.where(:expired_at, :<, DateTime.utc_now())
-        |> Crud.delete_all()
-  """
-  @spec delete_all(struct(), keyword()) :: {:ok, non_neg_integer()}
-  def delete_all(query_token, opts \\ []) when is_struct(query_token) do
-    opts = put_crud_context(opts, :delete_all, token: query_token.__struct__)
-
-    Multi.new()
-    |> Multi.delete_all(:delete, query_to_ecto(query_token), opts)
-    |> transaction(opts)
-    |> case do
-      {:ok, %{delete: {count, _}}} -> {:ok, count}
-      {:error, :delete, reason, _} -> {:error, reason}
-      error -> error
-    end
-  end
-
-  # ─────────────────────────────────────────────────────────────
-  # Private Helpers
-  # ─────────────────────────────────────────────────────────────
-
-  defp validate_token(token) do
-    case Validatable.validate(token) do
-      :ok -> :ok
-      {:error, errors} -> {:error, {:invalid_token, errors}}
-    end
-  end
-
-  defp unwrap_single({:ok, %{record: record}}, _name, _schema, opts) do
-    repo = Options.repo(opts)
-    record = maybe_preload(record, Options.preloads(opts), repo)
-    {:ok, record}
-  end
-
-  defp unwrap_single({:error, :record, %Ecto.Changeset{} = changeset, _}, _name, _schema, _opts) do
-    {:error, changeset}
-  end
-
-  defp unwrap_single({:error, :record, :not_found, _}, _name, _schema, _opts) do
-    {:error, :not_found}
-  end
-
-  defp unwrap_single({:error, failed_name, reason, _changes}, failed_name, _schema, _opts) do
-    {:error, reason}
-  end
-
-  defp maybe_preload(record, [], _repo), do: record
-  defp maybe_preload(record, preloads, repo), do: repo.preload(record, preloads)
-
-  defp maybe_preload_list(records, [], _repo), do: records
-  defp maybe_preload_list(records, preloads, repo), do: repo.preload(records, preloads)
-
-  # Convert Query token to Ecto.Query
-  # This will be properly implemented with Query integration
-  defp query_to_ecto(query_token) when is_struct(query_token) do
-    if function_exported?(query_token.__struct__, :to_query, 1) do
-      query_token.__struct__.to_query(query_token)
-    else
-      raise ArgumentError, "Token #{inspect(query_token.__struct__)} does not implement to_query/1"
-    end
-  end
-
-  # ─────────────────────────────────────────────────────────────
-  # CRUD Context (for telemetry metadata)
-  # ─────────────────────────────────────────────────────────────
-
-  # Internal key for storing CRUD operation context
-  @crud_context_key :__crud_context__
-
-  defp put_crud_context(opts, operation, extra) do
-    context = %{operation: operation, source: :convenience}
-    context = Enum.into(extra, context)
-    Keyword.put(opts, @crud_context_key, context)
-  end
-
-  defp get_crud_context(opts) do
-    Keyword.get(opts, @crud_context_key, %{source: :direct})
-  end
-
-  # ─────────────────────────────────────────────────────────────
-  # Telemetry
-  # ─────────────────────────────────────────────────────────────
-
-  defp build_telemetry_meta(type, opts, extra) do
-    crud_context = get_crud_context(opts)
-
-    %{type: type}
-    |> Map.merge(crud_context)
-    |> Map.merge(extra)
-  end
-
-  defp emit_telemetry(metadata, fun) when is_function(fun, 0) do
-    start_time = System.monotonic_time()
-
-    :telemetry.execute(
-      @telemetry_event ++ [:start],
-      %{system_time: System.system_time()},
-      metadata
-    )
-
-    try do
-      result = fun.()
-
-      duration = System.monotonic_time() - start_time
-      duration_ms = System.convert_time_unit(duration, :native, :millisecond)
-
-      stop_meta = Map.put(metadata, :result, result_type(result))
-
-      :telemetry.execute(
-        @telemetry_event ++ [:stop],
-        %{duration: duration, duration_ms: duration_ms},
-        stop_meta
-      )
-
-      result
-    rescue
-      e ->
-        duration = System.monotonic_time() - start_time
-        duration_ms = System.convert_time_unit(duration, :native, :millisecond)
-
-        exception_meta =
-          metadata
-          |> Map.put(:kind, :error)
-          |> Map.put(:reason, e)
-          |> Map.put(:stacktrace, __STACKTRACE__)
-
-        :telemetry.execute(
-          @telemetry_event ++ [:exception],
-          %{duration: duration, duration_ms: duration_ms},
-          exception_meta
-        )
-
-        reraise e, __STACKTRACE__
-    catch
-      kind, reason ->
-        duration = System.monotonic_time() - start_time
-        duration_ms = System.convert_time_unit(duration, :native, :millisecond)
-
-        exception_meta =
-          metadata
-          |> Map.put(:kind, kind)
-          |> Map.put(:reason, reason)
-          |> Map.put(:stacktrace, __STACKTRACE__)
-
-        :telemetry.execute(
-          @telemetry_event ++ [:exception],
-          %{duration: duration, duration_ms: duration_ms},
-          exception_meta
-        )
-
-        :erlang.raise(kind, reason, __STACKTRACE__)
-    end
-  end
-
-  # Classify result for telemetry metadata
-  defp result_type({:ok, _}), do: :ok
-  defp result_type({:error, _}), do: :error
-  defp result_type({:error, _, _, _}), do: :error
-  defp result_type(nil), do: :not_found
-  defp result_type(false), do: :not_found
-  defp result_type(_), do: :ok
+  defdelegate changeset(schema_or_struct, attrs, opts \\ []), to: OmCrud.Op
+  defdelegate resolve_changeset(schema, action, opts), to: OmCrud.Op
+  defdelegate insert_opts(opts \\ []), to: OmCrud.Op
+  defdelegate upsert_opts(opts), to: OmCrud.Op
+  defdelegate update_opts(opts \\ []), to: OmCrud.Op
+  defdelegate delete_opts(opts \\ []), to: OmCrud.Op
+  defdelegate query_opts(opts \\ []), to: OmCrud.Op
+  defdelegate insert_all_opts(opts \\ []), to: OmCrud.Op
+  defdelegate update_all_opts(opts \\ []), to: OmCrud.Op
+  defdelegate delete_all_opts(opts \\ []), to: OmCrud.Op
+  defdelegate preloads(opts), to: OmCrud.Op
+  defdelegate repo(opts), to: OmCrud.Op
+  defdelegate sql_opts(opts), to: OmCrud.Op
 end

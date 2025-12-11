@@ -25,6 +25,12 @@ config :events, Events.Core.Query,
   default_repo: Events.Core.Repo,
   telemetry_prefix: [:events, :query]
 
+# OmCrud library configuration
+# Default repository and telemetry prefix for CRUD operations
+config :om_crud,
+  default_repo: Events.Core.Repo,
+  telemetry_prefix: [:events, :crud, :execute]
+
 # Phoenix endpoint configuration
 config :events, EventsWeb.Endpoint,
   url: [host: "localhost"],
