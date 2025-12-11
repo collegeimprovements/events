@@ -5,6 +5,9 @@ defmodule Events.Api.Client.Request do
   Provides a chainable, composable API for building HTTP requests
   that can be executed against external APIs.
 
+  Implements `Events.Infra.Idempotency.RequestBehaviour` for use with
+  idempotency middleware.
+
   ## Quick Start
 
       Request.new(config)
@@ -33,6 +36,8 @@ defmodule Events.Api.Client.Request do
       |> Request.metadata(:operation, :create_customer)
       |> Request.metadata(:user_id, "usr_123")
   """
+
+  @behaviour Events.Infra.Idempotency.RequestBehaviour
 
   alias Events.Api.Client.Response
 
@@ -426,4 +431,26 @@ defmodule Events.Api.Client.Request do
   defp normalize_duration({n, :hour}), do: n * 3_600_000
   defp normalize_duration({n, :hours}), do: n * 3_600_000
   defp normalize_duration(ms) when is_integer(ms), do: ms
+
+  # ============================================
+  # RequestBehaviour Implementation
+  # ============================================
+
+  @impl Events.Infra.Idempotency.RequestBehaviour
+  def idempotency_key(%__MODULE__{idempotency_key: key}), do: key
+
+  @impl Events.Infra.Idempotency.RequestBehaviour
+  def method(%__MODULE__{method: method}), do: method
+
+  @impl Events.Infra.Idempotency.RequestBehaviour
+  def path(%__MODULE__{path: path}), do: path
+
+  @impl Events.Infra.Idempotency.RequestBehaviour
+  def body(%__MODULE__{body: body}), do: body
+
+  @impl Events.Infra.Idempotency.RequestBehaviour
+  def config(%__MODULE__{config: config}), do: config
+
+  @impl Events.Infra.Idempotency.RequestBehaviour
+  def metadata(%__MODULE__{metadata: meta}), do: meta
 end

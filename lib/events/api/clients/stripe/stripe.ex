@@ -40,11 +40,31 @@ defmodule Events.Api.Clients.Stripe do
 
   ## Error Handling
 
-  All operations return `{:ok, result}` or `{:error, reason}`:
+  All operations return `{:ok, result}` or `{:error, %StripeError{}}`:
+
+      alias Events.Errors.StripeError
+      alias Events.Protocols.{Normalizable, Recoverable}
 
       case Stripe.create_customer(%{email: "invalid"}, config) do
-        {:ok, customer} -> IO.puts("Created: \#{customer["id"]}")
-        {:error, %{status: 400, body: body}} -> IO.puts("Error: \#{body["error"]["message"]}")
+        {:ok, customer} ->
+          IO.puts("Created: \#{customer["id"]}")
+
+        {:error, %StripeError{type: "card_error"} = error} ->
+          # Card errors - show user-friendly message
+          IO.puts("Card error: \#{error.message}")
+
+        {:error, %StripeError{type: "rate_limit_error"} = error} ->
+          # Rate limit - check if retryable
+          if Recoverable.recoverable?(error) do
+            delay = Recoverable.retry_delay(error, 1)
+            Process.sleep(delay)
+            # retry...
+          end
+
+        {:error, %StripeError{} = error} ->
+          # Normalize to standard error format
+          normalized = Normalizable.normalize(error)
+          Logger.error("Stripe error: \#{inspect(normalized)}")
       end
 
   ## Idempotency
@@ -61,6 +81,7 @@ defmodule Events.Api.Clients.Stripe do
 
   alias Events.Api.Client.{Request, Response}
   alias Events.Api.Clients.Stripe.Config
+  alias Events.Errors.StripeError
 
   # ============================================
   # Configuration
@@ -519,29 +540,33 @@ defmodule Events.Api.Clients.Stripe do
     if Response.success?(resp) do
       {:ok, resp.body}
     else
-      {:error, normalize_stripe_error(resp)}
+      {:error, to_stripe_error(resp)}
     end
   end
 
   defp handle_response({:error, _} = error), do: error
 
-  defp normalize_stripe_error(%Response{body: %{"error" => error}} = resp) do
-    %{
-      status: resp.status,
+  defp to_stripe_error(%Response{body: %{"error" => error}} = resp) do
+    StripeError.new(resp.status,
       type: error["type"],
       code: error["code"],
       message: error["message"],
       param: error["param"],
       decline_code: error["decline_code"],
-      request_id: resp.api_request_id
-    }
+      request_id: resp.api_request_id,
+      doc_url: error["doc_url"]
+    )
   end
 
-  defp normalize_stripe_error(%Response{} = resp) do
-    %{
-      status: resp.status,
-      body: resp.body,
+  defp to_stripe_error(%Response{} = resp) do
+    StripeError.new(resp.status,
+      message: extract_error_message(resp.body),
       request_id: resp.api_request_id
-    }
+    )
   end
+
+  defp extract_error_message(%{"message" => msg}), do: msg
+  defp extract_error_message(%{"error" => msg}) when is_binary(msg), do: msg
+  defp extract_error_message(body) when is_binary(body), do: body
+  defp extract_error_message(_), do: nil
 end

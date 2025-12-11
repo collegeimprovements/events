@@ -14,9 +14,17 @@ defmodule Events.Infra.Scheduler.Peer.Postgres do
 
   ## Usage
 
-      config :events, Events.Infra.Scheduler,
+      config :my_app, Events.Infra.Scheduler,
         peer: Events.Infra.Scheduler.Peer.Postgres,
-        repo: Events.Core.Repo
+        repo: MyApp.Repo
+
+  ## Configuration
+
+  The telemetry prefix is configurable via:
+
+      config :events, Events.Infra.Scheduler.Peer.Postgres, telemetry_prefix: [:my_app, :scheduler, :peer]
+
+  Default prefix: `[:events, :scheduler, :peer]`
   """
 
   use GenServer
@@ -25,6 +33,9 @@ defmodule Events.Infra.Scheduler.Peer.Postgres do
   alias Events.Infra.Scheduler.Config
 
   @behaviour Events.Infra.Scheduler.Peer.Behaviour
+
+  @telemetry_prefix Application.compile_env(:events, [__MODULE__, :telemetry_prefix], [:events, :scheduler, :peer])
+  @default_repo Application.compile_env(:events, [__MODULE__, :repo], Events.Core.Repo)
 
   # Advisory lock key - using consistent hash of scheduler name
   @lock_key 123_456_789
@@ -78,7 +89,7 @@ defmodule Events.Infra.Scheduler.Peer.Postgres do
       name: Keyword.get(opts, :name, __MODULE__),
       leader: false,
       started_at: DateTime.utc_now(),
-      repo: conf[:repo] || Events.Core.Repo,
+      repo: conf[:repo] || @default_repo,
       prefix: conf[:prefix] || "public",
       lock_key: @lock_key
     }
@@ -311,7 +322,7 @@ defmodule Events.Infra.Scheduler.Peer.Postgres do
 
   defp emit_telemetry(event, state) do
     :telemetry.execute(
-      [:events, :scheduler, :peer, event],
+      @telemetry_prefix ++ [event],
       %{system_time: System.system_time()},
       %{node: node(), name: state.name}
     )

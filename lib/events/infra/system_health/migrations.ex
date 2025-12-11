@@ -3,7 +3,21 @@ defmodule Events.Infra.SystemHealth.Migrations do
   Database migration status checks.
 
   Production-safe: handles missing migration files and database errors gracefully.
+
+  ## Configuration
+
+  The app_name and repo are configurable via:
+
+      config :events, Events.Infra.SystemHealth.Migrations,
+        app_name: :my_app,
+        repo: MyApp.Repo
+
+  Default app_name: `:events`
+  Default repo: `Events.Core.Repo`
   """
+
+  @app_name Application.compile_env(:events, [__MODULE__, :app_name], :events)
+  @default_repo Application.compile_env(:events, [__MODULE__, :repo], Events.Core.Repo)
 
   @doc """
   Checks migration status.
@@ -43,7 +57,7 @@ defmodule Events.Infra.SystemHealth.Migrations do
   end
 
   defp get_all_migrations do
-    Application.app_dir(:events, "priv/repo/migrations")
+    Application.app_dir(@app_name, "priv/repo/migrations")
     |> File.ls()
     |> parse_migration_files()
   rescue
@@ -76,7 +90,7 @@ defmodule Events.Infra.SystemHealth.Migrations do
   defp parse_version_number(_), do: nil
 
   defp get_applied_migrations do
-    Events.Core.Repo.query("SELECT version FROM schema_migrations ORDER BY version", [],
+    @default_repo.query("SELECT version FROM schema_migrations ORDER BY version", [],
       timeout: 5_000
     )
     |> parse_applied_migrations()

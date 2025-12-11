@@ -108,9 +108,13 @@ defmodule Events.Infra.Idempotency do
   require Logger
 
   alias Events.Infra.Idempotency.Record
-  alias Events.Core.Repo
 
   import Ecto.Query
+
+  @default_repo Application.compile_env(:events, [__MODULE__, :repo], Events.Core.Repo)
+  @telemetry_prefix Application.compile_env(:events, [__MODULE__, :telemetry_prefix], [:events, :idempotency])
+
+  defp repo, do: @default_repo
 
   @type key :: String.t()
   @type scope :: String.t() | nil
@@ -285,7 +289,7 @@ defmodule Events.Infra.Idempotency do
         where: r.scope == ^scope or (is_nil(r.scope) and is_nil(^scope))
       )
 
-    case Repo.one(query) do
+    case repo().one(query) do
       nil -> {:error, :not_found}
       record -> {:ok, record}
     end
@@ -316,7 +320,7 @@ defmodule Events.Infra.Idempotency do
 
     %Record{}
     |> Record.changeset(attrs)
-    |> Repo.insert()
+    |> repo().insert()
     |> case do
       {:ok, record} ->
         {:ok, record}
@@ -355,7 +359,7 @@ defmodule Events.Infra.Idempotency do
         where: r.state in [:pending, :processing]
       )
 
-    case Repo.update_all(query,
+    case repo().update_all(query,
            set: [
              state: :processing,
              started_at: now,
@@ -392,7 +396,7 @@ defmodule Events.Infra.Idempotency do
       response: serialize_response(response),
       completed_at: DateTime.utc_now()
     })
-    |> Repo.update()
+    |> repo().update()
   end
 
   @doc """
@@ -411,7 +415,7 @@ defmodule Events.Infra.Idempotency do
       error: serialize_error(error),
       completed_at: DateTime.utc_now()
     })
-    |> Repo.update()
+    |> repo().update()
   end
 
   @doc """
@@ -432,7 +436,7 @@ defmodule Events.Infra.Idempotency do
       locked_until: nil,
       started_at: nil
     })
-    |> Repo.update()
+    |> repo().update()
   end
 
   @doc """
@@ -454,7 +458,7 @@ defmodule Events.Infra.Idempotency do
         where: r.expires_at < ^now
       )
 
-    {count, _} = Repo.delete_all(query)
+    {count, _} = repo().delete_all(query)
     Logger.info("[Idempotency] Cleaned up #{count} expired records")
     {:ok, count}
   end
@@ -481,7 +485,7 @@ defmodule Events.Infra.Idempotency do
       )
 
     {count, _} =
-      Repo.update_all(query,
+      repo().update_all(query,
         set: [
           state: :pending,
           locked_until: nil,
@@ -630,7 +634,7 @@ defmodule Events.Infra.Idempotency do
     # Use Recoverable protocol if available
     case error do
       %{__struct__: _} = struct ->
-        not Events.Protocols.Recoverable.recoverable?(struct)
+        not Events.Types.Recoverable.recoverable?(struct)
 
       _ ->
         # Unknown error type - assume transient
@@ -660,7 +664,7 @@ defmodule Events.Infra.Idempotency do
 
   defp emit_telemetry(event, key, scope) do
     :telemetry.execute(
-      [:events, :idempotency, event],
+      @telemetry_prefix ++ [event],
       %{count: 1},
       %{key: key, scope: scope}
     )

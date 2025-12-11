@@ -11,7 +11,7 @@ defmodule Events.Core.Schema.RelationshipValidator do
 
       def start(_type, _args) do
         # Validate relationships in dev
-        if Application.get_env(:events, :env) == :dev do
+        if Application.get_env(:my_app, :env) == :dev do
           Events.Core.Schema.RelationshipValidator.validate_all!()
         end
 
@@ -27,6 +27,8 @@ defmodule Events.Core.Schema.RelationshipValidator do
         ]
       end
   """
+
+  @app_name Application.compile_env(:events, [__MODULE__, :app_name], :events)
 
   @doc """
   Validates all schema relationships and logs warnings for missing inverses.
@@ -92,7 +94,7 @@ defmodule Events.Core.Schema.RelationshipValidator do
   # Private functions
 
   defp discover_schemas do
-    case :application.get_key(:events, :modules) do
+    case :application.get_key(@app_name, :modules) do
       {:ok, modules} ->
         modules
         |> Enum.filter(&ecto_schema?/1)

@@ -75,7 +75,7 @@ defmodule Events.Core.Crud do
       )
   """
 
-  alias Events.Core.Crud.{Op, Multi, Merge, Validatable}
+  alias Events.Core.Crud.{Options, Multi, Merge, Validatable}
 
   # Telemetry event name
   @telemetry_event [:events, :crud, :execute]
@@ -187,8 +187,8 @@ defmodule Events.Core.Crud do
 
     emit_telemetry(meta, fn ->
       with :ok <- validate_token(multi) do
-        repo = Op.repo(opts)
-        sql_opts = Op.sql_opts(opts)
+        repo = Options.repo(opts)
+        sql_opts = Options.sql_opts(opts)
         ecto_multi = Multi.to_ecto_multi(multi)
         repo.transaction(ecto_multi, sql_opts)
       end
@@ -210,8 +210,13 @@ defmodule Events.Core.Crud do
 
   ## Options
 
+  Options can be passed directly to this function or stored in the Merge token
+  via `Merge.opts/2`. Direct options take precedence over token options.
+
+  - `:repo` - Custom repo module (defaults to Events.Core.Repo)
   - `:timeout` - Query timeout
   - `:prefix` - Database schema prefix
+  - `:log` - Log level for queries (false to disable)
 
   ## Returns
 
@@ -220,16 +225,19 @@ defmodule Events.Core.Crud do
   """
   @spec execute_merge(Merge.t(), keyword()) :: {:ok, [struct()]} | {:error, any()}
   def execute_merge(%Merge{} = merge, opts \\ []) do
+    # Merge token opts with call-time opts (call-time takes precedence)
+    merged_opts = Keyword.merge(merge.opts, opts)
+
     meta =
-      build_telemetry_meta(:merge, opts, %{
+      build_telemetry_meta(:merge, merged_opts, %{
         schema: merge.schema,
-        count: length(merge.source)
+        count: source_count(merge.source)
       })
 
     emit_telemetry(meta, fn ->
       with :ok <- validate_token(merge) do
-        repo = Op.repo(opts)
-        sql_opts = Op.sql_opts(opts)
+        repo = Options.repo(merged_opts)
+        sql_opts = Options.sql_opts(merged_opts)
         {sql, params} = Merge.to_sql(merge)
 
         case repo.query(sql, params, sql_opts) do
@@ -242,6 +250,11 @@ defmodule Events.Core.Crud do
       end
     end)
   end
+
+  defp source_count(nil), do: 0
+  defp source_count(source) when is_map(source), do: 1
+  defp source_count(source) when is_list(source), do: length(source)
+  defp source_count(_), do: 0
 
   defp rows_to_structs(schema, columns, rows) do
     fields = Enum.map(columns, &String.to_existing_atom/1)
@@ -376,9 +389,9 @@ defmodule Events.Core.Crud do
       })
 
     emit_telemetry(meta, fn ->
-      repo = Op.repo(opts)
-      query_opts = Op.query_opts(opts)
-      preloads = Op.preloads(opts)
+      repo = Options.repo(opts)
+      query_opts = Options.query_opts(opts)
+      preloads = Options.preloads(opts)
 
       case repo.get(schema, id, query_opts) do
         nil ->
@@ -430,9 +443,9 @@ defmodule Events.Core.Crud do
       })
 
     emit_telemetry(meta, fn ->
-      repo = Op.repo(opts)
-      query_opts = Op.query_opts(opts)
-      preloads = Op.preloads(opts)
+      repo = Options.repo(opts)
+      query_opts = Options.query_opts(opts)
+      preloads = Options.preloads(opts)
 
       case repo.get(schema, id, query_opts) do
         nil -> nil
@@ -474,8 +487,8 @@ defmodule Events.Core.Crud do
       })
 
     emit_telemetry(meta, fn ->
-      repo = Op.repo(opts)
-      query_opts = Op.query_opts(opts)
+      repo = Options.repo(opts)
+      query_opts = Options.query_opts(opts)
       repo.exists?(schema, [id: id] ++ query_opts)
     end)
   end
@@ -556,8 +569,10 @@ defmodule Events.Core.Crud do
 
   ## Options
 
-  - `:returning` - Fields to return
+  - `:returning` - Fields to return (required for preload to work)
+  - `:preload` - Associations to preload after creation
   - `:changeset` - Changeset function for validation
+  - `:placeholders` - Map of reusable values to reduce data transmission
 
   ## Examples
 
@@ -565,6 +580,12 @@ defmodule Events.Core.Crud do
         %{email: "a@test.com"},
         %{email: "b@test.com"}
       ])
+
+      # With preload
+      {:ok, users} = Crud.create_all(User, attrs_list,
+        returning: true,
+        preload: [:account]
+      )
   """
   @spec create_all(module(), [map()], keyword()) :: {:ok, [struct()]} | {:error, any()}
   def create_all(schema, list_of_attrs, opts \\ [])
@@ -575,9 +596,16 @@ defmodule Events.Core.Crud do
     |> Multi.create_all(:records, schema, list_of_attrs, opts)
     |> transaction(opts)
     |> case do
-      {:ok, %{records: {_count, records}}} -> {:ok, records || []}
-      {:error, :records, reason, _} -> {:error, reason}
-      error -> error
+      {:ok, %{records: {_count, records}}} ->
+        records = records || []
+        repo = Options.repo(opts)
+        {:ok, maybe_preload_list(records, Options.preloads(opts), repo)}
+
+      {:error, :records, reason, _} ->
+        {:error, reason}
+
+      error ->
+        error
     end
   end
 
@@ -586,15 +614,25 @@ defmodule Events.Core.Crud do
 
   ## Options
 
-  - `:conflict_target` - Column(s) for conflict detection
+  - `:conflict_target` - Column(s) for conflict detection (required)
   - `:on_conflict` - Action on conflict
-  - `:returning` - Fields to return
+  - `:returning` - Fields to return (required for preload to work)
+  - `:preload` - Associations to preload after upsert
+  - `:placeholders` - Map of reusable values to reduce data transmission
 
   ## Examples
 
       {:ok, users} = Crud.upsert_all(User, users_data,
         conflict_target: :email,
         on_conflict: {:replace, [:name]}
+      )
+
+      # With preload
+      {:ok, users} = Crud.upsert_all(User, users_data,
+        conflict_target: :email,
+        on_conflict: :replace_all,
+        returning: true,
+        preload: [:profile]
       )
   """
   @spec upsert_all(module(), [map()], keyword()) :: {:ok, [struct()]}
@@ -606,9 +644,16 @@ defmodule Events.Core.Crud do
     |> Multi.upsert_all(:records, schema, list_of_attrs, opts)
     |> transaction(opts)
     |> case do
-      {:ok, %{records: {_count, records}}} -> {:ok, records || []}
-      {:error, :records, reason, _} -> {:error, reason}
-      error -> error
+      {:ok, %{records: {_count, records}}} ->
+        records = records || []
+        repo = Options.repo(opts)
+        {:ok, maybe_preload_list(records, Options.preloads(opts), repo)}
+
+      {:error, :records, reason, _} ->
+        {:error, reason}
+
+      error ->
+        error
     end
   end
 
@@ -674,8 +719,8 @@ defmodule Events.Core.Crud do
   end
 
   defp unwrap_single({:ok, %{record: record}}, _name, _schema, opts) do
-    repo = Op.repo(opts)
-    record = maybe_preload(record, Op.preloads(opts), repo)
+    repo = Options.repo(opts)
+    record = maybe_preload(record, Options.preloads(opts), repo)
     {:ok, record}
   end
 
@@ -693,6 +738,9 @@ defmodule Events.Core.Crud do
 
   defp maybe_preload(record, [], _repo), do: record
   defp maybe_preload(record, preloads, repo), do: repo.preload(record, preloads)
+
+  defp maybe_preload_list(records, [], _repo), do: records
+  defp maybe_preload_list(records, preloads, repo), do: repo.preload(records, preloads)
 
   # Convert Query token to Ecto.Query
   # This will be properly implemented with Query integration

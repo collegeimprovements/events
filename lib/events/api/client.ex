@@ -233,24 +233,30 @@ defmodule Events.Api.Client do
       # ============================================
 
       defp authenticate_request(%Request{config: config} = request) do
-        case get_auth(config) do
-          nil ->
-            {:ok, request}
+        config
+        |> get_auth()
+        |> apply_auth(request)
+      end
 
-          auth ->
-            if Auth.valid?(auth) do
-              {:ok, Auth.authenticate(auth, request)}
-            else
-              case Auth.refresh(auth) do
-                {:ok, new_auth} ->
-                  {:ok, Auth.authenticate(new_auth, request)}
+      defp apply_auth(nil, request), do: {:ok, request}
 
-                {:error, _} = error ->
-                  error
-              end
-            end
+      defp apply_auth(auth, request) do
+        case Auth.valid?(auth) do
+          true ->
+            {:ok, Auth.authenticate(auth, request)}
+
+          false ->
+            auth
+            |> Auth.refresh()
+            |> apply_refreshed_auth(request)
         end
       end
+
+      defp apply_refreshed_auth({:ok, new_auth}, request) do
+        {:ok, Auth.authenticate(new_auth, request)}
+      end
+
+      defp apply_refreshed_auth({:error, _} = error, _request), do: error
 
       defp get_auth(config) do
         case @auth_type do
@@ -361,26 +367,27 @@ defmodule Events.Api.Client do
         end
       end
 
-      defp maybe_emit_telemetry_start(metadata) do
-        if @telemetry_enabled do
+      # Telemetry emission - pattern matched on @telemetry_enabled compile-time constant
+      if @telemetry_enabled do
+        defp maybe_emit_telemetry_start(metadata) do
           Telemetry.emit_start(@client_name, metadata)
         end
-      end
 
-      defp maybe_emit_telemetry_stop(nil, _metadata), do: :ok
+        defp maybe_emit_telemetry_stop(nil, _metadata), do: :ok
 
-      defp maybe_emit_telemetry_stop(start_time, metadata) do
-        if @telemetry_enabled do
+        defp maybe_emit_telemetry_stop(start_time, metadata) do
           Telemetry.emit_stop(start_time, @client_name, metadata)
         end
-      end
 
-      defp maybe_emit_telemetry_exception(nil, _kind, _reason, _stacktrace, _metadata), do: :ok
+        defp maybe_emit_telemetry_exception(nil, _kind, _reason, _stacktrace, _metadata), do: :ok
 
-      defp maybe_emit_telemetry_exception(start_time, kind, reason, stacktrace, metadata) do
-        if @telemetry_enabled do
+        defp maybe_emit_telemetry_exception(start_time, kind, reason, stacktrace, metadata) do
           Telemetry.emit_exception(start_time, @client_name, kind, reason, stacktrace, metadata)
         end
+      else
+        defp maybe_emit_telemetry_start(_metadata), do: nil
+        defp maybe_emit_telemetry_stop(_start_time, _metadata), do: :ok
+        defp maybe_emit_telemetry_exception(_start_time, _kind, _reason, _stacktrace, _metadata), do: :ok
       end
 
       defp apply_retry_options(opts) do

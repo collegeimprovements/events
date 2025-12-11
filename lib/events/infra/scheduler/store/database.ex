@@ -7,9 +7,17 @@ defmodule Events.Infra.Scheduler.Store.Database do
   ## Usage
 
       # In config
-      config :events, Events.Infra.Scheduler,
+      config :my_app, Events.Infra.Scheduler,
         store: :database,
-        repo: Events.Core.Repo
+        repo: MyApp.Repo
+
+  ## Configuration
+
+  The default repo fallback is configurable via:
+
+      config :events, Events.Infra.Scheduler.Store.Database, repo: MyApp.Repo
+
+  Default repo fallback: `Events.Core.Repo`
   """
 
   import Ecto.Query
@@ -20,6 +28,8 @@ defmodule Events.Infra.Scheduler.Store.Database do
 
   @behaviour Events.Infra.Scheduler.Store.Behaviour
 
+  @default_repo Application.compile_env(:events, [__MODULE__, :repo], Events.Core.Repo)
+
   # ETS table for workflow definitions (workflows are stored in memory only for now)
   @workflows_table :scheduler_workflows_database
 
@@ -28,7 +38,7 @@ defmodule Events.Infra.Scheduler.Store.Database do
   # ============================================
 
   defp repo do
-    Config.get()[:repo] || Events.Core.Repo
+    Config.get()[:repo] || @default_repo
   end
 
   defp prefix do

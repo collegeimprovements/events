@@ -19,6 +19,8 @@ defmodule Events.Core.Schema.Telemetry do
   - `:valid?` - Whether the changeset is valid after validation
   """
 
+  @app_name Application.compile_env(:events, [__MODULE__, :app_name], :events)
+
   @doc """
   Execute a validation function with telemetry tracking.
   """
@@ -128,14 +130,14 @@ defmodule Events.Core.Schema.Telemetry do
          metadata,
          _config
        ) do
-    if Application.get_env(:events, :log_validation_start, false) do
+    if Application.get_env(@app_name, :log_validation_start, false) do
       require Logger
       Logger.debug("Validating #{metadata.field} as #{metadata.type}")
     end
   end
 
   defp handle_event([:events, :schema, :validation, :field, :stop], measurements, metadata, _config) do
-    if Application.get_env(:events, :log_validation_timing, false) do
+    if Application.get_env(@app_name, :log_validation_timing, false) do
       require Logger
       duration_ms = System.convert_time_unit(measurements.duration, :native, :millisecond)
       Logger.debug("Validated #{metadata.field} in #{duration_ms}ms")
@@ -148,7 +150,7 @@ defmodule Events.Core.Schema.Telemetry do
          metadata,
          _config
        ) do
-    if Application.get_env(:events, :log_validity_changes, true) do
+    if Application.get_env(@app_name, :log_validity_changes, true) do
       require Logger
 
       Logger.info(

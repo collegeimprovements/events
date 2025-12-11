@@ -47,6 +47,10 @@ defmodule Events.Types.Error do
 
   alias __MODULE__
 
+  # Configurable defaults - can be overridden via application config
+  # config :events, Events.Types.Error, task_supervisor: MyApp.TaskSupervisor
+  @task_supervisor Application.compile_env(:events, [__MODULE__, :task_supervisor], nil)
+
   @type error_type ::
           :validation
           | :not_found
@@ -131,7 +135,7 @@ defmodule Events.Types.Error do
   - Existing Error structs
   - Custom error maps
 
-  This function delegates to the `Events.Protocols.Normalizable` protocol for type-based
+  This function delegates to the `Events.Types.Normalizable` protocol for type-based
   dispatch. You can extend normalization for custom types by implementing the
   protocol.
 
@@ -171,9 +175,9 @@ defmodule Events.Types.Error do
 
   ## Extending
 
-  Implement `Events.Protocols.Normalizable` for custom error types:
+  Implement `Events.Types.Normalizable` for custom error types:
 
-      defimpl Events.Protocols.Normalizable, for: MyApp.CustomError do
+      defimpl Events.Types.Normalizable, for: MyApp.CustomError do
         def normalize(error, opts) do
           Events.Error.new(:business, error.code,
             message: error.message,
@@ -196,7 +200,7 @@ defmodule Events.Types.Error do
     start_time = if emit_telemetry, do: System.monotonic_time(), else: nil
     source_type = get_source_type(error)
 
-    normalized = Events.Protocols.Normalizable.normalize(error, opts)
+    normalized = Events.Types.Normalizable.normalize(error, opts)
 
     if emit_telemetry do
       duration = System.monotonic_time() - start_time
@@ -374,7 +378,9 @@ defmodule Events.Types.Error do
   @spec store(t(), keyword()) :: {:ok, t()} | {:error, term()}
   def store(%Error{} = error, opts \\ []) do
     if opts[:async] do
-      Task.Supervisor.start_child(Events.TaskSupervisor, fn -> do_store(error) end)
+      supervisor = opts[:task_supervisor] || @task_supervisor ||
+        raise "No task supervisor configured. Pass :task_supervisor option or configure in config."
+      Task.Supervisor.start_child(supervisor, fn -> do_store(error) end)
       {:ok, error}
     else
       do_store(error)

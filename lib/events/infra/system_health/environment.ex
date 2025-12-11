@@ -3,6 +3,8 @@ defmodule Events.Infra.SystemHealth.Environment do
   Environment information and runtime configuration.
   """
 
+  @app_name Application.compile_env(:events, [__MODULE__, :app_name], :events)
+
   @doc """
   Gets current environment information.
   """
@@ -50,7 +52,7 @@ defmodule Events.Infra.SystemHealth.Environment do
   end
 
   defp get_live_reload_config(:dev) do
-    Application.get_env(:events, EventsWeb.Endpoint, [])
+    Application.get_env(@app_name, EventsWeb.Endpoint, [])
     |> Keyword.get(:live_reload)
     |> case do
       nil -> :disabled
@@ -68,7 +70,7 @@ defmodule Events.Infra.SystemHealth.Environment do
   end
 
   defp get_watchers_for_env(:dev) do
-    Application.get_env(:events, EventsWeb.Endpoint, [])
+    Application.get_env(@app_name, EventsWeb.Endpoint, [])
     |> Keyword.get(:watchers, [])
     |> Enum.map(&extract_watcher_name/1)
   end

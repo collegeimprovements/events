@@ -19,10 +19,13 @@ The CRUD system provides a unified, composable API for all database operations. 
         │                     │                     │
         └─────────────────────┼─────────────────────┘
                               ▼
-                    ┌───────────────┐
-                    │   Crud.Op     │
-                    │ Pure builders │
-                    └───────────────┘
+     ┌────────────────────────┴────────────────────────┐
+     ▼                                                 ▼
+┌─────────────────────────┐            ┌─────────────────────────┐
+│  Crud.ChangesetBuilder  │            │      Crud.Options       │
+│  Changeset building &   │            │  Option extraction,     │
+│  resolution             │            │  validation, defaults   │
+└─────────────────────────┘            └─────────────────────────┘
 ```
 
 ## Quick Reference
@@ -32,7 +35,9 @@ The CRUD system provides a unified, composable API for all database operations. 
 | `Events.Core.Crud` | Unified execution API |
 | `Events.Core.Crud.Multi` | Transaction composer |
 | `Events.Core.Crud.Merge` | PostgreSQL MERGE operations |
-| `Events.Core.Crud.Op` | Pure changeset/options builders |
+| `Events.Core.Crud.ChangesetBuilder` | Changeset building and resolution |
+| `Events.Core.Crud.Options` | Option extraction, validation, defaults |
+| `Events.Core.Crud.Op` | **Deprecated** - backwards compatibility layer |
 | `Events.Core.Crud.Context` | Context-level `crud` macro |
 | `Events.Core.Crud.Schema` | Schema-level integration |
 
@@ -549,24 +554,37 @@ User
 
 ---
 
-## Events.Core.Crud.Op
+## Events.Core.Crud.ChangesetBuilder
 
-Pure functions for building changesets and options. No side effects.
+Pure functions for building and resolving changesets. No side effects.
 
-### Changeset Resolution
+Note: Named `ChangesetBuilder` to avoid confusion with `Ecto.Changeset`.
+
+### Building Changesets
 
 ```elixir
 # From schema module (for create)
-changeset = Op.changeset(User, %{email: "test@example.com"})
+changeset = ChangesetBuilder.build(User, %{email: "test@example.com"})
 
 # From existing struct (for update)
-changeset = Op.changeset(user, %{name: "Updated"})
+changeset = ChangesetBuilder.build(user, %{name: "Updated"})
 
 # With explicit changeset function
-changeset = Op.changeset(User, attrs, changeset: :registration_changeset)
+changeset = ChangesetBuilder.build(User, attrs, changeset: :registration_changeset)
 
 # With action hint
-changeset = Op.changeset(User, attrs, action: :create)
+changeset = ChangesetBuilder.build(User, attrs, action: :create)
+```
+
+### Resolving Changeset Functions
+
+```elixir
+# Determine which changeset function to use
+changeset_fn = ChangesetBuilder.resolve(User, :create, opts)
+# => :changeset
+
+changeset_fn = ChangesetBuilder.resolve(User, :create, changeset: :registration_changeset)
+# => :registration_changeset
 ```
 
 **Resolution priority:**
@@ -576,33 +594,71 @@ changeset = Op.changeset(User, attrs, action: :create)
 4. Schema's `changeset_for/2` callback
 5. Default `:changeset` function
 
-### Options Builders
+---
+
+## Events.Core.Crud.Options
+
+Unified option handling for all CRUD operations. Single source of truth.
+
+### Option Extraction
 
 ```elixir
-# Insert options
-Op.insert_opts(returning: true, prefix: "tenant_1")
+# Extract valid options for insert
+Options.insert_opts(returning: true, prefix: "tenant_1", invalid: :ignored)
 # => [returning: true, prefix: "tenant_1"]
 
-# Upsert options
-Op.upsert_opts(conflict_target: :email, on_conflict: :replace_all)
+# Extract valid options for upsert
+Options.upsert_opts(conflict_target: :email, on_conflict: :replace_all)
 # => [conflict_target: [:email], on_conflict: :replace_all]
 
-# Update options
-Op.update_opts(returning: true, force: [:updated_at])
+# Other operation extractors
+Options.update_opts(returning: true, force: [:updated_at])
+Options.delete_opts(prefix: "tenant_1")
+Options.query_opts(prefix: "tenant", timeout: 15_000)
+Options.insert_all_opts(returning: true, on_conflict: :nothing)
+Options.update_all_opts(timeout: 60_000)
+Options.delete_all_opts(prefix: "tenant_1")
+```
 
-# Delete options
-Op.delete_opts(prefix: "tenant_1")
+### Helper Functions
 
-# Query options
-Op.query_opts(prefix: "tenant", timeout: 15_000)
-
-# Bulk insert options
-Op.insert_all_opts(returning: true, on_conflict: :nothing)
+```elixir
+# Get the repo to use
+Options.repo(opts)
+# => Events.Core.Repo (default) or custom repo from opts
 
 # Extract preloads
-Op.preloads(preload: [:account, :memberships])
+Options.preloads(preload: [:account, :memberships])
 # => [:account, :memberships]
+
+# Extract SQL/Repo options
+Options.sql_opts(prefix: "tenant", timeout: 30_000, log: false)
+# => [prefix: "tenant", timeout: 30_000, log: false]
 ```
+
+---
+
+## Events.Core.Crud.Op (Deprecated)
+
+> **Deprecated**: Use `Events.Core.Crud.ChangesetBuilder` and `Events.Core.Crud.Options` instead.
+
+This module exists for backwards compatibility. All functions delegate to the new modules:
+
+| Old (Op)                | New Module | New Function |
+|-------------------------|------------|--------------|
+| `Op.changeset/3`        | `ChangesetBuilder` | `build/3` |
+| `Op.resolve_changeset/3`| `ChangesetBuilder` | `resolve/3` |
+| `Op.insert_opts/1`      | `Options` | `insert_opts/1` |
+| `Op.update_opts/1`      | `Options` | `update_opts/1` |
+| `Op.delete_opts/1`      | `Options` | `delete_opts/1` |
+| `Op.query_opts/1`       | `Options` | `query_opts/1` |
+| `Op.upsert_opts/1`      | `Options` | `upsert_opts/1` |
+| `Op.insert_all_opts/1`  | `Options` | `insert_all_opts/1` |
+| `Op.update_all_opts/1`  | `Options` | `update_all_opts/1` |
+| `Op.delete_all_opts/1`  | `Options` | `delete_all_opts/1` |
+| `Op.repo/1`             | `Options` | `repo/1` |
+| `Op.preloads/1`         | `Options` | `preloads/1` |
+| `Op.sql_opts/1`         | `Options` | `sql_opts/1` |
 
 ---
 
@@ -989,6 +1045,9 @@ end
 
 ## Complete Options Reference
 
+All CRUD options are handled by `Events.Core.Crud.Options`, which provides a unified API
+for option extraction, validation, and normalization.
+
 ### Options by Category
 
 #### Universal Options (All Operations)
@@ -1041,6 +1100,19 @@ end
 |--------|------|---------|-------------|
 | `:placeholders` | `map()` | `nil` | Reusable values to reduce data transfer |
 | `:returning` | `boolean() \| list()` | `false` | Fields to return |
+| `:preload` | `list()` | `[]` | Associations to preload (requires `:returning`) |
+
+#### Merge Options
+
+Options can be stored in the Merge token via `Merge.opts/2` or passed to `Crud.run/2`.
+Call-time options take precedence over token options.
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `:repo` | `module()` | `Events.Core.Repo` | Custom repo module |
+| `:timeout` | `integer()` | `15_000` | Query timeout in milliseconds |
+| `:prefix` | `String.t()` | `nil` | Database schema prefix |
+| `:log` | `atom() \| false` | repo default | Logger level or `false` |
 
 ---
 

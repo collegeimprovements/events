@@ -25,10 +25,12 @@ defmodule Events.Core.Schema.Field do
     end
   end
 
+  @app_name Application.compile_env(:events, [__MODULE__, :app_name], :events)
+
   @doc false
   def __split_options__(opts, type, field_name \\ :unknown) do
     # Check for warnings if enabled
-    if Application.get_env(:events, :schema_warnings, true) do
+    if Application.get_env(@app_name, :schema_warnings, true) do
       Events.Core.Schema.Warnings.check_field_options(field_name, type, opts)
     end
 

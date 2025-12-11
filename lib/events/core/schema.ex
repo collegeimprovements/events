@@ -120,6 +120,9 @@ defmodule Events.Core.Schema do
         default: :active
   """
 
+  @app_name Application.compile_env(:events, [__MODULE__, :app_name], :events)
+  @default_repo Application.compile_env(@app_name, [__MODULE__, :repo], Events.Core.Repo)
+
   defmacro __using__(_opts) do
     quote do
       use Ecto.Schema
@@ -923,7 +926,7 @@ defmodule Events.Core.Schema do
   """
   def deletion_impact(record, opts \\ []) do
     depth = Keyword.get(opts, :depth, 1)
-    repo = Keyword.get(opts, :repo, Events.Core.Repo)
+    repo = Keyword.get(opts, :repo, @default_repo)
     schema = record.__struct__
 
     count_associations(schema, record, repo, depth, [])

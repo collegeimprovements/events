@@ -194,6 +194,10 @@ defmodule Events.Core.Query do
 
   alias Events.Core.Query.{Token, Builder, Executor, Result, Queryable, Cast, Predicates, Search}
 
+  # Configurable defaults - can be overridden via application config
+  # config :events, Events.Core.Query, default_repo: MyApp.Repo
+  @default_repo Application.compile_env(:events, [__MODULE__, :default_repo], nil)
+
   # Re-export key types
   @type t :: Token.t()
   @type queryable :: Token.t() | module() | Ecto.Query.t() | String.t()
@@ -664,7 +668,7 @@ defmodule Events.Core.Query do
   """
   @spec to_sql(Token.t(), keyword()) :: {String.t(), list()}
   def to_sql(%Token{} = token, opts \\ []) do
-    repo = opts[:repo] || Events.Core.Repo
+    repo = get_repo(opts)
     query = Builder.build(token)
     Ecto.Adapters.SQL.to_sql(:all, repo, query)
   end
@@ -698,7 +702,7 @@ defmodule Events.Core.Query do
   """
   @spec explain(Token.t(), keyword()) :: String.t() | list()
   def explain(%Token{} = token, opts \\ []) do
-    repo = opts[:repo] || Events.Core.Repo
+    repo = get_repo(opts)
     query = Builder.build(token)
 
     analyze = opts[:analyze] || false
@@ -2623,7 +2627,7 @@ defmodule Events.Core.Query do
 
   ## Options
 
-  - `:repo` - Repo module (default: `Events.Core.Repo`)
+  - `:repo` - Repo module (default: configured default_repo)
   - `:timeout` - Query timeout in ms (default: 15_000)
   - `:telemetry` - Enable telemetry (default: true)
   - `:cache` - Enable caching (default: false)
@@ -2733,7 +2737,7 @@ defmodule Events.Core.Query do
   """
   @spec transaction((-> term()), keyword()) :: {:ok, term()} | {:error, term()}
   def transaction(fun, opts \\ []) do
-    repo = opts[:repo] || Events.Core.Repo
+    repo = get_repo(opts)
     repo.transaction(fun, opts)
   end
 
@@ -2872,7 +2876,7 @@ defmodule Events.Core.Query do
   """
   @spec count(Token.t(), keyword()) :: non_neg_integer()
   def count(%Token{} = token, opts \\ []) do
-    repo = opts[:repo] || Events.Core.Repo
+    repo = get_repo(opts)
     timeout = opts[:timeout] || 15_000
 
     query =
@@ -2903,7 +2907,7 @@ defmodule Events.Core.Query do
   """
   @spec exists?(Token.t(), keyword()) :: boolean()
   def exists?(%Token{} = token, opts \\ []) do
-    repo = opts[:repo] || Events.Core.Repo
+    repo = get_repo(opts)
     timeout = opts[:timeout] || 15_000
 
     query = build(token)
@@ -2946,7 +2950,7 @@ defmodule Events.Core.Query do
   @spec aggregate(Token.t(), :count | :sum | :avg | :min | :max, atom(), keyword()) :: term()
   def aggregate(%Token{} = token, aggregate_type, field, opts \\ [])
       when aggregate_type in [:count, :sum, :avg, :min, :max] do
-    repo = opts[:repo] || Events.Core.Repo
+    repo = get_repo(opts)
     timeout = opts[:timeout] || 15_000
 
     query =
@@ -3329,4 +3333,10 @@ defmodule Events.Core.Query do
   """
   @spec search(Token.t(), String.t() | nil, [atom() | tuple()], keyword()) :: Token.t()
   defdelegate search(token, term, fields, opts \\ []), to: Search
+
+  # Private helper to get repo from opts or configured default
+  defp get_repo(opts) do
+    opts[:repo] || @default_repo ||
+      raise "No repo configured. Pass :repo option or configure default_repo: config :events, Events.Core.Query, default_repo: MyApp.Repo"
+  end
 end

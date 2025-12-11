@@ -817,7 +817,7 @@ defmodule Events.Types.AsyncResult do
   end
 
   @doc """
-  Retries a task using the `Events.Protocols.Recoverable` protocol to determine
+  Retries a task using the `Events.Types.Recoverable` protocol to determine
   retry behavior based on the error type.
 
   This is a smarter retry that automatically:
@@ -885,14 +885,14 @@ defmodule Events.Types.AsyncResult do
         # Normalize the error if requested
         normalized =
           if normalize do
-            Events.Protocols.Normalizable.normalize(reason, [])
+            Events.Types.Normalizable.normalize(reason, [])
           else
             reason
           end
 
         # Check if recoverable using the protocol
-        recoverable = Events.Protocols.Recoverable.recoverable?(normalized)
-        max_attempts = Events.Protocols.Recoverable.max_attempts(normalized)
+        recoverable = Events.Types.Recoverable.recoverable?(normalized)
+        max_attempts = Events.Types.Recoverable.max_attempts(normalized)
 
         cond do
           not recoverable ->
@@ -913,8 +913,8 @@ defmodule Events.Types.AsyncResult do
 
           true ->
             # Calculate delay and retry
-            strategy = Events.Protocols.Recoverable.strategy(normalized)
-            delay = Events.Protocols.Recoverable.retry_delay(normalized, attempt)
+            strategy = Events.Types.Recoverable.strategy(normalized)
+            delay = Events.Types.Recoverable.retry_delay(normalized, attempt)
 
             # Emit telemetry
             if telemetry_prefix do
@@ -942,7 +942,7 @@ defmodule Events.Types.AsyncResult do
         error: error,
         strategy: strategy,
         recoverable: will_retry,
-        severity: Events.Protocols.Recoverable.severity(error)
+        severity: Events.Types.Recoverable.severity(error)
       }
     )
   end

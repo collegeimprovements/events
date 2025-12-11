@@ -14,7 +14,11 @@ defmodule Events.Core.Query.Executor do
   alias Events.Core.Query.{Token, Builder, Result}
 
   @default_timeout 15_000
-  @default_repo Events.Core.Repo
+
+  # Configurable defaults - can be overridden via application config
+  # config :events, Events.Core.Query, default_repo: MyApp.Repo, telemetry_prefix: [:my_app, :query]
+  @default_repo Application.compile_env(:events, [Events.Core.Query, :default_repo], nil)
+  @telemetry_prefix Application.compile_env(:events, [Events.Core.Query, :telemetry_prefix], [:events, :query])
 
   @doc """
   Execute a query token and return result or error tuple.
@@ -54,7 +58,7 @@ defmodule Events.Core.Query.Executor do
   @spec execute!(Token.t(), keyword()) :: Result.t()
   def execute!(%Token{} = token, opts \\ []) do
     start_time = System.monotonic_time(:microsecond)
-    repo = opts[:repo] || @default_repo
+    repo = get_repo(opts)
     timeout = opts[:timeout] || @default_timeout
     include_total = opts[:include_total_count] || false
 
@@ -114,7 +118,7 @@ defmodule Events.Core.Query.Executor do
 
   ## Options
 
-  - `:repo` - Repo to use (default: Events.Core.Repo)
+  - `:repo` - Repo to use (default: configured default_repo)
   - `:max_rows` - Batch size for streaming (default: 500)
 
   ## Warning
@@ -140,7 +144,7 @@ defmodule Events.Core.Query.Executor do
   """
   @spec stream(Token.t(), keyword()) :: Enumerable.t()
   def stream(%Token{} = token, opts \\ []) do
-    repo = opts[:repo] || @default_repo
+    repo = get_repo(opts)
     max_rows = opts[:max_rows] || 500
 
     # Warn if query has no limits - potential for large result sets
@@ -357,7 +361,7 @@ defmodule Events.Core.Query.Executor do
     {filter_summary, filter_count} = extract_filter_context(token)
 
     :telemetry.execute(
-      [:events, :query, :start],
+      @telemetry_prefix ++ [:start],
       %{system_time: System.system_time()},
       %{
         source: token.source,
@@ -381,7 +385,7 @@ defmodule Events.Core.Query.Executor do
     {filter_summary, filter_count} = extract_filter_context(token)
 
     :telemetry.execute(
-      [:events, :query, :stop],
+      @telemetry_prefix ++ [:stop],
       %{
         duration: result.metadata.total_time_μs * 1000,
         query_time: result.metadata.query_time_μs * 1000
@@ -420,7 +424,7 @@ defmodule Events.Core.Query.Executor do
 
   defp do_emit_telemetry_exception(token, exception, duration, opts, _enabled) do
     :telemetry.execute(
-      [:events, :query, :exception],
+      @telemetry_prefix ++ [:exception],
       %{duration: duration * 1000},
       %{
         source: token.source,
@@ -430,5 +434,11 @@ defmodule Events.Core.Query.Executor do
         opts: opts
       }
     )
+  end
+
+  # Helper to get repo from opts or configured default
+  defp get_repo(opts) do
+    opts[:repo] || @default_repo ||
+      raise "No repo configured. Pass :repo option or configure default_repo: config :events, Events.Core.Query, default_repo: MyApp.Repo"
   end
 end

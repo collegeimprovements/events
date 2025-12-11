@@ -49,9 +49,8 @@ defmodule Events.Infra.Idempotency.Middleware do
 
   require Logger
 
-  alias Events.Api.Client.Request
-  alias Events.Api.Client.Response
   alias Events.Infra.Idempotency
+  alias Events.Infra.Idempotency.ResponseBehaviour
 
   @type opts :: [
           scope: String.t(),
@@ -65,6 +64,9 @@ defmodule Events.Infra.Idempotency.Middleware do
   @doc """
   Wraps an API call with idempotency protection.
 
+  Accepts any request struct that implements `Events.Infra.Idempotency.RequestBehaviour`
+  or has the standard request fields (idempotency_key, method, path, body, config, metadata).
+
   ## Examples
 
       # With explicit key
@@ -77,9 +79,9 @@ defmodule Events.Infra.Idempotency.Middleware do
       |> Request.idempotency_key("order_123")
       |> Middleware.wrap(fn req -> Client.execute(req) end, scope: "stripe")
   """
-  @spec wrap(Request.t(), (Request.t() -> {:ok, Response.t()} | {:error, term()}), opts()) ::
-          {:ok, Response.t()} | {:error, term()}
-  def wrap(%Request{} = req, executor, opts \\ []) when is_function(executor, 1) do
+  @spec wrap(struct(), (struct() -> {:ok, struct()} | {:error, term()}), opts()) ::
+          {:ok, struct()} | {:error, term()}
+  def wrap(req, executor, opts \\ []) when is_struct(req) and is_function(executor, 1) do
     if should_apply_idempotency?(req, opts) do
       execute_with_idempotency(req, executor, opts)
     else
@@ -113,23 +115,42 @@ defmodule Events.Infra.Idempotency.Middleware do
       Middleware.ensure_key(req)
       #=> %Request{idempotency_key: "post:/charges:abc123..."}
   """
-  @spec ensure_key(Request.t(), opts()) :: Request.t()
+  @spec ensure_key(struct(), opts()) :: struct()
   def ensure_key(req, opts \\ [])
 
-  def ensure_key(%Request{idempotency_key: nil} = req, opts) do
-    key = generate_request_key(req, opts)
-    %{req | idempotency_key: key}
-  end
+  def ensure_key(req, opts) when is_struct(req) do
+    case get_idempotency_key(req) do
+      nil ->
+        key = generate_request_key(req, opts)
+        %{req | idempotency_key: key}
 
-  def ensure_key(%Request{} = req, _opts), do: req
+      _key ->
+        req
+    end
+  end
 
   # ============================================
   # Private Implementation
   # ============================================
 
-  defp should_apply_idempotency?(%Request{idempotency_key: nil}, _opts), do: false
+  # Helper to get idempotency key from any request struct
+  defp get_idempotency_key(req) when is_struct(req) do
+    Map.get(req, :idempotency_key)
+  end
 
-  defp should_apply_idempotency?(%Request{idempotency_key: _key, method: method}, opts) do
+  # Helper to get method from any request struct
+  defp get_method(req) when is_struct(req) do
+    Map.get(req, :method)
+  end
+
+  defp should_apply_idempotency?(req, opts) when is_struct(req) do
+    case get_idempotency_key(req) do
+      nil -> false
+      _key -> check_enabled(get_method(req), opts)
+    end
+  end
+
+  defp check_enabled(method, opts) do
     case Keyword.get(opts, :enabled, :auto) do
       true -> true
       false -> false
@@ -137,7 +158,8 @@ defmodule Events.Infra.Idempotency.Middleware do
     end
   end
 
-  defp execute_with_idempotency(%Request{idempotency_key: key} = req, executor, opts) do
+  defp execute_with_idempotency(req, executor, opts) when is_struct(req) do
+    key = get_idempotency_key(req)
     scope = Keyword.get(opts, :scope) || derive_scope(req)
     ttl = Keyword.get(opts, :ttl)
     on_duplicate = Keyword.get(opts, :on_duplicate, :return)
@@ -149,14 +171,14 @@ defmodule Events.Infra.Idempotency.Middleware do
     Idempotency.execute(key, fn -> execute_request(req, executor) end, execute_opts)
   end
 
-  defp execute_request(%Request{} = req, executor) do
+  defp execute_request(req, executor) when is_struct(req) do
     case executor.(req) do
-      {:ok, %Response{} = response} ->
-        if Response.success?(response) do
-          {:ok, response_to_cacheable(response)}
+      {:ok, response} when is_struct(response) ->
+        if response_success?(response) do
+          {:ok, ResponseBehaviour.to_cacheable(response)}
         else
           # Non-success HTTP response - treat as error for idempotency
-          {:error, response_to_cacheable(response)}
+          {:error, ResponseBehaviour.to_cacheable(response)}
         end
 
       {:error, _} = error ->
@@ -164,39 +186,51 @@ defmodule Events.Infra.Idempotency.Middleware do
     end
   end
 
-  defp response_to_cacheable(%Response{} = response) do
-    %{
-      status: response.status,
-      body: response.body,
-      headers: response.headers
-    }
-  end
+  # Check if response is successful using behaviour or default
+  defp response_success?(response) when is_struct(response) do
+    # Try to call success?/1 if the module implements it, otherwise use default
+    module = response.__struct__
 
-  defp derive_scope(%Request{config: config}) when is_struct(config) do
-    case Map.get(config, :base_url) do
-      nil -> nil
-      url -> URI.parse(url).host
+    if function_exported?(module, :success?, 1) do
+      module.success?(response)
+    else
+      ResponseBehaviour.default_success?(response)
     end
   end
 
-  defp derive_scope(_), do: nil
+  defp derive_scope(req) when is_struct(req) do
+    case Map.get(req, :config) do
+      config when is_struct(config) ->
+        case Map.get(config, :base_url) do
+          nil -> nil
+          url -> URI.parse(url).host
+        end
 
-  defp request_metadata(%Request{} = req) do
+      _ ->
+        nil
+    end
+  end
+
+  defp request_metadata(req) when is_struct(req) do
     %{
-      method: req.method,
-      path: req.path,
-      metadata: req.metadata
+      method: Map.get(req, :method),
+      path: Map.get(req, :path),
+      metadata: Map.get(req, :metadata, %{})
     }
   end
 
-  defp generate_request_key(%Request{} = req, opts) do
+  defp generate_request_key(req, opts) when is_struct(req) do
     scope = Keyword.get(opts, :scope)
-    body_hash = hash_body(req.body)
+    body = Map.get(req, :body)
+    body_hash = hash_body(body)
+
+    method = Map.get(req, :method)
+    path = Map.get(req, :path)
 
     parts =
       [
-        Atom.to_string(req.method),
-        req.path,
+        if(is_atom(method), do: Atom.to_string(method), else: to_string(method)),
+        path,
         body_hash
       ]
       |> Enum.reject(&is_nil/1)

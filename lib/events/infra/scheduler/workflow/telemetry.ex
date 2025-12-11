@@ -2,6 +2,12 @@ defmodule Events.Infra.Scheduler.Workflow.Telemetry do
   @moduledoc """
   Telemetry events for the workflow system.
 
+  The telemetry prefix is configurable via:
+
+      config :events, Events.Infra.Scheduler.Workflow.Telemetry, telemetry_prefix: [:my_app, :scheduler, :workflow]
+
+  Default prefix: `[:events, :scheduler, :workflow]`
+
   ## Workflow Events
 
   - `[:events, :scheduler, :workflow, :start]` - Workflow execution started
@@ -91,7 +97,7 @@ defmodule Events.Infra.Scheduler.Workflow.Telemetry do
       end
   """
 
-  @prefix [:events, :scheduler, :workflow]
+  @prefix Application.compile_env(:events, [__MODULE__, :telemetry_prefix], [:events, :scheduler, :workflow])
 
   # ============================================
   # Span Functions

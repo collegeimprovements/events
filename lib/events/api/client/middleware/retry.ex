@@ -42,7 +42,7 @@ defmodule Events.Api.Client.Middleware.Retry do
 
   require Logger
 
-  alias Events.Protocols.Recoverable
+  alias Events.Types.Recoverable
 
   @default_max_attempts 3
   @default_base_delay 1_000
@@ -209,25 +209,32 @@ defmodule Events.Api.Client.Middleware.Retry do
       # Check for Retry-After header first
       case extract_retry_after(response) do
         nil ->
-          # Try to use Recoverable protocol delay if error struct is available
-          case response do
-            {:error, error} when is_map(error) ->
-              protocol_delay = Recoverable.retry_delay(error, attempt)
-
-              if protocol_delay > 0 do
-                min(protocol_delay, max_delay)
-              else
-                calculate_delay_with_jitter(attempt, base_delay, max_delay, jitter)
-              end
-
-            _ ->
-              calculate_delay_with_jitter(attempt, base_delay, max_delay, jitter)
-          end
+          calculate_delay_for_response(response, attempt, base_delay, max_delay, jitter)
 
         retry_after_ms ->
           min(retry_after_ms, max_delay)
       end
     end
+  end
+
+  defp calculate_delay_for_response({:error, error}, attempt, base_delay, max_delay, jitter)
+       when is_map(error) do
+    error
+    |> Recoverable.retry_delay(attempt)
+    |> apply_protocol_delay(attempt, base_delay, max_delay, jitter)
+  end
+
+  defp calculate_delay_for_response(_response, attempt, base_delay, max_delay, jitter) do
+    calculate_delay_with_jitter(attempt, base_delay, max_delay, jitter)
+  end
+
+  defp apply_protocol_delay(protocol_delay, _attempt, _base_delay, max_delay, _jitter)
+       when protocol_delay > 0 do
+    min(protocol_delay, max_delay)
+  end
+
+  defp apply_protocol_delay(_protocol_delay, attempt, base_delay, max_delay, jitter) do
+    calculate_delay_with_jitter(attempt, base_delay, max_delay, jitter)
   end
 
   defp calculate_delay_with_jitter(attempt, base_delay, max_delay, jitter) do

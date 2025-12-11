@@ -19,6 +19,12 @@ config :events, Events.Core.Repo,
     default: {:fragment, "CURRENT_TIMESTAMP"}
   ]
 
+# Query module configuration
+# These settings are used by Events.Core.Query for default repo and telemetry
+config :events, Events.Core.Query,
+  default_repo: Events.Core.Repo,
+  telemetry_prefix: [:events, :query]
+
 # Phoenix endpoint configuration
 config :events, EventsWeb.Endpoint,
   url: [host: "localhost"],

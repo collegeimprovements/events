@@ -313,8 +313,9 @@ defmodule Events.Api.Client.Auth.OAuth2 do
     token_url = Keyword.fetch!(opts, :token_url)
     scope = Keyword.get(opts, :scope)
 
-    body = %{grant_type: "client_credentials"}
-    body = if scope, do: Map.put(body, :scope, scope), else: body
+    body =
+      %{grant_type: "client_credentials"}
+      |> maybe_add_scope(scope)
 
     auth_header = Base.encode64("#{client_id}:#{client_secret}")
 
@@ -339,6 +340,9 @@ defmodule Events.Api.Client.Auth.OAuth2 do
         {:error, reason}
     end
   end
+
+  defp maybe_add_scope(body, nil), do: body
+  defp maybe_add_scope(body, scope), do: Map.put(body, :scope, scope)
 
   # ============================================
   # Helpers
@@ -411,12 +415,9 @@ defmodule Events.Api.Client.Auth.OAuth2 do
     end
 
     def refresh(%OAuth2{} = auth) do
-      cond do
-        not OAuth2.can_refresh?(auth) ->
-          {:error, :cannot_refresh}
-
-        true ->
-          do_refresh(auth)
+      case OAuth2.can_refresh?(auth) do
+        true -> do_refresh(auth)
+        false -> {:error, :cannot_refresh}
       end
     end
 

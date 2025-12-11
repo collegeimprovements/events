@@ -4,6 +4,28 @@ defmodule Events.Core.Schema.Helpers.Normalizer do
 
   Provides various normalization transformations like trim, downcase, slugify, etc.
   Supports chaining multiple normalizations together.
+
+  ## Type-Specific Normalizers
+
+  The module provides domain-specific normalizers for common field types:
+
+  - `normalize_email/1` - Trims and lowercases email addresses
+  - `normalize_phone/1` - Strips non-digit characters (except +)
+  - `normalize_url/1` - Trims and lowercases URLs
+  - `normalize_slug/1` - Converts to URL-safe slug format
+
+  ## Examples
+
+      # General normalization with options
+      normalize("  Hello World  ", normalize: [:trim, :downcase])
+      #=> "hello world"
+
+      # Type-specific normalizers
+      normalize_email("  User@Example.COM  ")
+      #=> "user@example.com"
+
+      normalize_phone("+1 (555) 123-4567")
+      #=> "+15551234567"
   """
 
   alias Events.Core.Schema.Slugify
@@ -150,4 +172,110 @@ defmodule Events.Core.Schema.Helpers.Normalizer do
   end
 
   defp apply_single(value, _), do: value
+
+  # ============================================
+  # Type-Specific Normalizers
+  # ============================================
+
+  @doc """
+  Normalizes an email address.
+
+  - Trims leading/trailing whitespace
+  - Converts to lowercase
+
+  ## Examples
+
+      iex> normalize_email("  User@Example.COM  ")
+      "user@example.com"
+
+      iex> normalize_email(nil)
+      nil
+  """
+  @spec normalize_email(String.t() | nil) :: String.t() | nil
+  def normalize_email(email) when is_binary(email) do
+    email
+    |> String.trim()
+    |> String.downcase()
+  end
+
+  def normalize_email(value), do: value
+
+  @doc """
+  Normalizes a phone number.
+
+  - Removes all non-digit characters except leading +
+  - Preserves international prefix
+
+  ## Examples
+
+      iex> normalize_phone("+1 (555) 123-4567")
+      "+15551234567"
+
+      iex> normalize_phone("555.123.4567")
+      "5551234567"
+
+      iex> normalize_phone(nil)
+      nil
+  """
+  @spec normalize_phone(String.t() | nil) :: String.t() | nil
+  def normalize_phone(phone) when is_binary(phone) do
+    String.replace(phone, ~r/[^\d+]/, "")
+  end
+
+  def normalize_phone(value), do: value
+
+  @doc """
+  Normalizes a URL.
+
+  - Trims leading/trailing whitespace
+  - Converts to lowercase
+
+  ## Examples
+
+      iex> normalize_url("  HTTPS://Example.COM/Path  ")
+      "https://example.com/path"
+
+      iex> normalize_url(nil)
+      nil
+  """
+  @spec normalize_url(String.t() | nil) :: String.t() | nil
+  def normalize_url(url) when is_binary(url) do
+    url
+    |> String.trim()
+    |> String.downcase()
+  end
+
+  def normalize_url(value), do: value
+
+  @doc """
+  Normalizes a value to a URL-safe slug.
+
+  - Trims whitespace
+  - Converts to lowercase
+  - Replaces non-word characters with hyphens
+  - Collapses multiple hyphens
+  - Removes leading/trailing hyphens
+
+  ## Examples
+
+      iex> normalize_slug("  Hello World!  ")
+      "hello-world"
+
+      iex> normalize_slug("My  --  Post Title")
+      "my-post-title"
+
+      iex> normalize_slug(nil)
+      nil
+  """
+  @spec normalize_slug(String.t() | nil) :: String.t() | nil
+  def normalize_slug(slug) when is_binary(slug) do
+    slug
+    |> String.trim()
+    |> String.downcase()
+    |> String.replace(~r/[^\w-]/, "-")
+    |> String.replace(~r/-+/, "-")
+    |> String.trim("-")
+  end
+
+  def normalize_slug(value), do: value
 end

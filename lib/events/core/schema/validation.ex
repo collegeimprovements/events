@@ -3,11 +3,12 @@ defmodule Events.Core.Schema.Validation do
   Unified validation entry point for Events schema system.
 
   This module provides a single, consistent API for all validation needs,
-  combining the functionality of:
+  orchestrating:
+  - `Events.Core.Schema.ValidationPipeline` - Main pipeline orchestration
   - `Events.Core.Schema.Validators` - Basic validation functions
-  - `Events.Core.Schema.ValidatorsExtended` - Extended validators with normalizers
   - `Events.Core.Schema.ValidatorRegistry` - Type-based validator dispatch
-  - `Events.Core.Schema.ValidationPipeline` - Pipeline orchestration
+  - `Events.Core.Schema.Helpers.Normalizer` - Normalization functions
+  - `Events.Core.Schema.Helpers.Length` - Length validation helpers
 
   ## Quick Start
 
@@ -60,14 +61,32 @@ defmodule Events.Core.Schema.Validation do
 
   The validation system is organized into focused, composable modules:
 
-  - `Events.Core.Schema.ValidationPipeline` - Main orchestration
-  - `Events.Core.Schema.Validators.*` - Type-specific validators (behavior-based)
-  - `Events.Core.Schema.ValidatorRegistry` - Type to validator mapping
-  - `Events.Core.Schema.Validators.CrossField` - Cross-field validations
-  - `Events.Core.Schema.Validators.Constraints` - Database constraints
+  ```
+  Validation (this module - unified API)
+      │
+      ├── ValidationPipeline ──── Main orchestration
+      │       │
+      │       ├── Helpers.Normalizer ──── Trim, downcase, slugify, etc.
+      │       ├── ValidatorRegistry ───── Type → Validator mapping
+      │       └── Validators.Constraints ─ Database constraints
+      │
+      ├── Validators ────────────── Basic validation dispatch
+      │
+      ├── Validators.* ──────────── Type-specific validators (behavior-based)
+      │   ├── String
+      │   ├── Number
+      │   ├── DateTime
+      │   ├── Array
+      │   ├── Map
+      │   └── Boolean
+      │
+      └── Validators.CrossField ─── Multi-field validations
+  ```
   """
 
+  import Ecto.Changeset
   alias Events.Core.Schema.{Validators, ValidatorsExtended, ValidatorRegistry, ValidationPipeline}
+  alias Events.Core.Schema.Utils.Comparison
 
   # ============================================
   # Core Validation API
@@ -76,7 +95,8 @@ defmodule Events.Core.Schema.Validation do
   @doc """
   Validates a field with the specified validation type and options.
 
-  This is the primary entry point for all validations.
+  This is the primary entry point for all validations. Routes to the appropriate
+  validator based on type and options.
 
   ## Examples
 
@@ -89,13 +109,25 @@ defmodule Events.Core.Schema.Validation do
       # String validations
       |> validate(:name, :string, min_length: 2, max_length: 100)
 
-      # With normalization
-      |> validate(:email, :email, normalize: true, unique: true)
+      # With normalization (uses ValidationPipeline)
+      |> validate(:email, :string, normalize: true)
+
+  ## Options
+
+  Common options supported by all validation types:
+  - `:required` - Field must be present
+  - `:normalize` - Apply normalization before validation (uses ValidationPipeline)
+  - `:unique` - Add unique constraint
+
+  Type-specific options are documented in the respective validator modules.
   """
   @spec validate(Ecto.Changeset.t(), atom(), atom(), keyword()) :: Ecto.Changeset.t()
   def validate(changeset, field, type, opts \\ []) do
+    # If normalize is requested, use the pipeline which handles normalization
     if Keyword.get(opts, :normalize) do
-      ValidatorsExtended.validate_field(changeset, field, Keyword.delete(opts, :normalize))
+      # Get the schema field type for pipeline
+      schema_type = get_field_type(changeset, field) || type
+      ValidationPipeline.validate_field(changeset, field, schema_type, opts)
     else
       Validators.apply(changeset, field, type, opts)
     end
@@ -155,7 +187,15 @@ defmodule Events.Core.Schema.Validation do
   """
   @spec validate_comparison(Ecto.Changeset.t(), atom(), atom(), atom()) :: Ecto.Changeset.t()
   def validate_comparison(changeset, field1, operator, field2) do
-    ValidatorsExtended.validate_comparison(changeset, field1, operator, field2)
+    validate_change(changeset, field1, fn _, value1 ->
+      value2 = get_field(changeset, field2)
+
+      if Comparison.compare_values(value1, operator, value2) do
+        []
+      else
+        [{field1, "must be #{operator} #{field2}"}]
+      end
+    end)
   end
 
   @doc """
@@ -171,7 +211,19 @@ defmodule Events.Core.Schema.Validation do
   """
   @spec validate_exclusive(Ecto.Changeset.t(), [atom()], keyword()) :: Ecto.Changeset.t()
   def validate_exclusive(changeset, fields, opts \\ []) do
-    ValidatorsExtended.validate_exclusive(changeset, fields, opts)
+    at_least_one = Keyword.get(opts, :at_least_one, false)
+    present_fields = Enum.filter(fields, &get_field(changeset, &1))
+
+    cond do
+      at_least_one && present_fields == [] ->
+        add_error(changeset, :base, "at least one of #{Enum.join(fields, ", ")} must be present")
+
+      length(present_fields) > 1 ->
+        add_error(changeset, :base, "only one of #{Enum.join(fields, ", ")} can be present")
+
+      true ->
+        changeset
+    end
   end
 
   @doc """
@@ -183,7 +235,15 @@ defmodule Events.Core.Schema.Validation do
   """
   @spec validate_confirmation(Ecto.Changeset.t(), atom(), atom()) :: Ecto.Changeset.t()
   def validate_confirmation(changeset, field, confirmation_field) do
-    ValidatorsExtended.validate_confirmation(changeset, field, confirmation_field)
+    validate_change(changeset, field, fn _, value ->
+      confirmation = get_field(changeset, confirmation_field)
+
+      if value == confirmation do
+        []
+      else
+        [{confirmation_field, "does not match #{field}"}]
+      end
+    end)
   end
 
   # ============================================

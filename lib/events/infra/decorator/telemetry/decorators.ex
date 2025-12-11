@@ -35,6 +35,8 @@ defmodule Events.Infra.Decorator.Telemetry do
 
   import Events.Infra.Decorator.Shared
 
+  @default_repo Application.compile_env(:events, [__MODULE__, :repo], Events.Core.Repo)
+
   ## Schemas
 
   # Shared log level specification
@@ -666,7 +668,8 @@ defmodule Events.Infra.Decorator.Telemetry do
           case result do
             %Ecto.Query{} = q ->
               try do
-                {sql, _params} = Ecto.Adapters.SQL.to_sql(:all, Events.Core.Repo, q)
+                repo = unquote(@default_repo)
+                {sql, _params} = Ecto.Adapters.SQL.to_sql(:all, repo, q)
                 sql
               rescue
                 _ -> inspect(q, limit: 200)

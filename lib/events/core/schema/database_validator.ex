@@ -62,7 +62,8 @@ defmodule Events.Core.Schema.DatabaseValidator do
 
   require Logger
 
-  @default_repo Events.Core.Repo
+  @app_name Application.compile_env(:events, [__MODULE__, :app_name], :events)
+  @default_repo Application.compile_env(@app_name, [__MODULE__, :repo], Events.Core.Repo)
 
   @doc """
   Validates all schemas that use `Events.Core.Schema`.
@@ -256,7 +257,7 @@ defmodule Events.Core.Schema.DatabaseValidator do
   """
   @spec validate_on_startup() :: :ok | {:error, term()}
   def validate_on_startup do
-    config = Application.get_env(:events, :schema_validation, [])
+    config = Application.get_env(@app_name, :schema_validation, [])
 
     if Keyword.get(config, :enabled, false) do
       case validate_all(quiet: true) do

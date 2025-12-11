@@ -42,10 +42,11 @@ defmodule Events.Infra.Scheduler.Supervisor do
   use Supervisor
   require Logger
 
-  alias Events.Infra.Scheduler.{Config, Plugin, CircuitBreaker, DeadLetter}
+  alias Events.Infra.Scheduler.{Config, Plugin, DeadLetter}
   alias Events.Infra.Scheduler.Store.{Memory, Database}
   alias Events.Infra.Scheduler.Queue
   alias Events.Infra.Scheduler.Workflow.Registry, as: WorkflowRegistry
+  alias Events.Infra.Scheduler.Strategies.StrategyRunner
 
   @doc """
   Starts the scheduler supervisor.
@@ -98,7 +99,7 @@ defmodule Events.Infra.Scheduler.Supervisor do
   defp build_children(conf) do
     store_child = build_store_child(conf)
     peer_child = build_peer_child(conf)
-    circuit_breaker_child = build_circuit_breaker_child(conf)
+    strategy_runner_child = build_strategy_runner_child(conf)
     dead_letter_child = build_dead_letter_child(conf)
     workflow_registry_child = build_workflow_registry_child(conf)
     queue_child = build_queue_child(conf)
@@ -107,7 +108,7 @@ defmodule Events.Infra.Scheduler.Supervisor do
     [
       store_child,
       peer_child,
-      circuit_breaker_child,
+      strategy_runner_child,
       dead_letter_child,
       workflow_registry_child,
       queue_child | plugin_children
@@ -147,15 +148,10 @@ defmodule Events.Infra.Scheduler.Supervisor do
     end
   end
 
-  defp build_circuit_breaker_child(conf) do
-    circuits = conf[:circuit_breakers]
-
-    case circuits do
-      nil -> nil
-      false -> nil
-      [] -> nil
-      circuits when is_list(circuits) -> {CircuitBreaker, circuits: circuits}
-    end
+  defp build_strategy_runner_child(conf) do
+    # StrategyRunner consolidates circuit breaker, rate limiter, and error classifier
+    # It's always started but strategies are configured via conf
+    {StrategyRunner, conf: conf}
   end
 
   defp build_dead_letter_child(conf) do

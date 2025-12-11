@@ -59,7 +59,7 @@ defmodule Events.Core.Query.Debug do
   - `:label` - Label to print before output (default: "Query Debug")
   - `:pretty` - Pretty print output (default: true)
   - `:io` - IO device to write to (default: :stdio)
-  - `:repo` - Repo module for SQL generation (default: inferred or Events.Core.Repo)
+  - `:repo` - Repo module for SQL generation (default: inferred or configured default_repo)
   - `:color` - ANSI color for output (default: :cyan)
   - `:stacktrace` - Include stacktrace location (default: false)
   - `:return` - What to return: `:input` (default), `:output`, `:both`
@@ -69,6 +69,9 @@ defmodule Events.Core.Query.Debug do
   alias Events.Core.Query.Builder
   alias Events.Core.Query.SyntaxConverter
   alias Events.Core.Query.FacetedSearch
+
+  # Configurable default repo - can be overridden via application config
+  @default_repo Application.compile_env(:events, [Events.Core.Query, :default_repo], nil)
 
   # Note: Ecto.Query not imported - we work with Token and use Builder
 
@@ -560,7 +563,8 @@ defmodule Events.Core.Query.Debug do
 
   # Helper: Get repo from opts or config
   defp get_repo(opts) do
-    opts[:repo] || Application.get_env(:events, :repo) || Events.Core.Repo
+    opts[:repo] || Application.get_env(:events, :repo) || @default_repo ||
+      raise "No repo configured. Pass :repo option or configure default_repo: config :events, Events.Core.Query, default_repo: MyApp.Repo"
   end
 
   # Helper: Extract schema from token source

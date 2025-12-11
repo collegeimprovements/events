@@ -66,6 +66,19 @@ defmodule Events.MixProject do
   # Type `mix help deps` for examples and options.
   defp deps do
     [
+      # ============================================
+      # Extracted Libraries (path dependencies)
+      # ============================================
+      {:fn_types, path: "libs/fn_types"},
+      {:fn_decorator, path: "libs/fn_decorator"},
+      {:om_field_names, path: "libs/om_field_names"},
+      {:om_schema, path: "libs/om_schema"},
+      {:om_migration, path: "libs/om_migration"},
+      {:om_query, path: "libs/om_query"},
+
+      # ============================================
+      # Phoenix & Web
+      # ============================================
       {:phoenix, "~> 1.8.1"},
       {:phoenix_ecto, "~> 4.5"},
       {:ecto_sql, "~> 3.13"},
@@ -92,7 +105,7 @@ defmodule Events.MixProject do
       {:jason, "~> 1.2"},
       {:dns_cluster, "~> 0.2.0"},
       {:bandit, "~> 1.5"},
-      {:decorator, "~> 1.4"},
+      # {:decorator, "~> 1.4"},  # Now provided by fn_decorator
       {:deco, "~> 0.1.2"},
       {:nebulex, "~> 2.6"},
       {:nebulex_redis_adapter, "~> 2.4"},

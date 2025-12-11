@@ -81,7 +81,7 @@ defmodule Events.Api.Client.Telemetry do
 
   require Logger
 
-  @prefix [:events, :api_client]
+  @prefix Application.compile_env(:events, [__MODULE__, :telemetry_prefix], [:events, :api_client])
 
   # ============================================
   # Event Names

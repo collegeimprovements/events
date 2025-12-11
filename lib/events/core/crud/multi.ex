@@ -36,7 +36,7 @@ defmodule Events.Core.Crud.Multi do
       Multi.create(:account, Account, fn %{user: user} -> %{owner_id: user.id} end)
   """
 
-  alias Events.Core.Crud.{Op, Merge}
+  alias Events.Core.Crud.{ChangesetBuilder, Options, Merge}
   # Protocol implementations are at the end of this module
 
   defstruct operations: [],
@@ -200,7 +200,7 @@ defmodule Events.Core.Crud.Multi do
   @spec upsert(t(), name(), module(), attrs(), keyword()) :: t()
   def upsert(%__MODULE__{} = multi, name, schema, attrs, opts)
       when is_atom(name) and is_atom(schema) do
-    upsert_opts = Op.upsert_opts(opts)
+    upsert_opts = Options.upsert_opts(opts)
     merged_opts = Keyword.merge(opts, upsert_opts)
     add_operation(multi, name, {:insert, schema, attrs, merged_opts})
   end
@@ -263,7 +263,7 @@ defmodule Events.Core.Crud.Multi do
   @spec upsert_all(t(), name(), module(), [map()], keyword()) :: t()
   def upsert_all(%__MODULE__{} = multi, name, schema, list_of_attrs, opts)
       when is_atom(name) and is_atom(schema) and is_list(list_of_attrs) do
-    insert_all_opts = Op.insert_all_opts(opts)
+    insert_all_opts = Options.insert_all_opts(opts)
     add_operation(multi, name, {:insert_all, schema, list_of_attrs, insert_all_opts})
   end
 
@@ -504,9 +504,9 @@ defmodule Events.Core.Crud.Multi do
   end
 
   defp add_to_ecto_multi(ecto_multi, name, {:insert, schema, attrs, opts}) when is_map(attrs) do
-    changeset_fn = Op.resolve_changeset(schema, :create, opts)
+    changeset_fn = ChangesetBuilder.resolve(schema, :create, opts)
     changeset = apply(schema, changeset_fn, [struct(schema), attrs])
-    insert_opts = Op.insert_opts(opts)
+    insert_opts = Options.insert_opts(opts)
     Ecto.Multi.insert(ecto_multi, name, changeset, insert_opts)
   end
 
@@ -517,19 +517,19 @@ defmodule Events.Core.Crud.Multi do
       name,
       fn results ->
         attrs = attrs_fn.(results)
-        changeset_fn = Op.resolve_changeset(schema, :create, opts)
+        changeset_fn = ChangesetBuilder.resolve(schema, :create, opts)
         apply(schema, changeset_fn, [struct(schema), attrs])
       end,
-      Op.insert_opts(opts)
+      Options.insert_opts(opts)
     )
   end
 
   defp add_to_ecto_multi(ecto_multi, name, {:update, struct, attrs, opts})
        when is_struct(struct) and is_map(attrs) do
     schema = struct.__struct__
-    changeset_fn = Op.resolve_changeset(schema, :update, opts)
+    changeset_fn = ChangesetBuilder.resolve(schema, :update, opts)
     changeset = apply(schema, changeset_fn, [struct, attrs])
-    Ecto.Multi.update(ecto_multi, name, changeset, Op.update_opts(opts))
+    Ecto.Multi.update(ecto_multi, name, changeset, Options.update_opts(opts))
   end
 
   defp add_to_ecto_multi(ecto_multi, name, {:update, {schema, id}, attrs, opts}) do
@@ -539,9 +539,9 @@ defmodule Events.Core.Crud.Multi do
           {:error, :not_found}
 
         struct ->
-          changeset_fn = Op.resolve_changeset(schema, :update, opts)
+          changeset_fn = ChangesetBuilder.resolve(schema, :update, opts)
           changeset = apply(schema, changeset_fn, [struct, attrs])
-          repo.update(changeset, Op.update_opts(opts))
+          repo.update(changeset, Options.update_opts(opts))
       end
     end)
   end
@@ -555,22 +555,22 @@ defmodule Events.Core.Crud.Multi do
         struct = struct_fn.(results)
         schema = struct.__struct__
         attrs_resolved = if is_function(attrs, 1), do: attrs.(results), else: attrs
-        changeset_fn = Op.resolve_changeset(schema, :update, opts)
+        changeset_fn = ChangesetBuilder.resolve(schema, :update, opts)
         apply(schema, changeset_fn, [struct, attrs_resolved])
       end,
-      Op.update_opts(opts)
+      Options.update_opts(opts)
     )
   end
 
   defp add_to_ecto_multi(ecto_multi, name, {:delete, struct, opts}) when is_struct(struct) do
-    Ecto.Multi.delete(ecto_multi, name, struct, Op.delete_opts(opts))
+    Ecto.Multi.delete(ecto_multi, name, struct, Options.delete_opts(opts))
   end
 
   defp add_to_ecto_multi(ecto_multi, name, {:delete, {schema, id}, opts}) do
     Ecto.Multi.run(ecto_multi, name, fn repo, _results ->
       case repo.get(schema, id) do
         nil -> {:error, :not_found}
-        struct -> repo.delete(struct, Op.delete_opts(opts))
+        struct -> repo.delete(struct, Options.delete_opts(opts))
       end
     end)
   end
@@ -583,20 +583,20 @@ defmodule Events.Core.Crud.Multi do
       fn results ->
         struct_fn.(results)
       end,
-      Op.delete_opts(opts)
+      Options.delete_opts(opts)
     )
   end
 
   defp add_to_ecto_multi(ecto_multi, name, {:insert_all, schema, entries, opts}) do
-    Ecto.Multi.insert_all(ecto_multi, name, schema, entries, Op.insert_all_opts(opts))
+    Ecto.Multi.insert_all(ecto_multi, name, schema, entries, Options.insert_all_opts(opts))
   end
 
   defp add_to_ecto_multi(ecto_multi, name, {:update_all, query, updates, opts}) do
-    Ecto.Multi.update_all(ecto_multi, name, query, updates, Op.update_all_opts(opts))
+    Ecto.Multi.update_all(ecto_multi, name, query, updates, Options.update_all_opts(opts))
   end
 
   defp add_to_ecto_multi(ecto_multi, name, {:delete_all, query, opts}) do
-    Ecto.Multi.delete_all(ecto_multi, name, query, Op.delete_all_opts(opts))
+    Ecto.Multi.delete_all(ecto_multi, name, query, Options.delete_all_opts(opts))
   end
 
   defp add_to_ecto_multi(ecto_multi, name, {:run, fun}) do

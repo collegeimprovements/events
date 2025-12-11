@@ -1,0 +1,1 @@
+{application,om_field_names,[{modules,['Elixir.OmFieldNames']},{optional_applications,[]},{applications,[kernel,stdlib,elixir,logger]},{description,"om_field_names"},{registered,[]},{vsn,"0.1.0"}]}.

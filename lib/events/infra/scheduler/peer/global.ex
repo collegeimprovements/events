@@ -7,8 +7,19 @@ defmodule Events.Infra.Scheduler.Peer.Global do
 
   ## Usage
 
-      config :events, Events.Infra.Scheduler,
+      config :my_app, Events.Infra.Scheduler,
         peer: Events.Infra.Scheduler.Peer.Global
+
+  ## Configuration
+
+  The leader key and telemetry prefix are configurable via:
+
+      config :events, Events.Infra.Scheduler.Peer.Global,
+        leader_key: :my_app_scheduler_leader,
+        telemetry_prefix: [:my_app, :scheduler, :peer]
+
+  Default leader key: `:events_scheduler_leader`
+  Default telemetry prefix: `[:events, :scheduler, :peer]`
   """
 
   use GenServer
@@ -16,7 +27,8 @@ defmodule Events.Infra.Scheduler.Peer.Global do
 
   @behaviour Events.Infra.Scheduler.Peer.Behaviour
 
-  @leader_key :events_scheduler_leader
+  @leader_key Application.compile_env(:events, [__MODULE__, :leader_key], :events_scheduler_leader)
+  @telemetry_prefix Application.compile_env(:events, [__MODULE__, :telemetry_prefix], [:events, :scheduler, :peer])
   @check_interval 5_000
 
   # ============================================
@@ -162,7 +174,7 @@ defmodule Events.Infra.Scheduler.Peer.Global do
 
   defp emit_telemetry(event, state) do
     :telemetry.execute(
-      [:events, :scheduler, :peer, event],
+      @telemetry_prefix ++ [event],
       %{system_time: System.system_time()},
       %{node: node(), name: state.name}
     )

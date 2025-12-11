@@ -5,6 +5,9 @@ defmodule Events.Api.Client.Response do
   Provides a consistent interface for handling responses from external APIs,
   including success/error status, rate limit information, and request tracing.
 
+  Implements `Events.Infra.Idempotency.ResponseBehaviour` for use with
+  idempotency middleware.
+
   ## Structure
 
       %Response{
@@ -28,6 +31,8 @@ defmodule Events.Api.Client.Response do
       response |> Response.get("data")
       response |> Response.get(["customer", "email"])
   """
+
+  @behaviour Events.Infra.Idempotency.ResponseBehaviour
 
   @type rate_limit_info :: %{
           limit: non_neg_integer() | nil,
@@ -100,6 +105,7 @@ defmodule Events.Api.Client.Response do
   # ============================================
 
   @doc "Returns true if the response status is 2xx."
+  @impl Events.Infra.Idempotency.ResponseBehaviour
   @spec success?(t()) :: boolean()
   def success?(%__MODULE__{status: status}), do: status >= 200 and status < 300
 
@@ -274,13 +280,11 @@ defmodule Events.Api.Client.Response do
       #=> {:error, %Response{status: 404, ...}}
   """
   @spec to_result(t()) :: {:ok, term()} | {:error, t()}
-  def to_result(%__MODULE__{} = resp) do
-    if success?(resp) do
-      {:ok, resp.body}
-    else
-      {:error, resp}
-    end
+  def to_result(%__MODULE__{status: status, body: body}) when status in 200..299 do
+    {:ok, body}
   end
+
+  def to_result(%__MODULE__{} = resp), do: {:error, resp}
 
   @doc """
   Converts a Response to a result tuple with the full response.
@@ -466,4 +470,20 @@ defmodule Events.Api.Client.Response do
   end
 
   defp parse_reset(value) when is_integer(value), do: value
+
+  # ============================================
+  # ResponseBehaviour Implementation
+  # ============================================
+
+  @impl Events.Infra.Idempotency.ResponseBehaviour
+  @spec status(t()) :: non_neg_integer()
+  def status(%__MODULE__{status: status}), do: status
+
+  @impl Events.Infra.Idempotency.ResponseBehaviour
+  @spec body(t()) :: term()
+  def body(%__MODULE__{body: body}), do: body
+
+  @impl Events.Infra.Idempotency.ResponseBehaviour
+  @spec headers(t()) :: map()
+  def headers(%__MODULE__{headers: headers}), do: headers
 end

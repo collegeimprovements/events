@@ -102,6 +102,8 @@ defmodule Events.Infra.KillSwitch do
   use GenServer
   require Logger
 
+  @app_name Application.compile_env(:events, [__MODULE__, :app_name], :events)
+
   @type service :: :s3 | :cache | :database | :email
   @type reason :: String.t()
   @type status :: %{
@@ -354,7 +356,7 @@ defmodule Events.Infra.KillSwitch do
   end
 
   defp get_app_config(service, default) do
-    Application.get_env(:events, __MODULE__, [])
+    Application.get_env(@app_name, __MODULE__, [])
     |> Keyword.get(service, default)
   end
 

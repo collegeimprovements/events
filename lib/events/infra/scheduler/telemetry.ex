@@ -2,6 +2,12 @@ defmodule Events.Infra.Scheduler.Telemetry do
   @moduledoc """
   Telemetry events for the scheduler.
 
+  The telemetry prefix is configurable via:
+
+      config :events, Events.Infra.Scheduler.Telemetry, telemetry_prefix: [:my_app, :scheduler]
+
+  Default prefix: `[:events, :scheduler]`
+
   ## Job Events
 
   - `[:events, :scheduler, :job, :start]` - Job execution started
@@ -52,7 +58,7 @@ defmodule Events.Infra.Scheduler.Telemetry do
       )
   """
 
-  @prefix [:events, :scheduler]
+  @prefix Application.compile_env(:events, [__MODULE__, :telemetry_prefix], [:events, :scheduler])
 
   @doc """
   Executes a job within a telemetry span.

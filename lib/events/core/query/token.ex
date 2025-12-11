@@ -157,19 +157,18 @@ defmodule Events.Core.Query.Token do
     %{token | metadata: Map.put(meta, key, value)}
   end
 
+  # Configurable limits - can be overridden via application config
+  # config :events, Events.Core.Query.Token, default_limit: 50, max_limit: 5000
+  @configured_default_limit Application.compile_env(:events, [__MODULE__, :default_limit], @default_limit)
+  @configured_max_limit Application.compile_env(:events, [__MODULE__, :max_limit], @default_max_limit)
+
   @doc "Get configured default limit"
   @spec default_limit() :: pos_integer()
-  def default_limit do
-    Application.get_env(:events, __MODULE__, [])
-    |> Keyword.get(:default_limit, @default_limit)
-  end
+  def default_limit, do: @configured_default_limit
 
   @doc "Get configured max limit"
   @spec max_limit() :: pos_integer()
-  def max_limit do
-    Application.get_env(:events, __MODULE__, [])
-    |> Keyword.get(:max_limit, @default_max_limit)
-  end
+  def max_limit, do: @configured_max_limit
 
   # Operation validation using pattern matching
   defp validate_operation({:filter, {field, op, _value, opts}})

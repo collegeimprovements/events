@@ -749,7 +749,15 @@ defmodule Events.Types.ValidationTest do
         |> V.field(:email, [V.required()])
         |> V.to_error()
 
-      assert {:error, %Error{type: :validation, details: %{email: [:required]}}} = result
+      assert {:error,
+              %Error{
+                type: :validation,
+                details: %{
+                  error_count: 1,
+                  errors: %{email: [:required]},
+                  fields: [:email]
+                }
+              }} = result
     end
 
     test "returns ok unchanged" do

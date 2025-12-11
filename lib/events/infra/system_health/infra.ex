@@ -2,15 +2,30 @@ defmodule Events.Infra.SystemHealth.Infra do
   @moduledoc """
   Collects connection metadata for external infrastructure services so the
   health dashboard can display where each dependency is pointing.
+
+  ## Configuration
+
+  The repo and cache modules are configurable via:
+
+      config :events, Events.Infra.SystemHealth.Infra,
+        app_name: :my_app,
+        repo_module: MyApp.Repo,
+        cache_module: MyApp.Cache
+
+  Default repo: `Events.Core.Repo`
+  Default cache: `Events.Core.Cache`
   """
 
+  @app_name Application.compile_env(:events, [__MODULE__, :app_name], :events)
+  @repo_module Application.compile_env(:events, [__MODULE__, :repo_module], Events.Core.Repo)
+  @cache_module Application.compile_env(:events, [__MODULE__, :cache_module], Events.Core.Cache)
   @redis_host_env "REDIS_HOST"
   @redis_port_env "REDIS_PORT"
   @redis_url_env "REDIS_URL"
   @nebulex_url_env "NEBULEX_REDIS_URL"
   @nebulex_host_env "NEBULEX_REDIS_HOST"
   @nebulex_port_env "NEBULEX_REDIS_PORT"
-  @aws_env_namespace :events
+  @aws_env_namespace @app_name
   @aws_config_key :aws
 
   @spec connections() :: [map()]
@@ -63,14 +78,14 @@ defmodule Events.Infra.SystemHealth.Infra do
       port = Keyword.get(config, :port, 5432)
       "database=#{database}, host=#{hostname}, port=#{port}"
     else
-      _ -> "Events.Core.Repo"
+      _ -> inspect(@repo_module)
     end
   end
 
-  defp extract_postgres_details(:error), do: "Events.Core.Repo"
+  defp extract_postgres_details(:error), do: inspect(@repo_module)
 
   defp fetch_repo_config do
-    Application.get_env(:events, Events.Core.Repo)
+    Application.get_env(@app_name, @repo_module)
     |> parse_repo_config()
   rescue
     _ -> :error
@@ -79,8 +94,8 @@ defmodule Events.Infra.SystemHealth.Infra do
   defp parse_repo_config(config) when is_list(config), do: {:ok, config}
 
   defp parse_repo_config(_) do
-    case function_exported?(Events.Core.Repo, :config, 0) do
-      true -> {:ok, Events.Core.Repo.config()}
+    case function_exported?(@repo_module, :config, 0) do
+      true -> {:ok, @repo_module.config()}
       false -> :error
     end
   end
@@ -180,7 +195,7 @@ defmodule Events.Infra.SystemHealth.Infra do
   defp build_userinfo(password), do: ":#{password}@"
 
   defp nebulex_connection do
-    Application.get_env(:events, Events.Core.Cache, [])
+    Application.get_env(@app_name, @cache_module, [])
     |> get_nebulex_adapter()
     |> then(fn adapter_module ->
       nebulex_url()
@@ -223,7 +238,7 @@ defmodule Events.Infra.SystemHealth.Infra do
       category: :cache,
       url: "local://memory",
       raw_url: nil,
-      source: "config :events, Events.Core.Cache",
+      source: "config :#{@app_name}, #{inspect(@cache_module)}",
       details: "Adapter=#{inspect(adapter_module)}"
     }
   end

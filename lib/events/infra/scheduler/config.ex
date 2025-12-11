@@ -6,7 +6,7 @@ defmodule Events.Infra.Scheduler.Config do
 
   ## Configuration
 
-      config :events, Events.Infra.Scheduler,
+      config :my_app, Events.Infra.Scheduler,
         enabled: true,
         repo: Events.Core.Repo,
         store: :database,
@@ -27,6 +27,7 @@ defmodule Events.Infra.Scheduler.Config do
   See `docs/0` for full option documentation.
   """
 
+  @app_name Application.compile_env(:events, [__MODULE__, :app_name], :events)
   @duration_units [:second, :seconds, :minute, :minutes, :hour, :hours, :day, :days]
 
   @doc """
@@ -216,7 +217,7 @@ defmodule Events.Infra.Scheduler.Config do
   """
   @spec get() :: keyword()
   def get do
-    Application.get_env(:events, Events.Infra.Scheduler, [])
+    Application.get_env(@app_name, Events.Infra.Scheduler, [])
   end
 
   @doc """

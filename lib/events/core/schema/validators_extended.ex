@@ -4,11 +4,20 @@ defmodule Events.Core.Schema.ValidatorsExtended do
 
   Provides comprehensive field validation with automatic normalization
   and trimming capabilities.
+
+  > #### Consolidation Note {: .info}
+  >
+  > This module is being consolidated. New code should use:
+  > - `Events.Core.Schema.Validation` - Unified validation API
+  > - `Events.Core.Schema.ValidationPipeline` - Pipeline orchestration
+  > - `Events.Core.Schema.Helpers.Normalizer` - Normalization functions
+  > - `Events.Core.Schema.Helpers.Length` - Length validation helpers
   """
 
   import Ecto.Changeset
   alias Events.Core.Schema.Validators
   alias Events.Core.Schema.Utils.Comparison
+  alias Events.Core.Schema.Helpers.Normalizer
 
   # ============================================
   # Enhanced Validators with Options
@@ -692,37 +701,9 @@ defmodule Events.Core.Schema.ValidatorsExtended do
     changeset.data.__struct__.__schema__(:type, field)
   end
 
-  defp normalize_email(email) when is_binary(email) do
-    email
-    |> String.trim()
-    |> String.downcase()
-  end
-
-  defp normalize_email(value), do: value
-
-  defp normalize_phone(phone) when is_binary(phone) do
-    phone
-    |> String.replace(~r/[^\d+]/, "")
-  end
-
-  defp normalize_phone(value), do: value
-
-  defp normalize_url(url) when is_binary(url) do
-    url
-    |> String.trim()
-    |> String.downcase()
-  end
-
-  defp normalize_url(value), do: value
-
-  defp normalize_slug(slug) when is_binary(slug) do
-    slug
-    |> String.trim()
-    |> String.downcase()
-    |> String.replace(~r/[^\w-]/, "-")
-    |> String.replace(~r/-+/, "-")
-    |> String.trim("-")
-  end
-
-  defp normalize_slug(value), do: value
+  # Delegate to Helpers.Normalizer for consistency
+  defp normalize_email(value), do: Normalizer.normalize_email(value)
+  defp normalize_phone(value), do: Normalizer.normalize_phone(value)
+  defp normalize_url(value), do: Normalizer.normalize_url(value)
+  defp normalize_slug(value), do: Normalizer.normalize_slug(value)
 end

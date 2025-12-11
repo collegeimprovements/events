@@ -26,6 +26,12 @@ defmodule Events.Infra.Idempotency.Record do
                      +------> failed
                      |
                      +------> pending (on release)
+
+  ## Configuration
+
+  This module uses `Events.Core.Schema` which provides Ecto.Schema functionality.
+  When extracted as a standalone library, the schema module can be replaced by
+  changing the `use` statement to use Ecto.Schema directly or a custom schema module.
   """
 
   use Events.Core.Schema

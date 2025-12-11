@@ -75,7 +75,7 @@ alias Events.Protocols.{Normalizable, Recoverable, Identifiable}
 
 # Core (database)
 alias Events.Core.{Schema, Migration, Query, Crud, Repo, Cache}
-alias Events.Core.Crud.{Multi, Merge, Op}
+alias Events.Core.Crud.{Multi, Merge, ChangesetBuilder, Options}
 
 # Infrastructure
 alias Events.Infra.{Decorator, KillSwitch, SystemHealth, Idempotency}
@@ -449,3 +449,4 @@ mix dialyzer
 | `NoBangRepoOperations` | Prevents Repo.insert!/update! |
 | `RequireResultTuples` | Ensures result tuple returns |
 | `PreferPatternMatching` | Encourages case/with over if/else |
+- Remember this - specially opensourcing the functional types, schema, query and decorator system

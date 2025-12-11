@@ -771,11 +771,11 @@ defmodule Events.Types.Result do
   ## Error Module Integration
 
   @doc """
-  Normalizes an error using the Events.Protocols.Normalizable protocol.
+  Normalizes an error using the Events.Types.Normalizable protocol.
 
   Transforms any error reason into a structured `Events.Types.Error` using
   protocol-based normalization. Supports Ecto changesets, HTTP errors,
-  database errors, and any type implementing `Events.Protocols.Normalizable`.
+  database errors, and any type implementing `Events.Types.Normalizable`.
 
   ## Examples
 
@@ -797,7 +797,7 @@ defmodule Events.Types.Result do
   def normalize_error({:ok, _} = ok, _opts), do: ok
 
   def normalize_error({:error, reason}, opts) do
-    {:error, Events.Protocols.Normalizable.normalize(reason, opts)}
+    {:error, Events.Types.Normalizable.normalize(reason, opts)}
   end
 
   @doc """

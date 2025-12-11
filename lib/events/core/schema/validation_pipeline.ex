@@ -21,6 +21,8 @@ defmodule Events.Core.Schema.ValidationPipeline do
   alias Events.Core.Schema.ValidatorRegistry
   alias Events.Core.Schema.Validators.Constraints
 
+  @app_name Application.compile_env(:events, [__MODULE__, :app_name], :events)
+
   @doc """
   Apply all validations for a single field based on its type and options.
 
@@ -35,7 +37,7 @@ defmodule Events.Core.Schema.ValidationPipeline do
   """
   def validate_field(changeset, field_name, field_type, opts) do
     # Use telemetry if enabled
-    if Application.get_env(:events, :validation_telemetry, false) do
+    if Application.get_env(@app_name, :validation_telemetry, false) do
       Events.Core.Schema.Telemetry.with_telemetry(changeset, field_name, field_type, opts, fn ->
         do_validate_field(changeset, field_name, field_type, opts)
       end)

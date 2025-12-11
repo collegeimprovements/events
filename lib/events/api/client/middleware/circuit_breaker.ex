@@ -40,7 +40,7 @@ defmodule Events.Api.Client.Middleware.CircuitBreaker do
   use GenServer
   require Logger
 
-  alias Events.Protocols.Recoverable
+  alias Events.Types.Recoverable
 
   @type state :: :closed | :open | :half_open
   @type name :: atom()
@@ -259,15 +259,7 @@ defmodule Events.Api.Client.Middleware.CircuitBreaker do
 
   def handle_cast(:success, %{state: :half_open} = state) do
     new_count = state.success_count + 1
-
-    new_state =
-      if new_count >= state.success_threshold do
-        cancel_timer(state.reset_timer)
-        transition_to(:closed, %{state | reset_timer: nil})
-      else
-        %{state | success_count: new_count}
-      end
-
+    new_state = handle_success_in_half_open(state, new_count)
     {:noreply, new_state}
   end
 
@@ -278,15 +270,7 @@ defmodule Events.Api.Client.Middleware.CircuitBreaker do
 
   def handle_cast(:failure, %{state: :closed} = state) do
     new_count = state.failure_count + 1
-
-    new_state =
-      if new_count >= state.failure_threshold do
-        timer = schedule_reset(state.reset_timeout)
-        transition_to(:open, %{state | reset_timer: timer, last_failure_time: now()})
-      else
-        %{state | failure_count: new_count, last_failure_time: now()}
-      end
-
+    new_state = handle_failure_in_closed(state, new_count)
     {:noreply, new_state}
   end
 
@@ -319,34 +303,54 @@ defmodule Events.Api.Client.Middleware.CircuitBreaker do
   defp execute_call(name, fun) do
     try do
       result = fun.()
-
-      case result do
-        {:ok, _} ->
-          record_success(name)
-          result
-
-        {:error, error} ->
-          # Only record failure if the error should trip the circuit
-          # Validation errors, not found, etc. should not affect circuit state
-          if Recoverable.trips_circuit?(error) do
-            record_failure(name)
-          end
-
-          result
-      end
+      handle_result(name, result)
     rescue
       error ->
         # Exceptions should trip the circuit (unexpected failures)
-        if Recoverable.trips_circuit?(error) do
-          record_failure(name)
-        end
-
+        maybe_record_failure(name, error)
         {:error, error}
     catch
       :exit, reason ->
         record_failure(name)
         {:error, {:exit, reason}}
     end
+  end
+
+  defp handle_result(name, {:ok, _} = result) do
+    record_success(name)
+    result
+  end
+
+  defp handle_result(name, {:error, error} = result) do
+    # Only record failure if the error should trip the circuit
+    # Validation errors, not found, etc. should not affect circuit state
+    maybe_record_failure(name, error)
+    result
+  end
+
+  defp maybe_record_failure(name, error) do
+    case Recoverable.trips_circuit?(error) do
+      true -> record_failure(name)
+      false -> :ok
+    end
+  end
+
+  defp handle_success_in_half_open(state, new_count) when new_count >= state.success_threshold do
+    cancel_timer(state.reset_timer)
+    transition_to(:closed, %{state | reset_timer: nil})
+  end
+
+  defp handle_success_in_half_open(state, new_count) do
+    %{state | success_count: new_count}
+  end
+
+  defp handle_failure_in_closed(state, new_count) when new_count >= state.failure_threshold do
+    timer = schedule_reset(state.reset_timeout)
+    transition_to(:open, %{state | reset_timer: timer, last_failure_time: now()})
+  end
+
+  defp handle_failure_in_closed(state, new_count) do
+    %{state | failure_count: new_count, last_failure_time: now()}
   end
 
   defp transition_to(new_state, state) do

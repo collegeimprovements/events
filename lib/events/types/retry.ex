@@ -67,7 +67,7 @@ defmodule Events.Types.Retry do
 
   require Logger
 
-  alias Events.Protocols.Recoverable
+  alias Events.Types.Recoverable
 
   # ============================================
   # Types
@@ -104,7 +104,11 @@ defmodule Events.Types.Retry do
   @default_max_delay 30_000
   @default_jitter 0.25
   @default_backoff :exponential
-  @default_telemetry_prefix [:events, :retry]
+
+  # Configurable defaults - can be overridden via application config
+  # config :events, Events.Types.Retry, telemetry_prefix: [:my_app, :retry], default_repo: MyApp.Repo
+  @default_telemetry_prefix Application.compile_env(:events, [__MODULE__, :telemetry_prefix], [:events, :retry])
+  @default_repo Application.compile_env(:events, [__MODULE__, :default_repo], nil)
 
   # ============================================
   # Public API
@@ -192,8 +196,12 @@ defmodule Events.Types.Retry do
   ## Options
 
   All options from `execute/2` plus:
-  - `:repo` - Repo module (default: Events.Core.Repo)
+  - `:repo` - Repo module (required, or configure default via app config)
   - `:transaction_opts` - Options passed to Repo.transaction
+
+  Configure default repo in config:
+
+      config :events, Events.Types.Retry, default_repo: MyApp.Repo
 
   ## Examples
 
@@ -209,7 +217,7 @@ defmodule Events.Types.Retry do
   """
   @spec transaction((-> term()), keyword()) :: {:ok, term()} | {:error, term()}
   def transaction(fun, opts \\ []) when is_function(fun, 0) do
-    repo = Keyword.get(opts, :repo, Events.Core.Repo)
+    repo = Keyword.get_lazy(opts, :repo, fn -> @default_repo || raise "No repo configured. Pass :repo option or configure default_repo in config." end)
     transaction_opts = Keyword.get(opts, :transaction_opts, [])
     retry_opts = Keyword.drop(opts, [:repo, :transaction_opts])
 

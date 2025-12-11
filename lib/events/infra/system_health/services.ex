@@ -3,11 +3,28 @@ defmodule Events.Infra.SystemHealth.Services do
   Service health checks for all application components.
 
   Checks are production-safe and Docker-compatible.
+
+  ## Configuration
+
+  The services list is configurable via:
+
+      config :events, Events.Infra.SystemHealth.Services,
+        app_name: :my_app,
+        services: [
+          %{name: "Repo", module: MyApp.Repo, type: :repo, critical: true},
+          %{name: "Cache", module: MyApp.Cache, type: :cache, critical: false}
+        ],
+        s3_module: MyApp.S3
+
+  Default services include: Repo, Cache, Redis, S3, PubSub, Endpoint, Telemetry
   """
 
   alias Redix
 
-  @services [
+  @app_name Application.compile_env(:events, [__MODULE__, :app_name], :events)
+  @s3_module Application.compile_env(:events, [__MODULE__, :s3_module], Events.Services.S3)
+
+  @default_services [
     %{name: "Repo", module: Events.Core.Repo, type: :repo, critical: true},
     %{name: "Cache", module: Events.Core.Cache, type: :cache, critical: false},
     %{name: "Redis", module: nil, type: :redis, critical: false},
@@ -16,6 +33,8 @@ defmodule Events.Infra.SystemHealth.Services do
     %{name: "Endpoint", module: EventsWeb.Endpoint, type: :endpoint, critical: true},
     %{name: "Telemetry", module: EventsWeb.Telemetry, type: :telemetry, critical: false}
   ]
+
+  @services Application.compile_env(:events, [__MODULE__, :services], @default_services)
 
   @doc """
   Checks all services and returns their status.
@@ -222,7 +241,7 @@ defmodule Events.Infra.SystemHealth.Services do
   defp perform_s3_list({:ok, config, bucket}) do
     uri = "s3://#{bucket}/"
 
-    case Events.Services.S3.list(uri, config, limit: 1) do
+    case @s3_module.list(uri, config, limit: 1) do
       {:ok, _result} -> {:ok, bucket}
       {:error, {:s3_error, status, _body}} -> {:error, "S3 error (HTTP #{status})"}
       {:error, reason} -> {:error, inspect(reason)}
@@ -279,7 +298,7 @@ defmodule Events.Infra.SystemHealth.Services do
     rescue
       _ ->
         # Fallback to configured adapter from application environment
-        Application.get_env(:events, module, [])
+        Application.get_env(@app_name, module, [])
         |> Keyword.get(:adapter)
         |> case do
           nil -> "Nebulex (not configured)"
@@ -370,7 +389,7 @@ defmodule Events.Infra.SystemHealth.Services do
         {:error, "S3 bucket not configured"}
 
       true ->
-        config = Events.Services.S3.Config.from_env()
+        config = @s3_module.Config.from_env()
         {:ok, config, bucket}
     end
   rescue

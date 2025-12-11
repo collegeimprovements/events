@@ -32,6 +32,7 @@ defmodule Events.Infra.Idempotency.Recovery do
 
   alias Events.Infra.Idempotency
 
+  @telemetry_prefix Application.compile_env(:events, [__MODULE__, :telemetry_prefix], [:events, :idempotency, :recovery])
   @default_interval_ms 5 * 60 * 1000
   @default_cleanup_interval_ms 60 * 60 * 1000
 
@@ -241,7 +242,7 @@ defmodule Events.Infra.Idempotency.Recovery do
 
   defp emit_telemetry(event, count) do
     :telemetry.execute(
-      [:events, :idempotency, :recovery, event],
+      @telemetry_prefix ++ [event],
       %{count: count},
       %{}
     )
