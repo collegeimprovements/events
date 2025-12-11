@@ -74,8 +74,19 @@ defmodule Events.Core.Crud.Options do
   @read_opts [:preload]
 
   # Options passed to Ecto.Repo operations (exclude CRUD-specific ones)
-  @repo_passthrough_opts [:returning, :prefix, :timeout, :log, :on_conflict, :conflict_target,
-                          :stale_error_field, :stale_error_message, :allow_stale, :force, :placeholders]
+  @repo_passthrough_opts [
+    :returning,
+    :prefix,
+    :timeout,
+    :log,
+    :on_conflict,
+    :conflict_target,
+    :stale_error_field,
+    :stale_error_message,
+    :allow_stale,
+    :force,
+    :placeholders
+  ]
 
   # ─────────────────────────────────────────────────────────────
   # Option Sets by Operation

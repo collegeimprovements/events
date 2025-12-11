@@ -159,8 +159,16 @@ defmodule Events.Core.Query.Token do
 
   # Configurable limits - can be overridden via application config
   # config :events, Events.Core.Query.Token, default_limit: 50, max_limit: 5000
-  @configured_default_limit Application.compile_env(:events, [__MODULE__, :default_limit], @default_limit)
-  @configured_max_limit Application.compile_env(:events, [__MODULE__, :max_limit], @default_max_limit)
+  @configured_default_limit Application.compile_env(
+                              :events,
+                              [__MODULE__, :default_limit],
+                              @default_limit
+                            )
+  @configured_max_limit Application.compile_env(
+                          :events,
+                          [__MODULE__, :max_limit],
+                          @default_max_limit
+                        )
 
   @doc "Get configured default limit"
   @spec default_limit() :: pos_integer()

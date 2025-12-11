@@ -262,9 +262,13 @@ defmodule FnDecorator.Shared do
 
   @doc """
   Validates log level at compile time.
+
+  Note: `:warn` is normalized to `:warning` for Elixir 1.15+ compatibility.
   """
+  def validate_log_level!(:warn), do: :warning
+
   def validate_log_level!(level)
-      when level in ~w(emergency alert critical error warning warn notice info debug)a do
+      when level in ~w(emergency alert critical error warning notice info debug)a do
     level
   end
 

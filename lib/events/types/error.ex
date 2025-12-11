@@ -378,8 +378,10 @@ defmodule Events.Types.Error do
   @spec store(t(), keyword()) :: {:ok, t()} | {:error, term()}
   def store(%Error{} = error, opts \\ []) do
     if opts[:async] do
-      supervisor = opts[:task_supervisor] || @task_supervisor ||
-        raise "No task supervisor configured. Pass :task_supervisor option or configure in config."
+      supervisor =
+        opts[:task_supervisor] || @task_supervisor ||
+          raise "No task supervisor configured. Pass :task_supervisor option or configure in config."
+
       Task.Supervisor.start_child(supervisor, fn -> do_store(error) end)
       {:ok, error}
     else

@@ -18,7 +18,10 @@ defmodule Events.Core.Query.Executor do
   # Configurable defaults - can be overridden via application config
   # config :events, Events.Core.Query, default_repo: MyApp.Repo, telemetry_prefix: [:my_app, :query]
   @default_repo Application.compile_env(:events, [Events.Core.Query, :default_repo], nil)
-  @telemetry_prefix Application.compile_env(:events, [Events.Core.Query, :telemetry_prefix], [:events, :query])
+  @telemetry_prefix Application.compile_env(:events, [Events.Core.Query, :telemetry_prefix], [
+                      :events,
+                      :query
+                    ])
 
   @doc """
   Execute a query token and return result or error tuple.

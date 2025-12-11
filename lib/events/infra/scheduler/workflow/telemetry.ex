@@ -97,7 +97,11 @@ defmodule Events.Infra.Scheduler.Workflow.Telemetry do
       end
   """
 
-  @prefix Application.compile_env(:events, [__MODULE__, :telemetry_prefix], [:events, :scheduler, :workflow])
+  @prefix Application.compile_env(:events, [__MODULE__, :telemetry_prefix], [
+            :events,
+            :scheduler,
+            :workflow
+          ])
 
   # ============================================
   # Span Functions

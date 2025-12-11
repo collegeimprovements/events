@@ -46,7 +46,6 @@ defmodule Events.CompileQualityTest do
              Run `mix compile --warnings-as-errors` to see all warnings.
              """
     end
-
   end
 
   describe "xref analysis" do

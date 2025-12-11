@@ -387,7 +387,9 @@ defmodule Events.Api.Client do
       else
         defp maybe_emit_telemetry_start(_metadata), do: nil
         defp maybe_emit_telemetry_stop(_start_time, _metadata), do: :ok
-        defp maybe_emit_telemetry_exception(_start_time, _kind, _reason, _stacktrace, _metadata), do: :ok
+
+        defp maybe_emit_telemetry_exception(_start_time, _kind, _reason, _stacktrace, _metadata),
+          do: :ok
       end
 
       defp apply_retry_options(opts) do

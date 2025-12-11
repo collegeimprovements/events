@@ -173,8 +173,10 @@ defmodule Events.Core.Query.TestHelpers do
   @spec to_sql_with_params(Token.t(), keyword()) :: {:ok, {String.t(), list()}} | {:error, term()}
   def to_sql_with_params(%Token{} = token, opts \\ []) do
     try do
-      repo = opts[:repo] || Application.get_env(:events, :repo) || @default_repo ||
-        raise "No repo configured. Pass :repo option or configure default_repo: config :events, Events.Core.Query, default_repo: MyApp.Repo"
+      repo =
+        opts[:repo] || Application.get_env(:events, :repo) || @default_repo ||
+          raise "No repo configured. Pass :repo option or configure default_repo: config :events, Events.Core.Query, default_repo: MyApp.Repo"
+
       query = Builder.build(token)
       {:ok, repo.to_sql(:all, query)}
     rescue

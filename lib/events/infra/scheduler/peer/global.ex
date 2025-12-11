@@ -28,7 +28,11 @@ defmodule Events.Infra.Scheduler.Peer.Global do
   @behaviour Events.Infra.Scheduler.Peer.Behaviour
 
   @leader_key Application.compile_env(:events, [__MODULE__, :leader_key], :events_scheduler_leader)
-  @telemetry_prefix Application.compile_env(:events, [__MODULE__, :telemetry_prefix], [:events, :scheduler, :peer])
+  @telemetry_prefix Application.compile_env(:events, [__MODULE__, :telemetry_prefix], [
+                      :events,
+                      :scheduler,
+                      :peer
+                    ])
   @check_interval 5_000
 
   # ============================================

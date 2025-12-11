@@ -285,10 +285,12 @@ defmodule Events.Infra.Scheduler.Strategies.StrategyRunner do
       tick_interval: tick_interval
     }
 
-    Logger.debug("[StrategyRunner] Initialized with strategies: " <>
-      "circuit_breaker=#{circuit_breaker.module}, " <>
-      "rate_limiter=#{rate_limiter.module}, " <>
-      "error_classifier=#{error_classifier.module}")
+    Logger.debug(
+      "[StrategyRunner] Initialized with strategies: " <>
+        "circuit_breaker=#{circuit_breaker.module}, " <>
+        "rate_limiter=#{rate_limiter.module}, " <>
+        "error_classifier=#{error_classifier.module}"
+    )
 
     {:ok, state}
   end
@@ -327,7 +329,9 @@ defmodule Events.Infra.Scheduler.Strategies.StrategyRunner do
   end
 
   def handle_call({:circuit_register, circuit_name, opts}, _from, state) do
-    {:ok, cb_state} = state.circuit_breaker.module.register(circuit_name, opts, state.circuit_breaker.state)
+    {:ok, cb_state} =
+      state.circuit_breaker.module.register(circuit_name, opts, state.circuit_breaker.state)
+
     new_state = put_in(state.circuit_breaker.state, cb_state)
     {:reply, :ok, new_state}
   end
@@ -384,37 +388,49 @@ defmodule Events.Infra.Scheduler.Strategies.StrategyRunner do
 
   # Error Classifier handlers
   def handle_call({:classify_error, error}, _from, state) do
-    {classification, ec_state} = state.error_classifier.module.classify(error, state.error_classifier.state)
+    {classification, ec_state} =
+      state.error_classifier.module.classify(error, state.error_classifier.state)
+
     new_state = put_in(state.error_classifier.state, ec_state)
     {:reply, classification, new_state}
   end
 
   def handle_call({:error_retryable?, error}, _from, state) do
-    {result, ec_state} = state.error_classifier.module.retryable?(error, state.error_classifier.state)
+    {result, ec_state} =
+      state.error_classifier.module.retryable?(error, state.error_classifier.state)
+
     new_state = put_in(state.error_classifier.state, ec_state)
     {:reply, result, new_state}
   end
 
   def handle_call({:error_terminal?, error}, _from, state) do
-    {result, ec_state} = state.error_classifier.module.terminal?(error, state.error_classifier.state)
+    {result, ec_state} =
+      state.error_classifier.module.terminal?(error, state.error_classifier.state)
+
     new_state = put_in(state.error_classifier.state, ec_state)
     {:reply, result, new_state}
   end
 
   def handle_call({:error_retry_delay, error, attempt}, _from, state) do
-    {delay, ec_state} = state.error_classifier.module.retry_delay(error, attempt, state.error_classifier.state)
+    {delay, ec_state} =
+      state.error_classifier.module.retry_delay(error, attempt, state.error_classifier.state)
+
     new_state = put_in(state.error_classifier.state, ec_state)
     {:reply, delay, new_state}
   end
 
   def handle_call({:next_action, error, attempt}, _from, state) do
-    {action, ec_state} = state.error_classifier.module.next_action(error, attempt, state.error_classifier.state)
+    {action, ec_state} =
+      state.error_classifier.module.next_action(error, attempt, state.error_classifier.state)
+
     new_state = put_in(state.error_classifier.state, ec_state)
     {:reply, action, new_state}
   end
 
   def handle_call({:error_trips_circuit?, error}, _from, state) do
-    {result, ec_state} = state.error_classifier.module.trips_circuit?(error, state.error_classifier.state)
+    {result, ec_state} =
+      state.error_classifier.module.trips_circuit?(error, state.error_classifier.state)
+
     new_state = put_in(state.error_classifier.state, ec_state)
     {:reply, result, new_state}
   end
@@ -427,13 +443,17 @@ defmodule Events.Infra.Scheduler.Strategies.StrategyRunner do
 
   @impl GenServer
   def handle_cast({:circuit_success, circuit_name}, state) do
-    {:ok, cb_state} = state.circuit_breaker.module.record_success(circuit_name, state.circuit_breaker.state)
+    {:ok, cb_state} =
+      state.circuit_breaker.module.record_success(circuit_name, state.circuit_breaker.state)
+
     new_state = put_in(state.circuit_breaker.state, cb_state)
     {:noreply, new_state}
   end
 
   def handle_cast({:circuit_failure, circuit_name, error}, state) do
-    {:ok, cb_state} = state.circuit_breaker.module.record_failure(circuit_name, error, state.circuit_breaker.state)
+    {:ok, cb_state} =
+      state.circuit_breaker.module.record_failure(circuit_name, error, state.circuit_breaker.state)
+
     new_state = put_in(state.circuit_breaker.state, cb_state)
     {:noreply, new_state}
   end
@@ -442,15 +462,25 @@ defmodule Events.Infra.Scheduler.Strategies.StrategyRunner do
     new_state =
       case result do
         {:ok, _} when not is_nil(circuit_name) ->
-          {:ok, cb_state} = state.circuit_breaker.module.record_success(circuit_name, state.circuit_breaker.state)
+          {:ok, cb_state} =
+            state.circuit_breaker.module.record_success(circuit_name, state.circuit_breaker.state)
+
           put_in(state.circuit_breaker.state, cb_state)
 
         {:error, error} when not is_nil(circuit_name) ->
-          {trips, ec_state} = state.error_classifier.module.trips_circuit?(error, state.error_classifier.state)
+          {trips, ec_state} =
+            state.error_classifier.module.trips_circuit?(error, state.error_classifier.state)
+
           state = put_in(state.error_classifier.state, ec_state)
 
           if trips do
-            {:ok, cb_state} = state.circuit_breaker.module.record_failure(circuit_name, error, state.circuit_breaker.state)
+            {:ok, cb_state} =
+              state.circuit_breaker.module.record_failure(
+                circuit_name,
+                error,
+                state.circuit_breaker.state
+              )
+
             put_in(state.circuit_breaker.state, cb_state)
           else
             state
@@ -482,11 +512,12 @@ defmodule Events.Infra.Scheduler.Strategies.StrategyRunner do
   # ============================================
 
   defp init_circuit_breaker(strategies, conf) do
-    module = Keyword.get(
-      strategies,
-      :circuit_breaker,
-      Events.Infra.Scheduler.Strategies.CircuitBreaker.Default
-    )
+    module =
+      Keyword.get(
+        strategies,
+        :circuit_breaker,
+        Events.Infra.Scheduler.Strategies.CircuitBreaker.Default
+      )
 
     # Get circuit breaker config
     circuits = Keyword.get(conf, :circuit_breakers, [])
@@ -498,11 +529,12 @@ defmodule Events.Infra.Scheduler.Strategies.StrategyRunner do
   end
 
   defp init_rate_limiter(strategies, conf) do
-    module = Keyword.get(
-      strategies,
-      :rate_limiter,
-      Events.Infra.Scheduler.Strategies.RateLimiter.TokenBucket
-    )
+    module =
+      Keyword.get(
+        strategies,
+        :rate_limiter,
+        Events.Infra.Scheduler.Strategies.RateLimiter.TokenBucket
+      )
 
     rate_limits = Keyword.get(conf, :rate_limits, [])
     opts = [rate_limits: rate_limits]
@@ -512,11 +544,12 @@ defmodule Events.Infra.Scheduler.Strategies.StrategyRunner do
   end
 
   defp init_error_classifier(strategies, conf) do
-    module = Keyword.get(
-      strategies,
-      :error_classifier,
-      Events.Infra.Scheduler.Strategies.ErrorClassifier.Default
-    )
+    module =
+      Keyword.get(
+        strategies,
+        :error_classifier,
+        Events.Infra.Scheduler.Strategies.ErrorClassifier.Default
+      )
 
     error_classification = Keyword.get(conf, :error_classification, [])
     opts = [error_classification: error_classification]

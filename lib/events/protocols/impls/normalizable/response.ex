@@ -84,9 +84,11 @@ defimpl Events.Protocols.Normalizable, for: Events.Api.Client.Response do
 
   defp maybe_add_body(details, nil), do: details
   defp maybe_add_body(details, body) when is_map(body), do: Map.put(details, :body, body)
+
   defp maybe_add_body(details, body) when is_binary(body) and byte_size(body) < 1000 do
     Map.put(details, :body, body)
   end
+
   defp maybe_add_body(details, _), do: details
 
   defp maybe_add_rate_limit(details, nil), do: details

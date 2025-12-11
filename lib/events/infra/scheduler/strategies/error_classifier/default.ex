@@ -88,19 +88,19 @@ defmodule Events.Infra.Scheduler.Strategies.ErrorClassifier.Default do
       transient_patterns:
         Keyword.get(classification_opts, :transient_errors, @default_transient_patterns),
       max_retries_by_class:
-        Keyword.get(classification_opts, :max_retries_by_class, [
+        Keyword.get(classification_opts, :max_retries_by_class,
           retryable: 5,
           transient: 3,
           degraded: 2,
           terminal: 0,
           unknown: 3
-        ]),
+        ),
       backoff_by_class:
-        Keyword.get(classification_opts, :backoff_by_class, [
+        Keyword.get(classification_opts, :backoff_by_class,
           retryable: {:exponential, base: 1000, max: 60_000},
           transient: {:fixed, 500},
           degraded: {:exponential, base: 5000, max: 300_000}
-        ])
+        )
     }
 
     {:ok, state}

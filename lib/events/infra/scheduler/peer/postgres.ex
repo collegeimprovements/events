@@ -34,7 +34,11 @@ defmodule Events.Infra.Scheduler.Peer.Postgres do
 
   @behaviour Events.Infra.Scheduler.Peer.Behaviour
 
-  @telemetry_prefix Application.compile_env(:events, [__MODULE__, :telemetry_prefix], [:events, :scheduler, :peer])
+  @telemetry_prefix Application.compile_env(:events, [__MODULE__, :telemetry_prefix], [
+                      :events,
+                      :scheduler,
+                      :peer
+                    ])
   @default_repo Application.compile_env(:events, [__MODULE__, :repo], Events.Core.Repo)
 
   # Advisory lock key - using consistent hash of scheduler name

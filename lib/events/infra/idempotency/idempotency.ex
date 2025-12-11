@@ -112,7 +112,10 @@ defmodule Events.Infra.Idempotency do
   import Ecto.Query
 
   @default_repo Application.compile_env(:events, [__MODULE__, :repo], Events.Core.Repo)
-  @telemetry_prefix Application.compile_env(:events, [__MODULE__, :telemetry_prefix], [:events, :idempotency])
+  @telemetry_prefix Application.compile_env(:events, [__MODULE__, :telemetry_prefix], [
+                      :events,
+                      :idempotency
+                    ])
 
   defp repo, do: @default_repo
 
