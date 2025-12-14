@@ -64,8 +64,8 @@ defmodule Events.Services.Aws do
   """
   @spec configured?(connection_or_nil()) :: boolean()
   def configured?(nil) do
-    not is_nil(System.get_env("AWS_ACCESS_KEY_ID")) and
-      not is_nil(System.get_env("AWS_SECRET_ACCESS_KEY"))
+    alias FnTypes.Config, as: Cfg
+    Cfg.present?("AWS_ACCESS_KEY_ID") and Cfg.present?("AWS_SECRET_ACCESS_KEY")
   end
 
   def configured?(%{key: key, secret: secret}) do
@@ -77,9 +77,8 @@ defmodule Events.Services.Aws do
   """
   @spec region(connection_or_nil()) :: String.t()
   def region(nil) do
-    System.get_env("AWS_REGION") ||
-      System.get_env("AWS_DEFAULT_REGION") ||
-      "us-east-1"
+    alias FnTypes.Config, as: Cfg
+    Cfg.string(["AWS_REGION", "AWS_DEFAULT_REGION"], "us-east-1")
   end
 
   def region(%{region: region}), do: region

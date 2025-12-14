@@ -42,7 +42,7 @@ defmodule Events.Api.Client.Middleware.Retry do
 
   require Logger
 
-  alias Events.Types.Recoverable
+  alias FnTypes.Protocols.Recoverable
 
   @default_max_attempts 3
   @default_base_delay 1_000
@@ -250,7 +250,7 @@ defmodule Events.Api.Client.Middleware.Retry do
   end
 
   # Legacy transient_error? kept for backwards compatibility
-  # New code should use Events.Protocols.Recoverable.recoverable?/1
+  # New code should use FnTypes.Protocols.Recoverable.recoverable?/1
   @doc false
   def transient_error?(%Mint.TransportError{}), do: true
   def transient_error?(%Mint.HTTPError{reason: :timeout}), do: true

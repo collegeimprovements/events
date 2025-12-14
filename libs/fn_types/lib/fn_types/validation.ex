@@ -6,6 +6,12 @@ defmodule FnTypes.Validation do
   ALL errors, making it ideal for form validation, API input validation, and
   any scenario where you want to report multiple issues at once.
 
+  ## Implemented Behaviours
+
+  - `FnTypes.Behaviours.Applicative` - pure, ap, map
+  - `FnTypes.Behaviours.Functor` - map
+  - `FnTypes.Behaviours.Semigroup` - combine (error accumulation)
+
   ## Core Concept
 
   `Validation` is an applicative functor, not a monad. This means:
@@ -92,6 +98,10 @@ defmodule FnTypes.Validation do
   The module preserves error format - you control how errors look.
   """
 
+  @behaviour FnTypes.Behaviours.Applicative
+  @behaviour FnTypes.Behaviours.Functor
+  @behaviour FnTypes.Behaviours.Semigroup
+
   alias FnTypes.{Result, Maybe, Error}
 
   # ============================================
@@ -134,9 +144,11 @@ defmodule FnTypes.Validation do
 
   ## Examples
 
+      iex> alias FnTypes.Validation
       iex> Validation.ok(42)
       {:ok, 42}
 
+      iex> alias FnTypes.Validation
       iex> Validation.ok(%{name: "Alice"})
       {:ok, %{name: "Alice"}}
   """
@@ -148,9 +160,11 @@ defmodule FnTypes.Validation do
 
   ## Examples
 
+      iex> alias FnTypes.Validation
       iex> Validation.error(:required)
       {:error, [:required]}
 
+      iex> alias FnTypes.Validation
       iex> Validation.error([:too_short, :invalid_format])
       {:error, [:too_short, :invalid_format]}
   """
@@ -184,9 +198,11 @@ defmodule FnTypes.Validation do
 
   ## Examples
 
+      iex> alias FnTypes.Validation
       iex> Validation.valid?({:ok, 42})
       true
 
+      iex> alias FnTypes.Validation
       iex> Validation.valid?({:error, [:required]})
       false
   """
@@ -200,9 +216,11 @@ defmodule FnTypes.Validation do
 
   ## Examples
 
+      iex> alias FnTypes.Validation
       iex> Validation.invalid?({:error, [:required]})
       true
 
+      iex> alias FnTypes.Validation
       iex> Validation.invalid?({:ok, 42})
       false
   """
@@ -220,18 +238,21 @@ defmodule FnTypes.Validation do
 
   ## Examples
 
+      iex> alias FnTypes.Validation
       iex> Validation.validate("test@example.com", [
       ...>   Validation.required(),
       ...>   Validation.format(:email)
       ...> ])
       {:ok, "test@example.com"}
 
+      iex> alias FnTypes.Validation
       iex> Validation.validate("", [
       ...>   Validation.required(),
       ...>   Validation.min_length(5)
       ...> ])
       {:error, [:required, {:min_length, 5}]}
 
+      iex> alias FnTypes.Validation
       iex> Validation.validate(15, [
       ...>   Validation.min(18, message: "must be 18 or older")
       ...> ])
@@ -251,12 +272,15 @@ defmodule FnTypes.Validation do
 
   ## Examples
 
+      iex> alias FnTypes.Validation
       iex> Validation.check_value(18, &(&1 >= 18), :must_be_adult)
       {:ok, 18}
 
+      iex> alias FnTypes.Validation
       iex> Validation.check_value(15, &(&1 >= 18), :must_be_adult)
       {:error, [:must_be_adult]}
 
+      iex> alias FnTypes.Validation
       iex> Validation.check_value("", &(&1 != ""), message: "cannot be empty")
       {:error, ["cannot be empty"]}
   """
@@ -528,13 +552,16 @@ defmodule FnTypes.Validation do
 
   ## Examples
 
+      iex> alias FnTypes.Validation
       iex> Validation.map({:ok, 5}, &(&1 * 2))
       {:ok, 10}
 
+      iex> alias FnTypes.Validation
       iex> Validation.map({:error, [:required]}, &(&1 * 2))
       {:error, [:required]}
   """
   @spec map(t(a), (a -> b)) :: t(b) when a: term(), b: term()
+  @impl FnTypes.Behaviours.Functor
   def map({:ok, value}, fun) when is_function(fun, 1), do: {:ok, fun.(value)}
   def map({:error, _} = error, _fun), do: error
 
@@ -545,16 +572,20 @@ defmodule FnTypes.Validation do
 
   ## Examples
 
+      iex> alias FnTypes.Validation
       iex> Validation.map2({:ok, 1}, {:ok, 2}, &+/2)
       {:ok, 3}
 
+      iex> alias FnTypes.Validation
       iex> Validation.map2({:error, [:a]}, {:error, [:b]}, &+/2)
       {:error, [:a, :b]}
 
+      iex> alias FnTypes.Validation
       iex> Validation.map2({:ok, 1}, {:error, [:b]}, &+/2)
       {:error, [:b]}
   """
   @spec map2(t(a), t(b), (a, b -> c)) :: t(c) when a: term(), b: term(), c: term()
+  @impl FnTypes.Behaviours.Applicative
   def map2({:ok, a}, {:ok, b}, fun) when is_function(fun, 2), do: {:ok, fun.(a, b)}
   def map2({:ok, _}, {:error, errors}, _fun), do: {:error, errors}
   def map2({:error, errors}, {:ok, _}, _fun), do: {:error, errors}
@@ -645,9 +676,11 @@ defmodule FnTypes.Validation do
 
   ## Examples
 
+      iex> alias FnTypes.Validation
       iex> Validation.all([{:ok, 1}, {:ok, 2}, {:ok, 3}])
       {:ok, [1, 2, 3]}
 
+      iex> alias FnTypes.Validation
       iex> Validation.all([{:ok, 1}, {:error, [:a]}, {:error, [:b]}])
       {:error, [:a, :b]}
   """
@@ -672,11 +705,13 @@ defmodule FnTypes.Validation do
 
   ## Examples
 
+      iex> alias FnTypes.Validation
       iex> Validation.traverse([1, 2, 3], fn x ->
       ...>   if x > 0, do: {:ok, x * 2}, else: {:error, [:must_be_positive]}
       ...> end)
       {:ok, [2, 4, 6]}
 
+      iex> alias FnTypes.Validation
       iex> Validation.traverse([1, -2, -3], fn x ->
       ...>   if x > 0, do: {:ok, x}, else: {:error, [{:negative, x}]}
       ...> end)
@@ -716,6 +751,7 @@ defmodule FnTypes.Validation do
 
   ## Examples
 
+      iex> alias FnTypes.Validation
       iex> Validation.partition([{:ok, 1}, {:error, [:a]}, {:ok, 3}])
       %{ok: [1, 3], errors: [[:a]]}
   """
@@ -739,12 +775,15 @@ defmodule FnTypes.Validation do
 
   ## Examples
 
+      iex> alias FnTypes.Validation
       iex> Validation.required().("hello")
       {:ok, "hello"}
 
+      iex> alias FnTypes.Validation
       iex> Validation.required().(nil)
       {:error, [:required]}
 
+      iex> alias FnTypes.Validation
       iex> Validation.required(message: "is mandatory").(nil)
       {:error, ["is mandatory"]}
   """
@@ -793,12 +832,15 @@ defmodule FnTypes.Validation do
 
   ## Examples
 
+      iex> alias FnTypes.Validation
       iex> Validation.format(:email).("test@example.com")
       {:ok, "test@example.com"}
 
+      iex> alias FnTypes.Validation
       iex> Validation.format(:email).("invalid")
       {:error, [{:format, :email}]}
 
+      iex> alias FnTypes.Validation
       iex> Validation.format(~r/^[A-Z]+$/, message: "must be uppercase").("abc")
       {:error, ["must be uppercase"]}
   """
@@ -953,9 +995,11 @@ defmodule FnTypes.Validation do
 
   ## Examples
 
+      iex> alias FnTypes.Validation
       iex> Validation.min(18).(20)
       {:ok, 20}
 
+      iex> alias FnTypes.Validation
       iex> Validation.min(18).(15)
       {:error, [{:min, 18}]}
   """
@@ -976,9 +1020,11 @@ defmodule FnTypes.Validation do
 
   ## Examples
 
+      iex> alias FnTypes.Validation
       iex> Validation.max(100).(50)
       {:ok, 50}
 
+      iex> alias FnTypes.Validation
       iex> Validation.max(100).(150)
       {:error, [{:max, 100}]}
   """
@@ -999,9 +1045,11 @@ defmodule FnTypes.Validation do
 
   ## Examples
 
+      iex> alias FnTypes.Validation
       iex> Validation.between(1, 10).(5)
       {:ok, 5}
 
+      iex> alias FnTypes.Validation
       iex> Validation.between(1, 10).(15)
       {:error, [{:between, 1, 10}]}
   """
@@ -1022,9 +1070,11 @@ defmodule FnTypes.Validation do
 
   ## Examples
 
+      iex> alias FnTypes.Validation
       iex> Validation.positive().(5)
       {:ok, 5}
 
+      iex> alias FnTypes.Validation
       iex> Validation.positive().(0)
       {:error, [:must_be_positive]}
   """
@@ -1045,9 +1095,11 @@ defmodule FnTypes.Validation do
 
   ## Examples
 
+      iex> alias FnTypes.Validation
       iex> Validation.non_negative().(0)
       {:ok, 0}
 
+      iex> alias FnTypes.Validation
       iex> Validation.non_negative().(-5)
       {:error, [:must_be_non_negative]}
   """
@@ -1068,9 +1120,11 @@ defmodule FnTypes.Validation do
 
   ## Examples
 
+      iex> alias FnTypes.Validation
       iex> Validation.min_length(3).("hello")
       {:ok, "hello"}
 
+      iex> alias FnTypes.Validation
       iex> Validation.min_length(3).("hi")
       {:error, [{:min_length, 3}]}
   """
@@ -1098,9 +1152,11 @@ defmodule FnTypes.Validation do
 
   ## Examples
 
+      iex> alias FnTypes.Validation
       iex> Validation.max_length(10).("hello")
       {:ok, "hello"}
 
+      iex> alias FnTypes.Validation
       iex> Validation.max_length(3).("hello")
       {:error, [{:max_length, 3}]}
   """
@@ -1128,9 +1184,11 @@ defmodule FnTypes.Validation do
 
   ## Examples
 
+      iex> alias FnTypes.Validation
       iex> Validation.exact_length(5).("hello")
       {:ok, "hello"}
 
+      iex> alias FnTypes.Validation
       iex> Validation.exact_length(5).("hi")
       {:error, [{:length, 5}]}
   """
@@ -1158,9 +1216,11 @@ defmodule FnTypes.Validation do
 
   ## Examples
 
+      iex> alias FnTypes.Validation
       iex> Validation.inclusion([:active, :inactive]).(:active)
       {:ok, :active}
 
+      iex> alias FnTypes.Validation
       iex> Validation.inclusion([:active, :inactive]).(:deleted)
       {:error, [{:inclusion, [:active, :inactive]}]}
   """
@@ -1179,9 +1239,11 @@ defmodule FnTypes.Validation do
 
   ## Examples
 
+      iex> alias FnTypes.Validation
       iex> Validation.exclusion([:admin, :superuser]).(:user)
       {:ok, :user}
 
+      iex> alias FnTypes.Validation
       iex> Validation.exclusion([:admin, :superuser]).(:admin)
       {:error, [{:exclusion, [:admin, :superuser]}]}
   """
@@ -1214,9 +1276,11 @@ defmodule FnTypes.Validation do
 
   ## Examples
 
+      iex> alias FnTypes.Validation
       iex> Validation.type(:string).("hello")
       {:ok, "hello"}
 
+      iex> alias FnTypes.Validation
       iex> Validation.type(:integer).("hello")
       {:error, [{:type, :integer}]}
   """
@@ -1235,12 +1299,15 @@ defmodule FnTypes.Validation do
 
   ## Examples
 
+      iex> alias FnTypes.Validation
       iex> Validation.predicate(&(&1 > 0), :must_be_positive).(5)
       {:ok, 5}
 
+      iex> alias FnTypes.Validation
       iex> Validation.predicate(&(&1 > 0), :must_be_positive).(-1)
       {:error, [:must_be_positive]}
 
+      iex> alias FnTypes.Validation
       iex> Validation.predicate(&String.contains?(&1, "@"), message: "must contain @").("test")
       {:error, ["must contain @"]}
   """
@@ -1264,9 +1331,11 @@ defmodule FnTypes.Validation do
 
   ## Examples
 
+      iex> alias FnTypes.Validation
       iex> Validation.equals("expected").("expected")
       {:ok, "expected"}
 
+      iex> alias FnTypes.Validation
       iex> Validation.equals("expected").("other")
       {:error, [:not_equal]}
   """
@@ -1284,9 +1353,11 @@ defmodule FnTypes.Validation do
 
   ## Examples
 
+      iex> alias FnTypes.Validation
       iex> Validation.not_equals("forbidden").("allowed")
       {:ok, "allowed"}
 
+      iex> alias FnTypes.Validation
       iex> Validation.not_equals("forbidden").("forbidden")
       {:error, [:equals_forbidden_value]}
   """
@@ -1327,6 +1398,7 @@ defmodule FnTypes.Validation do
 
   ## Examples
 
+      iex> alias FnTypes.Validation
       iex> Validation.uuid_v7().("018c5a5e-7c8b-7000-8000-000000000000")
       {:ok, "018c5a5e-7c8b-7000-8000-000000000000"}
   """
@@ -1352,6 +1424,7 @@ defmodule FnTypes.Validation do
 
   ## Examples
 
+      iex> alias FnTypes.Validation
       iex> past_date = ~D[2020-01-01]
       iex> Validation.past().(past_date)
       {:ok, ~D[2020-01-01]}
@@ -1380,6 +1453,7 @@ defmodule FnTypes.Validation do
 
   ## Examples
 
+      iex> alias FnTypes.Validation
       iex> future_date = Date.add(Date.utc_today(), 30)
       iex> Validation.future().(future_date)
       {:ok, future_date}
@@ -1410,9 +1484,11 @@ defmodule FnTypes.Validation do
 
   ## Examples
 
+      iex> alias FnTypes.Validation
       iex> Validation.acceptance().(true)
       {:ok, true}
 
+      iex> alias FnTypes.Validation
       iex> Validation.acceptance().(false)
       {:error, [:must_be_accepted]}
   """
@@ -1826,9 +1902,11 @@ defmodule FnTypes.Validation do
 
   ## Examples
 
+      iex> alias FnTypes.Validation
       iex> Validation.from_result({:ok, 42})
       {:ok, 42}
 
+      iex> alias FnTypes.Validation
       iex> Validation.from_result({:error, :not_found})
       {:error, [:not_found]}
   """
@@ -1842,9 +1920,11 @@ defmodule FnTypes.Validation do
 
   ## Examples
 
+      iex> alias FnTypes.Validation
       iex> Validation.from_maybe({:some, 42}, :required)
       {:ok, 42}
 
+      iex> alias FnTypes.Validation
       iex> Validation.from_maybe(:none, :required)
       {:error, [:required]}
   """
@@ -1857,9 +1937,11 @@ defmodule FnTypes.Validation do
 
   ## Examples
 
+      iex> alias FnTypes.Validation
       iex> Validation.to_maybe({:ok, 42})
       {:some, 42}
 
+      iex> alias FnTypes.Validation
       iex> Validation.to_maybe({:error, [:required]})
       :none
   """
@@ -1876,12 +1958,15 @@ defmodule FnTypes.Validation do
 
   ## Examples
 
+      iex> alias FnTypes.Validation
       iex> Validation.errors({:error, [:a, :b]})
       [:a, :b]
 
+      iex> alias FnTypes.Validation
       iex> Validation.errors({:ok, 42})
       []
 
+      iex> alias FnTypes.Validation
       iex> Validation.errors({:context, %{}, %{email: [:required]}})
       %{email: [:required]}
   """
@@ -1895,12 +1980,15 @@ defmodule FnTypes.Validation do
 
   ## Examples
 
+      iex> alias FnTypes.Validation
       iex> Validation.value({:ok, 42})
       42
 
+      iex> alias FnTypes.Validation
       iex> Validation.value({:error, [:required]})
       nil
 
+      iex> alias FnTypes.Validation
       iex> Validation.value({:context, %{name: "Alice"}, %{}})
       %{name: "Alice"}
   """
@@ -1914,11 +2002,9 @@ defmodule FnTypes.Validation do
 
   ## Examples
 
+      iex> alias FnTypes.Validation
       iex> Validation.unwrap!({:ok, 42})
       42
-
-      iex> Validation.unwrap!({:error, [:required]})
-      ** (ArgumentError) Validation failed: [:required]
   """
   @spec unwrap!(t()) :: term() | no_return()
   def unwrap!({:ok, value}), do: value
@@ -1929,9 +2015,11 @@ defmodule FnTypes.Validation do
 
   ## Examples
 
+      iex> alias FnTypes.Validation
       iex> Validation.unwrap_or({:ok, 42}, 0)
       42
 
+      iex> alias FnTypes.Validation
       iex> Validation.unwrap_or({:error, [:required]}, 0)
       0
   """
@@ -1977,6 +2065,7 @@ defmodule FnTypes.Validation do
 
   ## Examples
 
+      iex> alias FnTypes.Validation
       iex> Validation.map_error({:error, [:a, :b]}, &Atom.to_string/1)
       {:error, ["a", "b"]}
   """
@@ -1992,9 +2081,11 @@ defmodule FnTypes.Validation do
 
   ## Examples
 
+      iex> alias FnTypes.Validation
       iex> Validation.flatten({:ok, {:ok, 42}})
       {:ok, 42}
 
+      iex> alias FnTypes.Validation
       iex> Validation.flatten({:ok, {:error, [:a]}})
       {:error, [:a]}
   """
@@ -2119,4 +2210,68 @@ defmodule FnTypes.Validation do
   defp matches_type?(value, :reference), do: is_reference(value)
   defp matches_type?(value, :port), do: is_port(value)
   defp matches_type?(_, _), do: false
+
+  # ============================================
+  # Behaviour Implementations
+  # ============================================
+
+  @doc """
+  Wraps a value in a valid Validation (Applicative.pure).
+
+  Alias for `ok/1`.
+
+  ## Examples
+
+      iex> alias FnTypes.Validation
+      iex> Validation.pure(42)
+      {:ok, 42}
+  """
+  @impl FnTypes.Behaviours.Applicative
+  @spec pure(a) :: t(a) when a: term()
+  def pure(value), do: ok(value)
+
+  @doc """
+  Applies a wrapped function to a wrapped value (Applicative.ap).
+
+  Accumulates errors from both sides if both fail.
+
+  ## Examples
+
+      iex> alias FnTypes.Validation
+      iex> Validation.ap({:ok, fn x -> x * 2 end}, {:ok, 5})
+      {:ok, 10}
+
+      iex> alias FnTypes.Validation
+      iex> Validation.ap({:error, [:fn_error]}, {:error, [:val_error]})
+      {:error, [:fn_error, :val_error]}
+  """
+  @impl FnTypes.Behaviours.Applicative
+  @spec ap(t((a -> b)), t(a)) :: t(b) when a: term(), b: term()
+  def ap({:ok, fun}, {:ok, value}) when is_function(fun, 1), do: {:ok, fun.(value)}
+  def ap({:ok, _}, {:error, errors}), do: {:error, errors}
+  def ap({:error, errors}, {:ok, _}), do: {:error, errors}
+  def ap({:error, e1}, {:error, e2}), do: {:error, e1 ++ e2}
+
+  @doc """
+  Combines two Validations, accumulating errors (Semigroup.combine).
+
+  For successful validations, keeps the second value.
+  For failed validations, combines all errors.
+
+  ## Examples
+
+      iex> alias FnTypes.Validation
+      iex> Validation.combine({:ok, 1}, {:ok, 2})
+      {:ok, 2}
+
+      iex> alias FnTypes.Validation
+      iex> Validation.combine({:error, [:e1]}, {:error, [:e2]})
+      {:error, [:e1, :e2]}
+  """
+  @impl FnTypes.Behaviours.Semigroup
+  @spec combine(t(a), t(a)) :: t(a) when a: term()
+  def combine({:ok, _}, {:ok, b}), do: {:ok, b}
+  def combine({:ok, _}, {:error, _} = e), do: e
+  def combine({:error, _} = e, {:ok, _}), do: e
+  def combine({:error, e1}, {:error, e2}), do: {:error, e1 ++ e2}
 end

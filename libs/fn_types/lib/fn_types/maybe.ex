@@ -6,6 +6,13 @@ defmodule FnTypes.Maybe do
   where absence is not an error (unlike `Result`). Inspired by
   Haskell's Maybe, Rust's Option, and Swift's Optional.
 
+  ## Implemented Behaviours
+
+  - `FnTypes.Behaviours.Monad` - pure, bind, map
+  - `FnTypes.Behaviours.Applicative` - pure, ap, map
+  - `FnTypes.Behaviours.Functor` - map
+  - `FnTypes.Behaviours.Foldable` - fold_left, fold_right
+
   ## When to Use Maybe vs Result
 
   - **Use `Maybe`** when absence is a valid, expected state (e.g., optional fields)
@@ -50,6 +57,13 @@ defmodule FnTypes.Maybe do
       {:ok, value} |> Maybe.from_result()
       #=> {:some, value}
   """
+
+  @behaviour FnTypes.Behaviours.Monad
+  @behaviour FnTypes.Behaviours.Applicative
+  @behaviour FnTypes.Behaviours.Functor
+  @behaviour FnTypes.Behaviours.Foldable
+
+  import Kernel, except: [apply: 2, apply: 3]
 
   # ============================================
   # Types
@@ -241,6 +255,7 @@ defmodule FnTypes.Maybe do
       :none
   """
   @spec map(t(a), (a -> b)) :: t(b) when a: term(), b: term()
+  @impl FnTypes.Behaviours.Functor
   def map({:some, value}, fun) when is_function(fun, 1), do: {:some, fun.(value)}
   def map(:none, _fun), do: :none
 
@@ -400,6 +415,7 @@ defmodule FnTypes.Maybe do
       0
   """
   @spec unwrap_or(t(a), a) :: a when a: term()
+  @impl FnTypes.Behaviours.Monad
   def unwrap_or({:some, value}, _default), do: value
   def unwrap_or(:none, default), do: default
 
@@ -480,6 +496,7 @@ defmodule FnTypes.Maybe do
       []
   """
   @spec to_list(t(value)) :: [value] when value: term()
+  @impl FnTypes.Behaviours.Foldable
   def to_list({:some, value}), do: [value]
   def to_list(:none), do: []
 
@@ -1026,4 +1043,84 @@ defmodule FnTypes.Maybe do
   @spec reduce(t(a), acc, (a, acc -> acc)) :: acc when a: term(), acc: term()
   def reduce({:some, value}, acc, fun) when is_function(fun, 2), do: fun.(value, acc)
   def reduce(:none, acc, _fun), do: acc
+
+  # ============================================
+  # Behaviour Implementations
+  # ============================================
+
+  @doc """
+  Wraps a value in a some (Monad.pure).
+
+  Alias for `some/1`.
+
+  ## Examples
+
+      iex> Maybe.pure(42)
+      {:some, 42}
+  """
+  @impl FnTypes.Behaviours.Applicative
+  @spec pure(value) :: some(value) when value: term()
+  def pure(value), do: some(value)
+
+  @doc """
+  Chains a function that returns a Maybe (Monad.bind).
+
+  Alias for `and_then/2`.
+
+  ## Examples
+
+      iex> Maybe.bind({:some, 5}, fn x -> {:some, x * 2} end)
+      {:some, 10}
+  """
+  @impl FnTypes.Behaviours.Monad
+  @spec bind(t(a), (a -> t(b))) :: t(b) when a: term(), b: term()
+  def bind(maybe, fun), do: and_then(maybe, fun)
+
+  @doc """
+  Applies a wrapped function to a wrapped value (Applicative.ap).
+
+  Alias for `apply/2`.
+
+  ## Examples
+
+      iex> Maybe.ap({:some, fn x -> x * 2 end}, {:some, 5})
+      {:some, 10}
+  """
+  @impl FnTypes.Behaviours.Applicative
+  @spec ap(t((a -> b)), t(a)) :: t(b) when a: term(), b: term()
+  def ap(maybe_fun, maybe_val), do: apply(maybe_fun, maybe_val)
+
+  @doc """
+  Left fold over the present value (Foldable.fold_left).
+
+  Applies the function to the present value and accumulator.
+  Returns the accumulator unchanged for none.
+
+  ## Examples
+
+      iex> Maybe.fold_left({:some, 5}, 10, &+/2)
+      15
+
+      iex> Maybe.fold_left(:none, 10, &+/2)
+      10
+  """
+  @impl FnTypes.Behaviours.Foldable
+  @spec fold_left(t(a), acc, (a, acc -> acc)) :: acc when a: term(), acc: term()
+  def fold_left({:some, value}, acc, fun) when is_function(fun, 2), do: fun.(value, acc)
+  def fold_left(:none, acc, _fun), do: acc
+
+  @doc """
+  Right fold over the present value (Foldable.fold_right).
+
+  For single-value containers like Maybe, equivalent to fold_left.
+
+  ## Examples
+
+      iex> Maybe.fold_right({:some, 5}, 10, &+/2)
+      15
+  """
+  @impl FnTypes.Behaviours.Foldable
+  @spec fold_right(t(a), acc, (a, acc -> acc)) :: acc when a: term(), acc: term()
+  def fold_right({:some, value}, acc, fun) when is_function(fun, 2), do: fun.(value, acc)
+  def fold_right(:none, acc, _fun), do: acc
 end

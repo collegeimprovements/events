@@ -50,6 +50,8 @@ defmodule Events.Api.Clients.Google.ServiceAccount do
       }
   """
 
+  alias FnTypes.Config, as: Cfg
+
   @token_uri "https://oauth2.googleapis.com/token"
   @token_lifetime_seconds 3600
   @token_buffer_seconds 300
@@ -102,7 +104,7 @@ defmodule Events.Api.Clients.Google.ServiceAccount do
   """
   @spec from_env(String.t()) :: {:ok, credentials()} | {:error, term()}
   def from_env(env_var) do
-    case System.get_env(env_var) do
+    case Cfg.string(env_var) do
       nil ->
         {:error, {:env_not_set, env_var}}
 

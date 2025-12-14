@@ -68,8 +68,11 @@ default_exclusions = [
 ]
 
 # Include all tests in CI, exclude in normal dev
+alias FnTypes.Config, as: Cfg
+ci? = Cfg.boolean("CI", false)
+
 exclusions =
-  if System.get_env("CI") do
+  if ci? do
     # In CI, only exclude truly broken tests
     [:wip, :pending]
   else
@@ -80,13 +83,13 @@ ExUnit.configure(
   exclude: exclusions,
   formatters: [ExUnit.CLIFormatter],
   # Fail fast on first failure in CI
-  max_failures: if(System.get_env("CI"), do: 10, else: :infinity),
+  max_failures: if(ci?, do: 10, else: :infinity),
   # Timeout for individual tests (30 seconds)
   timeout: 30_000,
   # Enable colors
   colors: [enabled: true],
   # Show slowest tests
-  slowest: if(System.get_env("CI"), do: 10, else: 0),
+  slowest: if(ci?, do: 10, else: 0),
   # Capture logs by default - only shown on test failure
   # Override per-test with @tag capture_log: false
   capture_log: true

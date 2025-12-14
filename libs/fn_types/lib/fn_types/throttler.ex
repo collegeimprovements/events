@@ -69,7 +69,7 @@ defmodule FnTypes.Throttler do
 
     GenServer.start_link(
       __MODULE__,
-      %{interval: interval, last_run: 0},
+      %{interval: interval, last_run: nil},
       name: Keyword.get(opts, :name)
     )
   end
@@ -136,6 +136,13 @@ defmodule FnTypes.Throttler do
   end
 
   @impl true
+  def handle_call({:throttle, fun}, _from, %{last_run: nil} = state) do
+    # First call after init or reset - execute immediately
+    now = System.monotonic_time(:millisecond)
+    result = fun.()
+    {:reply, {:ok, result}, %{state | last_run: now}}
+  end
+
   def handle_call({:throttle, fun}, _from, state) do
     now = System.monotonic_time(:millisecond)
     elapsed = now - state.last_run
@@ -150,10 +157,15 @@ defmodule FnTypes.Throttler do
 
   @impl true
   def handle_call(:reset, _from, state) do
-    {:reply, :ok, %{state | last_run: 0}}
+    {:reply, :ok, %{state | last_run: nil}}
   end
 
   @impl true
+  def handle_call(:remaining, _from, %{last_run: nil} = state) do
+    # Never run yet - can execute immediately
+    {:reply, 0, state}
+  end
+
   def handle_call(:remaining, _from, state) do
     now = System.monotonic_time(:millisecond)
     elapsed = now - state.last_run

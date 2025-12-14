@@ -16,6 +16,8 @@ defmodule Events.Infra.SystemHealth.Infra do
   Default cache: `Events.Core.Cache`
   """
 
+  alias FnTypes.Config, as: Cfg
+
   @app_name Application.compile_env(:events, [__MODULE__, :app_name], :events)
   @repo_module Application.compile_env(:events, [__MODULE__, :repo_module], Events.Core.Repo)
   @cache_module Application.compile_env(:events, [__MODULE__, :cache_module], Events.Core.Cache)
@@ -61,10 +63,7 @@ defmodule Events.Infra.SystemHealth.Infra do
   end
 
   defp postgres_source do
-    case System.get_env("DATABASE_URL") do
-      nil -> "runtime.exs default"
-      _ -> "DATABASE_URL env"
-    end
+    if Cfg.present?("DATABASE_URL"), do: "DATABASE_URL env", else: "runtime.exs default"
   end
 
   defp postgres_details do
@@ -103,7 +102,7 @@ defmodule Events.Infra.SystemHealth.Infra do
   defp repo_url do
     fetch_repo_config()
     |> extract_repo_url()
-    |> Kernel.||(System.get_env("DATABASE_URL"))
+    |> Kernel.||(Cfg.string("DATABASE_URL"))
   end
 
   defp extract_repo_url({:ok, config}) do
@@ -135,10 +134,10 @@ defmodule Events.Infra.SystemHealth.Infra do
 
   defp redis_base_url do
     cond do
-      url = System.get_env(@redis_url_env) ->
+      url = Cfg.string(@redis_url_env) ->
         {url, "#{@redis_url_env} env"}
 
-      host = System.get_env(@redis_host_env) ->
+      host = Cfg.string(@redis_host_env) ->
         build_redis_host_url(host)
 
       true ->
@@ -147,7 +146,7 @@ defmodule Events.Infra.SystemHealth.Infra do
   end
 
   defp build_redis_host_url(host) do
-    port = System.get_env(@redis_port_env, "6379")
+    port = Cfg.integer(@redis_port_env, 6379)
     {"redis://#{host}:#{port}", "#{@redis_host_env}/#{@redis_port_env} env"}
   end
 
@@ -209,10 +208,10 @@ defmodule Events.Infra.SystemHealth.Infra do
 
   defp nebulex_url do
     cond do
-      custom = System.get_env(@nebulex_url_env) ->
+      custom = Cfg.string(@nebulex_url_env) ->
         {custom, "#{@nebulex_url_env} env"}
 
-      host = System.get_env(@nebulex_host_env) ->
+      host = Cfg.string(@nebulex_host_env) ->
         build_nebulex_host_url(host)
 
       true ->
@@ -221,7 +220,7 @@ defmodule Events.Infra.SystemHealth.Infra do
   end
 
   defp build_nebulex_host_url(host) do
-    port = System.get_env(@nebulex_port_env, System.get_env(@redis_port_env, "6379"))
+    port = Cfg.integer([@nebulex_port_env, @redis_port_env], 6379)
     {"redis://#{host}:#{port}", "#{@nebulex_host_env}/#{@nebulex_port_env} env"}
   end
 
@@ -270,22 +269,19 @@ defmodule Events.Infra.SystemHealth.Infra do
   end
 
   defp has_s3_config?(_) do
-    not is_nil(System.get_env("AWS_ACCESS_KEY_ID"))
+    Cfg.present?("AWS_ACCESS_KEY_ID")
   end
 
   defp extract_s3_config(config) do
     %{
       bucket:
-        System.get_env("S3_BUCKET") ||
-          System.get_env("AWS_S3_BUCKET") ||
+        Cfg.string(["S3_BUCKET", "AWS_S3_BUCKET"]) ||
           Keyword.get(config, :bucket),
       region:
-        System.get_env("AWS_REGION") ||
-          System.get_env("AWS_DEFAULT_REGION") ||
+        Cfg.string(["AWS_REGION", "AWS_DEFAULT_REGION"]) ||
           Keyword.get(config, :region, "us-east-1"),
       endpoint:
-        System.get_env("AWS_ENDPOINT_URL_S3") ||
-          System.get_env("AWS_ENDPOINT") ||
+        Cfg.string(["AWS_ENDPOINT_URL_S3", "AWS_ENDPOINT"]) ||
           Keyword.get(config, :endpoint)
     }
   end
@@ -311,10 +307,9 @@ defmodule Events.Infra.SystemHealth.Infra do
   end
 
   defp determine_s3_source(_bucket) do
-    case System.get_env("S3_BUCKET") || System.get_env("AWS_S3_BUCKET") do
-      nil -> "config :events, :aws"
-      _ -> "AWS_* env vars"
-    end
+    if Cfg.present?(["S3_BUCKET", "AWS_S3_BUCKET"]),
+      do: "AWS_* env vars",
+      else: "config :events, :aws"
   end
 
   defp build_s3_details(bucket, region, endpoint) do
@@ -327,7 +322,7 @@ defmodule Events.Infra.SystemHealth.Infra do
   end
 
   defp dns_cluster_connection do
-    System.get_env("DNS_CLUSTER_QUERY")
+    Cfg.string("DNS_CLUSTER_QUERY")
     |> build_dns_cluster_connection()
   end
 

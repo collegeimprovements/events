@@ -1,10 +1,10 @@
-defmodule Events.Protocols.RecoverableTest do
+defmodule FnTypes.Protocols.RecoverableTest do
   use ExUnit.Case, async: true
 
-  alias Events.Protocols.Recoverable
-  alias Events.Protocols.Recoverable.Backoff
-  alias Events.Protocols.Recoverable.Helpers
-  alias Events.Types.Error
+  alias FnTypes.Protocols.Recoverable
+  alias FnTypes.Protocols.Recoverable.Backoff
+  alias FnTypes.Protocols.Recoverable.Helpers
+  alias FnTypes.Error
 
   # ============================================
   # Backoff Module Tests
@@ -105,10 +105,10 @@ defmodule Events.Protocols.RecoverableTest do
   end
 
   # ============================================
-  # Events.Types.Error Implementation Tests
+  # FnTypes.Error Implementation Tests
   # ============================================
 
-  describe "Recoverable for Events.Types.Error" do
+  describe "Recoverable for FnTypes.Error" do
     test "timeout errors are recoverable" do
       error = Error.new(:timeout, :connection_timeout)
 

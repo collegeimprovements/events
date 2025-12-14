@@ -3,6 +3,8 @@ defmodule Events.Infra.SystemHealth.Mise do
   Mise environment manager integration.
   """
 
+  alias FnTypes.Config, as: Cfg
+
   @mise_env_vars [
     {"DB_POOL_SIZE", "DB Pool Size"},
     {"DB_QUEUE_TARGET", "DB Queue Target"},
@@ -17,7 +19,7 @@ defmodule Events.Infra.SystemHealth.Mise do
   """
   @spec get_info() :: map()
   def get_info do
-    System.get_env("MISE_SHELL")
+    Cfg.string("MISE_SHELL")
     |> build_mise_info()
   end
 
@@ -43,7 +45,7 @@ defmodule Events.Infra.SystemHealth.Mise do
   end
 
   defp extract_tool_info({env_var, tool_name, tool_key}) do
-    System.get_env(env_var)
+    Cfg.string(env_var)
     |> case do
       nil -> nil
       path -> {tool_name, extract_version(path, tool_key)}
@@ -57,7 +59,7 @@ defmodule Events.Infra.SystemHealth.Mise do
   end
 
   defp extract_env_var({key, label}) do
-    System.get_env(key)
+    Cfg.string(key)
     |> build_env_var(label, key)
   end
 

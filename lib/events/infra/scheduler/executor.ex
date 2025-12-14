@@ -91,7 +91,7 @@ defmodule Events.Infra.Scheduler.Executor do
   end
 
   defp should_trip_circuit?(error) do
-    alias Events.Protocols.Recoverable
+    alias FnTypes.Protocols.Recoverable
 
     try do
       Recoverable.trips_circuit?(error)

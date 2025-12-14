@@ -1,8 +1,8 @@
-defmodule Events.Types.ValidationTest do
+defmodule FnTypes.ValidationTest do
   use ExUnit.Case, async: true
 
-  alias Events.Types.Validation, as: V
-  alias Events.Types.Error
+  alias FnTypes.Validation, as: V
+  alias FnTypes.Error
 
   # ============================================
   # Core Construction
@@ -743,7 +743,7 @@ defmodule Events.Types.ValidationTest do
   end
 
   describe "to_error/2" do
-    test "converts to Events.Types.Error on failure" do
+    test "converts to FnTypes.Error on failure" do
       result =
         V.new(%{email: ""})
         |> V.field(:email, [V.required()])

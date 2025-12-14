@@ -7,6 +7,13 @@ defmodule FnTypes.Ior do
   - `Validation`: Accumulates errors, no value if any error
   - `Ior`: Can have BOTH a value AND accumulated warnings/errors
 
+  ## Implemented Behaviours
+
+  - `FnTypes.Behaviours.Monad` - pure, bind, map
+  - `FnTypes.Behaviours.Applicative` - pure, ap, map
+  - `FnTypes.Behaviours.Functor` - map
+  - `FnTypes.Behaviours.Semigroup` - combine (warning accumulation)
+
   ## Representation
 
   - `{:right, value}` - Pure success, no warnings
@@ -54,6 +61,11 @@ defmodule FnTypes.Ior do
   | Ior | No | Yes | Yes (with warnings) |
 
   """
+
+  @behaviour FnTypes.Behaviours.Monad
+  @behaviour FnTypes.Behaviours.Applicative
+  @behaviour FnTypes.Behaviours.Functor
+  @behaviour FnTypes.Behaviours.Semigroup
 
   alias FnTypes.{Result, Maybe}
 
@@ -230,6 +242,7 @@ defmodule FnTypes.Ior do
       {:left, [:error]}
   """
   @spec map(t(a, e), (a -> b)) :: t(b, e) when a: term(), b: term(), e: term()
+  @impl FnTypes.Behaviours.Functor
   def map({:right, value}, fun) when is_function(fun, 1), do: {:right, fun.(value)}
   def map({:both, errors, value}, fun) when is_function(fun, 1), do: {:both, errors, fun.(value)}
   def map({:left, _} = left, _fun), do: left
@@ -322,8 +335,11 @@ defmodule FnTypes.Ior do
   def and_then({:left, _} = left, _fun), do: left
 
   @doc """
+  Chains a function that returns an Ior (Monad.bind).
+
   Alias for `and_then/2`.
   """
+  @impl FnTypes.Behaviours.Monad
   @spec bind(t(a, e), (a -> t(b, e))) :: t(b, e) when a: term(), b: term(), e: term()
   def bind(ior, fun), do: and_then(ior, fun)
 
@@ -380,6 +396,7 @@ defmodule FnTypes.Ior do
   """
   @spec map2(t(a, e), t(b, e), (a, b -> c)) :: t(c, e)
         when a: term(), b: term(), c: term(), e: term()
+  @impl FnTypes.Behaviours.Applicative
   def map2({:right, a}, {:right, b}, fun), do: {:right, fun.(a, b)}
   def map2({:right, a}, {:both, errors, b}, fun), do: {:both, errors, fun.(a, b)}
   def map2({:right, _}, {:left, errors}, _fun), do: {:left, errors}
@@ -647,6 +664,7 @@ defmodule FnTypes.Ior do
       0
   """
   @spec unwrap_or(t(a, e), a) :: a when a: term(), e: term()
+  @impl FnTypes.Behaviours.Monad
   def unwrap_or({:right, value}, _default), do: value
   def unwrap_or({:both, _, value}, _default), do: value
   def unwrap_or({:left, _}, default), do: default
@@ -981,4 +999,64 @@ defmodule FnTypes.Ior do
   end
 
   def ensure({:left, _} = left, _pred, _warning), do: left
+
+  # ============================================
+  # Behaviour Implementations
+  # ============================================
+
+  @doc """
+  Wraps a value in a right Ior (Monad.pure).
+
+  Alias for `right/1`.
+
+  ## Examples
+
+      iex> Ior.pure(42)
+      {:right, 42}
+  """
+  @impl FnTypes.Behaviours.Applicative
+  @spec pure(a) :: right(a) when a: term()
+  def pure(value), do: right(value)
+
+  @doc """
+  Applies a wrapped function to a wrapped value (Applicative.ap).
+
+  Accumulates warnings from both sides.
+
+  ## Examples
+
+      iex> Ior.ap({:right, fn x -> x * 2 end}, {:right, 5})
+      {:right, 10}
+  """
+  @impl FnTypes.Behaviours.Applicative
+  @spec ap(t((a -> b), e), t(a, e)) :: t(b, e) when a: term(), b: term(), e: term()
+  def ap(ior_fun, ior_val), do: __MODULE__.apply(ior_fun, ior_val)
+
+  @doc """
+  Combines two Iors, accumulating warnings (Semigroup.combine).
+
+  For successful Iors, keeps the second value.
+
+  ## Examples
+
+      iex> Ior.combine({:right, 1}, {:right, 2})
+      {:right, 2}
+
+      iex> Ior.combine({:both, [:w1], 1}, {:both, [:w2], 2})
+      {:both, [:w1, :w2], 2}
+
+      iex> Ior.combine({:left, [:e1]}, {:left, [:e2]})
+      {:left, [:e1, :e2]}
+  """
+  @impl FnTypes.Behaviours.Semigroup
+  @spec combine(t(a, e), t(a, e)) :: t(a, e) when a: term(), e: term()
+  def combine({:right, _}, {:right, b}), do: {:right, b}
+  def combine({:right, _}, {:both, e, b}), do: {:both, e, b}
+  def combine({:right, _}, {:left, e}), do: {:left, e}
+  def combine({:both, e1, _}, {:right, b}), do: {:both, e1, b}
+  def combine({:both, e1, _}, {:both, e2, b}), do: {:both, e1 ++ e2, b}
+  def combine({:both, e1, _}, {:left, e2}), do: {:left, e1 ++ e2}
+  def combine({:left, e1}, {:right, b}), do: {:both, e1, b}
+  def combine({:left, e1}, {:both, e2, b}), do: {:both, e1 ++ e2, b}
+  def combine({:left, e1}, {:left, e2}), do: {:left, e1 ++ e2}
 end

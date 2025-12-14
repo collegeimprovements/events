@@ -19,6 +19,7 @@ defmodule Events.Infra.SystemHealth.Services do
   Default services include: Repo, Cache, Redis, S3, PubSub, Endpoint, Telemetry
   """
 
+  alias FnTypes.Config, as: Cfg
   alias Redix
 
   @app_name Application.compile_env(:events, [__MODULE__, :app_name], :events)
@@ -374,9 +375,9 @@ defmodule Events.Infra.SystemHealth.Services do
 
   defp s3_context do
     # Check required env vars
-    access_key = System.get_env("AWS_ACCESS_KEY_ID")
-    secret_key = System.get_env("AWS_SECRET_ACCESS_KEY")
-    bucket = System.get_env("S3_BUCKET")
+    access_key = Cfg.string("AWS_ACCESS_KEY_ID")
+    secret_key = Cfg.string("AWS_SECRET_ACCESS_KEY")
+    bucket = Cfg.string("S3_BUCKET")
 
     cond do
       is_nil(access_key) ->

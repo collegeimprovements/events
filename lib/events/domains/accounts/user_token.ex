@@ -6,7 +6,7 @@ defmodule Events.Domains.Accounts.UserToken do
   This is a minimal schema without standard fields (type, subtype, metadata, assets).
   """
 
-  @derive {Events.Protocols.Identifiable, type: :user_token}
+  @derive {FnTypes.Protocols.Identifiable, type: :user_token}
 
   use Events.Core.Schema
   import Ecto.Query

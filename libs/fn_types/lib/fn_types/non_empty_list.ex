@@ -5,6 +5,12 @@ defmodule FnTypes.NonEmptyList do
   NonEmptyList provides type-safe operations on lists that can never be empty,
   eliminating runtime errors from operations like `hd/1`, `List.first/1`, etc.
 
+  ## Implemented Behaviours
+
+  - `FnTypes.Behaviours.Functor` - map
+  - `FnTypes.Behaviours.Semigroup` - combine
+  - `FnTypes.Behaviours.Foldable` - fold_left, fold_right
+
   ## Representation
 
   Internally represented as `{head, tail}` where:
@@ -59,6 +65,10 @@ defmodule FnTypes.NonEmptyList do
       |> Result.map(&NEL.to_list/1)
 
   """
+
+  @behaviour FnTypes.Behaviours.Functor
+  @behaviour FnTypes.Behaviours.Semigroup
+  @behaviour FnTypes.Behaviours.Foldable
 
   alias FnTypes.{Result, Maybe}
 
@@ -381,6 +391,7 @@ defmodule FnTypes.NonEmptyList do
       iex> NonEmptyList.map({1, [2, 3]}, &(&1 * 2))
       {2, [4, 6]}
   """
+  @impl FnTypes.Behaviours.Functor
   @spec map(t(a), (a -> b)) :: t(b) when a: term(), b: term()
   def map({head, tail}, fun) when is_function(fun, 1) do
     {fun.(head), Enum.map(tail, fun)}
@@ -878,6 +889,7 @@ defmodule FnTypes.NonEmptyList do
       [1, 2, 3]
   """
   @spec to_list(t(a)) :: [a, ...] when a: term()
+  @impl FnTypes.Behaviours.Foldable
   def to_list({head, tail}), do: [head | tail]
 
   @doc """
@@ -1132,5 +1144,51 @@ defmodule FnTypes.NonEmptyList do
 
   def insert_at({head, tail}, index, value) when index > 0 do
     {head, List.insert_at(tail, index - 1, value)}
+  end
+
+  # ============================================
+  # Behaviour Implementations
+  # ============================================
+
+  @doc """
+  Combines two NonEmptyLists (Semigroup.combine).
+
+  Alias for `concat/2`.
+
+  ## Examples
+
+      iex> NonEmptyList.combine({1, [2]}, {3, [4]})
+      {1, [2, 3, 4]}
+  """
+  @impl FnTypes.Behaviours.Semigroup
+  @spec combine(t(a), t(a)) :: t(a) when a: term()
+  def combine(nel1, nel2), do: concat(nel1, nel2)
+
+  @doc """
+  Left fold over all elements (Foldable.fold_left).
+
+  ## Examples
+
+      iex> NonEmptyList.fold_left({1, [2, 3]}, 0, &+/2)
+      6
+  """
+  @impl FnTypes.Behaviours.Foldable
+  @spec fold_left(t(a), acc, (a, acc -> acc)) :: acc when a: term(), acc: term()
+  def fold_left({head, tail}, acc, fun) when is_function(fun, 2) do
+    Enum.reduce([head | tail], acc, fun)
+  end
+
+  @doc """
+  Right fold over all elements (Foldable.fold_right).
+
+  ## Examples
+
+      iex> NonEmptyList.fold_right({1, [2, 3]}, [], fn x, acc -> [x | acc] end)
+      [1, 2, 3]
+  """
+  @impl FnTypes.Behaviours.Foldable
+  @spec fold_right(t(a), acc, (a, acc -> acc)) :: acc when a: term(), acc: term()
+  def fold_right({head, tail}, acc, fun) when is_function(fun, 2) do
+    List.foldr([head | tail], acc, fun)
   end
 end

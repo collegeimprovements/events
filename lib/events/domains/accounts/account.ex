@@ -6,7 +6,7 @@ defmodule Events.Domains.Accounts.Account do
   A default account is seeded for single-tenant deployments.
   """
 
-  @derive {Events.Protocols.Identifiable, type: :account}
+  @derive {FnTypes.Protocols.Identifiable, type: :account}
 
   use Events.Core.Schema
 

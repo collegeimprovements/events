@@ -13,7 +13,7 @@ defmodule Events.Errors.PosixError do
       error = Events.Errors.PosixError.new(:eacces, path: "/etc/passwd", operation: :write)
 
       # Normalize it
-      Events.Protocols.Normalizable.normalize(error)
+      FnTypes.Protocols.Normalizable.normalize(error)
 
   ## Common POSIX Codes
 
@@ -99,14 +99,14 @@ defmodule Events.Errors.PosixError do
   end
 end
 
-defimpl Events.Protocols.Normalizable, for: Events.Errors.PosixError do
+defimpl FnTypes.Protocols.Normalizable, for: Events.Errors.PosixError do
   @moduledoc """
   Normalizable implementation for POSIX file system errors.
 
-  Maps POSIX error codes to appropriate error types with meaningful messages.
+  Maps POSIX error codes to appropriate FnTypes.Error types with meaningful messages.
   """
 
-  alias Events.Types.Error
+  alias FnTypes.Error
 
   def normalize(%Events.Errors.PosixError{code: code, path: path, operation: operation}, opts) do
     {type, error_code, base_message, recoverable} = map_posix(code)

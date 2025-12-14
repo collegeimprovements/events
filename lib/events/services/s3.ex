@@ -106,7 +106,7 @@ defmodule Events.Services.S3 do
   alias Events.Services.S3.Client
   alias Events.Services.S3.Request
   alias Events.Services.S3.URI, as: S3URI
-  alias Events.Types.AsyncResult
+  alias FnTypes.AsyncResult
 
   @type config :: Config.t()
   @type request :: Request.t()

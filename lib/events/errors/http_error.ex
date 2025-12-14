@@ -12,7 +12,7 @@ defmodule Events.Errors.HttpError do
       error = Events.Errors.HttpError.new(500, body: %{"error" => "Internal error"})
 
       # Normalize it
-      Events.Protocols.Normalizable.normalize(error)
+      FnTypes.Protocols.Normalizable.normalize(error)
   """
 
   @type t :: %__MODULE__{
@@ -70,14 +70,14 @@ defmodule Events.Errors.HttpError do
   defp get_url(_), do: nil
 end
 
-defimpl Events.Protocols.Normalizable, for: Events.Errors.HttpError do
+defimpl FnTypes.Protocols.Normalizable, for: Events.Errors.HttpError do
   @moduledoc """
   Normalizable implementation for HTTP error responses.
 
-  Maps HTTP status codes to appropriate error types and codes.
+  Maps HTTP status codes to appropriate FnTypes.Error types and codes.
   """
 
-  alias Events.Types.Error
+  alias FnTypes.Error
 
   def normalize(%Events.Errors.HttpError{status: status} = http_error, opts) do
     {type, code, message, recoverable} = map_status(status)

@@ -51,10 +51,10 @@ defmodule Events.Errors.StripeError do
       })
 
       # Normalize to standard Error
-      Events.Protocols.Normalizable.normalize(error)
+      FnTypes.Protocols.Normalizable.normalize(error)
 
       # Check if recoverable
-      Events.Protocols.Recoverable.recoverable?(error)
+      FnTypes.Protocols.Recoverable.recoverable?(error)
 
   ## Integration with Stripe Client
 
@@ -223,14 +223,14 @@ defmodule Events.Errors.StripeError do
   defp extract_message(_), do: nil
 end
 
-defimpl Events.Protocols.Normalizable, for: Events.Errors.StripeError do
+defimpl FnTypes.Protocols.Normalizable, for: Events.Errors.StripeError do
   @moduledoc """
   Normalizable implementation for Stripe errors.
 
-  Maps Stripe error types and codes to appropriate Events.Types.Error types.
+  Maps Stripe error types and codes to appropriate FnTypes.Error types.
   """
 
-  alias Events.Types.Error
+  alias FnTypes.Error
   alias Events.Errors.StripeError
 
   def normalize(%StripeError{} = stripe_error, opts) do
@@ -380,7 +380,7 @@ defimpl Events.Protocols.Normalizable, for: Events.Errors.StripeError do
   end
 end
 
-defimpl Events.Protocols.Recoverable, for: Events.Errors.StripeError do
+defimpl FnTypes.Protocols.Recoverable, for: Events.Errors.StripeError do
   @moduledoc """
   Recoverable implementation for Stripe errors.
 

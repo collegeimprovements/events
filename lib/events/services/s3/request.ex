@@ -638,15 +638,39 @@ defmodule Events.Services.S3.Request do
     # Get the prefix (everything before the first *)
     prefix = key_pattern |> String.split("*") |> List.first() |> get_directory_prefix()
 
-    case Events.Services.S3.Client.list_objects(req.config, bucket, prefix, limit: 10_000) do
-      {:ok, %{files: files}} ->
-        files
-        |> Enum.map(& &1.key)
+    # Fetch all pages of keys matching the prefix
+    case list_all_keys(req.config, bucket, prefix) do
+      {:ok, keys} ->
+        keys
         |> Enum.filter(&glob_match?(&1, prefix, key_pattern))
         |> Enum.map(&S3URI.build(bucket, &1))
 
       {:error, _} ->
         []
+    end
+  end
+
+  # Paginate through all S3 list results to get complete key listing
+  defp list_all_keys(config, bucket, prefix) do
+    list_all_keys(config, bucket, prefix, nil, [])
+  end
+
+  defp list_all_keys(config, bucket, prefix, continuation_token, acc) do
+    opts =
+      [limit: 1000] ++
+        if(continuation_token, do: [continuation_token: continuation_token], else: [])
+
+    case Events.Services.S3.Client.list_objects(config, bucket, prefix, opts) do
+      {:ok, %{files: files, next: nil}} ->
+        keys = Enum.map(files, & &1.key)
+        {:ok, acc ++ keys}
+
+      {:ok, %{files: files, next: next_token}} ->
+        keys = Enum.map(files, & &1.key)
+        list_all_keys(config, bucket, prefix, next_token, acc ++ keys)
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

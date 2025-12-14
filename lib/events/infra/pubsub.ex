@@ -38,6 +38,8 @@ defmodule Events.Infra.PubSub do
   use Supervisor
   require Logger
 
+  alias FnTypes.Config, as: Cfg
+
   @pubsub_name Events.Infra.PubSub.Server
 
   # ==============================================================================
@@ -164,7 +166,7 @@ defmodule Events.Infra.PubSub do
   # ==============================================================================
 
   defp determine_adapter do
-    case System.get_env("PUBSUB_ADAPTER") do
+    case Cfg.string("PUBSUB_ADAPTER") do
       "local" ->
         Logger.debug("PubSub: Using local adapter (forced via PUBSUB_ADAPTER)")
         :local
@@ -221,24 +223,11 @@ defmodule Events.Infra.PubSub do
   end
 
   defp get_redis_host do
-    System.get_env("REDIS_HOST", "localhost")
+    Cfg.string("REDIS_HOST", "localhost")
   end
 
   defp get_redis_port do
-    case System.get_env("REDIS_PORT") do
-      nil ->
-        6379
-
-      port ->
-        case Integer.parse(port) do
-          {parsed, ""} ->
-            parsed
-
-          _ ->
-            Logger.warning("Invalid REDIS_PORT value '#{port}', using default 6379")
-            6379
-        end
-    end
+    Cfg.integer("REDIS_PORT", 6379)
   end
 
   defp node_name do

@@ -3,6 +3,8 @@ defmodule Events.Infra.SystemHealth.Environment do
   Environment information and runtime configuration.
   """
 
+  alias FnTypes.Config, as: Cfg
+
   @app_name Application.compile_env(:events, [__MODULE__, :app_name], :events)
 
   @doc """
@@ -41,7 +43,7 @@ defmodule Events.Infra.SystemHealth.Environment do
   defp in_docker? do
     File.exists?("/.dockerenv") or
       File.exists?("/run/.containerenv") or
-      System.get_env("DOCKER_CONTAINER") == "true"
+      Cfg.boolean("DOCKER_CONTAINER", false)
   end
 
   defp check_live_reload_status do

@@ -40,7 +40,7 @@ defmodule Events.Api.Client.Middleware.CircuitBreaker do
   use GenServer
   require Logger
 
-  alias Events.Types.Recoverable
+  alias FnTypes.Protocols.Recoverable
 
   @type state :: :closed | :open | :half_open
   @type name :: atom()

@@ -28,12 +28,12 @@ defmodule Events.Errors.FCMError do
       )
 
       # Normalize to standard Error
-      Events.Protocols.Normalizable.normalize(error)
+      FnTypes.Protocols.Normalizable.normalize(error)
 
       # Check if recoverable
-      Events.Protocols.Recoverable.recoverable?(error)  #=> false (permanent)
+      FnTypes.Protocols.Recoverable.recoverable?(error)  #=> false (permanent)
 
-      Events.Protocols.Recoverable.recoverable?(
+      FnTypes.Protocols.Recoverable.recoverable?(
         FCMError.new("QUOTA_EXCEEDED")
       )  #=> true (transient)
 
@@ -127,14 +127,14 @@ defmodule Events.Errors.FCMError do
   def transient?(_), do: false
 end
 
-defimpl Events.Protocols.Normalizable, for: Events.Errors.FCMError do
+defimpl FnTypes.Protocols.Normalizable, for: Events.Errors.FCMError do
   @moduledoc """
   Normalizable implementation for FCM errors.
 
-  Maps FCM error codes to appropriate error types.
+  Maps FCM error codes to appropriate FnTypes.Error types.
   """
 
-  alias Events.Types.Error
+  alias FnTypes.Error
   alias Events.Errors.FCMError
 
   def normalize(%FCMError{} = fcm_error, opts) do
@@ -195,7 +195,7 @@ defimpl Events.Protocols.Normalizable, for: Events.Errors.FCMError do
     do: {:unknown, :unspecified_error, "Unspecified FCM error", false}
 end
 
-defimpl Events.Protocols.Recoverable, for: Events.Errors.FCMError do
+defimpl FnTypes.Protocols.Recoverable, for: Events.Errors.FCMError do
   @moduledoc """
   Recoverable implementation for FCM errors.
 

@@ -1,28 +1,12 @@
-defimpl Events.Protocols.Normalizable, for: Events.Api.Client.Response do
+defimpl FnTypes.Protocols.Normalizable, for: Events.Api.Client.Response do
   @moduledoc """
   Normalizable implementation for API Response structs.
 
-  Converts HTTP responses with error status codes to standardized Events.Types.Error
+  Converts HTTP responses with error status codes to standardized FnTypes.Error
   structs. Uses the same status code mapping as HttpError for consistency.
-
-  ## Usage
-
-      response = %Response{status: 404, body: %{"error" => "Not found"}}
-      error = Normalizable.normalize(response)
-      #=> %Error{type: :not_found, code: :not_found, ...}
-
-  ## Context Integration
-
-  Pass context from the request for better error tracking:
-
-      Normalizable.normalize(response, context: %{
-        request_id: response.request_id,
-        url: "/api/users/123",
-        method: :get
-      })
   """
 
-  alias Events.Types.Error
+  alias FnTypes.Error
   alias Events.Api.Client.Response
 
   def normalize(%Response{status: status} = response, opts) when status >= 400 do

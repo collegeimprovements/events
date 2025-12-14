@@ -46,8 +46,8 @@ defmodule Events.Core.Repo.Retry do
 
   require Logger
 
-  alias Events.Protocols.Recoverable
-  alias Events.Protocols.Recoverable.Helpers
+  alias FnTypes.Protocols.Recoverable
+  alias FnTypes.Protocols.Recoverable.Helpers
 
   @type opts :: [
           max_attempts: pos_integer(),
@@ -305,7 +305,7 @@ defmodule Events.Core.Repo.Retry do
       if protocol_delay > 0 do
         protocol_delay
       else
-        Events.Protocols.Recoverable.Backoff.exponential(attempt, base: base_delay, max: max_delay)
+        FnTypes.Protocols.Recoverable.Backoff.exponential(attempt, base: base_delay, max: max_delay)
       end
 
     min(delay, max_delay)

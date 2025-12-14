@@ -151,7 +151,7 @@ defmodule Events.Api.Client.MiddlewareTest do
 
     test "call/2 records failure on {:error, _} when error trips circuit", %{name: name} do
       # Use an error that trips the circuit (external errors do)
-      error = Events.Types.Error.new(:external, :service_down)
+      error = FnTypes.Error.new(:external, :service_down)
       CircuitBreaker.call(name, fn -> {:error, error} end)
       :timer.sleep(10)
 
@@ -161,7 +161,7 @@ defmodule Events.Api.Client.MiddlewareTest do
 
     test "call/2 does not record failure when error doesn't trip circuit", %{name: name} do
       # Use an error that doesn't trip the circuit (validation errors don't)
-      error = Events.Types.Error.new(:validation, :invalid_input)
+      error = FnTypes.Error.new(:validation, :invalid_input)
       CircuitBreaker.call(name, fn -> {:error, error} end)
       :timer.sleep(10)
 

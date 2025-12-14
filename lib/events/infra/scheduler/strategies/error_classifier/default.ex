@@ -2,7 +2,7 @@ defmodule Events.Infra.Scheduler.Strategies.ErrorClassifier.Default do
   @moduledoc """
   Default error classification strategy.
 
-  Combines pattern matching and the `Events.Protocols.Recoverable` protocol
+  Combines pattern matching and the `FnTypes.Protocols.Recoverable` protocol
   to classify errors intelligently.
 
   ## Error Classes
@@ -35,7 +35,7 @@ defmodule Events.Infra.Scheduler.Strategies.ErrorClassifier.Default do
 
   @behaviour Events.Infra.Scheduler.Strategies.ErrorClassifierStrategy
 
-  alias Events.Protocols.Recoverable
+  alias FnTypes.Protocols.Recoverable
 
   # Default error patterns for classification
   @default_retryable_patterns [

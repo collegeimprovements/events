@@ -27,13 +27,13 @@ defmodule Events.Support.ProtocolRegistry do
 
       # List all protocols
       ProtocolRegistry.list_protocols()
-      #=> [Events.Protocols.Recoverable, Events.Protocols.Normalizable, ...]
+      #=> [FnTypes.Protocols.Recoverable, FnTypes.Protocols.Normalizable, ...]
 
       # List implementations for a protocol
-      ProtocolRegistry.list_implementations(Events.Protocols.Recoverable)
+      ProtocolRegistry.list_implementations(FnTypes.Protocols.Recoverable)
       #=> [
-      #     {Postgrex.Error, Events.Protocols.Recoverable.Postgrex.Error},
-      #     {Ecto.Changeset, Events.Protocols.Recoverable.Ecto.Changeset},
+      #     {Postgrex.Error, FnTypes.Protocols.Recoverable.Postgrex.Error},
+      #     {Ecto.Changeset, FnTypes.Protocols.Recoverable.Ecto.Changeset},
       #     ...
       #   ]
 
@@ -61,11 +61,11 @@ defmodule Events.Support.ProtocolRegistry do
       end
   """
 
-  # Known protocols in the Events namespace
+  # Known protocols in the FnTypes namespace
   @known_protocols [
-    Events.Protocols.Recoverable,
-    Events.Protocols.Normalizable,
-    Events.Protocols.Identifiable
+    FnTypes.Protocols.Recoverable,
+    FnTypes.Protocols.Normalizable,
+    FnTypes.Protocols.Identifiable
   ]
 
   # ============================================
@@ -80,7 +80,7 @@ defmodule Events.Support.ProtocolRegistry do
   ## Examples
 
       ProtocolRegistry.list_protocols()
-      #=> [Events.Protocols.Recoverable, Events.Protocols.Normalizable, ...]
+      #=> [FnTypes.Protocols.Recoverable, FnTypes.Protocols.Normalizable, ...]
   """
   @spec list_protocols() :: [module()]
   def list_protocols do
@@ -95,10 +95,10 @@ defmodule Events.Support.ProtocolRegistry do
 
   ## Examples
 
-      ProtocolRegistry.list_implementations(Events.Protocols.Recoverable)
+      ProtocolRegistry.list_implementations(FnTypes.Protocols.Recoverable)
       #=> [
-      #     {Postgrex.Error, Events.Protocols.Recoverable.Postgrex.Error},
-      #     {Any, Events.Protocols.Recoverable.Any},
+      #     {Postgrex.Error, FnTypes.Protocols.Recoverable.Postgrex.Error},
+      #     {Any, FnTypes.Protocols.Recoverable.Any},
       #     ...
       #   ]
   """
@@ -120,10 +120,10 @@ defmodule Events.Support.ProtocolRegistry do
 
   ## Examples
 
-      ProtocolRegistry.get_implementation(Events.Protocols.Recoverable, Postgrex.Error)
-      #=> {:ok, Events.Protocols.Recoverable.Postgrex.Error}
+      ProtocolRegistry.get_implementation(FnTypes.Protocols.Recoverable, Postgrex.Error)
+      #=> {:ok, FnTypes.Protocols.Recoverable.Postgrex.Error}
 
-      ProtocolRegistry.get_implementation(Events.Protocols.Recoverable, UnknownStruct)
+      ProtocolRegistry.get_implementation(FnTypes.Protocols.Recoverable, UnknownStruct)
       #=> {:error, :not_found}
   """
   @spec get_implementation(module(), module()) :: {:ok, module()} | {:error, :not_found}
@@ -141,10 +141,10 @@ defmodule Events.Support.ProtocolRegistry do
 
   ## Examples
 
-      ProtocolRegistry.implemented?(Events.Protocols.Recoverable, Postgrex.Error)
+      ProtocolRegistry.implemented?(FnTypes.Protocols.Recoverable, Postgrex.Error)
       #=> true
 
-      ProtocolRegistry.implemented?(Events.Protocols.Recoverable, MyApp.CustomStruct)
+      ProtocolRegistry.implemented?(FnTypes.Protocols.Recoverable, MyApp.CustomStruct)
       #=> false
   """
   @spec implemented?(module(), module()) :: boolean()
@@ -162,10 +162,10 @@ defmodule Events.Support.ProtocolRegistry do
 
   ## Examples
 
-      ProtocolRegistry.verify(Events.Protocols.Recoverable, Postgrex.Error)
+      ProtocolRegistry.verify(FnTypes.Protocols.Recoverable, Postgrex.Error)
       #=> :ok
 
-      ProtocolRegistry.verify(Events.Protocols.Recoverable, IncompleteImpl)
+      ProtocolRegistry.verify(FnTypes.Protocols.Recoverable, IncompleteImpl)
       #=> {:error, [:missing_callback, :strategy]}
   """
   @spec verify(module(), module()) :: :ok | {:error, [atom()]}
@@ -192,7 +192,7 @@ defmodule Events.Support.ProtocolRegistry do
 
   ## Examples
 
-      ProtocolRegistry.verify_protocol(Events.Protocols.Recoverable)
+      ProtocolRegistry.verify_protocol(FnTypes.Protocols.Recoverable)
       #=> :ok | {:error, [{Struct, [:missing_callback]}]}
   """
   @spec verify_protocol(module()) :: :ok | {:error, [{module(), [atom()]}]}
@@ -233,7 +233,7 @@ defmodule Events.Support.ProtocolRegistry do
 
       ProtocolRegistry.summary()
       #=> %{
-      #     Events.Protocols.Recoverable => %{
+      #     FnTypes.Protocols.Recoverable => %{
       #       implementations: 12,
       #       types: [Postgrex.Error, Ecto.Changeset, ...],
       #       has_any: true,
@@ -265,9 +265,9 @@ defmodule Events.Support.ProtocolRegistry do
 
   ## Examples
 
-      ProtocolRegistry.info(Events.Protocols.Recoverable)
+      ProtocolRegistry.info(FnTypes.Protocols.Recoverable)
       #=> %{
-      #     name: Events.Protocols.Recoverable,
+      #     name: FnTypes.Protocols.Recoverable,
       #     callbacks: [:recoverable?, :strategy, :retry_delay, ...],
       #     implementations: [...],
       #     fallback_to_any: true
@@ -299,7 +299,7 @@ defmodule Events.Support.ProtocolRegistry do
 
   ## Examples
 
-      ProtocolRegistry.docs(Events.Protocols.Recoverable)
+      ProtocolRegistry.docs(FnTypes.Protocols.Recoverable)
       #=> "# Recoverable Protocol\\n\\n..."
   """
   @spec docs(module()) :: String.t()
@@ -374,7 +374,7 @@ defmodule Events.Support.ProtocolRegistry do
       Mint.TransportError,
       Mint.HTTPError,
       DBConnection.ConnectionError,
-      Events.Types.Error
+      FnTypes.Error
     ]
 
     common_types

@@ -4,8 +4,8 @@ import Config
 # This file is executed after compilation and before the system starts
 # All configuration here uses environment variables managed by mise/fnox
 
-# Load config utilities (must use Code.require_file for config-time evaluation)
-Code.require_file("config_helper.ex", __DIR__)
+# Type-safe config utilities
+alias FnTypes.Config, as: Cfg
 
 # Get current environment
 env = config_env()
@@ -16,10 +16,10 @@ env = config_env()
 
 # Database URL resolution
 database_url =
-  ConfigHelper.get_env("DATABASE_URL") ||
+  Cfg.string("DATABASE_URL") ||
     case env do
       :test ->
-        ConfigHelper.get_env("MIX_TEST_PARTITION", "")
+        Cfg.string("MIX_TEST_PARTITION", "")
         |> then(&"ecto://postgres:postgres@localhost/events_test#{&1}")
 
       :dev ->
@@ -34,7 +34,7 @@ database_url =
 
 # IPv6 support (optional)
 maybe_ipv6 =
-  ConfigHelper.get_env_boolean("ECTO_IPV6", false)
+  Cfg.boolean("ECTO_IPV6", false)
   |> then(&if &1, do: [:inet6], else: [])
 
 # Base repo configuration shared across all environments
@@ -49,8 +49,8 @@ base_repo_config = [
     application_name: "events_#{env}"
   ],
   # Connection pool settings
-  queue_target: ConfigHelper.get_env_integer("DB_QUEUE_TARGET", 50),
-  queue_interval: ConfigHelper.get_env_integer("DB_QUEUE_INTERVAL", 1000),
+  queue_target: Cfg.integer("DB_QUEUE_TARGET", 50),
+  queue_interval: Cfg.integer("DB_QUEUE_INTERVAL", 1000),
   # Telemetry
   telemetry_prefix: [:events, :repo]
 ]
@@ -63,32 +63,30 @@ repo_config =
       :dev ->
         base ++
           [
-            pool_size: ConfigHelper.get_env_integer("DB_POOL_SIZE", 10),
-            log: ConfigHelper.get_env_atom("DB_LOG_LEVEL", "debug"),
+            pool_size: Cfg.integer("DB_POOL_SIZE", 10),
+            log: Cfg.atom("DB_LOG_LEVEL", :debug),
             stacktrace: true,
             show_sensitive_data_on_connection_error: true
           ]
 
       :test ->
+        default_pool = System.schedulers_online() * 2
+
         base ++
           [
             pool: Ecto.Adapters.SQL.Sandbox,
-            pool_size:
-              System.schedulers_online()
-              |> then(&(&1 * 2))
-              |> Integer.to_string()
-              |> then(&ConfigHelper.get_env_integer("DB_POOL_SIZE", &1)),
+            pool_size: Cfg.integer("DB_POOL_SIZE", default_pool),
             log: false
           ]
 
       :prod ->
         base ++
           [
-            pool_size: ConfigHelper.get_env_integer("DB_POOL_SIZE", 10),
+            pool_size: Cfg.integer("DB_POOL_SIZE", 10),
             # Uncomment for multi-core systems with high load
-            # pool_count: ConfigHelper.get_env_integer("DB_POOL_COUNT", 4),
-            log: ConfigHelper.get_env_atom("DB_LOG_LEVEL", "warning"),
-            ssl: ConfigHelper.get_env_boolean("DB_SSL")
+            # pool_count: Cfg.integer("DB_POOL_COUNT", 4),
+            log: Cfg.atom("DB_LOG_LEVEL", :warning),
+            ssl: Cfg.boolean("DB_SSL")
           ]
     end
   end)
@@ -99,7 +97,7 @@ config :events, Events.Core.Repo, repo_config
 # CACHE CONFIGURATION
 # ==============================================================================
 
-config :events, Events.Core.Cache, ConfigHelper.get_cache_config()
+config :events, Events.Core.Cache, Events.Core.Cache.Config.build()
 
 # ==============================================================================
 # HAMMER RATE LIMITER CONFIGURATION
@@ -110,10 +108,7 @@ config :hammer,
     {Hammer.Backend.Redis,
      [
        expiry_ms: :timer.hours(2),
-       redix_config: [
-         host: ConfigHelper.get_env("REDIS_HOST", "localhost"),
-         port: ConfigHelper.get_env_integer("REDIS_PORT", 6379)
-       ]
+       redix_config: Events.Core.Cache.Config.redis_opts()
      ]}
 
 # ==============================================================================
@@ -127,13 +122,11 @@ endpoint_config =
       [
         http: [
           ip: {127, 0, 0, 1},
-          port: ConfigHelper.get_env_integer("PORT", 4000)
+          port: Cfg.integer("PORT", 4000)
         ],
         check_origin: false,
-        code_reloader: true,
-        debug_errors: true,
         secret_key_base:
-          ConfigHelper.get_env(
+          Cfg.string(
             "SECRET_KEY_BASE",
             "vJtFNtGUA5c3eC18tawePzHZZr4Zd2pg7Popo59Mqml3MVtbfua54SkynyH3mL+G"
           ),
@@ -155,7 +148,7 @@ endpoint_config =
       [
         http: [ip: {127, 0, 0, 1}, port: 4002],
         secret_key_base:
-          ConfigHelper.get_env(
+          Cfg.string(
             "SECRET_KEY_BASE",
             "YJMCebrCtSIMECylkrpmTGhQC0LKEfuQV/HHEJdiuCnKh838eu4ZVWZvKPOxQEcp"
           ),
@@ -164,24 +157,23 @@ endpoint_config =
 
     :prod ->
       secret_key_base =
-        ConfigHelper.get_env("SECRET_KEY_BASE") ||
-          raise """
+        Cfg.string!("SECRET_KEY_BASE",
+          message: """
           environment variable SECRET_KEY_BASE is missing.
           Configure it in mise/fnox: mise set SECRET_KEY_BASE=$(mix phx.gen.secret)
           """
+        )
 
-      host =
-        ConfigHelper.get_env("PHX_HOST") ||
-          raise "PHX_HOST environment variable is missing"
+      host = Cfg.string!("PHX_HOST", message: "PHX_HOST environment variable is missing")
 
       [
         url: [host: host, port: 443, scheme: "https"],
         http: [
           ip: {0, 0, 0, 0, 0, 0, 0, 0},
-          port: ConfigHelper.get_env_integer("PORT", 4000)
+          port: Cfg.integer("PORT", 4000)
         ],
         secret_key_base: secret_key_base,
-        server: ConfigHelper.get_env_boolean("PHX_SERVER", false)
+        server: Cfg.boolean("PHX_SERVER", false)
       ]
   end
 
@@ -193,9 +185,6 @@ config :events, EventsWeb.Endpoint, endpoint_config
 
 case env do
   :dev ->
-    # Enable dev routes for dashboard and mailbox
-    config :events, dev_routes: true
-
     # Schema validation (validates schemas against DB on startup)
     # Logs warnings but doesn't fail in dev
     config :events, :schema_validation,
@@ -247,15 +236,15 @@ case env do
   :prod ->
     # DNS cluster configuration for multi-node deployment
     # Set DNS_CLUSTER_QUERY to your service discovery DNS name
-    config :events, :dns_cluster_query, ConfigHelper.get_env("DNS_CLUSTER_QUERY")
+    config :events, :dns_cluster_query, Cfg.string("DNS_CLUSTER_QUERY")
 
     # Production mailer configuration
     # Configure based on your email service provider
     # Example for Mailgun (uncomment and configure):
     # config :events, Events.Mailer,
     #   adapter: Swoosh.Adapters.Mailgun,
-    #   api_key: System.get_env("MAILGUN_API_KEY"),
-    #   domain: System.get_env("MAILGUN_DOMAIN")
+    #   api_key: Cfg.string!("MAILGUN_API_KEY"),
+    #   domain: Cfg.string!("MAILGUN_DOMAIN")
 
     # Swoosh API client for production
     # config :swoosh, :api_client, Swoosh.ApiClient.Req

@@ -43,7 +43,7 @@ defmodule Events.Api.Clients.Stripe do
   All operations return `{:ok, result}` or `{:error, %StripeError{}}`:
 
       alias Events.Errors.StripeError
-      alias Events.Protocols.{Normalizable, Recoverable}
+      alias FnTypes.Protocols.{Normalizable, Recoverable}
 
       case Stripe.create_customer(%{email: "invalid"}, config) do
         {:ok, customer} ->

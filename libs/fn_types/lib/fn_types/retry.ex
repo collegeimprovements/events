@@ -67,7 +67,7 @@ defmodule FnTypes.Retry do
 
   require Logger
 
-  alias FnTypes.Recoverable
+  alias FnTypes.Protocols.Recoverable
 
   # ============================================
   # Types

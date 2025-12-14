@@ -1,8 +1,5 @@
 import Config
 
-# Load config utilities
-Code.require_file("config_helper.ex", __DIR__)
-
 # General application configuration
 config :events,
   ecto_repos: [Events.Core.Repo],
@@ -85,6 +82,12 @@ config :logger, :default_formatter,
 
 # Use Jason for JSON parsing in Phoenix
 config :phoenix, :json_library, Jason
+
+# Compile-time options (Phoenix reads these during compilation)
+if config_env() == :dev do
+  config :events, dev_routes: true
+  config :events, EventsWeb.Endpoint, code_reloader: true, debug_errors: true
+end
 
 # Scheduler configuration (defaults for development)
 # Production settings should be configured in runtime.exs

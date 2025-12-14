@@ -327,43 +327,18 @@ defmodule Events.Infra.KillSwitch do
     }
   end
 
-  defp read_service_config(:s3) do
-    case System.get_env("S3_ENABLED") do
-      nil -> get_app_config(:s3, true)
-      value -> parse_boolean(value)
-    end
-  end
+  defp read_service_config(service) do
+    alias FnTypes.Config, as: Cfg
 
-  defp read_service_config(:cache) do
-    case System.get_env("CACHE_ENABLED") do
-      nil -> get_app_config(:cache, true)
-      value -> parse_boolean(value)
-    end
-  end
+    env_var = "#{String.upcase(to_string(service))}_ENABLED"
 
-  defp read_service_config(:database) do
-    case System.get_env("DATABASE_ENABLED") do
-      nil -> get_app_config(:database, true)
-      value -> parse_boolean(value)
-    end
+    # Priority: env var > app config > default (true)
+    Cfg.first_of([
+      Cfg.boolean(env_var),
+      Cfg.from_app(@app_name, [__MODULE__, service]),
+      true
+    ])
   end
-
-  defp read_service_config(:email) do
-    case System.get_env("EMAIL_ENABLED") do
-      nil -> get_app_config(:email, true)
-      value -> parse_boolean(value)
-    end
-  end
-
-  defp get_app_config(service, default) do
-    Application.get_env(@app_name, __MODULE__, [])
-    |> Keyword.get(service, default)
-  end
-
-  defp parse_boolean(value) when is_boolean(value), do: value
-  defp parse_boolean(value) when value in ["1", "true", "yes"], do: true
-  defp parse_boolean(value) when value in ["0", "false", "no"], do: false
-  defp parse_boolean(_value), do: false
 
   defp get_service_state(service) do
     case Process.whereis(__MODULE__) do

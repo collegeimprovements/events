@@ -122,14 +122,16 @@ defmodule Events.Services.S3.Config do
   """
   @spec from_env() :: t()
   def from_env do
+    alias FnTypes.Config, as: Cfg
+
     proxy = parse_proxy_from_env()
     {proxy_host, proxy_auth} = proxy || {nil, nil}
 
     new(
-      access_key_id: System.fetch_env!("AWS_ACCESS_KEY_ID"),
-      secret_access_key: System.fetch_env!("AWS_SECRET_ACCESS_KEY"),
-      region: System.get_env("AWS_REGION") || System.get_env("AWS_DEFAULT_REGION") || "us-east-1",
-      endpoint: System.get_env("AWS_ENDPOINT_URL_S3") || System.get_env("AWS_ENDPOINT"),
+      access_key_id: Cfg.string!("AWS_ACCESS_KEY_ID"),
+      secret_access_key: Cfg.string!("AWS_SECRET_ACCESS_KEY"),
+      region: Cfg.string(["AWS_REGION", "AWS_DEFAULT_REGION"], "us-east-1"),
+      endpoint: Cfg.string(["AWS_ENDPOINT_URL_S3", "AWS_ENDPOINT"]),
       proxy: proxy_host,
       proxy_auth: proxy_auth
     )
@@ -192,9 +194,9 @@ defmodule Events.Services.S3.Config do
   end
 
   defp parse_proxy_from_env do
-    proxy_url = System.get_env("HTTPS_PROXY") || System.get_env("HTTP_PROXY")
+    alias FnTypes.Config, as: Cfg
 
-    case proxy_url do
+    case Cfg.string(["HTTPS_PROXY", "HTTP_PROXY"]) do
       nil -> nil
       url -> parse_proxy_url(url)
     end

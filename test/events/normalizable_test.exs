@@ -1,8 +1,8 @@
-defmodule Events.Protocols.NormalizableTest do
+defmodule FnTypes.Protocols.NormalizableTest do
   use ExUnit.Case, async: true
 
-  alias Events.Types.Error
-  alias Events.Protocols.Normalizable
+  alias FnTypes.Error
+  alias FnTypes.Protocols.Normalizable
   alias Events.Errors.HttpError
   alias Events.Errors.PosixError
 
@@ -404,7 +404,7 @@ defmodule Events.Protocols.NormalizableTest do
     end
   end
 
-  describe "Events.Types.Error passthrough" do
+  describe "FnTypes.Error passthrough" do
     test "already normalized errors are passed through" do
       original = Error.new(:validation, :test_error, message: "test")
 
@@ -483,7 +483,7 @@ defmodule Events.Protocols.NormalizableTest do
     end
   end
 
-  describe "integration with Events.Types.Error" do
+  describe "integration with FnTypes.Error" do
     test "Error.normalize delegates to protocol" do
       changeset = %Ecto.Changeset{
         valid?: false,

@@ -5,6 +5,13 @@ defmodule FnTypes.Result do
   Provides monadic operations on `{:ok, value}` and `{:error, reason}` tuples,
   inspired by Rust's Result type.
 
+  ## Implemented Behaviours
+
+  - `FnTypes.Behaviours.Monad` - pure, bind, map
+  - `FnTypes.Behaviours.Applicative` - pure, ap, map
+  - `FnTypes.Behaviours.Functor` - map
+  - `FnTypes.Behaviours.Foldable` - fold_left, fold_right
+
   ## Usage
 
       {:ok, user}
@@ -30,6 +37,13 @@ defmodule FnTypes.Result do
       # Apply function to each
       {:ok, formatted} = Result.traverse(users, &format_user/1)
   """
+
+  @behaviour FnTypes.Behaviours.Monad
+  @behaviour FnTypes.Behaviours.Applicative
+  @behaviour FnTypes.Behaviours.Functor
+  @behaviour FnTypes.Behaviours.Foldable
+
+  import Kernel, except: [apply: 2, apply: 3]
 
   @type ok(value) :: {:ok, value}
   @type error(reason) :: {:error, reason}
@@ -107,6 +121,7 @@ defmodule FnTypes.Result do
       {:error, :not_found}
   """
   @spec map(t(a, e), (a -> b)) :: t(b, e) when a: term(), b: term(), e: term()
+  @impl FnTypes.Behaviours.Functor
   def map({:ok, value}, fun) when is_function(fun, 1), do: {:ok, fun.(value)}
   def map({:error, _} = error, _fun), do: error
 
@@ -192,6 +207,7 @@ defmodule FnTypes.Result do
       0
   """
   @spec unwrap_or(t(v, any()), v) :: v when v: term()
+  @impl FnTypes.Behaviours.Monad
   def unwrap_or({:ok, value}, _default), do: value
   def unwrap_or({:error, _}, default), do: default
 
@@ -797,7 +813,7 @@ defmodule FnTypes.Result do
   def normalize_error({:ok, _} = ok, _opts), do: ok
 
   def normalize_error({:error, reason}, opts) do
-    {:error, FnTypes.Normalizable.normalize(reason, opts)}
+    {:error, FnTypes.Protocols.Normalizable.normalize(reason, opts)}
   end
 
   @doc """
@@ -901,4 +917,84 @@ defmodule FnTypes.Result do
   defp reason_to_message(reason) when is_binary(reason), do: reason
   defp reason_to_message(%{message: msg}) when is_binary(msg), do: msg
   defp reason_to_message(reason), do: inspect(reason)
+
+  # ============================================
+  # Behaviour Implementations
+  # ============================================
+
+  @doc """
+  Wraps a value in an ok result (Monad.pure).
+
+  Alias for `ok/1`.
+
+  ## Examples
+
+      iex> Result.pure(42)
+      {:ok, 42}
+  """
+  @impl FnTypes.Behaviours.Applicative
+  @spec pure(value) :: ok(value) when value: term()
+  def pure(value), do: ok(value)
+
+  @doc """
+  Chains a function that returns a Result (Monad.bind).
+
+  Alias for `and_then/2`.
+
+  ## Examples
+
+      iex> Result.bind({:ok, 5}, fn x -> {:ok, x * 2} end)
+      {:ok, 10}
+  """
+  @impl FnTypes.Behaviours.Monad
+  @spec bind(t(a, e), (a -> t(b, e))) :: t(b, e) when a: term(), b: term(), e: term()
+  def bind(result, fun), do: and_then(result, fun)
+
+  @doc """
+  Applies a wrapped function to a wrapped value (Applicative.ap).
+
+  Alias for `apply/2`.
+
+  ## Examples
+
+      iex> Result.ap({:ok, fn x -> x * 2 end}, {:ok, 5})
+      {:ok, 10}
+  """
+  @impl FnTypes.Behaviours.Applicative
+  @spec ap(t((a -> b), e), t(a, e)) :: t(b, e) when a: term(), b: term(), e: term()
+  def ap(result_fun, result_val), do: apply(result_fun, result_val)
+
+  @doc """
+  Left fold over the success value (Foldable.fold_left).
+
+  Applies the function to the success value and accumulator.
+  Returns the accumulator unchanged for error results.
+
+  ## Examples
+
+      iex> Result.fold_left({:ok, 5}, 10, &+/2)
+      15
+
+      iex> Result.fold_left({:error, :not_found}, 10, &+/2)
+      10
+  """
+  @impl FnTypes.Behaviours.Foldable
+  @spec fold_left(t(a, e), acc, (a, acc -> acc)) :: acc when a: term(), e: term(), acc: term()
+  def fold_left({:ok, value}, acc, fun) when is_function(fun, 2), do: fun.(value, acc)
+  def fold_left({:error, _}, acc, _fun), do: acc
+
+  @doc """
+  Right fold over the success value (Foldable.fold_right).
+
+  For single-value containers like Result, equivalent to fold_left.
+
+  ## Examples
+
+      iex> Result.fold_right({:ok, 5}, 10, &+/2)
+      15
+  """
+  @impl FnTypes.Behaviours.Foldable
+  @spec fold_right(t(a, e), acc, (a, acc -> acc)) :: acc when a: term(), e: term(), acc: term()
+  def fold_right({:ok, value}, acc, fun) when is_function(fun, 2), do: fun.(value, acc)
+  def fold_right({:error, _}, acc, _fun), do: acc
 end

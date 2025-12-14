@@ -161,12 +161,29 @@ defmodule Events.Services.S3.Client do
   # Presigned URLs
   # ============================================
 
-  @doc """
-  Generates a presigned URL.
+  @typedoc """
+  Presigned form for POST-based uploads (browser direct uploads).
+
+  Contains:
+  - `url` - The URL to POST to
+  - `fields` - Form fields to include in the multipart upload
   """
-  @spec presigned_url(Config.t(), String.t(), String.t(), :get | :put, pos_integer()) ::
+  @type presigned_form :: %{url: String.t(), fields: [{String.t(), String.t()}]}
+
+  @doc """
+  Generates a presigned URL for downloading objects.
+
+  Returns a URL that can be used to GET the object without authentication.
+  The URL expires after `expires_in` seconds (default: 1 hour).
+
+  ## Examples
+
+      {:ok, url} = Client.presigned_get_url(config, "bucket", "path/to/file.pdf")
+      # Use url directly for downloads
+  """
+  @spec presigned_get_url(Config.t(), String.t(), String.t(), pos_integer()) ::
           {:ok, String.t()} | {:error, term()}
-  def presigned_url(%Config{} = config, bucket, key, method, expires_in \\ @default_expires_in) do
+  def presigned_get_url(%Config{} = config, bucket, key, expires_in \\ @default_expires_in) do
     # ReqS3 expects milliseconds
     expires_in_ms = expires_in * 1000
 
@@ -174,19 +191,71 @@ defmodule Events.Services.S3.Client do
       Config.presign_options(config, bucket, key)
       |> Keyword.put(:expires_in, expires_in_ms)
 
-    case method do
-      :get ->
-        url = ReqS3.presign_url(presign_opts)
-        {:ok, url}
-
-      :put ->
-        form = ReqS3.presign_form(presign_opts)
-        {:ok, form.url}
-    end
+    url = ReqS3.presign_url(presign_opts)
+    {:ok, url}
   rescue
     error ->
       {:error, {:presign_error, error}}
   end
+
+  @doc """
+  Generates a presigned form for POST-based uploads (browser direct uploads).
+
+  Returns a map with `url` and `fields` that can be used for multipart form uploads.
+  This is useful for direct browser uploads where you want to POST from a form.
+
+  ## Options
+
+    * `:content_type` - Content type for the uploaded object
+    * `:max_size` - Maximum allowed file size in bytes
+
+  ## Examples
+
+      {:ok, %{url: url, fields: fields}} = Client.presigned_upload_form(config, "bucket", "uploads/file.pdf")
+
+      # Use in browser form or with HTTP client:
+      Req.post!(url, form_multipart: [file: content] ++ fields)
+  """
+  @spec presigned_upload_form(Config.t(), String.t(), String.t(), keyword()) ::
+          {:ok, presigned_form()} | {:error, term()}
+  def presigned_upload_form(%Config{} = config, bucket, key, opts \\ []) do
+    expires_in = Keyword.get(opts, :expires_in, @default_expires_in)
+    # ReqS3 expects milliseconds
+    expires_in_ms = expires_in * 1000
+
+    presign_opts =
+      Config.presign_options(config, bucket, key)
+      |> Keyword.put(:expires_in, expires_in_ms)
+      |> maybe_put(:content_type, Keyword.get(opts, :content_type))
+      |> maybe_put(:max_size, Keyword.get(opts, :max_size))
+
+    form = ReqS3.presign_form(presign_opts)
+    {:ok, %{url: form.url, fields: form.fields}}
+  rescue
+    error ->
+      {:error, {:presign_error, error}}
+  end
+
+  @doc """
+  Generates a presigned URL (deprecated, use presigned_get_url/4 or presigned_upload_form/4).
+
+  For `:get`, returns a presigned download URL.
+  For `:put`, returns a presigned form for POST-based uploads.
+  """
+  @spec presigned_url(Config.t(), String.t(), String.t(), :get | :put, pos_integer()) ::
+          {:ok, String.t() | presigned_form()} | {:error, term()}
+  def presigned_url(%Config{} = config, bucket, key, method, expires_in \\ @default_expires_in) do
+    case method do
+      :get ->
+        presigned_get_url(config, bucket, key, expires_in)
+
+      :put ->
+        presigned_upload_form(config, bucket, key, expires_in: expires_in)
+    end
+  end
+
+  defp maybe_put(opts, _key, nil), do: opts
+  defp maybe_put(opts, key, value), do: Keyword.put(opts, key, value)
 
   # ============================================
   # Private: Request Building
@@ -279,10 +348,10 @@ defmodule Events.Services.S3.Client do
   defp sort_files(files, field, order) do
     sorted =
       case field do
-        :last_modified -> Enum.sort_by(files, & &1.last_modified, DateTime)
+        :last_modified -> Enum.sort_by(files, & &1.last_modified, &datetime_compare/2)
         :size -> Enum.sort_by(files, & &1.size)
         :key -> Enum.sort_by(files, & &1.key)
-        _ -> Enum.sort_by(files, & &1.last_modified, DateTime)
+        _ -> Enum.sort_by(files, & &1.last_modified, &datetime_compare/2)
       end
 
     case order do
@@ -291,6 +360,12 @@ defmodule Events.Services.S3.Client do
       _ -> Enum.reverse(sorted)
     end
   end
+
+  # Handle nil timestamps by sorting them to the end
+  defp datetime_compare(nil, nil), do: :eq
+  defp datetime_compare(nil, _), do: :gt
+  defp datetime_compare(_, nil), do: :lt
+  defp datetime_compare(dt1, dt2), do: DateTime.compare(dt1, dt2)
 
   # ============================================
   # Private: Response Parsing

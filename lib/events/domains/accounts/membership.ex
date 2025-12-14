@@ -6,7 +6,7 @@ defmodule Events.Domains.Accounts.Membership do
   A user can belong to multiple accounts (GitHub org model).
   """
 
-  @derive {Events.Protocols.Identifiable, type: :membership}
+  @derive {FnTypes.Protocols.Identifiable, type: :membership}
 
   use Events.Core.Schema
 

@@ -885,14 +885,14 @@ defmodule FnTypes.AsyncResult do
         # Normalize the error if requested
         normalized =
           if normalize do
-            FnTypes.Normalizable.normalize(reason, [])
+            FnTypes.Protocols.Normalizable.normalize(reason, [])
           else
             reason
           end
 
         # Check if recoverable using the protocol
-        recoverable = FnTypes.Recoverable.recoverable?(normalized)
-        max_attempts = FnTypes.Recoverable.max_attempts(normalized)
+        recoverable = FnTypes.Protocols.Recoverable.recoverable?(normalized)
+        max_attempts = FnTypes.Protocols.Recoverable.max_attempts(normalized)
 
         cond do
           not recoverable ->
@@ -913,8 +913,8 @@ defmodule FnTypes.AsyncResult do
 
           true ->
             # Calculate delay and retry
-            strategy = FnTypes.Recoverable.strategy(normalized)
-            delay = FnTypes.Recoverable.retry_delay(normalized, attempt)
+            strategy = FnTypes.Protocols.Recoverable.strategy(normalized)
+            delay = FnTypes.Protocols.Recoverable.retry_delay(normalized, attempt)
 
             # Emit telemetry
             if telemetry_prefix do
@@ -942,7 +942,7 @@ defmodule FnTypes.AsyncResult do
         error: error,
         strategy: strategy,
         recoverable: will_retry,
-        severity: FnTypes.Recoverable.severity(error)
+        severity: FnTypes.Protocols.Recoverable.severity(error)
       }
     )
   end

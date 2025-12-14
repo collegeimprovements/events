@@ -47,8 +47,8 @@ defmodule Events.Core.Cache do
 
       config :events, Events.Core.Cache,
         conn_opts: [
-          host: System.get_env("REDIS_HOST", "localhost"),
-          port: String.to_integer(System.get_env("REDIS_PORT", "6379"))
+          host: Cfg.string("REDIS_HOST", "localhost"),
+          port: Cfg.integer("REDIS_PORT", 6379)
         ]
 
   ## Telemetry

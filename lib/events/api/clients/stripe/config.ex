@@ -76,15 +76,15 @@ defmodule Events.Api.Clients.Stripe.Config do
   """
   @spec from_env() :: t()
   def from_env do
-    api_key =
-      System.get_env("STRIPE_API_KEY") ||
-        System.get_env("STRIPE_SECRET_KEY") ||
-        raise "STRIPE_API_KEY or STRIPE_SECRET_KEY must be set"
+    alias FnTypes.Config, as: Cfg
 
     new(
-      api_key: api_key,
-      api_version: System.get_env("STRIPE_API_VERSION") || @default_api_version,
-      connect_account: System.get_env("STRIPE_CONNECT_ACCOUNT")
+      api_key:
+        Cfg.string!(["STRIPE_API_KEY", "STRIPE_SECRET_KEY"],
+          message: "STRIPE_API_KEY or STRIPE_SECRET_KEY must be set"
+        ),
+      api_version: Cfg.string("STRIPE_API_VERSION", @default_api_version),
+      connect_account: Cfg.string("STRIPE_CONNECT_ACCOUNT")
     )
   end
 

@@ -6,7 +6,7 @@ defmodule Events.Domains.Accounts.User do
   via memberships (GitHub org model).
   """
 
-  @derive {Events.Protocols.Identifiable, type: :user}
+  @derive {FnTypes.Protocols.Identifiable, type: :user}
 
   use Events.Core.Schema
 

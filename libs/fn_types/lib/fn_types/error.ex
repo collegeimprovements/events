@@ -200,7 +200,7 @@ defmodule FnTypes.Error do
     start_time = if emit_telemetry, do: System.monotonic_time(), else: nil
     source_type = get_source_type(error)
 
-    normalized = FnTypes.Normalizable.normalize(error, opts)
+    normalized = FnTypes.Protocols.Normalizable.normalize(error, opts)
 
     if emit_telemetry do
       duration = System.monotonic_time() - start_time

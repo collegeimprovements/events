@@ -39,9 +39,9 @@ defmodule Events.Infra.Scheduler.ErrorClassifier do
 
   ## Custom Error Classification
 
-  Implement the `Events.Protocols.Recoverable` protocol for custom errors:
+  Implement the `FnTypes.Protocols.Recoverable` protocol for custom errors:
 
-      defimpl Events.Protocols.Recoverable, for: MyApp.PaymentError do
+      defimpl FnTypes.Protocols.Recoverable, for: MyApp.PaymentError do
         def recoverable?(%{code: :soft_decline}), do: true
         def recoverable?(_), do: false
 
@@ -53,7 +53,7 @@ defmodule Events.Infra.Scheduler.ErrorClassifier do
       end
   """
 
-  alias Events.Protocols.Recoverable
+  alias FnTypes.Protocols.Recoverable
 
   @type error_class :: :retryable | :transient | :degraded | :terminal | :unknown
   @type retry_strategy :: :immediate | :fixed | :exponential | :none

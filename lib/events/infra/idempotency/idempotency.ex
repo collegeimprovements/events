@@ -351,7 +351,7 @@ defmodule Events.Infra.Idempotency do
       #=> {:error, :already_processing}
   """
   @spec start_processing(Record.t()) :: {:ok, Record.t()} | {:error, :already_processing | :stale}
-  def start_processing(%Record{id: id, state: current_state, version: version}) do
+  def start_processing(%Record{id: id, state: current_state, version: version} = record) do
     now = DateTime.utc_now()
     lock_until = DateTime.add(now, @default_lock_timeout_ms, :millisecond)
 
@@ -372,7 +372,16 @@ defmodule Events.Infra.Idempotency do
            ]
          ) do
       {1, _} ->
-        {:ok, %Record{id: id, state: :processing, version: version + 1}}
+        # Return the updated record with all fields preserved
+        {:ok,
+         %Record{
+           record
+           | state: :processing,
+             started_at: now,
+             locked_until: lock_until,
+             version: version + 1,
+             updated_at: now
+         }}
 
       {0, _} ->
         if current_state == :processing do
@@ -637,7 +646,7 @@ defmodule Events.Infra.Idempotency do
     # Use Recoverable protocol if available
     case error do
       %{__struct__: _} = struct ->
-        not Events.Types.Recoverable.recoverable?(struct)
+        not FnTypes.Protocols.Recoverable.recoverable?(struct)
 
       _ ->
         # Unknown error type - assume transient
