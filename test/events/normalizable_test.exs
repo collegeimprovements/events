@@ -3,8 +3,8 @@ defmodule FnTypes.Protocols.NormalizableTest do
 
   alias FnTypes.Error
   alias FnTypes.Protocols.Normalizable
-  alias Events.Errors.HttpError
-  alias Events.Errors.PosixError
+  alias FnTypes.Errors.HttpError
+  alias FnTypes.Errors.PosixError
 
   describe "Ecto.Changeset normalization" do
     test "normalizes invalid changeset to validation error" do
