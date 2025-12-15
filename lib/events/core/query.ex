@@ -193,7 +193,7 @@ defmodule Events.Core.Query do
   """
 
   alias Events.Core.Query.{Token, Builder, Executor, Result, Queryable, Cast, Predicates, Search}
-  alias Events.Core.Query.Api.{Shortcuts, Scopes, Pagination, Ordering, Joining, Selecting, Advanced}
+  alias Events.Core.Query.Api.{Shortcuts, Scopes, Pagination, Ordering, Joining, Selecting, Advanced, Helpers}
 
   # Configurable defaults - can be overridden via application config
   # config :events, Events.Core.Query, default_repo: MyApp.Repo
@@ -2890,9 +2890,9 @@ defmodule Events.Core.Query do
       |> Query.execute()
   """
   @spec then_if(Token.t(), term(), (Token.t(), term() -> Token.t())) :: Token.t()
-  def then_if(%Token{} = token, nil, _fun), do: token
-  def then_if(%Token{} = token, false, _fun), do: token
-  def then_if(%Token{} = token, value, fun), do: fun.(token, value)
+  def then_if(%Token{} = token, nil, _fun), do: Helpers.then_if(token, nil, _fun)
+  def then_if(%Token{} = token, false, _fun), do: Helpers.then_if(token, false, _fun)
+  def then_if(%Token{} = token, value, fun), do: Helpers.then_if(token, value, fun)
 
   @doc """
   Conditionally apply a function to the token (boolean version).
@@ -2907,8 +2907,8 @@ defmodule Events.Core.Query do
       |> Query.execute()
   """
   @spec if_true(Token.t(), boolean(), (Token.t() -> Token.t())) :: Token.t()
-  def if_true(%Token{} = token, true, fun), do: fun.(token)
-  def if_true(%Token{} = token, false, _fun), do: token
+  def if_true(%Token{} = token, true, fun), do: Helpers.if_true(token, true, fun)
+  def if_true(%Token{} = token, false, _fun), do: Helpers.if_true(token, false, _fun)
 
   @doc """
   Apply multiple filter conditions from a map or keyword list.
