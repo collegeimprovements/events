@@ -192,8 +192,8 @@ defmodule Events.Core.Query do
   - `:explain_analyze` in debug executes the query (use with care in production)
   """
 
-  alias Events.Core.Query.{Token, Builder, Executor, Result, Queryable, Cast, Predicates, Search}
-  alias Events.Core.Query.Api.{Shortcuts, Scopes, Pagination, Ordering, Joining, Selecting, Advanced, Helpers}
+  alias Events.Core.Query.{Token, Builder, Executor, Result, Queryable, Search}
+  alias Events.Core.Query.Api.{Shortcuts, Scopes, Pagination, Ordering, Joining, Selecting, Advanced, Helpers, Filtering}
 
   # Configurable defaults - can be overridden via application config
   # config :events, Events.Core.Query, default_repo: MyApp.Repo
@@ -322,12 +322,9 @@ defmodule Events.Core.Query do
   """
   @spec where(queryable(), atom(), atom(), term(), keyword()) :: Token.t()
   def where(source, field, op, value, opts \\ []) do
-    {cast_type, filter_opts} = Keyword.pop(opts, :cast)
-    casted_value = Cast.cast(value, cast_type)
-
     source
     |> ensure_token()
-    |> Token.add_operation({:filter, {field, op, casted_value, filter_opts}})
+    |> Filtering.where(field, op, value, opts)
   end
 
   @doc """
@@ -362,7 +359,9 @@ defmodule Events.Core.Query do
   """
   @spec filter(queryable(), atom(), atom(), term(), keyword()) :: Token.t()
   def filter(source, field, op, value, opts \\ []) do
-    where(source, field, op, value, opts)
+    source
+    |> ensure_token()
+    |> Filtering.filter(field, op, value, opts)
   end
 
   @doc """
@@ -381,7 +380,9 @@ defmodule Events.Core.Query do
   """
   @spec filter(queryable(), atom(), term()) :: Token.t()
   def filter(source, field, value) when is_atom(field) do
-    where(source, field, :eq, value, [])
+    source
+    |> ensure_token()
+    |> Filtering.filter(field, value)
   end
 
   @doc """
@@ -404,11 +405,9 @@ defmodule Events.Core.Query do
   """
   @spec filter(queryable(), keyword()) :: Token.t()
   def filter(source, filters) when is_list(filters) and length(filters) > 0 do
-    token = ensure_token(source)
-
-    Enum.reduce(filters, token, fn {field, value}, acc ->
-      Token.add_operation(acc, {:filter, {field, :eq, value, []}})
-    end)
+    source
+    |> ensure_token()
+    |> Filtering.filter(filters)
   end
 
   @doc """
@@ -454,7 +453,7 @@ defmodule Events.Core.Query do
   def on(source, binding, field, value) when is_atom(binding) and is_atom(field) do
     source
     |> ensure_token()
-    |> Token.add_operation({:filter, {field, :eq, value, [binding: binding]}})
+    |> Filtering.on(binding, field, value)
   end
 
   @doc """
@@ -472,7 +471,7 @@ defmodule Events.Core.Query do
       when is_atom(binding) and is_atom(field) and is_atom(op) do
     source
     |> ensure_token()
-    |> Token.add_operation({:filter, {field, op, value, [binding: binding]}})
+    |> Filtering.on(binding, field, op, value)
   end
 
   # ============================================================================
@@ -534,29 +533,30 @@ defmodule Events.Core.Query do
   """
   @spec maybe(queryable(), atom(), term()) :: Token.t()
   def maybe(source, field, value) do
-    maybe(source, field, value, :eq, [])
+    source
+    |> ensure_token()
+    |> Filtering.maybe(field, value)
   end
 
   @spec maybe(queryable(), atom(), term(), atom()) :: Token.t()
   def maybe(source, field, value, op) when is_atom(op) and op not in [:when] do
-    maybe(source, field, value, op, [])
+    source
+    |> ensure_token()
+    |> Filtering.maybe(field, value, op)
   end
 
   @spec maybe(queryable(), atom(), term(), keyword()) :: Token.t()
   def maybe(source, field, value, opts) when is_list(opts) do
-    maybe(source, field, value, :eq, opts)
+    source
+    |> ensure_token()
+    |> Filtering.maybe(field, value, opts)
   end
 
   @spec maybe(queryable(), atom(), term(), atom(), keyword()) :: Token.t()
   def maybe(source, field, value, op, opts) when is_atom(op) do
-    token = ensure_token(source)
-    {predicate, filter_opts} = Keyword.pop(opts, :when, :present)
-
-    if Predicates.check(predicate, value) do
-      where(token, field, op, value, filter_opts)
-    else
-      token
-    end
+    source
+    |> ensure_token()
+    |> Filtering.maybe(field, value, op, opts)
   end
 
   @doc """
@@ -575,25 +575,23 @@ defmodule Events.Core.Query do
   """
   @spec maybe_on(queryable(), atom(), atom(), term()) :: Token.t()
   def maybe_on(source, binding, field, value) do
-    maybe_on(source, binding, field, value, :eq, [])
+    source
+    |> ensure_token()
+    |> Filtering.maybe_on(binding, field, value)
   end
 
   @spec maybe_on(queryable(), atom(), atom(), term(), atom()) :: Token.t()
   def maybe_on(source, binding, field, value, op) when is_atom(op) do
-    maybe_on(source, binding, field, value, op, [])
+    source
+    |> ensure_token()
+    |> Filtering.maybe_on(binding, field, value, op)
   end
 
   @spec maybe_on(queryable(), atom(), atom(), term(), atom(), keyword()) :: Token.t()
   def maybe_on(source, binding, field, value, op, opts) when is_atom(binding) and is_atom(op) do
-    token = ensure_token(source)
-    {predicate, filter_opts} = Keyword.pop(opts, :when, :present)
-
-    if Predicates.check(predicate, value) do
-      full_opts = Keyword.put(filter_opts, :binding, binding)
-      where(token, field, op, value, full_opts)
-    else
-      token
-    end
+    source
+    |> ensure_token()
+    |> Filtering.maybe_on(binding, field, value, op, opts)
   end
 
   # ============================================================================
@@ -828,8 +826,7 @@ defmodule Events.Core.Query do
   def where_any(token, filter_list, opts \\ [])
 
   def where_any(token, filter_list, opts) when is_list(filter_list) and length(filter_list) >= 2 do
-    normalized = normalize_filter_specs(filter_list, opts)
-    Token.add_operation(token, {:filter_group, {:or, normalized}})
+    Filtering.where_any(token, filter_list, opts)
   end
 
   @doc """
@@ -872,8 +869,7 @@ defmodule Events.Core.Query do
   def where_all(token, filter_list, opts \\ [])
 
   def where_all(token, filter_list, opts) when is_list(filter_list) and length(filter_list) >= 2 do
-    normalized = normalize_filter_specs(filter_list, opts)
-    Token.add_operation(token, {:filter_group, {:and, normalized}})
+    Filtering.where_all(token, filter_list, opts)
   end
 
   @doc """
@@ -922,8 +918,7 @@ defmodule Events.Core.Query do
   def where_none(token, filter_list, opts \\ [])
 
   def where_none(token, filter_list, opts) when is_list(filter_list) and length(filter_list) >= 2 do
-    normalized = normalize_filter_specs(filter_list, opts)
-    Token.add_operation(token, {:filter_group, {:not_or, normalized}})
+    Filtering.where_none(token, filter_list, opts)
   end
 
   @doc """
@@ -969,28 +964,7 @@ defmodule Events.Core.Query do
   """
   @spec where_not(Token.t(), atom(), atom(), term(), keyword()) :: Token.t()
   def where_not(token, field, op, value, opts \\ []) do
-    negated_op = negate_operator(op)
-    where(token, field, negated_op, value, opts)
-  end
-
-  # Operator negation mapping
-  defp negate_operator(:eq), do: :neq
-  defp negate_operator(:neq), do: :eq
-  defp negate_operator(:gt), do: :lte
-  defp negate_operator(:gte), do: :lt
-  defp negate_operator(:lt), do: :gte
-  defp negate_operator(:lte), do: :gt
-  defp negate_operator(:in), do: :not_in
-  defp negate_operator(:not_in), do: :in
-  defp negate_operator(:is_nil), do: :not_nil
-  defp negate_operator(:not_nil), do: :is_nil
-  defp negate_operator(:like), do: :not_like
-  defp negate_operator(:ilike), do: :not_ilike
-  defp negate_operator(:not_like), do: :like
-  defp negate_operator(:not_ilike), do: :ilike
-
-  defp negate_operator(op) do
-    raise ArgumentError, "Cannot negate operator: #{inspect(op)}"
+    Filtering.where_not(token, field, op, value, opts)
   end
 
   @doc """
@@ -1755,19 +1729,6 @@ defmodule Events.Core.Query do
   end
 
   # Normalize filter spec to 4-tuple format
-  defp normalize_filter_spec({field, op, value}), do: {field, op, value, []}
-  defp normalize_filter_spec({field, op, value, opts}), do: {field, op, value, opts}
-
-  # Normalize filter specs with global opts merged in
-  defp normalize_filter_specs(filter_list, global_opts) do
-    Enum.map(filter_list, fn spec ->
-      {field, op, value, filter_opts} = normalize_filter_spec(spec)
-      # Per-filter opts take precedence over global opts
-      merged_opts = Keyword.merge(global_opts, filter_opts)
-      {field, op, value, merged_opts}
-    end)
-  end
-
   @doc """
   Add pagination.
 
