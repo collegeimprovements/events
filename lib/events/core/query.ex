@@ -193,7 +193,7 @@ defmodule Events.Core.Query do
   """
 
   alias Events.Core.Query.{Token, Builder, Executor, Result, Queryable, Cast, Predicates, Search}
-  alias Events.Core.Query.Api.{Shortcuts, Scopes, Pagination, Ordering, Joining}
+  alias Events.Core.Query.Api.{Shortcuts, Scopes, Pagination, Ordering, Joining, Selecting}
 
   # Configurable defaults - can be overridden via application config
   # config :events, Events.Core.Query, default_repo: MyApp.Repo
@@ -2122,13 +2122,13 @@ defmodule Events.Core.Query do
   def preload(source, associations) when is_atom(associations) do
     source
     |> ensure_token()
-    |> Token.add_operation({:preload, associations})
+    |> Selecting.preload(associations)
   end
 
   def preload(source, associations) when is_list(associations) do
     source
     |> ensure_token()
-    |> Token.add_operation({:preload, associations})
+    |> Selecting.preload(associations)
   end
 
   @doc """
@@ -2138,7 +2138,7 @@ defmodule Events.Core.Query do
   """
   @spec preloads(Token.t(), list()) :: Token.t()
   def preloads(token, associations) when is_list(associations) do
-    preload(token, associations)
+    Selecting.preloads(token, associations)
   end
 
   @doc """
@@ -2168,12 +2168,9 @@ defmodule Events.Core.Query do
   """
   @spec preload(queryable(), atom(), (Token.t() -> Token.t())) :: Token.t()
   def preload(source, association, builder_fn) when is_function(builder_fn, 1) do
-    nested_token = Token.new(:nested)
-    nested_token = builder_fn.(nested_token)
-
     source
     |> ensure_token()
-    |> Token.add_operation({:preload, {association, nested_token}})
+    |> Selecting.preload(association, builder_fn)
   end
 
   @doc """
@@ -2219,7 +2216,7 @@ defmodule Events.Core.Query do
   def select(source, fields) when is_list(fields) or is_map(fields) do
     source
     |> ensure_token()
-    |> Token.add_operation({:select, fields})
+    |> Selecting.select(fields)
   end
 
   @doc """
@@ -2322,7 +2319,7 @@ defmodule Events.Core.Query do
   @doc "Add a group by"
   @spec group_by(Token.t(), atom() | list()) :: Token.t()
   def group_by(token, fields) do
-    Token.add_operation(token, {:group_by, fields})
+    Selecting.group_by(token, fields)
   end
 
   @doc "Add a having clause"
@@ -2330,7 +2327,7 @@ defmodule Events.Core.Query do
   def having(source, conditions) do
     source
     |> ensure_token()
-    |> Token.add_operation({:having, conditions})
+    |> Selecting.having(conditions)
   end
 
   @doc "Add a limit"
@@ -2354,7 +2351,7 @@ defmodule Events.Core.Query do
   def distinct(source, value) do
     source
     |> ensure_token()
-    |> Token.add_operation({:distinct, value})
+    |> Selecting.distinct(value)
   end
 
   @doc "Add a lock clause"
