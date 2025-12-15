@@ -193,7 +193,7 @@ defmodule Events.Core.Query do
   """
 
   alias Events.Core.Query.{Token, Builder, Executor, Result, Queryable, Cast, Predicates, Search}
-  alias Events.Core.Query.Api.{Shortcuts, Scopes, Pagination}
+  alias Events.Core.Query.Api.{Shortcuts, Scopes, Pagination, Ordering}
 
   # Configurable defaults - can be overridden via application config
   # config :events, Events.Core.Query, default_repo: MyApp.Repo
@@ -1840,14 +1840,16 @@ defmodule Events.Core.Query do
 
   # List form - delegate to order_bys
   def order_by(source, order_list, _direction, _opts) when is_list(order_list) do
-    order_bys(source, order_list)
+    source
+    |> ensure_token()
+    |> Ordering.order_bys(order_list)
   end
 
   # Single field form
   def order_by(source, field, direction, opts) when is_atom(field) do
     source
     |> ensure_token()
-    |> Token.add_operation({:order, {field, direction, opts}})
+    |> Ordering.order_by(field, direction, opts)
   end
 
   @doc """
@@ -1859,7 +1861,9 @@ defmodule Events.Core.Query do
   """
   @spec order(queryable(), atom() | list(), :asc | :desc, keyword()) :: Token.t()
   def order(source, field_or_list, direction \\ :asc, opts \\ []) do
-    order_by(source, field_or_list, direction, opts)
+    source
+    |> ensure_token()
+    |> Ordering.order(field_or_list, direction, opts)
   end
 
   @doc """
@@ -1917,47 +1921,7 @@ defmodule Events.Core.Query do
           | {atom(), :asc | :desc, keyword()}
         ]) :: Token.t()
   def order_bys(token, order_list) when is_list(order_list) do
-    Enum.reduce(order_list, token, fn
-      # Plain atom - defaults to :asc
-      field, acc when is_atom(field) ->
-        order_by(acc, field, :asc)
-
-      # 2-tuple - could be keyword or tuple syntax
-      {key, value}, acc ->
-        cond do
-          # Ecto keyword syntax: [asc: :field, desc: :field]
-          # Key is direction, value is field
-          key in [
-            :asc,
-            :desc,
-            :asc_nulls_first,
-            :asc_nulls_last,
-            :desc_nulls_first,
-            :desc_nulls_last
-          ] ->
-            order_by(acc, value, key)
-
-          # Tuple syntax: [{:field, :asc}, {:field, :desc}]
-          # Key is field, value is direction
-          value in [
-            :asc,
-            :desc,
-            :asc_nulls_first,
-            :asc_nulls_last,
-            :desc_nulls_first,
-            :desc_nulls_last
-          ] ->
-            order_by(acc, key, value)
-
-          # Ambiguous - assume tuple syntax (field, direction) for backward compatibility
-          true ->
-            order_by(acc, key, value)
-        end
-
-      # 3-tuple - always tuple syntax with opts: {:field, :direction, opts}
-      {field, direction, opts}, acc ->
-        order_by(acc, field, direction, opts)
-    end)
+    Ordering.order_bys(token, order_list)
   end
 
   @doc """
@@ -1971,7 +1935,7 @@ defmodule Events.Core.Query do
           | {atom(), :asc | :desc, keyword()}
         ]) :: Token.t()
   def orders(token, order_list) when is_list(order_list) do
-    order_bys(token, order_list)
+    Ordering.orders(token, order_list)
   end
 
   @doc """
