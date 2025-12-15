@@ -1238,7 +1238,7 @@ defmodule Events.Core.Query do
           atom()
         ) :: Token.t()
   def created_between(token, start_time, end_time, field \\ :inserted_at) do
-    Scopes.created_between(token, start_time, end_time, field, __MODULE__)
+    filter(token, field, :between, {start_time, end_time})
   end
 
   @doc """
@@ -1263,7 +1263,7 @@ defmodule Events.Core.Query do
   """
   @spec between(Token.t(), atom(), term(), term(), keyword()) :: Token.t()
   def between(token, field, min, max, opts \\ []) do
-    Scopes.between(token, field, min, max, opts, __MODULE__)
+    filter(token, field, :between, {min, max}, opts)
   end
 
   @doc """
@@ -1285,7 +1285,7 @@ defmodule Events.Core.Query do
   """
   @spec between_any(Token.t(), atom(), [{term(), term()}], keyword()) :: Token.t()
   def between_any(token, field, ranges, opts \\ []) when is_list(ranges) do
-    Scopes.between_any(token, field, ranges, opts, __MODULE__)
+    filter(token, field, :between, ranges, opts)
   end
 
   @doc """
@@ -1304,7 +1304,7 @@ defmodule Events.Core.Query do
   """
   @spec at_least(Token.t(), atom(), term(), keyword()) :: Token.t()
   def at_least(token, field, value, opts \\ []) do
-    Scopes.at_least(token, field, value, opts, __MODULE__)
+    filter(token, field, :gte, value, opts)
   end
 
   @doc """
@@ -1323,60 +1323,75 @@ defmodule Events.Core.Query do
   """
   @spec at_most(Token.t(), atom(), term(), keyword()) :: Token.t()
   def at_most(token, field, value, opts \\ []) do
-    Scopes.at_most(token, field, value, opts, __MODULE__)
+    filter(token, field, :lte, value, opts)
   end
 
   ## String Operations
   ##
   ## Convenient wrappers for common string matching patterns.
+  ## Generated using metaprogramming for consistency.
 
-  @doc """
-  Filter where string field starts with a given prefix.
-  """
-  @spec starts_with(Token.t(), atom(), String.t(), keyword()) :: Token.t()
-  def starts_with(token, field, value, opts \\ []) when is_binary(value) do
-    Scopes.starts_with(token, field, value, opts, __MODULE__)
+  # String pattern function definitions: {name, pattern_type, op, negated_op, value_name, doc_example}
+  @string_pattern_ops [
+    {:starts_with, :prefix, :like, :not_like, "prefix",
+     {"name", "John", "WHERE name LIKE 'John%'"}},
+    {:ends_with, :suffix, :like, :not_like, "suffix",
+     {"email", "@example.com", "WHERE email LIKE '%@example.com'"}},
+    {:contains_string, :contains, :like, :not_like, "substring",
+     {"description", "important", "WHERE description LIKE '%important%'"}}
+  ]
+
+  for {name, pattern_type, op, negated_op, value_name, {field_ex, value_ex, sql_ex}} <-
+        @string_pattern_ops do
+    negated_name = :"not_#{name}"
+
+    @doc """
+    Filter where string field #{String.replace(to_string(name), "_", " ")}s a given #{value_name}.
+
+    ## Examples
+
+        Query.#{name}(token, :#{field_ex}, "#{value_ex}")
+        Query.#{name}(token, :#{field_ex}, "test", case_insensitive: true)
+
+    ## SQL Equivalent
+
+        #{sql_ex}
+    """
+    @spec unquote(name)(Token.t(), atom(), String.t(), keyword()) :: Token.t()
+    def unquote(name)(token, field, value, opts \\ []) when is_binary(value) do
+      pattern = string_pattern(value, unquote(pattern_type))
+      string_filter(token, field, pattern, unquote(op), opts)
+    end
+
+    @doc """
+    Filter where string field does NOT #{String.replace(to_string(name), "_", " ")} a given #{value_name}.
+
+    ## Examples
+
+        Query.#{negated_name}(token, :#{field_ex}, "#{value_ex}")
+
+    ## SQL Equivalent
+
+        #{String.replace(sql_ex, "LIKE", "NOT LIKE")}
+    """
+    @spec unquote(negated_name)(Token.t(), atom(), String.t(), keyword()) :: Token.t()
+    def unquote(negated_name)(token, field, value, opts \\ []) when is_binary(value) do
+      pattern = string_pattern(value, unquote(pattern_type))
+      string_filter(token, field, pattern, unquote(negated_op), opts)
+    end
   end
 
-  @doc """
-  Filter where string field does NOT start with a given prefix.
-  """
-  @spec not_starts_with(Token.t(), atom(), String.t(), keyword()) :: Token.t()
-  def not_starts_with(token, field, value, opts \\ []) when is_binary(value) do
-    Scopes.not_starts_with(token, field, value, opts, __MODULE__)
+  defp string_pattern(value, :prefix), do: value <> "%"
+  defp string_pattern(value, :suffix), do: "%" <> value
+  defp string_pattern(value, :contains), do: "%" <> value <> "%"
+
+  defp string_filter(token, field, pattern, base_op, opts) do
+    op = if opts[:case_insensitive], do: case_insensitive_op(base_op), else: base_op
+    filter(token, field, op, pattern, Keyword.delete(opts, :case_insensitive))
   end
 
-  @doc """
-  Filter where string field ends with a given suffix.
-  """
-  @spec ends_with(Token.t(), atom(), String.t(), keyword()) :: Token.t()
-  def ends_with(token, field, value, opts \\ []) when is_binary(value) do
-    Scopes.ends_with(token, field, value, opts, __MODULE__)
-  end
-
-  @doc """
-  Filter where string field does NOT end with a given suffix.
-  """
-  @spec not_ends_with(Token.t(), atom(), String.t(), keyword()) :: Token.t()
-  def not_ends_with(token, field, value, opts \\ []) when is_binary(value) do
-    Scopes.not_ends_with(token, field, value, opts, __MODULE__)
-  end
-
-  @doc """
-  Filter where string field contains a given substring.
-  """
-  @spec contains_string(Token.t(), atom(), String.t(), keyword()) :: Token.t()
-  def contains_string(token, field, value, opts \\ []) when is_binary(value) do
-    Scopes.contains_string(token, field, value, opts, __MODULE__)
-  end
-
-  @doc """
-  Filter where string field does NOT contain a given substring.
-  """
-  @spec not_contains_string(Token.t(), atom(), String.t(), keyword()) :: Token.t()
-  def not_contains_string(token, field, value, opts \\ []) when is_binary(value) do
-    Scopes.not_contains_string(token, field, value, opts, __MODULE__)
-  end
+  defp case_insensitive_op(:like), do: :ilike
+  defp case_insensitive_op(:not_like), do: :not_ilike
 
   ## Null/Blank Helpers
   ##
@@ -1398,7 +1413,7 @@ defmodule Events.Core.Query do
   """
   @spec where_nil(Token.t(), atom(), keyword()) :: Token.t()
   def where_nil(token, field, opts \\ []) do
-    Scopes.where_nil(token, field, opts, __MODULE__)
+    filter(token, field, :is_nil, true, opts)
   end
 
   @doc """
@@ -1417,7 +1432,7 @@ defmodule Events.Core.Query do
   """
   @spec where_not_nil(Token.t(), atom(), keyword()) :: Token.t()
   def where_not_nil(token, field, opts \\ []) do
-    Scopes.where_not_nil(token, field, opts, __MODULE__)
+    filter(token, field, :not_nil, true, opts)
   end
 
   @doc """
@@ -1436,7 +1451,14 @@ defmodule Events.Core.Query do
   """
   @spec where_blank(Token.t(), atom(), keyword()) :: Token.t()
   def where_blank(token, field, opts \\ []) do
-    Scopes.where_blank(token, field, opts, __MODULE__)
+    # Use OR group: IS NULL OR equals empty string
+    binding = opts[:binding]
+    base_opts = if binding, do: [binding: binding], else: []
+
+    where_any(token, [
+      {field, :is_nil, true, base_opts},
+      {field, :eq, "", base_opts}
+    ])
   end
 
   @doc """
@@ -1455,7 +1477,10 @@ defmodule Events.Core.Query do
   """
   @spec where_present(Token.t(), atom(), keyword()) :: Token.t()
   def where_present(token, field, opts \\ []) do
-    Scopes.where_present(token, field, opts, __MODULE__)
+    # Use AND: NOT NULL AND not empty
+    token
+    |> filter(field, :not_nil, true, opts)
+    |> filter(field, :neq, "", opts)
   end
 
   @doc """
@@ -1478,7 +1503,7 @@ defmodule Events.Core.Query do
   """
   @spec updated_since(Token.t(), DateTime.t() | NaiveDateTime.t(), atom()) :: Token.t()
   def updated_since(token, since, field \\ :updated_at) do
-    Scopes.updated_since(token, since, field, __MODULE__)
+    filter(token, field, :gt, since)
   end
 
   @doc """
@@ -1498,7 +1523,10 @@ defmodule Events.Core.Query do
   """
   @spec created_today(Token.t(), atom()) :: Token.t()
   def created_today(token, field \\ :inserted_at) do
-    Scopes.created_today(token, field, __MODULE__)
+    today = Date.utc_today()
+    start_time = DateTime.new!(today, ~T[00:00:00], "Etc/UTC")
+    end_time = DateTime.new!(today, ~T[23:59:59.999999], "Etc/UTC")
+    created_between(token, start_time, end_time, field)
   end
 
   @doc """
@@ -1518,7 +1546,8 @@ defmodule Events.Core.Query do
   """
   @spec updated_recently(Token.t(), pos_integer(), atom()) :: Token.t()
   def updated_recently(token, hours, field \\ :updated_at) when is_integer(hours) and hours > 0 do
-    Scopes.updated_recently(token, hours, field, __MODULE__)
+    since = DateTime.add(DateTime.utc_now(), -hours * 3600, :second)
+    updated_since(token, since, field)
   end
 
   @doc """
@@ -1538,8 +1567,14 @@ defmodule Events.Core.Query do
       Query.with_status(token, "published", :state)
   """
   @spec with_status(Token.t(), String.t() | [String.t()], atom()) :: Token.t()
-  def with_status(token, statuses, field \\ :status) do
-    Scopes.with_status(token, statuses, field, __MODULE__)
+  def with_status(token, statuses, field \\ :status)
+
+  def with_status(token, statuses, field) when is_list(statuses) do
+    filter(token, field, :in, statuses)
+  end
+
+  def with_status(token, status, field) when is_binary(status) or is_atom(status) do
+    filter(token, field, :eq, status)
   end
 
   ## Scopes
