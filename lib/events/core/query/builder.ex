@@ -24,6 +24,7 @@ defmodule Events.Core.Query.Builder do
   alias Events.Core.Query.Builder.Cursor
   alias Events.Core.Query.Builder.Search
   alias Events.Core.Query.Builder.Joins
+  alias Events.Core.Query.Builder.Selects
 
   @doc """
   Build an Ecto query from a token (safe variant).
@@ -89,13 +90,13 @@ defmodule Events.Core.Query.Builder do
   defp apply_operation({:paginate, spec}, query), do: Pagination.apply(query, spec)
   defp apply_operation({:order, spec}, query), do: apply_order(query, spec)
   defp apply_operation({:join, spec}, query), do: Joins.apply(query, spec)
-  defp apply_operation({:preload, spec}, query), do: apply_preload(query, spec)
-  defp apply_operation({:select, spec}, query), do: apply_select(query, spec)
-  defp apply_operation({:group_by, spec}, query), do: apply_group_by(query, spec)
-  defp apply_operation({:having, spec}, query), do: apply_having(query, spec)
+  defp apply_operation({:preload, spec}, query), do: Selects.apply_preload(query, spec)
+  defp apply_operation({:select, spec}, query), do: Selects.apply_select(query, spec)
+  defp apply_operation({:group_by, spec}, query), do: Selects.apply_group_by(query, spec)
+  defp apply_operation({:having, spec}, query), do: Selects.apply_having(query, spec)
   defp apply_operation({:limit, value}, query), do: from(q in query, limit: ^value)
   defp apply_operation({:offset, value}, query), do: from(q in query, offset: ^value)
-  defp apply_operation({:distinct, spec}, query), do: apply_distinct(query, spec)
+  defp apply_operation({:distinct, spec}, query), do: Selects.apply_distinct(query, spec)
   defp apply_operation({:lock, mode}, query), do: apply_lock(query, mode)
   defp apply_operation({:cte, spec}, query), do: apply_cte(query, spec)
   defp apply_operation({:window, spec}, query), do: apply_window(query, spec)
@@ -121,141 +122,6 @@ defmodule Events.Core.Query.Builder do
   defp apply_order(query, {field, direction, opts}) do
     binding = opts[:binding] || :root
     from([{^binding, q}] in query, order_by: [{^direction, field(q, ^field)}])
-  end
-
-  ## Preload
-
-  defp apply_preload(query, associations) when is_atom(associations) do
-    from(q in query, preload: ^associations)
-  end
-
-  defp apply_preload(query, associations) when is_list(associations) do
-    # Process nested preloads
-    processed = process_preload_list(associations)
-    from(q in query, preload: ^processed)
-  end
-
-  defp apply_preload(query, {association, %Token{} = nested_token}) do
-    # Nested preload with filters
-    nested_query = build(nested_token)
-    from(q in query, preload: [{^association, ^nested_query}])
-  end
-
-  defp process_preload_list(associations) do
-    Enum.map(associations, fn
-      {assoc, %Token{} = token} ->
-        {assoc, build(token)}
-
-      assoc when is_atom(assoc) ->
-        assoc
-
-      other ->
-        other
-    end)
-  end
-
-  ## Select
-
-  defp apply_select(query, fields) when is_list(fields) do
-    from(q in query, select: map(q, ^fields))
-  end
-
-  defp apply_select(query, field_map) when is_map(field_map) do
-    # Build select expression from map
-    select_expr =
-      Enum.reduce(field_map, %{}, fn
-        # Simple field reference from base table
-        {key, field}, acc when is_atom(field) ->
-          Map.put(acc, key, dynamic([q], field(q, ^field)))
-
-        # Field from joined table: {:binding, :field}
-        {key, {binding, field}}, acc when is_atom(binding) and is_atom(field) ->
-          Map.put(acc, key, dynamic([{^binding, b}], field(b, ^field)))
-
-        # Window function syntax - provide helpful error
-        {key, {:window, _func, opts}}, _acc when is_list(opts) ->
-          raise ArgumentError, """
-          Window functions in select require compile-time Ecto macros.
-
-          For dynamic window functions, use one of these approaches:
-
-          1. Build the query directly with Ecto.Query:
-
-             from(p in Product,
-               windows: [w: [partition_by: :category_id, order_by: [desc: :price]]],
-               select: %{name: p.name, rank: over(row_number(), :w)}
-             )
-
-          2. Use fragment in select for raw SQL:
-
-             Query.select(token, %{
-               name: :name,
-               rank: fragment("ROW_NUMBER() OVER (PARTITION BY category_id ORDER BY price DESC)")
-             })
-
-          Key: #{inspect(key)}
-          """
-
-        # Fragment pass-through (for raw SQL window functions)
-        {key, %Ecto.Query.DynamicExpr{} = dynamic_expr}, acc ->
-          Map.put(acc, key, dynamic_expr)
-
-        # Pass through other values (literals, etc.)
-        {key, value}, acc ->
-          Map.put(acc, key, value)
-      end)
-
-    from(q in query, select: ^select_expr)
-  end
-
-  ## Group By
-
-  defp apply_group_by(query, field) when is_atom(field) do
-    from(q in query, group_by: field(q, ^field))
-  end
-
-  defp apply_group_by(query, fields) when is_list(fields) do
-    from(q in query, group_by: ^fields)
-  end
-
-  ## Having
-
-  defp apply_having(query, conditions) do
-    Enum.reduce(conditions, query, fn {aggregate, {op, value}}, q ->
-      apply_having_condition(q, aggregate, op, value)
-    end)
-  end
-
-  defp apply_having_condition(query, :count, :gt, value) do
-    from(q in query, having: fragment("count(*) > ?", ^value))
-  end
-
-  defp apply_having_condition(query, :count, :gte, value) do
-    from(q in query, having: fragment("count(*) >= ?", ^value))
-  end
-
-  defp apply_having_condition(query, :count, :lt, value) do
-    from(q in query, having: fragment("count(*) < ?", ^value))
-  end
-
-  defp apply_having_condition(query, :count, :lte, value) do
-    from(q in query, having: fragment("count(*) <= ?", ^value))
-  end
-
-  defp apply_having_condition(query, :count, :eq, value) do
-    from(q in query, having: fragment("count(*) = ?", ^value))
-  end
-
-  defp apply_having_condition(query, _aggregate, _op, _value), do: query
-
-  ## Distinct
-
-  defp apply_distinct(query, true) do
-    from(q in query, distinct: true)
-  end
-
-  defp apply_distinct(query, fields) when is_list(fields) do
-    from(q in query, distinct: ^fields)
   end
 
   ## Lock
