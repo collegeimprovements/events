@@ -193,7 +193,7 @@ defmodule Events.Core.Query do
   """
 
   alias Events.Core.Query.{Token, Builder, Executor, Result, Queryable, Cast, Predicates, Search}
-  alias Events.Core.Query.Api.{Shortcuts, Scopes}
+  alias Events.Core.Query.Api.{Shortcuts, Scopes, Pagination}
 
   # Configurable defaults - can be overridden via application config
   # config :events, Events.Core.Query, default_repo: MyApp.Repo
@@ -1791,7 +1791,7 @@ defmodule Events.Core.Query do
   def paginate(source, type, opts \\ []) do
     source
     |> ensure_token()
-    |> Token.add_operation({:paginate, {type, opts}})
+    |> Pagination.paginate(type, opts)
   end
 
   @doc """
@@ -2373,7 +2373,7 @@ defmodule Events.Core.Query do
   def limit(source, value) do
     source
     |> ensure_token()
-    |> Token.add_operation({:limit, value})
+    |> Pagination.limit(value)
   end
 
   @doc "Add an offset"
@@ -2381,7 +2381,7 @@ defmodule Events.Core.Query do
   def offset(source, value) do
     source
     |> ensure_token()
-    |> Token.add_operation({:offset, value})
+    |> Pagination.offset(value)
   end
 
   @doc "Add distinct"
