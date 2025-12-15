@@ -394,7 +394,7 @@ Settlement.split(result)    # {successes, failures} tuple
 
 ## Related Modules
 
-- `Events.Types.Debouncer` - Debounce rapid calls (wait for quiet)
-- `Events.Types.Throttler` - Throttle to max rate
-- `Events.Types.RateLimiter` - Token bucket rate limiting
+- `FnTypes.Debouncer` - Debounce rapid calls (wait for quiet)
+- `FnTypes.Throttler` - Throttle to max rate
+- `FnTypes.RateLimiter` - Token bucket rate limiting
 - `Events.Api.Client.Middleware.CircuitBreaker` - Circuit breaker pattern

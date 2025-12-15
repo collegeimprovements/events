@@ -1,4 +1,4 @@
-# Events.Types.Diff
+# FnTypes.Diff
 
 Functional diff and patch operations for nested data structures.
 
@@ -15,7 +15,7 @@ Functional diff and patch operations for nested data structures.
 ## Quick Start
 
 ```elixir
-alias Events.Types.Diff
+alias FnTypes.Diff
 
 old = %{name: "Alice", age: 30, tags: ["a", "b"]}
 new = %{name: "Alice", age: 31, tags: ["a", "c"]}
@@ -230,7 +230,7 @@ Diff.reject(diff, [:c])
 
 ```elixir
 defmodule AuditLog do
-  alias Events.Types.Diff
+  alias FnTypes.Diff
 
   def log_change(entity_type, entity_id, old_data, new_data, actor_id) do
     diff = Diff.diff(old_data, new_data)
@@ -288,7 +288,7 @@ AuditLog.log_change(:user, "user_123", old_user, new_user, "admin_456")
 
 ```elixir
 defmodule UndoStack do
-  alias Events.Types.Diff
+  alias FnTypes.Diff
 
   defstruct current: nil, undo_stack: [], redo_stack: []
 
@@ -362,7 +362,7 @@ stack.current  #=> %{text: "Hello World"}
 
 ```elixir
 defmodule DocumentEditor do
-  alias Events.Types.Diff
+  alias FnTypes.Diff
 
   def merge_edits(base_doc, user_edits) when is_list(user_edits) do
     Enum.reduce(user_edits, {:ok, base_doc, []}, fn
@@ -425,7 +425,7 @@ end
 
 ```elixir
 defmodule ConfigDrift do
-  alias Events.Types.Diff
+  alias FnTypes.Diff
 
   def detect_drift(expected_config, actual_config) do
     diff = Diff.diff(expected_config, actual_config)
@@ -529,7 +529,7 @@ ConfigDrift.detect_drift(expected, actual)
 
 ## Comparison with map_diff
 
-| Feature | map_diff | Events.Types.Diff |
+| Feature | map_diff | FnTypes.Diff |
 |---------|----------|-------------------|
 | Basic map diffing | ✅ | ✅ |
 | Nested map diffing | ✅ | ✅ |

@@ -1,4 +1,4 @@
-# Events.Types.RateLimiter
+# FnTypes.RateLimiter
 
 Functional rate limiting with multiple algorithms.
 
@@ -7,7 +7,7 @@ Functional rate limiting with multiple algorithms.
 `RateLimiter` provides pure, functional rate limiting that can be used with any state storage backend. Each algorithm returns a new state and a decision, making it easy to integrate with GenServers, ETS, Redis, or any other storage mechanism.
 
 ```elixir
-alias Events.Types.RateLimiter
+alias FnTypes.RateLimiter
 
 # Create a token bucket limiter
 state = RateLimiter.token_bucket(capacity: 10, refill_rate: 1)
@@ -273,7 +273,7 @@ end
 ```elixir
 defmodule MyApp.RateLimiter do
   use GenServer
-  alias Events.Types.RateLimiter
+  alias FnTypes.RateLimiter
 
   def start_link(opts) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -321,7 +321,7 @@ end
 
 ```elixir
 defmodule MyApp.UserRateLimiter do
-  alias Events.Types.RateLimiter
+  alias FnTypes.RateLimiter
 
   @table :user_rate_limiters
 
@@ -359,7 +359,7 @@ end
 ```elixir
 defmodule MyAppWeb.RateLimitPlug do
   import Plug.Conn
-  alias Events.Types.RateLimiter
+  alias FnTypes.RateLimiter
 
   def init(opts), do: opts
 
@@ -396,7 +396,7 @@ plug MyAppWeb.RateLimitPlug, by: :ip
 
 ```elixir
 defmodule MyApp.APIRateLimiter do
-  alias Events.Types.RateLimiter
+  alias FnTypes.RateLimiter
 
   def limiter_for_tier(tier) do
     case tier do
@@ -430,7 +430,7 @@ end
 
 ```elixir
 defmodule MyApp.RateLimitedClient do
-  alias Events.Types.RateLimiter
+  alias FnTypes.RateLimiter
 
   def call_with_retry(state, fun, opts \\ []) do
     max_retries = Keyword.get(opts, :max_retries, 3)

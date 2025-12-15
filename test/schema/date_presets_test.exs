@@ -15,8 +15,8 @@ defmodule Events.Core.Schema.DatePresetsTest do
 
     def changeset(event, attrs) do
       event
-      |> Ecto.Changeset.cast(attrs, __cast_fields__())
-      |> __apply_field_validations__()
+      |> Ecto.Changeset.cast(attrs, cast_fields())
+      |> apply_validations()
     end
   end
 

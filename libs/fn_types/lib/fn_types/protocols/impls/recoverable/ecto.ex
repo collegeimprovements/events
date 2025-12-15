@@ -1,7 +1,7 @@
 # Implementations for Ecto-related errors
 
 # Ecto.StaleEntryError - Optimistic locking failure
-if Code.ensure_loaded?(Ecto.StaleEntryError) do
+if match?({:module, _}, Code.ensure_compiled(Ecto.StaleEntryError)) do
   defimpl FnTypes.Protocols.Recoverable, for: Ecto.StaleEntryError do
     @moduledoc """
     Recoverable implementation for Ecto stale entry errors.
@@ -35,7 +35,7 @@ if Code.ensure_loaded?(Ecto.StaleEntryError) do
 end
 
 # Ecto.NoResultsError - Record not found
-if Code.ensure_loaded?(Ecto.NoResultsError) do
+if match?({:module, _}, Code.ensure_compiled(Ecto.NoResultsError)) do
   defimpl FnTypes.Protocols.Recoverable, for: Ecto.NoResultsError do
     @moduledoc """
     Recoverable implementation for Ecto no results errors.
@@ -68,7 +68,7 @@ if Code.ensure_loaded?(Ecto.NoResultsError) do
 end
 
 # Ecto.MultipleResultsError - More than one record found
-if Code.ensure_loaded?(Ecto.MultipleResultsError) do
+if match?({:module, _}, Code.ensure_compiled(Ecto.MultipleResultsError)) do
   defimpl FnTypes.Protocols.Recoverable, for: Ecto.MultipleResultsError do
     @moduledoc """
     Recoverable implementation for Ecto multiple results errors.
@@ -100,7 +100,7 @@ if Code.ensure_loaded?(Ecto.MultipleResultsError) do
 end
 
 # Ecto.ConstraintError - Database constraint violation
-if Code.ensure_loaded?(Ecto.ConstraintError) do
+if match?({:module, _}, Code.ensure_compiled(Ecto.ConstraintError)) do
   defimpl FnTypes.Protocols.Recoverable, for: Ecto.ConstraintError do
     @moduledoc """
     Recoverable implementation for Ecto constraint errors.
@@ -133,7 +133,7 @@ if Code.ensure_loaded?(Ecto.ConstraintError) do
 end
 
 # Ecto.InvalidChangesetError
-if Code.ensure_loaded?(Ecto.InvalidChangesetError) do
+if match?({:module, _}, Code.ensure_compiled(Ecto.InvalidChangesetError)) do
   defimpl FnTypes.Protocols.Recoverable, for: Ecto.InvalidChangesetError do
     @moduledoc """
     Recoverable implementation for invalid changeset errors.
@@ -165,7 +165,7 @@ if Code.ensure_loaded?(Ecto.InvalidChangesetError) do
 end
 
 # Ecto.Query.CastError
-if Code.ensure_loaded?(Ecto.Query.CastError) do
+if match?({:module, _}, Code.ensure_compiled(Ecto.Query.CastError)) do
   defimpl FnTypes.Protocols.Recoverable, for: Ecto.Query.CastError do
     @moduledoc """
     Recoverable implementation for query cast errors.
@@ -197,7 +197,7 @@ if Code.ensure_loaded?(Ecto.Query.CastError) do
 end
 
 # Ecto.QueryError
-if Code.ensure_loaded?(Ecto.QueryError) do
+if match?({:module, _}, Code.ensure_compiled(Ecto.QueryError)) do
   defimpl FnTypes.Protocols.Recoverable, for: Ecto.QueryError do
     @moduledoc """
     Recoverable implementation for query errors.

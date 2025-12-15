@@ -7,9 +7,9 @@ defmodule FnTypes.NonEmptyList do
 
   ## Implemented Behaviours
 
-  - `FnTypes.Behaviours.Functor` - map
-  - `FnTypes.Behaviours.Semigroup` - combine
-  - `FnTypes.Behaviours.Foldable` - fold_left, fold_right
+  - `FnTypes.Behaviours.Mappable` (Functor) - map
+  - `FnTypes.Behaviours.Appendable` (Semigroup) - combine
+  - `FnTypes.Behaviours.Reducible` (Foldable) - fold_left, fold_right
 
   ## Representation
 
@@ -66,9 +66,9 @@ defmodule FnTypes.NonEmptyList do
 
   """
 
-  @behaviour FnTypes.Behaviours.Functor
-  @behaviour FnTypes.Behaviours.Semigroup
-  @behaviour FnTypes.Behaviours.Foldable
+  @behaviour FnTypes.Behaviours.Mappable
+  @behaviour FnTypes.Behaviours.Appendable
+  @behaviour FnTypes.Behaviours.Reducible
 
   alias FnTypes.{Result, Maybe}
 
@@ -391,7 +391,7 @@ defmodule FnTypes.NonEmptyList do
       iex> NonEmptyList.map({1, [2, 3]}, &(&1 * 2))
       {2, [4, 6]}
   """
-  @impl FnTypes.Behaviours.Functor
+  @impl FnTypes.Behaviours.Mappable
   @spec map(t(a), (a -> b)) :: t(b) when a: term(), b: term()
   def map({head, tail}, fun) when is_function(fun, 1) do
     {fun.(head), Enum.map(tail, fun)}
@@ -889,7 +889,7 @@ defmodule FnTypes.NonEmptyList do
       [1, 2, 3]
   """
   @spec to_list(t(a)) :: [a, ...] when a: term()
-  @impl FnTypes.Behaviours.Foldable
+  @impl FnTypes.Behaviours.Reducible
   def to_list({head, tail}), do: [head | tail]
 
   @doc """
@@ -1160,7 +1160,7 @@ defmodule FnTypes.NonEmptyList do
       iex> NonEmptyList.combine({1, [2]}, {3, [4]})
       {1, [2, 3, 4]}
   """
-  @impl FnTypes.Behaviours.Semigroup
+  @impl FnTypes.Behaviours.Appendable
   @spec combine(t(a), t(a)) :: t(a) when a: term()
   def combine(nel1, nel2), do: concat(nel1, nel2)
 
@@ -1172,7 +1172,7 @@ defmodule FnTypes.NonEmptyList do
       iex> NonEmptyList.fold_left({1, [2, 3]}, 0, &+/2)
       6
   """
-  @impl FnTypes.Behaviours.Foldable
+  @impl FnTypes.Behaviours.Reducible
   @spec fold_left(t(a), acc, (a, acc -> acc)) :: acc when a: term(), acc: term()
   def fold_left({head, tail}, acc, fun) when is_function(fun, 2) do
     Enum.reduce([head | tail], acc, fun)
@@ -1186,7 +1186,7 @@ defmodule FnTypes.NonEmptyList do
       iex> NonEmptyList.fold_right({1, [2, 3]}, [], fn x, acc -> [x | acc] end)
       [1, 2, 3]
   """
-  @impl FnTypes.Behaviours.Foldable
+  @impl FnTypes.Behaviours.Reducible
   @spec fold_right(t(a), acc, (a, acc -> acc)) :: acc when a: term(), acc: term()
   def fold_right({head, tail}, acc, fun) when is_function(fun, 2) do
     List.foldr([head | tail], acc, fun)

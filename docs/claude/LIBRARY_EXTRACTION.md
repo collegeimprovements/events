@@ -91,7 +91,7 @@ Events.Infra.Scheduler ─── Events.Core.Schema (Job, Execution)
 - [ ] All internal references use relative aliases
 
 **Extraction would require:**
-- Rename `Events.Types.*` → `Types.*` (or chosen library name)
+- Rename `FnTypes.*` → `Types.*` (or chosen library name)
 - Update mix.exs with standalone deps
 - No code changes needed
 
@@ -180,7 +180,7 @@ Api.Client → Idempotency.Middleware → Api.Client.{Request, Response}
 - Idempotency: `@default_repo` + `@telemetry_prefix` via `compile_env`
 - SystemHealth: `@app_name` via `compile_env` (4 modules)
 - Mailer: `@app_name` via `compile_env`
-- Api.Client: telemetry prefix configurable, uses `Events.Types.Recoverable`
+- Api.Client: telemetry prefix configurable, uses `FnTypes.Recoverable`
 
 **Scheduler (completed in Phase 5):**
 - Config.get() uses `@app_name` via `compile_env`

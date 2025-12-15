@@ -8,10 +8,11 @@ defmodule FnTypes.Maybe do
 
   ## Implemented Behaviours
 
-  - `FnTypes.Behaviours.Monad` - pure, bind, map
-  - `FnTypes.Behaviours.Applicative` - pure, ap, map
-  - `FnTypes.Behaviours.Functor` - map
-  - `FnTypes.Behaviours.Foldable` - fold_left, fold_right
+  - `FnTypes.Behaviours.Chainable` (Monad) - pure, bind, map
+  - `FnTypes.Behaviours.Combinable` (Applicative) - pure, ap, map
+  - `FnTypes.Behaviours.Mappable` (Functor) - map
+  - `FnTypes.Behaviours.Reducible` (Foldable) - fold_left, fold_right
+  - `FnTypes.Behaviours.Traversable` - traverse, sequence
 
   ## When to Use Maybe vs Result
 
@@ -58,10 +59,11 @@ defmodule FnTypes.Maybe do
       #=> {:some, value}
   """
 
-  @behaviour FnTypes.Behaviours.Monad
-  @behaviour FnTypes.Behaviours.Applicative
-  @behaviour FnTypes.Behaviours.Functor
-  @behaviour FnTypes.Behaviours.Foldable
+  @behaviour FnTypes.Behaviours.Chainable
+  @behaviour FnTypes.Behaviours.Combinable
+  @behaviour FnTypes.Behaviours.Mappable
+  @behaviour FnTypes.Behaviours.Reducible
+  @behaviour FnTypes.Behaviours.Traversable
 
   import Kernel, except: [apply: 2, apply: 3]
 
@@ -255,7 +257,7 @@ defmodule FnTypes.Maybe do
       :none
   """
   @spec map(t(a), (a -> b)) :: t(b) when a: term(), b: term()
-  @impl FnTypes.Behaviours.Functor
+  @impl FnTypes.Behaviours.Mappable
   def map({:some, value}, fun) when is_function(fun, 1), do: {:some, fun.(value)}
   def map(:none, _fun), do: :none
 
@@ -415,7 +417,7 @@ defmodule FnTypes.Maybe do
       0
   """
   @spec unwrap_or(t(a), a) :: a when a: term()
-  @impl FnTypes.Behaviours.Monad
+  @impl FnTypes.Behaviours.Chainable
   def unwrap_or({:some, value}, _default), do: value
   def unwrap_or(:none, default), do: default
 
@@ -496,7 +498,7 @@ defmodule FnTypes.Maybe do
       []
   """
   @spec to_list(t(value)) :: [value] when value: term()
-  @impl FnTypes.Behaviours.Foldable
+  @impl FnTypes.Behaviours.Reducible
   def to_list({:some, value}), do: [value]
   def to_list(:none), do: []
 
@@ -531,6 +533,23 @@ defmodule FnTypes.Maybe do
       :none -> :none
     end
   end
+
+  @doc """
+  Sequences a list of maybes into a maybe of list.
+
+  Alias for `collect/1`. Provided for Traversable behaviour compliance.
+
+  ## Examples
+
+      iex> Maybe.sequence([{:some, 1}, {:some, 2}, {:some, 3}])
+      {:some, [1, 2, 3]}
+
+      iex> Maybe.sequence([{:some, 1}, :none, {:some, 3}])
+      :none
+  """
+  @impl FnTypes.Behaviours.Traversable
+  @spec sequence([t(a)]) :: t([a]) when a: term()
+  def sequence(maybes), do: collect(maybes)
 
   @doc """
   Filters a list keeping only some values, unwrapped.
@@ -570,6 +589,7 @@ defmodule FnTypes.Maybe do
       ...> end)
       :none
   """
+  @impl FnTypes.Behaviours.Traversable
   @spec traverse([a], (a -> t(b))) :: t([b]) when a: term(), b: term()
   def traverse(list, fun) when is_list(list) and is_function(fun, 1) do
     list
@@ -1058,7 +1078,7 @@ defmodule FnTypes.Maybe do
       iex> Maybe.pure(42)
       {:some, 42}
   """
-  @impl FnTypes.Behaviours.Applicative
+  @impl FnTypes.Behaviours.Combinable
   @spec pure(value) :: some(value) when value: term()
   def pure(value), do: some(value)
 
@@ -1072,7 +1092,7 @@ defmodule FnTypes.Maybe do
       iex> Maybe.bind({:some, 5}, fn x -> {:some, x * 2} end)
       {:some, 10}
   """
-  @impl FnTypes.Behaviours.Monad
+  @impl FnTypes.Behaviours.Chainable
   @spec bind(t(a), (a -> t(b))) :: t(b) when a: term(), b: term()
   def bind(maybe, fun), do: and_then(maybe, fun)
 
@@ -1086,7 +1106,7 @@ defmodule FnTypes.Maybe do
       iex> Maybe.ap({:some, fn x -> x * 2 end}, {:some, 5})
       {:some, 10}
   """
-  @impl FnTypes.Behaviours.Applicative
+  @impl FnTypes.Behaviours.Combinable
   @spec ap(t((a -> b)), t(a)) :: t(b) when a: term(), b: term()
   def ap(maybe_fun, maybe_val), do: apply(maybe_fun, maybe_val)
 
@@ -1104,7 +1124,7 @@ defmodule FnTypes.Maybe do
       iex> Maybe.fold_left(:none, 10, &+/2)
       10
   """
-  @impl FnTypes.Behaviours.Foldable
+  @impl FnTypes.Behaviours.Reducible
   @spec fold_left(t(a), acc, (a, acc -> acc)) :: acc when a: term(), acc: term()
   def fold_left({:some, value}, acc, fun) when is_function(fun, 2), do: fun.(value, acc)
   def fold_left(:none, acc, _fun), do: acc
@@ -1119,7 +1139,7 @@ defmodule FnTypes.Maybe do
       iex> Maybe.fold_right({:some, 5}, 10, &+/2)
       15
   """
-  @impl FnTypes.Behaviours.Foldable
+  @impl FnTypes.Behaviours.Reducible
   @spec fold_right(t(a), acc, (a, acc -> acc)) :: acc when a: term(), acc: term()
   def fold_right({:some, value}, acc, fun) when is_function(fun, 2), do: fun.(value, acc)
   def fold_right(:none, acc, _fun), do: acc

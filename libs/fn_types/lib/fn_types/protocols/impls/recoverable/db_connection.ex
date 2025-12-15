@@ -1,7 +1,7 @@
 # Implementation for DBConnection errors
 # These are connection pool and database connection errors
 
-if Code.ensure_loaded?(DBConnection.ConnectionError) do
+if match?({:module, _}, Code.ensure_compiled(DBConnection.ConnectionError)) do
   defimpl FnTypes.Protocols.Recoverable, for: DBConnection.ConnectionError do
     @moduledoc """
     Recoverable implementation for DBConnection errors.

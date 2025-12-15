@@ -7,20 +7,20 @@
 
 | Module | Purpose | Returns |
 |--------|---------|---------|
-| `Events.Types.Result` | Error handling | `{:ok, value} \| {:error, reason}` |
-| `Events.Types.Maybe` | Optional values | `{:some, value} \| :none` |
-| `Events.Types.Pipeline` | Multi-step workflows | `{:ok, context} \| {:error, reason}` |
-| `Events.Types.AsyncResult` | Concurrent operations | `{:ok, value} \| {:error, reason}` |
-| `Events.Types.Guards` | Pattern matching | Guards + macros |
+| `FnTypes.Result` | Error handling | `{:ok, value} \| {:error, reason}` |
+| `FnTypes.Maybe` | Optional values | `{:some, value} \| :none` |
+| `FnTypes.Pipeline` | Multi-step workflows | `{:ok, context} \| {:error, reason}` |
+| `FnTypes.AsyncResult` | Concurrent operations | `{:ok, value} \| {:error, reason}` |
+| `FnTypes.Guards` | Pattern matching | Guards + macros |
 
 ---
 
-## Events.Types.Result
+## FnTypes.Result
 
 **Use for:** Database operations, API calls, any function that can fail.
 
 ```elixir
-alias Events.Types.Result
+alias FnTypes.Result
 
 # Chain operations
 {:ok, user}
@@ -47,12 +47,12 @@ Result.try_with(fn -> risky_operation() end)
 
 ---
 
-## Events.Types.Maybe
+## FnTypes.Maybe
 
 **Use for:** Optional config values, nullable fields, safe nested access.
 
 ```elixir
-alias Events.Types.Maybe
+alias FnTypes.Maybe
 
 # From nilable value
 Maybe.from_nilable(nil)    # :none
@@ -79,12 +79,12 @@ user
 
 ---
 
-## Events.Types.Pipeline
+## FnTypes.Pipeline
 
 **Use for:** User registration, order processing, data import, multi-step workflows.
 
 ```elixir
-alias Events.Types.Pipeline
+alias FnTypes.Pipeline
 
 # Basic pipeline
 Pipeline.new(%{user_id: 123})
@@ -136,14 +136,14 @@ end)
 
 ---
 
-## Events.Types.AsyncResult
+## FnTypes.AsyncResult
 
 **Use for:** Parallel API calls, concurrent queries, race conditions, retry with backoff.
 
 > **Full reference:** See `ASYNC_RESULT.md` for comprehensive documentation.
 
 ```elixir
-alias Events.Types.AsyncResult
+alias FnTypes.AsyncResult
 
 # Parallel execution (fail-fast)
 AsyncResult.parallel([
@@ -215,7 +215,7 @@ AsyncResult.retry(fn -> flaky_api() end,
 
 ---
 
-## Events.Types.Guards
+## FnTypes.Guards
 
 **Use for:** Pattern matching in function heads, cleaner case statements.
 

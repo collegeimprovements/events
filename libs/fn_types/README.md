@@ -32,6 +32,12 @@ Result.error(:not_found)         # {:error, :not_found}
 |> Result.map(&(&1 * 2))         # {:ok, 10}
 |> Result.and_then(&validate/1)  # Chain fallible operations
 
+# BiMappable - transform both sides with keyword API
+Result.bimap(result,
+  on_ok: &format_response/1,
+  on_error: &normalize_error/1
+)
+
 # Pattern matching helpers
 Result.ok?({:ok, _})             # true
 Result.error?({:error, _})       # true
@@ -101,16 +107,30 @@ V.type(:string)           # Type check (:string, :integer, :boolean)
 
 ### Ior (Inclusive Or)
 
-A type that can hold a left value, right value, or both.
+A type that can hold a success, failure, or partial success (with warnings).
 
 ```elixir
 alias FnTypes.Ior
 
-Ior.left(:error)           # {:left, :error}
-Ior.right(:success)        # {:right, :success}
-Ior.both(:warning, :value) # {:both, :warning, :value}
+# Expressive constructors
+Ior.success(value)           # {:success, value} - Pure success
+Ior.failure(:error)          # {:failure, [:error]} - Failure
+Ior.partial(:warning, value) # {:partial, [:warning], value} - Success with warnings
 
-# Useful for accumulating warnings while still producing a result
+# Pattern matching is clear
+case parse_config(input) do
+  {:success, config} -> apply_config(config)
+  {:partial, warnings, config} ->
+    Logger.warn("Warnings: #{inspect(warnings)}")
+    apply_config(config)
+  {:failure, errors} -> {:error, errors}
+end
+
+# BiMappable - transform both sides with keyword API
+Ior.bimap(outcome,
+  on_success: &format_value/1,
+  on_failure: &format_warning/1
+)
 ```
 
 ### NonEmptyList
@@ -285,13 +305,16 @@ FnTypes.Protocols.Identifiable.identity(user)
 
 ## Behaviours
 
-FnTypes includes standard functional programming behaviours:
+FnTypes includes standard functional programming behaviours with Elixir-idiomatic names:
 
-- `FnTypes.Behaviours.Monad` - `pure/1`, `bind/2`, `map/2`
-- `FnTypes.Behaviours.Applicative` - `pure/1`, `ap/2`, `map/2`, `map2/3`
-- `FnTypes.Behaviours.Functor` - `map/2`
-- `FnTypes.Behaviours.Foldable` - `fold_left/3`, `fold_right/3`, `to_list/1`
-- `FnTypes.Behaviours.Semigroup` - `combine/2`
+- `FnTypes.Behaviours.Mappable` (Functor) - `map/2`
+- `FnTypes.Behaviours.Chainable` (Monad) - `pure/1`, `bind/2`
+- `FnTypes.Behaviours.Combinable` (Applicative) - `pure/1`, `ap/2`, `map2/3`
+- `FnTypes.Behaviours.Reducible` (Foldable) - `fold_left/3`, `fold_right/3`, `to_list/1`
+- `FnTypes.Behaviours.Appendable` (Semigroup) - `combine/2`
+- `FnTypes.Behaviours.Defaultable` (Monoid) - `empty/0`, `combine/2`, `concat/1`
+- `FnTypes.Behaviours.Traversable` - `traverse/2`, `sequence/1`
+- `FnTypes.Behaviours.BiMappable` (Bifunctor) - `bimap/2`, `map_error/2`
 
 These are implemented by `Result`, `Maybe`, `Validation`, `Ior`, and `NonEmptyList`.
 

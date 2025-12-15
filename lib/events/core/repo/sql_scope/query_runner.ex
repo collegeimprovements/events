@@ -57,25 +57,31 @@ defmodule Events.Core.Repo.SqlScope.QueryRunner do
     log = Keyword.get(opts, :log, false)
     dry_run = Keyword.get(opts, :dry_run, false)
 
-    # Dry run mode: return SQL without executing
-    if dry_run do
-      log_query(sql, params, dry_run: true)
-      {:ok, :dry_run, format_dry_run_output(sql, params)}
-    else
-      if log, do: log_query(sql, params)
+    execute_with_mode(sql, params, dry_run, log, timeout)
+  end
 
-      case Ecto.Adapters.SQL.query(Repo, sql, params, timeout: timeout) do
-        {:ok, result} ->
-          {:ok, result}
+  defp execute_with_mode(sql, params, true = _dry_run, _log, _timeout) do
+    log_query(sql, params, dry_run: true)
+    {:ok, :dry_run, format_dry_run_output(sql, params)}
+  end
 
-        {:error, %Postgrex.Error{postgres: %{code: code} = pg_error}} ->
-          {:error, translate_postgres_error(code, pg_error, sql, params)}
+  defp execute_with_mode(sql, params, false = _dry_run, log, timeout) do
+    maybe_log_query(sql, params, log)
 
-        {:error, error} ->
-          {:error, translate_generic_error(error, sql, params)}
-      end
+    case Ecto.Adapters.SQL.query(Repo, sql, params, timeout: timeout) do
+      {:ok, result} ->
+        {:ok, result}
+
+      {:error, %Postgrex.Error{postgres: %{code: code} = pg_error}} ->
+        {:error, translate_postgres_error(code, pg_error, sql, params)}
+
+      {:error, error} ->
+        {:error, translate_generic_error(error, sql, params)}
     end
   end
+
+  defp maybe_log_query(sql, params, true), do: log_query(sql, params)
+  defp maybe_log_query(_sql, _params, false), do: :ok
 
   @doc """
   Executes a query and returns the result directly.
@@ -135,22 +141,23 @@ defmodule Events.Core.Repo.SqlScope.QueryRunner do
   """
   @spec execute_outside_migration((-> result)) :: result when result: any()
   def execute_outside_migration(fun) when is_function(fun, 0) do
-    # Check if we're in a migration transaction
-    if in_migration_transaction?() do
-      raise Error,
-        reason: :in_migration_transaction,
-        message: """
-        Cannot execute this operation inside a migration transaction.
-
-        Use one of these approaches:
-          1. In migration file, add: use Ecto.Migration, transaction: false
-          2. Run this operation outside of migrations
-          3. Use execute/1 with raw SQL and handle transaction manually
-        """
-    end
-
-    fun.()
+    check_migration_transaction_and_execute(fun, in_migration_transaction?())
   end
+
+  defp check_migration_transaction_and_execute(_fun, true) do
+    raise Error,
+      reason: :in_migration_transaction,
+      message: """
+      Cannot execute this operation inside a migration transaction.
+
+      Use one of these approaches:
+        1. In migration file, add: use Ecto.Migration, transaction: false
+        2. Run this operation outside of migrations
+        3. Use execute/1 with raw SQL and handle transaction manually
+      """
+  end
+
+  defp check_migration_transaction_and_execute(fun, false), do: fun.()
 
   @doc """
   Returns the PostgreSQL version as an integer.
@@ -199,16 +206,19 @@ defmodule Events.Core.Repo.SqlScope.QueryRunner do
   @spec check_postgres_version!(integer(), String.t() | nil) :: :ok
   def check_postgres_version!(min_version, feature \\ nil) do
     current = postgres_version()
+    validate_postgres_version(current, min_version, feature)
+  end
 
-    if current < min_version do
-      raise Error,
-        reason: :postgres_version_unsupported,
-        version: format_version(current),
-        min_version: format_version(min_version),
-        feature: feature
-    end
-
+  defp validate_postgres_version(current, min_version, _feature) when current >= min_version do
     :ok
+  end
+
+  defp validate_postgres_version(current, min_version, feature) do
+    raise Error,
+      reason: :postgres_version_unsupported,
+      version: format_version(current),
+      min_version: format_version(min_version),
+      feature: feature
   end
 
   @doc """

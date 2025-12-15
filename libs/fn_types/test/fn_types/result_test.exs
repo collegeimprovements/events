@@ -111,13 +111,24 @@ defmodule FnTypes.ResultTest do
     end
   end
 
-  describe "Result.bimap/3" do
-    test "maps ok value with first function" do
-      assert Result.bimap({:ok, 5}, &(&1 * 2), &String.upcase/1) == {:ok, 10}
+  describe "Result.bimap/2" do
+    test "maps ok value with on_ok function" do
+      assert Result.bimap({:ok, 5}, on_ok: &(&1 * 2), on_error: &String.upcase/1) == {:ok, 10}
     end
 
-    test "maps error value with second function" do
-      assert Result.bimap({:error, "bad"}, &(&1 * 2), &String.upcase/1) == {:error, "BAD"}
+    test "maps error value with on_error function" do
+      assert Result.bimap({:error, "bad"}, on_ok: &(&1 * 2), on_error: &String.upcase/1) ==
+               {:error, "BAD"}
+    end
+
+    test "transforms only ok when on_error omitted" do
+      assert Result.bimap({:ok, 5}, on_ok: &(&1 * 2)) == {:ok, 10}
+      assert Result.bimap({:error, "bad"}, on_ok: &(&1 * 2)) == {:error, "bad"}
+    end
+
+    test "transforms only error when on_ok omitted" do
+      assert Result.bimap({:ok, 5}, on_error: &String.upcase/1) == {:ok, 5}
+      assert Result.bimap({:error, "bad"}, on_error: &String.upcase/1) == {:error, "BAD"}
     end
   end
 

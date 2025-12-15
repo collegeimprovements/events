@@ -1,15 +1,17 @@
-defmodule FnTypes.Behaviours.Monad do
+defmodule FnTypes.Behaviours.Chainable do
   @moduledoc """
-  Behaviour defining the Monad interface for functional types.
+  Behaviour defining the Chainable interface for types that support sequential operations.
 
-  A Monad is a type that supports:
-  - `pure/1` (return/unit) - Wrapping a value in the monadic context
-  - `bind/2` (flatMap/and_then) - Chaining operations that return monadic values
-  - `map/2` (fmap) - Applying a function to the wrapped value
+  Also known as **Monad** in functional programming terminology.
 
-  ## Monad Laws
+  A Chainable type supports:
+  - `pure/1` (return/unit) - Wrapping a value in the context
+  - `bind/2` (flatMap/and_then) - Chaining operations that return wrapped values
+  - `map/2` - Applying a function to the wrapped value
 
-  Implementations should satisfy the monad laws:
+  ## Chainable Laws
+
+  Implementations should satisfy:
 
   1. **Left Identity**: `pure(a) |> bind(f) == f.(a)`
   2. **Right Identity**: `m |> bind(&pure/1) == m`
@@ -17,8 +19,8 @@ defmodule FnTypes.Behaviours.Monad do
 
   ## Example Implementation
 
-      defmodule MyMonad do
-        @behaviour FnTypes.Behaviours.Monad
+      defmodule MyChainable do
+        @behaviour FnTypes.Behaviours.Chainable
 
         @impl true
         def pure(value), do: {:ok, value}
@@ -35,16 +37,16 @@ defmodule FnTypes.Behaviours.Monad do
   ## Implementations
 
   The following FnTypes modules implement this behaviour:
-  - `FnTypes.Result` - Result monad for error handling
-  - `FnTypes.Maybe` - Maybe/Option monad for optional values
-  - `FnTypes.Validation` - Validation applicative with error accumulation
+  - `FnTypes.Result` - Result type for error handling
+  - `FnTypes.Maybe` - Maybe/Option type for optional values
+  - `FnTypes.Validation` - Validation with error accumulation
   - `FnTypes.Ior` - Inclusive-Or type with warning accumulation
   """
 
   @doc """
-  Chains a monadic computation (flatMap/and_then).
+  Chains a computation (flatMap/and_then).
 
-  Takes a monadic value and a function that returns a monadic value,
+  Takes a wrapped value and a function that returns a wrapped value,
   applies the function to the unwrapped value if in success state.
 
   ## Examples
@@ -57,14 +59,14 @@ defmodule FnTypes.Behaviours.Monad do
       |> Result.bind(fn x -> {:ok, x * 2} end)
       #=> {:error, :failed}
   """
-  @callback bind(monad :: term(), (term() -> term())) :: term()
+  @callback bind(chainable :: term(), (term() -> term())) :: term()
 
   @doc """
   Optional callback for extracting value with a default.
 
   Returns the wrapped value if in success state, otherwise the default.
   """
-  @callback unwrap_or(monad :: term(), default :: term()) :: term()
+  @callback unwrap_or(chainable :: term(), default :: term()) :: term()
 
   @optional_callbacks [unwrap_or: 2]
 end

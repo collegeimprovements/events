@@ -8,9 +8,11 @@ defmodule FnTypes.Validation do
 
   ## Implemented Behaviours
 
-  - `FnTypes.Behaviours.Applicative` - pure, ap, map
-  - `FnTypes.Behaviours.Functor` - map
-  - `FnTypes.Behaviours.Semigroup` - combine (error accumulation)
+  - `FnTypes.Behaviours.Combinable` (Applicative) - pure, ap, map
+  - `FnTypes.Behaviours.Mappable` (Functor) - map
+  - `FnTypes.Behaviours.Appendable` (Semigroup) - combine (error accumulation)
+  - `FnTypes.Behaviours.Traversable` - traverse, sequence
+  - `FnTypes.Behaviours.BiMappable` (Bifunctor) - bimap, map_error
 
   ## Core Concept
 
@@ -98,9 +100,11 @@ defmodule FnTypes.Validation do
   The module preserves error format - you control how errors look.
   """
 
-  @behaviour FnTypes.Behaviours.Applicative
-  @behaviour FnTypes.Behaviours.Functor
-  @behaviour FnTypes.Behaviours.Semigroup
+  @behaviour FnTypes.Behaviours.Combinable
+  @behaviour FnTypes.Behaviours.Mappable
+  @behaviour FnTypes.Behaviours.Appendable
+  @behaviour FnTypes.Behaviours.Traversable
+  @behaviour FnTypes.Behaviours.BiMappable
 
   alias FnTypes.{Result, Maybe, Error}
 
@@ -561,7 +565,7 @@ defmodule FnTypes.Validation do
       {:error, [:required]}
   """
   @spec map(t(a), (a -> b)) :: t(b) when a: term(), b: term()
-  @impl FnTypes.Behaviours.Functor
+  @impl FnTypes.Behaviours.Mappable
   def map({:ok, value}, fun) when is_function(fun, 1), do: {:ok, fun.(value)}
   def map({:error, _} = error, _fun), do: error
 
@@ -585,7 +589,7 @@ defmodule FnTypes.Validation do
       {:error, [:b]}
   """
   @spec map2(t(a), t(b), (a, b -> c)) :: t(c) when a: term(), b: term(), c: term()
-  @impl FnTypes.Behaviours.Applicative
+  @impl FnTypes.Behaviours.Combinable
   def map2({:ok, a}, {:ok, b}, fun) when is_function(fun, 2), do: {:ok, fun.(a, b)}
   def map2({:ok, _}, {:error, errors}, _fun), do: {:error, errors}
   def map2({:error, errors}, {:ok, _}, _fun), do: {:error, errors}
@@ -701,6 +705,26 @@ defmodule FnTypes.Validation do
   end
 
   @doc """
+  Sequences a list of validations into a validation of list.
+
+  Alias for `all/1`. Provided for Traversable behaviour compliance.
+  Unlike Result.sequence, this accumulates ALL errors instead of failing fast.
+
+  ## Examples
+
+      iex> alias FnTypes.Validation
+      iex> Validation.sequence([{:ok, 1}, {:ok, 2}, {:ok, 3}])
+      {:ok, [1, 2, 3]}
+
+      iex> alias FnTypes.Validation
+      iex> Validation.sequence([{:ok, 1}, {:error, [:a]}, {:error, [:b]}])
+      {:error, [:a, :b]}
+  """
+  @impl FnTypes.Behaviours.Traversable
+  @spec sequence([t(a)]) :: t([a]) when a: term()
+  def sequence(validations), do: all(validations)
+
+  @doc """
   Applies validators to each item in a list, accumulating all errors.
 
   ## Examples
@@ -717,6 +741,7 @@ defmodule FnTypes.Validation do
       ...> end)
       {:error, [{:negative, -2}, {:negative, -3}]}
   """
+  @impl FnTypes.Behaviours.Traversable
   @spec traverse([a], (a -> t(b))) :: t([b]) when a: term(), b: term()
   def traverse(list, fun) when is_list(list) and is_function(fun, 1) do
     list
@@ -2061,14 +2086,80 @@ defmodule FnTypes.Validation do
   end
 
   @doc """
+  Maps both ok and error values using keyword options.
+
+  Part of the BiMappable behaviour. Use `on_ok:` to transform the success value
+  and `on_error:` to transform each error. Either can be omitted.
+
+  ## Examples
+
+      # Transform both sides
+      iex> alias FnTypes.Validation
+      iex> Validation.bimap({:ok, 5}, on_ok: &(&1 * 2), on_error: &Atom.to_string/1)
+      {:ok, 10}
+
+      iex> alias FnTypes.Validation
+      iex> Validation.bimap({:error, [:a, :b]}, on_ok: &(&1 * 2), on_error: &Atom.to_string/1)
+      {:error, ["a", "b"]}
+
+      # Transform only errors (common pattern)
+      iex> alias FnTypes.Validation
+      iex> Validation.bimap({:error, [:required]}, on_error: &Atom.to_string/1)
+      {:error, ["required"]}
+
+      # Transform only ok (success passes through)
+      iex> alias FnTypes.Validation
+      iex> Validation.bimap({:ok, 5}, on_ok: &(&1 * 2))
+      {:ok, 10}
+
+  ## Real-world Example
+
+      # Format validation errors for API response
+      validate_user(params)
+      |> Validation.bimap(
+        on_ok: &%{data: &1, valid: true},
+        on_error: fn error ->
+          %{code: error_code(error), message: error_message(error)}
+        end
+      )
+  """
+  @impl FnTypes.Behaviours.BiMappable
+  @spec bimap(t(a), keyword()) :: t(b) when a: term(), b: term()
+  def bimap(validation, opts) when is_list(opts) do
+    on_ok = Keyword.get(opts, :on_ok)
+    on_error = Keyword.get(opts, :on_error)
+
+    case validation do
+      {:ok, value} when is_function(on_ok, 1) -> {:ok, on_ok.(value)}
+      {:ok, _} = ok -> ok
+      {:error, errors} when is_function(on_error, 1) -> {:error, Enum.map(errors, on_error)}
+      {:error, _} = error -> error
+    end
+  end
+
+  @doc """
   Maps over errors.
+
+  Part of the BiMappable behaviour. Transforms each error in the error list.
 
   ## Examples
 
       iex> alias FnTypes.Validation
       iex> Validation.map_error({:error, [:a, :b]}, &Atom.to_string/1)
       {:error, ["a", "b"]}
+
+      iex> alias FnTypes.Validation
+      iex> Validation.map_error({:ok, 42}, &Atom.to_string/1)
+      {:ok, 42}
+
+      # Format errors for display
+      Validation.map_error(result, fn
+        :required -> "This field is required"
+        :too_short -> "Must be longer"
+        other -> inspect(other)
+      end)
   """
+  @impl FnTypes.Behaviours.BiMappable
   @spec map_error(t(a), (error() -> error())) :: t(a) when a: term()
   def map_error({:ok, _} = ok, _fun), do: ok
 
@@ -2226,7 +2317,7 @@ defmodule FnTypes.Validation do
       iex> Validation.pure(42)
       {:ok, 42}
   """
-  @impl FnTypes.Behaviours.Applicative
+  @impl FnTypes.Behaviours.Combinable
   @spec pure(a) :: t(a) when a: term()
   def pure(value), do: ok(value)
 
@@ -2245,7 +2336,7 @@ defmodule FnTypes.Validation do
       iex> Validation.ap({:error, [:fn_error]}, {:error, [:val_error]})
       {:error, [:fn_error, :val_error]}
   """
-  @impl FnTypes.Behaviours.Applicative
+  @impl FnTypes.Behaviours.Combinable
   @spec ap(t((a -> b)), t(a)) :: t(b) when a: term(), b: term()
   def ap({:ok, fun}, {:ok, value}) when is_function(fun, 1), do: {:ok, fun.(value)}
   def ap({:ok, _}, {:error, errors}), do: {:error, errors}
@@ -2268,7 +2359,7 @@ defmodule FnTypes.Validation do
       iex> Validation.combine({:error, [:e1]}, {:error, [:e2]})
       {:error, [:e1, :e2]}
   """
-  @impl FnTypes.Behaviours.Semigroup
+  @impl FnTypes.Behaviours.Appendable
   @spec combine(t(a), t(a)) :: t(a) when a: term()
   def combine({:ok, _}, {:ok, b}), do: {:ok, b}
   def combine({:ok, _}, {:error, _} = e), do: e

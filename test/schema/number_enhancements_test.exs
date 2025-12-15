@@ -26,9 +26,9 @@ defmodule Events.Core.Schema.NumberEnhancementsTest do
 
     def changeset(product, attrs) do
       product
-      |> Ecto.Changeset.cast(attrs, __cast_fields__())
-      |> Ecto.Changeset.validate_required(__required_fields__())
-      |> __apply_field_validations__()
+      |> Ecto.Changeset.cast(attrs, cast_fields())
+      |> Ecto.Changeset.validate_required(required_fields())
+      |> apply_validations()
     end
   end
 

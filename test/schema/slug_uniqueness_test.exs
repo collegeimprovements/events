@@ -13,9 +13,9 @@ defmodule Events.Core.Schema.SlugUniquenessTest do
 
     def changeset(post, attrs) do
       post
-      |> Ecto.Changeset.cast(attrs, __cast_fields__())
-      |> Ecto.Changeset.validate_required(__required_fields__())
-      |> __apply_field_validations__()
+      |> Ecto.Changeset.cast(attrs, cast_fields())
+      |> Ecto.Changeset.validate_required(required_fields())
+      |> apply_validations()
     end
   end
 
@@ -100,9 +100,9 @@ defmodule Events.Core.Schema.SlugUniquenessTest do
 
       def changeset(article, attrs) do
         article
-        |> Ecto.Changeset.cast(attrs, __cast_fields__())
-        |> Ecto.Changeset.validate_required(__required_fields__())
-        |> __apply_field_validations__()
+        |> Ecto.Changeset.cast(attrs, cast_fields())
+        |> Ecto.Changeset.validate_required(required_fields())
+        |> apply_validations()
       end
     end
 
@@ -140,8 +140,8 @@ defmodule Events.Core.Schema.SlugUniquenessTest do
 
       def changeset(post, attrs) do
         post
-        |> Ecto.Changeset.cast(attrs, __cast_fields__())
-        |> __apply_field_validations__()
+        |> Ecto.Changeset.cast(attrs, cast_fields())
+        |> apply_validations()
       end
     end
 

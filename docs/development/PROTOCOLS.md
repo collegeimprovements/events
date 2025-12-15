@@ -48,27 +48,27 @@ end
 
 ### 1. Normalizable - Error Normalization
 
-**Purpose:** Convert any error source into a standard `Events.Types.Error` struct.
+**Purpose:** Convert any error source into a standard `FnTypes.Error` struct.
 
 **Current Problem:** 8+ mapper modules with similar patterns.
 
 ```elixir
-defprotocol Events.Protocols.Normalizable do
+defprotocol FnTypes.Protocols.Normalizable do
   @moduledoc """
-  Protocol for normalizing various error types into Events.Types.Error.
+  Protocol for normalizing various error types into FnTypes.Error.
 
   Implement this for any type that can represent an error condition.
   """
 
   @doc """
-  Normalize the error into a standard Events.Types.Error struct.
+  Normalize the error into a standard FnTypes.Error struct.
 
   Options:
   - `:context` - Additional context to attach
   - `:source` - Override the source field
   - `:stacktrace` - Stacktrace to attach
   """
-  @spec normalize(t, keyword()) :: Events.Types.Error.t()
+  @spec normalize(t, keyword()) :: FnTypes.Error.t()
   def normalize(error, opts \\ [])
 end
 ```
@@ -77,9 +77,9 @@ end
 
 ```elixir
 # Ecto Changesets
-defimpl Events.Protocols.Normalizable, for: Ecto.Changeset do
+defimpl FnTypes.Protocols.Normalizable, for: Ecto.Changeset do
   def normalize(%{valid?: false} = changeset, opts) do
-    Events.Types.Error.new(:validation, :changeset_invalid,
+    FnTypes.Error.new(:validation, :changeset_invalid,
       message: Keyword.get(opts, :message, "Validation failed"),
       details: %{errors: extract_errors(changeset)},
       source: Ecto.Changeset,
@@ -97,12 +97,12 @@ defimpl Events.Protocols.Normalizable, for: Ecto.Changeset do
 end
 
 # Standard Exceptions
-defimpl Events.Protocols.Normalizable, for: Any do
+defimpl FnTypes.Protocols.Normalizable, for: Any do
   defmacro __deriving__(module, _struct, _opts) do
     quote do
-      defimpl Events.Protocols.Normalizable, for: unquote(module) do
+      defimpl FnTypes.Protocols.Normalizable, for: unquote(module) do
         def normalize(exception, opts) do
-          Events.Types.Error.new(:internal, :exception,
+          FnTypes.Error.new(:internal, :exception,
             message: Exception.message(exception),
             source: unquote(module),
             stacktrace: Keyword.get(opts, :stacktrace),
@@ -114,7 +114,7 @@ defimpl Events.Protocols.Normalizable, for: Any do
   end
 
   def normalize(value, opts) do
-    Events.Types.Error.new(:internal, :unknown_error,
+    FnTypes.Error.new(:internal, :unknown_error,
       message: "Unknown error: #{inspect(value)}",
       context: Keyword.get(opts, :context, %{})
     )
@@ -122,9 +122,9 @@ defimpl Events.Protocols.Normalizable, for: Any do
 end
 
 # Specific exceptions
-defimpl Events.Protocols.Normalizable, for: Ecto.NoResultsError do
+defimpl FnTypes.Protocols.Normalizable, for: Ecto.NoResultsError do
   def normalize(exception, opts) do
-    Events.Types.Error.new(:not_found, :no_results,
+    FnTypes.Error.new(:not_found, :no_results,
       message: Exception.message(exception),
       source: Ecto,
       stacktrace: Keyword.get(opts, :stacktrace),
@@ -133,9 +133,9 @@ defimpl Events.Protocols.Normalizable, for: Ecto.NoResultsError do
   end
 end
 
-defimpl Events.Protocols.Normalizable, for: Ecto.StaleEntryError do
+defimpl FnTypes.Protocols.Normalizable, for: Ecto.StaleEntryError do
   def normalize(exception, opts) do
-    Events.Types.Error.new(:conflict, :stale_entry,
+    FnTypes.Error.new(:conflict, :stale_entry,
       message: Exception.message(exception),
       source: Ecto,
       stacktrace: Keyword.get(opts, :stacktrace)
@@ -151,8 +151,8 @@ Events.Errors.Mappers.Ecto.normalize(changeset)
 Events.Errors.Mappers.Exception.normalize(exception)
 
 # After (single dispatch)
-Events.Protocols.Normalizable.normalize(changeset)
-Events.Protocols.Normalizable.normalize(exception)
+FnTypes.Protocols.Normalizable.normalize(changeset)
+FnTypes.Protocols.Normalizable.normalize(exception)
 ```
 
 ---
@@ -170,7 +170,7 @@ Events.Protocols.Normalizable.normalize(exception)
 - Tests: `test/events/identifiable_test.exs`
 
 ```elixir
-defprotocol Events.Protocols.Identifiable do
+defprotocol FnTypes.Protocols.Identifiable do
   @moduledoc """
   Protocol for extracting identity from domain entities.
 
@@ -200,21 +200,21 @@ end
 | Type | entity_type | id | Notes |
 |------|-------------|-----|-------|
 | `Any` (fallback) | `:unknown` | Extracts `:id` field | Safe default |
-| `Events.Types.Error` | Error type (`:validation`, etc.) | Error ID (`err_xxx`) | Uses error's type |
+| `FnTypes.Error` | Error type (`:validation`, etc.) | Error ID (`err_xxx`) | Uses error's type |
 | `Ecto.Changeset` | Derived from schema | From data or changes | Supports changesets |
 | Derived schemas | Configured or auto-derived | Configured field | Via `@derive` |
 
 **Usage in schemas:**
 ```elixir
 defmodule Events.Domains.Accounts.User do
-  @derive {Events.Protocols.Identifiable, type: :user}
+  @derive {FnTypes.Protocols.Identifiable, type: :user}
   use Events.Schema
   # ...
 end
 
 # Usage
 user = Repo.get!(User, "usr_123")
-Events.Protocols.Identifiable.identity(user)
+FnTypes.Protocols.Identifiable.identity(user)
 #=> {:user, "usr_123"}
 ```
 
@@ -224,13 +224,13 @@ Events.Protocols.Identifiable.identity(user)
 @derive Events.Identifiable
 
 # Explicit type
-@derive {Events.Protocols.Identifiable, type: :user}
+@derive {FnTypes.Protocols.Identifiable, type: :user}
 
 # Custom ID field
-@derive {Events.Protocols.Identifiable, type: :invoice, id_field: :invoice_number}
+@derive {FnTypes.Protocols.Identifiable, type: :invoice, id_field: :invoice_number}
 ```
 
-**Helper Functions (`Events.Protocols.Identifiable.Helpers`):**
+**Helper Functions (`FnTypes.Protocols.Identifiable.Helpers`):**
 
 | Function | Description |
 |----------|-------------|
@@ -253,7 +253,7 @@ Events.Protocols.Identifiable.identity(user)
 
 ```elixir
 alias Events.Identifiable
-alias Events.Protocols.Identifiable.Helpers
+alias FnTypes.Protocols.Identifiable.Helpers
 
 # Cache key generation
 key = Helpers.cache_key(user)  #=> "user:usr_123"
@@ -352,7 +352,7 @@ end
 **Purpose:** Define recovery strategies for different error types.
 
 ```elixir
-defprotocol Events.Protocols.Recoverable do
+defprotocol FnTypes.Protocols.Recoverable do
   @moduledoc """
   Protocol for defining error recovery strategies.
 
@@ -380,7 +380,7 @@ end
 **Implementations:**
 
 ```elixir
-defimpl Events.Protocols.Recoverable, for: Events.Types.Error do
+defimpl FnTypes.Protocols.Recoverable, for: FnTypes.Error do
   def recoverable?(error) do
     error.type in [:timeout, :network, :rate_limited, :external]
   end
@@ -422,7 +422,7 @@ defimpl Events.Protocols.Recoverable, for: Events.Types.Error do
 end
 
 # HTTP-specific errors
-defimpl Events.Protocols.Recoverable, for: Mint.TransportError do
+defimpl FnTypes.Protocols.Recoverable, for: Mint.TransportError do
   def recoverable?(_), do: true
   def strategy(_), do: :retry_with_backoff
   def retry_delay(_, attempt), do: min(:math.pow(2, attempt) * 100, 10_000) |> round()
@@ -477,7 +477,7 @@ defimpl Events.Loggable, for: Events.Domains.Accounts.User do
   end
 end
 
-defimpl Events.Loggable, for: Events.Types.Error do
+defimpl Events.Loggable, for: FnTypes.Error do
   def log_context(error) do
     %{
       error_type: error.type,
@@ -614,7 +614,7 @@ end
 ## Implementation Priority
 
 ### Phase 1: Foundation ✅
-1. ~~**Normalizable** - Unify error handling~~ → See `Events.Types.Error` and `Events.Protocols.Recoverable`
+1. ~~**Normalizable** - Unify error handling~~ → See `FnTypes.Error` and `FnTypes.Protocols.Recoverable`
 2. **Identifiable** - Entity identity for caching/events ✅ IMPLEMENTED
 3. **Loggable** - Structured logging
 
@@ -686,7 +686,7 @@ Pipeline.new(ctx)
 |> Pipeline.step(:validate, fn ctx ->
   case Events.Validatable.validate(ctx.params) do
     {:ok, _} -> {:ok, %{}}
-    {:error, e} -> {:error, Events.Protocols.Normalizable.normalize(e)}
+    {:error, e} -> {:error, FnTypes.Protocols.Normalizable.normalize(e)}
   end
 end)
 ```
@@ -697,7 +697,7 @@ def with_recovery(fun) do
   case fun.() do
     {:ok, result} -> {:ok, result}
     {:error, error} ->
-      if Events.Protocols.Recoverable.recoverable?(error) do
+      if FnTypes.Protocols.Recoverable.recoverable?(error) do
         retry_with_strategy(fun, error)
       else
         {:error, error}

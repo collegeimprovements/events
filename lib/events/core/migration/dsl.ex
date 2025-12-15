@@ -121,7 +121,7 @@ defmodule Events.Core.Migration.DSL do
   defmacro has_audit(opts \\ []) do
     quote do
       var!(current_token, Events.Core.Migration.DSL) =
-        Pipeline.with_audit(
+        Pipeline.with_audit_fields(
           var!(current_token, Events.Core.Migration.DSL),
           unquote(opts)
         )

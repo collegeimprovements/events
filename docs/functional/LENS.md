@@ -1,4 +1,4 @@
-# Events.Types.Lens
+# FnTypes.Lens
 
 Functional lenses for immutable data access and updates.
 
@@ -12,7 +12,7 @@ user = %{profile: %{settings: %{theme: "light"}}}
 %{user | profile: %{user.profile | settings: %{user.profile.settings | theme: "dark"}}}
 
 # With lenses - clean and composable
-alias Events.Types.Lens
+alias FnTypes.Lens
 theme_lens = Lens.path([:profile, :settings, :theme])
 Lens.set(theme_lens, user, "dark")
 ```
@@ -20,7 +20,7 @@ Lens.set(theme_lens, user, "dark")
 ## Quick Start
 
 ```elixir
-alias Events.Types.Lens
+alias FnTypes.Lens
 
 # Create a lens
 name_lens = Lens.key(:name)
@@ -353,7 +353,7 @@ Lens.set(lens, %{}, "value")  #=> %{a: %{b: %{c: "value"}}}
 
 ```elixir
 defmodule Config do
-  alias Events.Types.Lens
+  alias FnTypes.Lens
 
   @db_timeout Lens.path([:database, :timeout])
   @cache_ttl Lens.path([:cache, :ttl])
@@ -376,7 +376,7 @@ end
 
 ```elixir
 defmodule FormHandler do
-  alias Events.Types.Lens
+  alias FnTypes.Lens
 
   def normalize_user_form(params) do
     email_lens = Lens.key(:email)
@@ -394,7 +394,7 @@ end
 
 ```elixir
 defmodule UserService do
-  alias Events.Types.Lens
+  alias FnTypes.Lens
 
   @status_lens Lens.key(:status)
   @updated_at_lens Lens.key(:updated_at)

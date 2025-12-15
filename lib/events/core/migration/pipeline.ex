@@ -290,9 +290,6 @@ defmodule Events.Core.Migration.Pipeline do
   """
   defdelegate with_audit_fields(token, opts \\ []), to: FieldMacros
 
-  # Backward compatibility alias
-  def with_audit(token, opts \\ []), do: with_audit_fields(token, opts)
-
   # ============================================
   # Soft Delete Pipelines
   # ============================================

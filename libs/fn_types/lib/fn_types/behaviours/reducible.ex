@@ -1,11 +1,13 @@
-defmodule FnTypes.Behaviours.Foldable do
+defmodule FnTypes.Behaviours.Reducible do
   @moduledoc """
-  Behaviour defining the Foldable interface for types that can be reduced.
+  Behaviour defining the Reducible interface for types that can be collapsed.
 
-  A Foldable type can be collapsed into a single value using a binary function.
+  Also known as **Foldable** in functional programming terminology.
+
+  A Reducible type can be collapsed into a single value using a binary function.
   This is the functional programming equivalent of Elixir's `Enum.reduce/3`.
 
-  ## Foldable Laws
+  ## Reducible Laws
 
   Implementations should be consistent with these properties:
 
@@ -15,7 +17,7 @@ defmodule FnTypes.Behaviours.Foldable do
   ## Example Implementation
 
       defmodule MyContainer do
-        @behaviour FnTypes.Behaviours.Foldable
+        @behaviour FnTypes.Behaviours.Reducible
 
         @impl true
         def fold_left({:some, value}, acc, fun), do: fun.(value, acc)
@@ -29,10 +31,10 @@ defmodule FnTypes.Behaviours.Foldable do
   ## Implementations
 
   The following FnTypes modules implement this behaviour:
-  - `FnTypes.Result` - Folds over the success value
-  - `FnTypes.Maybe` - Folds over the present value
-  - `FnTypes.NonEmptyList` - Folds over all elements
-  - `FnTypes.Ior` - Folds over the right/both value
+  - `FnTypes.Result` - Reduces over the success value
+  - `FnTypes.Maybe` - Reduces over the present value
+  - `FnTypes.NonEmptyList` - Reduces over all elements
+  - `FnTypes.Ior` - Reduces over the right/both value
   """
 
   @doc """
@@ -49,7 +51,7 @@ defmodule FnTypes.Behaviours.Foldable do
       NonEmptyList.fold_left(nel, 0, &+/2)
       #=> sum of all elements
   """
-  @callback fold_left(foldable :: term(), acc :: term(), (term(), term() -> term())) :: term()
+  @callback fold_left(reducible :: term(), acc :: term(), (term(), term() -> term())) :: term()
 
   @doc """
   Right-associative fold over the structure.
@@ -62,17 +64,17 @@ defmodule FnTypes.Behaviours.Foldable do
       NonEmptyList.fold_right(nel, [], fn x, acc -> [x | acc] end)
       #=> list of all elements in order
   """
-  @callback fold_right(foldable :: term(), acc :: term(), (term(), term() -> term())) :: term()
+  @callback fold_right(reducible :: term(), acc :: term(), (term(), term() -> term())) :: term()
 
   @doc """
-  Optional callback to convert the foldable to a list.
+  Optional callback to convert the reducible to a list.
   """
-  @callback to_list(foldable :: term()) :: list()
+  @callback to_list(reducible :: term()) :: list()
 
   @doc """
-  Optional callback to check if the foldable is empty.
+  Optional callback to check if the reducible is empty.
   """
-  @callback empty?(foldable :: term()) :: boolean()
+  @callback empty?(reducible :: term()) :: boolean()
 
   @optional_callbacks [to_list: 1, empty?: 1]
 end

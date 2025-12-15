@@ -92,7 +92,7 @@ Use `Maybe` when **absence is a valid, expected state** — not an error conditi
 #### Example 1: Optional User Profile Fields
 
 ```elixir
-alias Events.Maybe
+alias FnTypes.Maybe
 
 defmodule UserProfile do
   # Get display name with fallback chain
@@ -137,7 +137,7 @@ UserProfile.age(user)           #=> :none
 
 ```elixir
 defmodule Config do
-  alias Events.Maybe
+  alias FnTypes.Maybe
 
   def get_database_url do
     Maybe.first_some([
@@ -173,7 +173,7 @@ end
 
 ```elixir
 defmodule DataExtractor do
-  alias Events.Maybe
+  alias FnTypes.Maybe
 
   # Safely extract deeply nested data
   def get_user_email(response) do
@@ -210,7 +210,7 @@ end
 
 ```elixir
 defmodule OrderCalculator do
-  alias Events.Maybe
+  alias FnTypes.Maybe
 
   def calculate_discount(user, promo_code) do
     # Both user loyalty discount and promo code are optional
@@ -261,7 +261,7 @@ end
 ### Maybe API Reference
 
 ```elixir
-alias Events.Maybe
+alias FnTypes.Maybe
 
 # ═══════════════════════════════════════════════════════════════════════════
 # CREATION
@@ -871,7 +871,7 @@ Result.lift_apply(&String.upcase/1, {:ok, "hi"})  # {:ok, "HI"}
 # Convert to Error struct
 {:error, :not_found}
 |> Result.to_error(:not_found, message: "User not found")
-#=> {:error, %Events.Types.Error{type: :not_found, ...}}
+#=> {:error, %FnTypes.Error{type: :not_found, ...}}
 
 # ═══════════════════════════════════════════════════════════════════════════
 # ENUMERABLE & REDUCE
@@ -1961,7 +1961,7 @@ Each module has companion test helpers with assertions and generators.
 ```elixir
 defmodule MyTest do
   use ExUnit.Case
-  import Events.Types.Maybe.Test
+  import FnTypes.Maybe.Test
 
   test "returns some for valid input" do
     result = MyModule.get_value(input)
@@ -1997,7 +1997,7 @@ end
 ```elixir
 defmodule MyTest do
   use ExUnit.Case
-  import Events.Types.Result.Test
+  import FnTypes.Result.Test
 
   test "returns ok for valid input" do
     result = MyModule.process(valid_input)
@@ -2030,7 +2030,7 @@ end
 ```elixir
 defmodule MyTest do
   use ExUnit.Case
-  import Events.Types.Pipeline.Test
+  import FnTypes.Pipeline.Test
 
   test "pipeline executes all steps" do
     result = MyPipeline.run(params)

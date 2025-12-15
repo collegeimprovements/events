@@ -236,24 +236,6 @@ defmodule Events.Services.S3.Client do
       {:error, {:presign_error, error}}
   end
 
-  @doc """
-  Generates a presigned URL (deprecated, use presigned_get_url/4 or presigned_upload_form/4).
-
-  For `:get`, returns a presigned download URL.
-  For `:put`, returns a presigned form for POST-based uploads.
-  """
-  @spec presigned_url(Config.t(), String.t(), String.t(), :get | :put, pos_integer()) ::
-          {:ok, String.t() | presigned_form()} | {:error, term()}
-  def presigned_url(%Config{} = config, bucket, key, method, expires_in \\ @default_expires_in) do
-    case method do
-      :get ->
-        presigned_get_url(config, bucket, key, expires_in)
-
-      :put ->
-        presigned_upload_form(config, bucket, key, expires_in: expires_in)
-    end
-  end
-
   defp maybe_put(opts, _key, nil), do: opts
   defp maybe_put(opts, key, value), do: Keyword.put(opts, key, value)
 

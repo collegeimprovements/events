@@ -17,9 +17,9 @@ defmodule Events.Core.Schema.StringPresetsTest do
 
     def changeset(profile, attrs) do
       profile
-      |> Ecto.Changeset.cast(attrs, __cast_fields__())
-      |> Ecto.Changeset.validate_required(__required_fields__())
-      |> __apply_field_validations__()
+      |> Ecto.Changeset.cast(attrs, cast_fields())
+      |> Ecto.Changeset.validate_required(required_fields())
+      |> apply_validations()
     end
   end
 

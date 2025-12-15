@@ -23,14 +23,7 @@
 
 ```
 lib/events/
-├── types/           # Events.Types.*     - Functional data types
-│   ├── result.ex    #   Result monad ({:ok, v} | {:error, r})
-│   ├── maybe.ex     #   Maybe monad ({:some, v} | :none)
-│   ├── pipeline.ex  #   Multi-step workflows
-│   ├── async_result.ex  # Concurrent operations
-│   ├── validation.ex    # Validation accumulator
-│   ├── guards.ex    #   Guards and pattern macros
-│   └── error.ex     #   Base error struct
+├── (functional types in libs/fn_types) # FnTypes.* - Result, Maybe, Pipeline, AsyncResult, etc.
 ├── protocols/       # Events.Protocols.* - Protocol definitions
 │   ├── normalizable.ex  # Error normalization
 │   ├── recoverable.ex   # Error recovery strategies
@@ -67,11 +60,11 @@ lib/events/
 ### Key Module Aliases
 
 ```elixir
-# Types (functional data structures)
-alias Events.Types.{Result, Maybe, Pipeline, AsyncResult, Validation, Guards, Error}
+# Functional types (from fn_types library)
+alias FnTypes.{Result, Maybe, Pipeline, AsyncResult, Validation, Guards, Error}
 
 # Protocols
-alias Events.Protocols.{Normalizable, Recoverable, Identifiable}
+alias FnTypes.Protocols.{Normalizable, Recoverable, Identifiable}
 
 # Core (database)
 alias Events.Core.{Schema, Migration, Query, Crud, Repo, Cache}
@@ -132,7 +125,7 @@ use Ecto.Migration
 ### 4. Use Functional Modules
 
 ```elixir
-alias Events.Types.{Result, Maybe, Pipeline, AsyncResult}
+alias FnTypes.{Result, Maybe, Pipeline, AsyncResult}
 
 # Result for error handling
 Result.and_then(result, &process/1)
@@ -165,12 +158,12 @@ def get_user(id), do: ...
 
 | Need | Module | Example |
 |------|--------|---------|
-| Fallible operation | `Events.Types.Result` | `Result.and_then(result, &process/1)` |
-| Optional value | `Events.Types.Maybe` | `Maybe.from_nilable(value)` |
-| Multi-step workflow | `Events.Types.Pipeline` | `Pipeline.step(p, :name, &fun/1)` |
-| Concurrent tasks | `Events.Types.AsyncResult` | `AsyncResult.parallel(tasks)` |
-| Guard clauses | `Events.Types.Guards` | `when is_ok(result)` |
-| Accumulating errors | `Events.Types.Validation` | `Validation.validate(v, &check/1)` |
+| Fallible operation | `FnTypes.Result` | `Result.and_then(result, &process/1)` |
+| Optional value | `FnTypes.Maybe` | `Maybe.from_nilable(value)` |
+| Multi-step workflow | `FnTypes.Pipeline` | `Pipeline.step(p, :name, &fun/1)` |
+| Concurrent tasks | `FnTypes.AsyncResult` | `AsyncResult.parallel(tasks)` |
+| Guard clauses | `FnTypes.Guards` | `when is_ok(result)` |
+| Accumulating errors | `FnTypes.Validation` | `Validation.validate(v, &check/1)` |
 
 ### Pipeline + AsyncResult Composition
 
@@ -327,7 +320,7 @@ end
 ### Parallel Operations
 
 ```elixir
-alias Events.Types.AsyncResult
+alias FnTypes.AsyncResult
 
 AsyncResult.parallel([
   fn -> fetch_user(id) end,
@@ -338,7 +331,7 @@ AsyncResult.parallel([
 ### Multi-Step Workflow
 
 ```elixir
-alias Events.Types.Pipeline
+alias FnTypes.Pipeline
 
 Pipeline.new(%{params: params})
 |> Pipeline.step(:validate, &validate/1)
@@ -350,7 +343,7 @@ Pipeline.new(%{params: params})
 ### Race with Fallback
 
 ```elixir
-alias Events.Types.AsyncResult
+alias FnTypes.AsyncResult
 
 AsyncResult.race([
   fn -> Cache.get(key) end,
@@ -361,7 +354,7 @@ AsyncResult.race([
 ### Retry with Backoff
 
 ```elixir
-alias Events.Types.AsyncResult
+alias FnTypes.AsyncResult
 
 AsyncResult.retry(fn -> api_call() end,
   max_attempts: 3,

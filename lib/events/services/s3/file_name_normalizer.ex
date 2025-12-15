@@ -154,10 +154,12 @@ defmodule Events.Services.S3.FileNameNormalizer do
         {filename, ""}
 
       ext ->
-        ext = if preserve_case, do: ext, else: String.downcase(ext)
-        {Path.rootname(filename), ext}
+        {Path.rootname(filename), maybe_downcase_ext(ext, preserve_case)}
     end
   end
+
+  defp maybe_downcase_ext(ext, true), do: ext
+  defp maybe_downcase_ext(ext, false), do: String.downcase(ext)
 
   defp remove_unsafe_characters(name) do
     # Remove or replace unsafe characters for S3

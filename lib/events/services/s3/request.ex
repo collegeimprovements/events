@@ -396,7 +396,16 @@ defmodule Events.Services.S3.Request do
   @spec presign(t(), String.t()) :: {:ok, String.t()} | {:error, term()}
   def presign(%__MODULE__{} = req, key_or_uri) do
     {bucket, key} = resolve_location(req, key_or_uri)
-    Events.Services.S3.Client.presigned_url(req.config, bucket, key, req.method, req.expires_in)
+
+    case req.method do
+      :get ->
+        Events.Services.S3.Client.presigned_get_url(req.config, bucket, key, req.expires_in)
+
+      :put ->
+        Events.Services.S3.Client.presigned_upload_form(req.config, bucket, key,
+          expires_in: req.expires_in
+        )
+    end
   end
 
   # ============================================

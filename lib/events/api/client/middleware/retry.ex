@@ -249,17 +249,6 @@ defmodule Events.Api.Client.Middleware.Retry do
     min(delay_with_jitter, max_delay)
   end
 
-  # Legacy transient_error? kept for backwards compatibility
-  # New code should use FnTypes.Protocols.Recoverable.recoverable?/1
-  @doc false
-  def transient_error?(%Mint.TransportError{}), do: true
-  def transient_error?(%Mint.HTTPError{reason: :timeout}), do: true
-  def transient_error?(%{reason: :timeout}), do: true
-  def transient_error?(%{reason: :econnrefused}), do: true
-  def transient_error?(%{reason: :econnreset}), do: true
-  def transient_error?(%{reason: :closed}), do: true
-  def transient_error?(_), do: false
-
   defp parse_retry_after(value) when is_binary(value) do
     case Integer.parse(value) do
       {seconds, ""} ->

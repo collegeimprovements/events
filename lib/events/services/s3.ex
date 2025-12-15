@@ -500,7 +500,13 @@ defmodule Events.Services.S3 do
     method = Keyword.get(opts, :method, :get)
     expires_in = normalize_expiration(Keyword.get(opts, :expires_in, 3600))
 
-    Client.presigned_url(config, bucket, key, method, expires_in)
+    case method do
+      :get ->
+        Client.presigned_get_url(config, bucket, key, expires_in)
+
+      :put ->
+        Client.presigned_upload_form(config, bucket, key, expires_in: expires_in)
+    end
   end
 
   @doc """
@@ -781,7 +787,16 @@ defmodule Events.Services.S3 do
     |> Enum.map(fn uri ->
       {bucket, key} = S3URI.parse!(uri)
 
-      case Client.presigned_url(config, bucket, key, method, expires_in) do
+      result =
+        case method do
+          :get ->
+            Client.presigned_get_url(config, bucket, key, expires_in)
+
+          :put ->
+            Client.presigned_upload_form(config, bucket, key, expires_in: expires_in)
+        end
+
+      case result do
         {:ok, url} -> {:ok, uri, url}
         {:error, reason} -> {:error, uri, reason}
       end

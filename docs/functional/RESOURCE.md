@@ -1,4 +1,4 @@
-# Events.Types.Resource
+# FnTypes.Resource
 
 Safe resource management with guaranteed cleanup.
 
@@ -11,7 +11,7 @@ Safe resource management with guaranteed cleanup.
 - Haskell's bracket pattern
 
 ```elixir
-alias Events.Types.Resource
+alias FnTypes.Resource
 
 # File is always closed, even if reading fails
 Resource.with_file("data.txt", [:read], fn file ->
@@ -297,7 +297,7 @@ other         -> {:ok, other}      # Wrapped
 
 ```elixir
 defmodule TransactionHelper do
-  alias Events.Types.Resource
+  alias FnTypes.Resource
 
   def with_transaction(repo, fun) do
     Resource.with_resource(
@@ -321,7 +321,7 @@ end
 
 ```elixir
 defmodule PooledConnection do
-  alias Events.Types.Resource
+  alias FnTypes.Resource
 
   def with_connection(pool, fun) do
     Resource.with_resource(
@@ -347,7 +347,7 @@ end
 
 ```elixir
 defmodule FileProcessor do
-  alias Events.Types.Resource
+  alias FnTypes.Resource
 
   def process_and_archive(input_path, output_path, archive_path) do
     Resource.with_resources([
@@ -371,7 +371,7 @@ end
 
 ```elixir
 defmodule DistributedLock do
-  alias Events.Types.Resource
+  alias FnTypes.Resource
 
   def with_lock(key, timeout \\ 5000, fun) do
     Resource.with_timeout(
@@ -407,7 +407,7 @@ end
 
 ```elixir
 defmodule TestHelpers do
-  alias Events.Types.Resource
+  alias FnTypes.Resource
 
   def with_test_user(attrs \\ %{}, fun) do
     Resource.with_resource(

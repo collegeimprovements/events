@@ -1,16 +1,18 @@
-defmodule FnTypes.Behaviours.Semigroup do
+defmodule FnTypes.Behaviours.Appendable do
   @moduledoc """
-  Behaviour defining the Semigroup interface for types that can be combined.
+  Behaviour defining the Appendable interface for types that can be combined.
 
-  A Semigroup is a type with an associative binary operation (`combine/2`).
+  Also known as **Semigroup** in functional programming terminology.
 
-  ## Semigroup Law
+  An Appendable type has an associative binary operation (`combine/2`).
+
+  ## Appendable Law
 
   Implementations must satisfy associativity:
 
       combine(combine(a, b), c) == combine(a, combine(b, c))
 
-  ## Common Semigroups
+  ## Common Appendables
 
   - Lists: `combine = ++`
   - Numbers: `combine = +` or `combine = *`
@@ -20,7 +22,7 @@ defmodule FnTypes.Behaviours.Semigroup do
   ## Example Implementation
 
       defmodule Sum do
-        @behaviour FnTypes.Behaviours.Semigroup
+        @behaviour FnTypes.Behaviours.Appendable
 
         defstruct [:value]
 
@@ -36,7 +38,7 @@ defmodule FnTypes.Behaviours.Semigroup do
   """
 
   @doc """
-  Combines two semigroup values.
+  Combines two values together.
 
   The operation must be associative: `combine(combine(a, b), c) == combine(a, combine(b, c))`
 
@@ -48,10 +50,10 @@ defmodule FnTypes.Behaviours.Semigroup do
       Validation.combine(v1, v2)
       #=> combined validation (errors accumulated)
   """
-  @callback combine(semigroup :: term(), semigroup :: term()) :: term()
+  @callback combine(appendable :: term(), appendable :: term()) :: term()
 
   @doc """
-  Optional: Combines multiple semigroup values.
+  Optional: Combines multiple values together.
 
   Default implementation uses `fold_left` with `combine/2`.
   """

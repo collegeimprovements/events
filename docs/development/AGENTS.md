@@ -103,11 +103,11 @@ end
 
 | Module | Purpose | Returns |
 |--------|---------|---------|
-| `Events.Types.Result` | Error handling | `{:ok, value} \| {:error, reason}` |
-| `Events.Types.Maybe` | Optional values | `{:some, value} \| :none` |
-| `Events.Types.Pipeline` | Multi-step workflows | `{:ok, context} \| {:error, reason}` |
-| `Events.Types.AsyncResult` | Concurrent operations | `{:ok, value} \| {:error, reason}` |
-| `Events.Types.Guards` | Pattern matching | Guards + macros |
+| `FnTypes.Result` | Error handling | `{:ok, value} \| {:error, reason}` |
+| `FnTypes.Maybe` | Optional values | `{:some, value} \| :none` |
+| `FnTypes.Pipeline` | Multi-step workflows | `{:ok, context} \| {:error, reason}` |
+| `FnTypes.AsyncResult` | Concurrent operations | `{:ok, value} \| {:error, reason}` |
+| `FnTypes.Guards` | Pattern matching | Guards + macros |
 
 ### Quick Examples
 

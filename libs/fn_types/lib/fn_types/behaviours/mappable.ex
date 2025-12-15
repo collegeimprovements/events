@@ -1,11 +1,13 @@
-defmodule FnTypes.Behaviours.Functor do
+defmodule FnTypes.Behaviours.Mappable do
   @moduledoc """
-  Behaviour defining the Functor interface for mappable types.
+  Behaviour defining the Mappable interface for types that can be mapped over.
 
-  A Functor is a type that can be mapped over. It provides a way to apply
-  a function to a wrapped value without unwrapping it.
+  Also known as **Functor** in functional programming terminology.
 
-  ## Functor Laws
+  A Mappable type provides a way to apply a function to a wrapped value
+  without unwrapping it.
+
+  ## Mappable Laws
 
   Implementations must satisfy:
 
@@ -15,7 +17,7 @@ defmodule FnTypes.Behaviours.Functor do
   ## Example Implementation
 
       defmodule Box do
-        @behaviour FnTypes.Behaviours.Functor
+        @behaviour FnTypes.Behaviours.Mappable
 
         defstruct [:value]
 
@@ -52,5 +54,5 @@ defmodule FnTypes.Behaviours.Functor do
       |> Maybe.map(&String.upcase/1)
       #=> :none
   """
-  @callback map(functor :: term(), (term() -> term())) :: term()
+  @callback map(mappable :: term(), (term() -> term())) :: term()
 end

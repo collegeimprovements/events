@@ -17,7 +17,7 @@ defmodule Events.Core.Migration do
           |> with_identity(:name, :email)
           |> with_authentication()
           |> with_profile(:bio, :avatar)
-          |> with_audit()
+          |> with_audit_fields()
           |> with_soft_delete()
           |> with_timestamps()
           |> execute()

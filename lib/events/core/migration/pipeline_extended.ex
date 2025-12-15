@@ -451,16 +451,4 @@ defmodule Events.Core.Migration.PipelineExtended do
   defp maybe_add_unique_constraint(token, field, true) do
     Token.add_index(token, :"#{token.name}_#{field}_unique", [field], unique: true)
   end
-
-  # ============================================
-  # Backward Compatibility Aliases
-  # ============================================
-
-  @doc false
-  @deprecated "Use with_status_fields/2 instead"
-  def with_status_field(token, opts \\ []), do: with_status_fields(token, opts)
-
-  @doc false
-  @deprecated "Use with_slug_fields/2 instead"
-  def with_slug_field(token, opts \\ []), do: with_slug_fields(token, opts)
 end

@@ -1,7 +1,8 @@
 # Implementation for Mint.TransportError
 # These are low-level HTTP transport errors
 
-if Code.ensure_loaded?(Mint.TransportError) do
+# Use ensure_compiled to properly handle compilation order with optional deps
+if match?({:module, _}, Code.ensure_compiled(Mint.TransportError)) do
   defimpl FnTypes.Protocols.Normalizable, for: Mint.TransportError do
     @moduledoc """
     Normalizable implementation for Mint.TransportError.
@@ -111,7 +112,7 @@ if Code.ensure_loaded?(Mint.TransportError) do
   end
 end
 
-if Code.ensure_loaded?(Mint.HTTPError) do
+if match?({:module, _}, Code.ensure_compiled(Mint.HTTPError)) do
   defimpl FnTypes.Protocols.Normalizable, for: Mint.HTTPError do
     @moduledoc """
     Normalizable implementation for Mint.HTTPError.

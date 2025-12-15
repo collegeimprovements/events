@@ -7,10 +7,12 @@ defmodule FnTypes.Result do
 
   ## Implemented Behaviours
 
-  - `FnTypes.Behaviours.Monad` - pure, bind, map
-  - `FnTypes.Behaviours.Applicative` - pure, ap, map
-  - `FnTypes.Behaviours.Functor` - map
-  - `FnTypes.Behaviours.Foldable` - fold_left, fold_right
+  - `FnTypes.Behaviours.Chainable` (Monad) - pure, bind, map
+  - `FnTypes.Behaviours.Combinable` (Applicative) - pure, ap, map
+  - `FnTypes.Behaviours.Mappable` (Functor) - map
+  - `FnTypes.Behaviours.Reducible` (Foldable) - fold_left, fold_right
+  - `FnTypes.Behaviours.Traversable` - traverse, sequence
+  - `FnTypes.Behaviours.BiMappable` (Bifunctor) - bimap, map_error
 
   ## Usage
 
@@ -38,10 +40,12 @@ defmodule FnTypes.Result do
       {:ok, formatted} = Result.traverse(users, &format_user/1)
   """
 
-  @behaviour FnTypes.Behaviours.Monad
-  @behaviour FnTypes.Behaviours.Applicative
-  @behaviour FnTypes.Behaviours.Functor
-  @behaviour FnTypes.Behaviours.Foldable
+  @behaviour FnTypes.Behaviours.Chainable
+  @behaviour FnTypes.Behaviours.Combinable
+  @behaviour FnTypes.Behaviours.Mappable
+  @behaviour FnTypes.Behaviours.Reducible
+  @behaviour FnTypes.Behaviours.Traversable
+  @behaviour FnTypes.Behaviours.BiMappable
 
   import Kernel, except: [apply: 2, apply: 3]
 
@@ -121,7 +125,7 @@ defmodule FnTypes.Result do
       {:error, :not_found}
   """
   @spec map(t(a, e), (a -> b)) :: t(b, e) when a: term(), b: term(), e: term()
-  @impl FnTypes.Behaviours.Functor
+  @impl FnTypes.Behaviours.Mappable
   def map({:ok, value}, fun) when is_function(fun, 1), do: {:ok, fun.(value)}
   def map({:error, _} = error, _fun), do: error
 
@@ -136,6 +140,7 @@ defmodule FnTypes.Result do
       iex> {:ok, 42} |> Result.map_error(&String.upcase/1)
       {:ok, 42}
   """
+  @impl FnTypes.Behaviours.BiMappable
   @spec map_error(t(v, a), (a -> b)) :: t(v, b) when v: term(), a: term(), b: term()
   def map_error({:error, reason}, fun) when is_function(fun, 1), do: {:error, fun.(reason)}
   def map_error({:ok, _} = ok, _fun), do: ok
@@ -207,7 +212,7 @@ defmodule FnTypes.Result do
       0
   """
   @spec unwrap_or(t(v, any()), v) :: v when v: term()
-  @impl FnTypes.Behaviours.Monad
+  @impl FnTypes.Behaviours.Chainable
   def unwrap_or({:ok, value}, _default), do: value
   def unwrap_or({:error, _}, default), do: default
 
@@ -337,6 +342,23 @@ defmodule FnTypes.Result do
   end
 
   @doc """
+  Sequences a list of results into a result of list.
+
+  Alias for `collect/1`. Provided for Traversable behaviour compliance.
+
+  ## Examples
+
+      iex> Result.sequence([{:ok, 1}, {:ok, 2}, {:ok, 3}])
+      {:ok, [1, 2, 3]}
+
+      iex> Result.sequence([{:ok, 1}, {:error, :bad}])
+      {:error, :bad}
+  """
+  @impl FnTypes.Behaviours.Traversable
+  @spec sequence([t(v, e)]) :: t([v], e) when v: term(), e: term()
+  def sequence(results), do: collect(results)
+
+  @doc """
   Applies a result-returning function to each element.
 
   ## Examples
@@ -350,6 +372,7 @@ defmodule FnTypes.Result do
       ...> end)
       {:error, :bad}
   """
+  @impl FnTypes.Behaviours.Traversable
   @spec traverse([a], (a -> t(b, e))) :: t([b], e) when a: term(), b: term(), e: term()
   def traverse(list, fun) when is_list(list) and is_function(fun, 1) do
     list
@@ -672,18 +695,65 @@ defmodule FnTypes.Result do
   ## Bimap
 
   @doc """
-  Maps both the ok and error values simultaneously.
+  Transforms both ok and error values using expressive keyword options.
 
-  Applies `ok_fun` if ok, `error_fun` if error.
+  Use `on_ok:` to transform success values and `on_error:` to transform errors.
+  You can specify both or just one - the other side passes through unchanged.
+
+  ## Examples
+
+      # Transform both sides
+      iex> Result.bimap({:ok, 5}, on_ok: &(&1 * 2), on_error: &String.upcase/1)
+      {:ok, 10}
+
+      iex> Result.bimap({:error, "bad"}, on_ok: &(&1 * 2), on_error: &String.upcase/1)
+      {:error, "BAD"}
+
+      # Transform only errors (ok passes through)
+      iex> Result.bimap({:ok, 5}, on_error: &String.upcase/1)
+      {:ok, 5}
+
+      iex> Result.bimap({:error, "bad"}, on_error: &String.upcase/1)
+      {:error, "BAD"}
+
+      # Transform only ok (errors pass through)
+      iex> Result.bimap({:ok, 5}, on_ok: &(&1 * 2))
+      {:ok, 10}
+
+  ## Real-world Example
+
+      fetch_user(id)
+      |> Result.bimap(
+        on_ok: fn user -> %{id: user.id, name: user.name} end,
+        on_error: fn error -> %{code: 404, message: inspect(error)} end
+      )
+  """
+  @impl FnTypes.Behaviours.BiMappable
+  @spec bimap(t(a, e1), keyword()) :: t(b, e2)
+        when a: term(), b: term(), e1: term(), e2: term()
+  def bimap(result, opts) when is_list(opts) do
+    on_ok = Keyword.get(opts, :on_ok)
+    on_error = Keyword.get(opts, :on_error)
+
+    case result do
+      {:ok, value} when is_function(on_ok, 1) -> {:ok, on_ok.(value)}
+      {:ok, _} = ok -> ok
+      {:error, reason} when is_function(on_error, 1) -> {:error, on_error.(reason)}
+      {:error, _} = error -> error
+    end
+  end
+
+  @doc """
+  Maps both the ok and error values simultaneously (positional arguments).
+
+  Prefer `bimap/2` with keyword options for better readability.
 
   ## Examples
 
       iex> Result.bimap({:ok, 5}, &(&1 * 2), &String.upcase/1)
       {:ok, 10}
-
-      iex> Result.bimap({:error, "bad"}, &(&1 * 2), &String.upcase/1)
-      {:error, "BAD"}
   """
+  @deprecated "Use bimap/2 with keyword options: bimap(result, on_ok: ok_fun, on_error: error_fun)"
   @spec bimap(t(a, e1), (a -> b), (e1 -> e2)) :: t(b, e2)
         when a: term(), b: term(), e1: term(), e2: term()
   def bimap({:ok, value}, ok_fun, _error_fun) when is_function(ok_fun, 1) do
@@ -932,7 +1002,7 @@ defmodule FnTypes.Result do
       iex> Result.pure(42)
       {:ok, 42}
   """
-  @impl FnTypes.Behaviours.Applicative
+  @impl FnTypes.Behaviours.Combinable
   @spec pure(value) :: ok(value) when value: term()
   def pure(value), do: ok(value)
 
@@ -946,7 +1016,7 @@ defmodule FnTypes.Result do
       iex> Result.bind({:ok, 5}, fn x -> {:ok, x * 2} end)
       {:ok, 10}
   """
-  @impl FnTypes.Behaviours.Monad
+  @impl FnTypes.Behaviours.Chainable
   @spec bind(t(a, e), (a -> t(b, e))) :: t(b, e) when a: term(), b: term(), e: term()
   def bind(result, fun), do: and_then(result, fun)
 
@@ -960,7 +1030,7 @@ defmodule FnTypes.Result do
       iex> Result.ap({:ok, fn x -> x * 2 end}, {:ok, 5})
       {:ok, 10}
   """
-  @impl FnTypes.Behaviours.Applicative
+  @impl FnTypes.Behaviours.Combinable
   @spec ap(t((a -> b), e), t(a, e)) :: t(b, e) when a: term(), b: term(), e: term()
   def ap(result_fun, result_val), do: apply(result_fun, result_val)
 
@@ -978,7 +1048,7 @@ defmodule FnTypes.Result do
       iex> Result.fold_left({:error, :not_found}, 10, &+/2)
       10
   """
-  @impl FnTypes.Behaviours.Foldable
+  @impl FnTypes.Behaviours.Reducible
   @spec fold_left(t(a, e), acc, (a, acc -> acc)) :: acc when a: term(), e: term(), acc: term()
   def fold_left({:ok, value}, acc, fun) when is_function(fun, 2), do: fun.(value, acc)
   def fold_left({:error, _}, acc, _fun), do: acc
@@ -993,7 +1063,7 @@ defmodule FnTypes.Result do
       iex> Result.fold_right({:ok, 5}, 10, &+/2)
       15
   """
-  @impl FnTypes.Behaviours.Foldable
+  @impl FnTypes.Behaviours.Reducible
   @spec fold_right(t(a, e), acc, (a, acc -> acc)) :: acc when a: term(), e: term(), acc: term()
   def fold_right({:ok, value}, acc, fun) when is_function(fun, 2), do: fun.(value, acc)
   def fold_right({:error, _}, acc, _fun), do: acc

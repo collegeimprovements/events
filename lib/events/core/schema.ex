@@ -257,7 +257,7 @@ defmodule Events.Core.Schema do
   defmacro field(name, type \\ :string, opts \\ []) do
     quote bind_quoted: [name: name, type: type, opts: opts] do
       opts = Events.Core.Schema.merge_preset_opts(opts)
-      {validation_opts, ecto_opts} = Events.Core.Schema.Field.__split_options__(opts, type, name)
+      {validation_opts, ecto_opts} = Events.Core.Schema.__split_options__(opts, type, name)
       validation_opts = Events.Core.Schema.normalize_validation_opts(validation_opts)
 
       Module.put_attribute(__MODULE__, :field_validations, {name, type, validation_opts})
@@ -999,7 +999,7 @@ defmodule Events.Core.Schema do
 
   @doc false
   def __define_field__(module, name, type, opts) do
-    {validation_opts, ecto_opts} = Events.Core.Schema.Field.__split_options__(opts, type, name)
+    {validation_opts, ecto_opts} = Events.Core.Schema.__split_options__(opts, type, name)
     validation_opts = normalize_validation_opts(validation_opts)
 
     Module.put_attribute(module, :field_validations, {name, type, validation_opts})
@@ -1008,7 +1008,7 @@ defmodule Events.Core.Schema do
 
   @doc false
   def __define_enum_field__(module, name, values, opts) do
-    {validation_opts, ecto_opts} = Events.Core.Schema.Field.__split_options__(opts, Ecto.Enum, name)
+    {validation_opts, ecto_opts} = Events.Core.Schema.__split_options__(opts, Ecto.Enum, name)
     validation_opts = normalize_validation_opts(validation_opts)
     ecto_opts = Keyword.put(ecto_opts, :values, values)
 
@@ -1382,21 +1382,23 @@ defmodule Events.Core.Schema do
         validate_immutable(changeset, fields: fields)
       end
 
-      def validate_immutable(changeset, opts) do
-        # Only validate on updates (existing records)
-        if is_nil(changeset.data.id) do
-          changeset
-        else
-          fields = Keyword.get(opts, :fields, immutable_fields())
-          message = Keyword.get(opts, :message, "cannot be changed")
+      def validate_immutable(%{data: %{id: nil}} = changeset, _opts) do
+        # New records - no immutability validation needed
+        changeset
+      end
 
-          Enum.reduce(fields, changeset, fn field, acc ->
-            if get_change(acc, field) != nil do
-              add_error(acc, field, message)
-            else
-              acc
-            end
-          end)
+      def validate_immutable(changeset, opts) do
+        # Existing records - validate immutable fields haven't changed
+        fields = Keyword.get(opts, :fields, immutable_fields())
+        message = Keyword.get(opts, :message, "cannot be changed")
+
+        Enum.reduce(fields, changeset, &validate_field_unchanged(&2, &1, message))
+      end
+
+      defp validate_field_unchanged(changeset, field, message) do
+        case get_change(changeset, field) do
+          nil -> changeset
+          _changed -> add_error(changeset, field, message)
         end
       end
 
@@ -1897,30 +1899,104 @@ defmodule Events.Core.Schema do
 
       @doc "Returns has_many FK expectations for validation."
       def has_many_expectations, do: __has_many_expectations__()
-
-      # =====================================================================
-      # Backward Compatibility (deprecated)
-      # =====================================================================
-
-      @doc false
-      @deprecated "Use cast_fields/0 instead"
-      def __cast_fields__, do: cast_fields()
-
-      @doc false
-      @deprecated "Use required_fields/0 instead"
-      def __required_fields__, do: required_fields()
-
-      @doc false
-      @deprecated "Use field_validations/0 instead"
-      def __field_validations__, do: field_validations()
-
-      @doc false
-      @deprecated "Use apply_validations/1 instead"
-      def __apply_field_validations__(changeset), do: apply_validations(changeset)
-
-      @doc false
-      @deprecated "Use base_changeset/2,3 instead"
-      def __base_changeset__(struct, attrs, opts \\ []), do: base_changeset(struct, attrs, opts)
     end
+  end
+
+  # ===========================================================================
+  # Module-Level Helper Functions
+  # ===========================================================================
+
+  @app_name Application.compile_env(:events, [__MODULE__, :app_name], :events)
+
+  @doc false
+  def __split_options__(opts, type, field_name \\ :unknown) do
+    # Check for warnings if enabled
+    if Application.get_env(@app_name, :schema_warnings, true) do
+      Events.Core.Schema.Warnings.check_field_options(field_name, type, opts)
+    end
+
+    # Define which options are validation-specific
+    validation_keys = [
+      # Common
+      :cast,
+      :required,
+      :null,
+      :message,
+      :messages,
+      :validate,
+      :validate_if,
+      :validate_unless,
+      # Behavioral
+      :immutable,
+      :sensitive,
+      :required_when,
+      # Documentation
+      :doc,
+      :example,
+      # String
+      :min_length,
+      :max_length,
+      :length,
+      :format,
+      :trim,
+      :normalize,
+      :mappers,
+      :in,
+      :not_in,
+      # Number
+      :min,
+      :max,
+      :greater_than,
+      :greater_than_or_equal_to,
+      :less_than,
+      :less_than_or_equal_to,
+      :equal_to,
+      :gt,
+      :gte,
+      :lt,
+      :lte,
+      :eq,
+      :positive,
+      :non_negative,
+      :negative,
+      :non_positive,
+      :multiple_of,
+      # Boolean
+      :acceptance,
+      # Array
+      :unique_items,
+      :item_format,
+      :item_min,
+      :item_max,
+      # Map
+      :required_keys,
+      :optional_keys,
+      :forbidden_keys,
+      :min_keys,
+      :max_keys,
+      :schema,
+      :value_type,
+      # Date/Time
+      :after,
+      :before,
+      :past,
+      :future,
+      # Constraints
+      :unique,
+      :foreign_key,
+      :check
+    ]
+
+    {validation_opts, ecto_opts} = Keyword.split(opts, validation_keys)
+
+    # Auto-add redact: true when sensitive: true
+    ecto_opts =
+      if Keyword.get(validation_opts, :sensitive, false) && !Keyword.has_key?(ecto_opts, :redact) do
+        Keyword.put(ecto_opts, :redact, true)
+      else
+        ecto_opts
+      end
+
+    {validation_opts, ecto_opts}
   end
 end
