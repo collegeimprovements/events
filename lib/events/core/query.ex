@@ -193,7 +193,7 @@ defmodule Events.Core.Query do
   """
 
   alias Events.Core.Query.{Token, Builder, Executor, Result, Queryable, Cast, Predicates, Search}
-  alias Events.Core.Query.Api.{Shortcuts, Scopes, Pagination, Ordering}
+  alias Events.Core.Query.Api.{Shortcuts, Scopes, Pagination, Ordering, Joining}
 
   # Configurable defaults - can be overridden via application config
   # config :events, Events.Core.Query, default_repo: MyApp.Repo
@@ -1978,7 +1978,7 @@ defmodule Events.Core.Query do
   def join(source, association_or_schema, type \\ :inner, opts \\ []) do
     source
     |> ensure_token()
-    |> Token.add_operation({:join, {association_or_schema, type, opts}})
+    |> Joining.join(association_or_schema, type, opts)
   end
 
   @doc """
@@ -1994,7 +1994,9 @@ defmodule Events.Core.Query do
   """
   @spec left_join(queryable(), atom() | module(), keyword()) :: Token.t()
   def left_join(source, association_or_schema, opts \\ []) do
-    join(source, association_or_schema, :left, opts)
+    source
+    |> ensure_token()
+    |> Joining.left_join(association_or_schema, opts)
   end
 
   @doc """
@@ -2009,7 +2011,9 @@ defmodule Events.Core.Query do
   """
   @spec right_join(queryable(), atom() | module(), keyword()) :: Token.t()
   def right_join(source, association_or_schema, opts \\ []) do
-    join(source, association_or_schema, :right, opts)
+    source
+    |> ensure_token()
+    |> Joining.right_join(association_or_schema, opts)
   end
 
   @doc """
@@ -2024,7 +2028,9 @@ defmodule Events.Core.Query do
   """
   @spec inner_join(queryable(), atom() | module(), keyword()) :: Token.t()
   def inner_join(source, association_or_schema, opts \\ []) do
-    join(source, association_or_schema, :inner, opts)
+    source
+    |> ensure_token()
+    |> Joining.inner_join(association_or_schema, opts)
   end
 
   @doc """
@@ -2038,7 +2044,9 @@ defmodule Events.Core.Query do
   """
   @spec full_join(queryable(), atom() | module(), keyword()) :: Token.t()
   def full_join(source, association_or_schema, opts \\ []) do
-    join(source, association_or_schema, :full, opts)
+    source
+    |> ensure_token()
+    |> Joining.full_join(association_or_schema, opts)
   end
 
   @doc """
@@ -2052,7 +2060,9 @@ defmodule Events.Core.Query do
   """
   @spec cross_join(queryable(), atom() | module(), keyword()) :: Token.t()
   def cross_join(source, association_or_schema, opts \\ []) do
-    join(source, association_or_schema, :cross, opts)
+    source
+    |> ensure_token()
+    |> Joining.cross_join(association_or_schema, opts)
   end
 
   @doc """
@@ -2089,16 +2099,7 @@ defmodule Events.Core.Query do
           | {atom(), atom(), keyword()}
         ]) :: Token.t()
   def joins(token, join_list) when is_list(join_list) do
-    Enum.reduce(join_list, token, fn
-      assoc, acc when is_atom(assoc) ->
-        join(acc, assoc, :inner, [])
-
-      {assoc, type}, acc ->
-        join(acc, assoc, type, [])
-
-      {assoc, type, opts}, acc ->
-        join(acc, assoc, type, opts)
-    end)
+    Joining.joins(token, join_list)
   end
 
   @doc """
