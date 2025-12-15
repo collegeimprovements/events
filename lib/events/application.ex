@@ -7,6 +7,11 @@ defmodule Events.Application do
 
   @impl true
   def start(_type, _args) do
+    # STEP 1: Validate critical configs BEFORE starting children
+    # This ensures we fail fast if there are configuration errors
+    validate_critical_configs()
+
+    # STEP 2: Start supervision tree
     children = [
       EventsWeb.Telemetry,
       Events.Core.Repo,
@@ -28,12 +33,75 @@ defmodule Events.Application do
     opts = [strategy: :one_for_one, name: Events.Supervisor]
     result = Supervisor.start_link(children, opts)
 
-    # Validate schemas against database after repo is started
+    # STEP 3: Validate all configs (including optional) and log warnings
+    validate_all_configs()
+
+    # STEP 4: Validate schemas against database after repo is started
     # Configured via :events, :schema_validation in config
     maybe_validate_schemas()
 
     result
   end
+
+  # ============================================
+  # Configuration Validation
+  # ============================================
+
+  defp validate_critical_configs do
+    case Events.Infra.ConfigValidator.validate_critical() do
+      {:ok, _results} ->
+        :ok
+
+      {:error, errors} ->
+        require Logger
+        Logger.error("Critical configuration errors detected!")
+
+        Enum.each(errors, fn {service, reason} ->
+          Logger.error("  #{service}: #{reason}")
+        end)
+
+        # Fail fast in production/test, continue in dev for better DX
+        if Mix.env() != :dev do
+          raise """
+          Application startup aborted due to critical configuration errors.
+
+          Fix the errors above and restart the application.
+          """
+        else
+          Logger.warning("Continuing startup in dev mode despite errors...")
+        end
+    end
+  end
+
+  defp validate_all_configs do
+    case Events.Infra.ConfigValidator.validate_all() do
+      %{warnings: warnings, errors: errors} when warnings != [] or errors != [] ->
+        require Logger
+
+        unless Enum.empty?(warnings) do
+          Logger.warning("Configuration warnings detected:")
+
+          Enum.each(warnings, fn %{service: service, reason: reason} ->
+            Logger.warning("  #{service}: #{reason}")
+          end)
+        end
+
+        unless Enum.empty?(errors) do
+          Logger.error("Non-critical configuration errors:")
+
+          Enum.each(errors, fn %{service: service, reason: reason} ->
+            Logger.error("  #{service}: #{reason}")
+          end)
+        end
+
+      _ ->
+        :ok
+    end
+  end
+
+  # ============================================
+  # Schema Validation
+  # ============================================
 
   defp maybe_validate_schemas do
     config = Application.get_env(:events, :schema_validation, [])

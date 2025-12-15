@@ -123,5 +123,4 @@ defmodule Events.Core.Query.Builder do
 
   defdelegate get_window_sql(name, definition), to: Advanced
   defdelegate build_window_select_expr(func, window_name), to: Advanced
-
 end

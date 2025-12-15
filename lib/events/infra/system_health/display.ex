@@ -35,6 +35,10 @@ defmodule Events.Infra.SystemHealth.Display do
     print_section_header("SERVICES", color?)
     print_services_table(health.services, color?)
 
+    # Config validation table
+    print_section_header("CONFIGURATION", color?)
+    print_config_table(health.config, color?)
+
     if infra_connections?(health.infra) do
       print_section_header("INFRA CONNECTIONS", color?)
       print_infra_list(health.infra, color?)
@@ -179,6 +183,82 @@ defmodule Events.Infra.SystemHealth.Display do
     end
 
     print_separator()
+  end
+
+  # Config Validation Table
+
+  defp print_config_table(config, color?) do
+    services = config.services
+
+    # Table header
+    header =
+      String.pad_trailing("SERVICE", 12) <>
+        " │ " <>
+        String.pad_trailing("STATUS", 10) <>
+        " │ " <>
+        String.pad_trailing("ADAPTER", 18) <>
+        " │ DETAILS"
+
+    IO.puts(header)
+
+    divider =
+      String.duplicate("─", 12) <>
+        "─┼─" <>
+        String.duplicate("─", 10) <>
+        "─┼─" <>
+        String.duplicate("─", 18) <>
+        "─┼─" <>
+        String.duplicate("─", 40)
+
+    IO.puts(divider)
+
+    # Table rows
+    Enum.each(services, fn service ->
+      print_config_row(service, color?)
+    end)
+
+    IO.puts(String.duplicate("═", @table_width))
+    IO.puts("")
+  end
+
+  defp print_config_row(service, color?) do
+    {status_text, status_color} =
+      case service.status do
+        :ok -> {"✓ Valid", :green}
+        :warning -> {"⚠ Warning", :yellow}
+        :error -> {"✗ Invalid", :red}
+        :disabled -> {"◯ Disabled", :light_black}
+      end
+
+    status_colored = colorize(status_text, status_color, color?)
+
+    details_text =
+      cond do
+        service.status == :error && service.reason ->
+          service.reason
+
+        service.status == :warning && service.reason ->
+          service.reason
+
+        service.status == :disabled && service.reason ->
+          service.reason
+
+        service.details ->
+          service.details
+
+        true ->
+          "-"
+      end
+
+    IO.puts(
+      String.pad_trailing(service.name, 12) <>
+        " │ " <>
+        pad_colored(status_text, status_colored, 10) <>
+        " │ " <>
+        String.pad_trailing(service.adapter || "-", 18) <>
+        " │ " <>
+        String.slice(details_text, 0, 40)
+    )
   end
 
   # Services Table

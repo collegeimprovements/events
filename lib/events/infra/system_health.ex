@@ -33,6 +33,7 @@ defmodule Events.Infra.SystemHealth do
 
   alias Events.Infra.SystemHealth.{
     Services,
+    Config,
     Environment,
     Migrations,
     Proxy,
@@ -63,6 +64,7 @@ defmodule Events.Infra.SystemHealth do
 
     result = %{
       services: Services.check_all(),
+      config: Config.check_all(),
       environment: Environment.get_info(),
       migrations: Migrations.check_status(),
       proxy: Proxy.get_config(),

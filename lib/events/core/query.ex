@@ -193,6 +193,7 @@ defmodule Events.Core.Query do
   """
 
   alias Events.Core.Query.{Token, Builder, Executor, Result, Queryable, Cast, Predicates, Search}
+  alias Events.Core.Query.Api.Shortcuts
 
   # Configurable defaults - can be overridden via application config
   # config :events, Events.Core.Query, default_repo: MyApp.Repo
@@ -220,6 +221,9 @@ defmodule Events.Core.Query do
   """
   @spec new(module() | Ecto.Query.t() | String.t()) :: Token.t()
   defdelegate new(schema_or_query), to: Token
+
+  @doc false
+  def default_repo, do: @default_repo
 
   # Internal helper to ensure we have a token from any queryable source
   @doc false
@@ -2785,11 +2789,7 @@ defmodule Events.Core.Query do
   """
   @spec first(Token.t(), keyword()) :: term() | nil
   def first(%Token{} = token, opts \\ []) do
-    token
-    |> limit(1)
-    |> execute!(Keyword.put(opts, :unsafe, true))
-    |> Map.get(:data)
-    |> List.first()
+    Shortcuts.first(token, opts, __MODULE__)
   end
 
   @doc """
@@ -2805,10 +2805,7 @@ defmodule Events.Core.Query do
   """
   @spec first!(Token.t(), keyword()) :: term()
   def first!(%Token{} = token, opts \\ []) do
-    case first(token, opts) do
-      nil -> raise Ecto.NoResultsError, queryable: build(token)
-      result -> result
-    end
+    Shortcuts.first!(token, opts, __MODULE__)
   end
 
   @doc """
@@ -2831,17 +2828,7 @@ defmodule Events.Core.Query do
   """
   @spec one(Token.t(), keyword()) :: term() | nil
   def one(%Token{} = token, opts \\ []) do
-    result =
-      token
-      |> limit(2)
-      |> execute!(Keyword.put(opts, :unsafe, true))
-      |> Map.get(:data)
-
-    case result do
-      [] -> nil
-      [single] -> single
-      [_ | _] -> raise Ecto.MultipleResultsError, queryable: build(token), count: 2
-    end
+    Shortcuts.one(token, opts, __MODULE__)
   end
 
   @doc """
@@ -2857,10 +2844,7 @@ defmodule Events.Core.Query do
   """
   @spec one!(Token.t(), keyword()) :: term()
   def one!(%Token{} = token, opts \\ []) do
-    case one(token, opts) do
-      nil -> raise Ecto.NoResultsError, queryable: build(token)
-      result -> result
-    end
+    Shortcuts.one!(token, opts, __MODULE__)
   end
 
   @doc """
@@ -2876,20 +2860,7 @@ defmodule Events.Core.Query do
   """
   @spec count(Token.t(), keyword()) :: non_neg_integer()
   def count(%Token{} = token, opts \\ []) do
-    repo = get_repo(opts)
-    timeout = opts[:timeout] || 15_000
-
-    query =
-      token
-      |> remove_operations(:select)
-      |> remove_operations(:order)
-      |> remove_operations(:preload)
-      |> remove_operations(:limit)
-      |> remove_operations(:offset)
-      |> remove_operations(:paginate)
-      |> build()
-
-    repo.aggregate(query, :count, timeout: timeout)
+    Shortcuts.count(token, opts, __MODULE__)
   end
 
   @doc """
@@ -2907,11 +2878,7 @@ defmodule Events.Core.Query do
   """
   @spec exists?(Token.t(), keyword()) :: boolean()
   def exists?(%Token{} = token, opts \\ []) do
-    repo = get_repo(opts)
-    timeout = opts[:timeout] || 15_000
-
-    query = build(token)
-    repo.exists?(query, timeout: timeout)
+    Shortcuts.exists?(token, opts, __MODULE__)
   end
 
   @doc """
@@ -2950,20 +2917,7 @@ defmodule Events.Core.Query do
   @spec aggregate(Token.t(), :count | :sum | :avg | :min | :max, atom(), keyword()) :: term()
   def aggregate(%Token{} = token, aggregate_type, field, opts \\ [])
       when aggregate_type in [:count, :sum, :avg, :min, :max] do
-    repo = get_repo(opts)
-    timeout = opts[:timeout] || 15_000
-
-    query =
-      token
-      |> remove_operations(:select)
-      |> remove_operations(:order)
-      |> remove_operations(:preload)
-      |> remove_operations(:limit)
-      |> remove_operations(:offset)
-      |> remove_operations(:paginate)
-      |> build()
-
-    repo.aggregate(query, aggregate_type, field, timeout: timeout)
+    Shortcuts.aggregate(token, aggregate_type, field, opts, __MODULE__)
   end
 
   @doc """
@@ -2981,9 +2935,7 @@ defmodule Events.Core.Query do
   """
   @spec all(Token.t(), keyword()) :: [term()]
   def all(%Token{} = token, opts \\ []) do
-    token
-    |> execute!(opts)
-    |> Map.get(:data)
+    Shortcuts.all(token, opts, __MODULE__)
   end
 
   @doc """
