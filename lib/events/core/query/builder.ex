@@ -6,15 +6,16 @@ defmodule Events.Core.Query.Builder do
   # Converts the token's operation list into an executable Ecto query.
   #
   # Architecture:
-  # The builder uses a unified filter system where all filter operators are defined
-  # once in `build_filter_dynamic/4` and can be used both for direct query building
-  # and dynamic expression building (for OR/AND groups).
+  # The builder is a lightweight coordinator that delegates to specialized sub-modules:
+  # - Filters: All filter operations (27 operators, OR/AND/NOT groups, EXISTS, field comparison)
+  # - Pagination: Offset and cursor-based pagination
+  # - Cursor: Cursor encoding/decoding and utilities
+  # - Search: Search ranking with similarity scoring
+  # - Joins: Association and schema joins
+  # - Selects: Select, preload, group_by, having, distinct
+  # - Advanced: Lock, CTE, window functions, raw WHERE, ordering
   #
-  # Filter Operators:
-  # All operators defined in @filter_operators are supported in both contexts:
-  # - Direct filter/4 calls
-  # - where_any/2 (OR groups)
-  # - where_all/2 (AND groups)
+  # Each sub-module is self-contained and can be understood independently.
 
   import Ecto.Query
   alias Events.Core.Query.Token
