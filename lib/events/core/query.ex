@@ -193,7 +193,7 @@ defmodule Events.Core.Query do
   """
 
   alias Events.Core.Query.{Token, Builder, Executor, Result, Queryable, Cast, Predicates, Search}
-  alias Events.Core.Query.Api.{Shortcuts, Scopes, Pagination, Ordering, Joining, Selecting}
+  alias Events.Core.Query.Api.{Shortcuts, Scopes, Pagination, Ordering, Joining, Selecting, Advanced}
 
   # Configurable defaults - can be overridden via application config
   # config :events, Events.Core.Query, default_repo: MyApp.Repo
@@ -2313,7 +2313,7 @@ defmodule Events.Core.Query do
   """
   @spec window(Token.t(), atom(), keyword()) :: Token.t()
   def window(token, name, opts \\ []) when is_atom(name) do
-    Token.add_operation(token, {:window, {name, opts}})
+    Advanced.window(token, name, opts)
   end
 
   @doc "Add a group by"
@@ -2357,7 +2357,7 @@ defmodule Events.Core.Query do
   @doc "Add a lock clause"
   @spec lock(Token.t(), String.t() | atom()) :: Token.t()
   def lock(token, mode) do
-    Token.add_operation(token, {:lock, mode})
+    Advanced.lock(token, mode)
   end
 
   @doc """
@@ -2411,12 +2411,7 @@ defmodule Events.Core.Query do
   """
   @spec with_cte(Token.t(), atom(), Token.t() | Ecto.Query.t(), keyword()) :: Token.t()
   def with_cte(token, name, cte_token_or_query, opts \\ []) do
-    if opts == [] do
-      # Backwards compatible - no opts
-      Token.add_operation(token, {:cte, {name, cte_token_or_query}})
-    else
-      Token.add_operation(token, {:cte, {name, cte_token_or_query, opts}})
-    end
+    Advanced.with_cte(token, name, cte_token_or_query, opts)
   end
 
   @doc """
@@ -2431,7 +2426,7 @@ defmodule Events.Core.Query do
   """
   @spec raw_where(Token.t(), String.t(), map()) :: Token.t()
   def raw_where(token, sql, params \\ %{}) do
-    Token.add_operation(token, {:raw_where, {sql, params}})
+    Advanced.raw_where(token, sql, params)
   end
 
   @doc """
@@ -2489,9 +2484,7 @@ defmodule Events.Core.Query do
   """
   @spec from_subquery(Token.t()) :: Ecto.Query.t()
   def from_subquery(%Token{} = token) do
-    import Ecto.Query
-    query = Builder.build(token)
-    subquery(query)
+    Advanced.from_subquery(token)
   end
 
   @doc """

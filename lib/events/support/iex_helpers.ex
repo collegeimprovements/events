@@ -23,7 +23,7 @@ defmodule Events.Support.IExHelpers do
   """
   def print_available_helpers do
     IO.puts("""
-    Available helpers:
+    #{IO.ANSI.cyan()}System Health#{IO.ANSI.reset()}
       - health()       : Display system health status
       - health_data()  : Get raw health data
       - db_check()     : Quick database check
@@ -32,7 +32,7 @@ defmodule Events.Support.IExHelpers do
       - proxy_check()  : Show proxy configuration
       - mise_check()   : Show mise environment
 
-    Migration & Schema Helpers:
+    #{IO.ANSI.cyan()}Migration & Schema#{IO.ANSI.reset()}
       - migration_help()           : Migration system overview
       - migration_help(:fields)    : Field macros reference
       - migration_help(:indexes)   : Index creation helpers
@@ -41,8 +41,45 @@ defmodule Events.Support.IExHelpers do
       - schema_help(:validation)   : All validation types & options
       - schema_help(:pipeline)     : Validation pipeline patterns
 
-    Common aliases loaded:
-      - Repo, Cache, SystemHealth
+    #{IO.ANSI.cyan()}Functional Types#{IO.ANSI.reset()}
+      - functional_help()          : Functional modules overview
+      - functional_help(:result)   : Result type reference
+      - functional_help(:maybe)    : Maybe type reference
+      - functional_help(:pipeline) : Pipeline patterns
+      - functional_help(:async)    : AsyncResult reference
+      - functional_help(:guards)   : Guards and pattern matching
+
+    #{IO.ANSI.cyan()}CRUD System#{IO.ANSI.reset()}
+      - crud_help()                : CRUD system overview
+      - crud_help(:basic)          : Basic operations
+      - crud_help(:multi)          : Multi (transactions)
+      - crud_help(:merge)          : Merge (upserts)
+      - crud_help(:options)        : Common options
+      - crud_help(:examples)       : Real-world examples
+
+    #{IO.ANSI.cyan()}Workflow System#{IO.ANSI.reset()}
+      - workflow_help()            : Workflow system overview
+      - workflow_help(:quickstart) : Quick start guide
+      - workflow_help(:steps)      : Step configuration
+      - workflow_help(:decorator)  : Decorator API
+      - workflow_help(:rollback)   : Saga pattern rollbacks
+
+    #{IO.ANSI.cyan()}Decorator System#{IO.ANSI.reset()}
+      - decorator_help()           : Decorator system overview
+      - decorator_help(:cache)     : Cache decorators
+      - decorator_help(:telemetry) : Telemetry decorators
+      - decorator_help(:types)     : Type decorators
+
+    #{IO.ANSI.cyan()}IEx Examples#{IO.ANSI.reset()}
+      - examples()                 : Show practical IEx examples
+      - examples(:result)          : Result examples
+      - examples(:crud)            : CRUD examples
+      - examples(:workflow)        : Workflow examples
+
+    #{IO.ANSI.cyan()}Common Aliases Loaded#{IO.ANSI.reset()}
+      - Repo, Cache, Query, Crud, Multi, Merge
+      - Result, Maybe, Pipeline, AsyncResult, Guards
+      - Workflow, Decorator, SystemHealth, S3
       - Endpoint, Router
     """)
   end
