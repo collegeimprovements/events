@@ -69,6 +69,7 @@ defmodule Events.MixProject do
       # ============================================
       # Extracted Libraries (path dependencies)
       # ============================================
+      {:dag, path: "libs/dag"},
       {:fn_types, path: "libs/fn_types"},
       {:fn_decorator, path: "libs/fn_decorator"},
       {:om_field_names, path: "libs/om_field_names"},
