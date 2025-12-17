@@ -11,6 +11,7 @@
 | `docs/claude/ASYNC_RESULT.md` | AsyncResult comprehensive reference |
 | `docs/claude/EXAMPLES.md` | Real-world Pipeline + AsyncResult examples |
 | `docs/claude/SCHEMA.md` | Schema and Migration quick reference |
+| `docs/claude/SCHEMA_CHANGESET_REFERENCE.md` | Full Schema, Field, Changeset reference |
 | `docs/claude/DECORATORS.md` | Decorator quick reference |
 | `docs/claude/CRUD.md` | CRUD system, Multi, Merge, options reference |
 | `docs/claude/S3.md` | S3 API reference |
@@ -409,7 +410,8 @@ docs/
 │   ├── PATTERNS.md           # Code patterns
 │   ├── FUNCTIONAL.md         # Result, Maybe, Pipeline, AsyncResult
 │   ├── EXAMPLES.md           # Real-world examples
-│   ├── SCHEMA.md             # Schema/Migration reference
+│   ├── SCHEMA.md             # Schema/Migration quick reference
+│   ├── SCHEMA_CHANGESET_REFERENCE.md  # Full Schema, Field, Changeset guide
 │   ├── DECORATORS.md         # Decorator reference
 │   ├── S3.md                 # S3 API reference
 │   ├── SCHEDULER.md          # Cron scheduler reference
