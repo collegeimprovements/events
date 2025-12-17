@@ -18,6 +18,44 @@ Effect.new(:order)
 
 ---
 
+## API Quick Reference
+
+| Function | Purpose | Example |
+|----------|---------|---------|
+| `new/2` | Create effect | `Effect.new(:order, label: "...", tags: [...], metadata: %{})` |
+| `step/4` | Add step | `Effect.step(e, :name, &fun/1, retry: [max: 3])` |
+| `embed/4` | Nest effect | `Effect.embed(e, :pay, Payment.build(), context: ...)` |
+| `parallel/4` | Concurrent steps | `Effect.parallel(e, :checks, [a: &a/1, b: &b/1])` |
+| `branch/5` | Conditional path | `Effect.branch(e, :type, & &1.kind, %{a: A.build()})` |
+| `each/5` | Iterate | `Effect.each(e, :all, & &1.items, Item.build())` |
+| `race/4` | First wins | `Effect.race(e, :fetch, [Cache.build(), DB.build()])` |
+| `using/4` | Resource mgmt | `Effect.using(e, :conn, acquire: ..., release: ...)` |
+| `require/4` | Precondition | `Effect.require(e, :auth, & &1.admin?, :unauthorized)` |
+| `validate/3` | Validation step | `Effect.validate(e, :amt, & if &1.amt > 0, do: :ok)` |
+| `assign/3` | Set context | `Effect.assign(e, :ts, DateTime.utc_now())` |
+| `tap/3` | Side effect | `Effect.tap(e, :log, & Logger.info(&1.id))` |
+| `group/4` | Organize steps | `Effect.group(e, :validation, fn e -> ... end)` |
+| `ensure/3` | Always cleanup | `Effect.ensure(e, :close, fn ctx, _ -> close() end)` |
+| `run/3` | Execute | `Effect.run(effect, ctx, timeout: 30_000)` |
+| `middleware/2` | Wrap steps | `Effect.middleware(e, fn step, ctx, next -> ... end)` |
+| `checkpoint/3` | Pause point | `Effect.checkpoint(e, :name, store: ..., load: ...)` |
+| `resume/3` | Resume | `Effect.resume(effect, :checkpoint, execution_id)` |
+| `to_mermaid/2` | Diagram | `Effect.to_mermaid(effect)` |
+| `to_ascii/2` | Text diagram | `Effect.to_ascii(effect)` |
+
+---
+
+## Naming Changes from Draft
+
+| Old | New | Reason |
+|-----|-----|--------|
+| `guard/4` | `require/4` | Elixir-idiomatic, clear intent |
+| `steps/4` | `embed/4` | Clearer that it embeds another effect |
+| `if:` option | `when:` option | Reads like Elixir guard clause |
+| `input:` option | `context:` option | Explicit context passing for nested effects |
+
+---
+
 ## Full API Reference
 
 ### Creation
@@ -25,22 +63,48 @@ Effect.new(:order)
 ```elixir
 @spec new(name :: atom(), opts :: keyword()) :: Effect.t()
 Effect.new(:workflow_name)
-Effect.new(:workflow_name, telemetry: [:my_app, :workflow])
+Effect.new(:workflow_name,
+  # ─── Observability ───
+  telemetry: [:my_app, :workflow],  # Telemetry event prefix
+  label: "Order Processing",         # Human-readable label
+  tags: [:critical, :payment],       # Categorization tags
+
+  # ─── Metadata (carried through execution) ───
+  metadata: %{version: "1.0", team: "payments"},
+
+  # ─── Services (simple module map) ───
+  services: %{payment: StripeGateway, email: SendGrid}
+)
+
+# All options can be overridden at run time
 ```
 
 ### Step Building (Lazy - No Execution)
 
 ```elixir
-# Basic step - takes context, returns {:ok, additions} | {:error, reason}
+# Basic step - takes context, returns one of:
+#   {:ok, map}    - Continue, merge map into context
+#   {:error, term} - Stop, trigger rollbacks
+#   {:halt, term}  - Stop gracefully, run ensure, NO rollback
+
 @spec step(Effect.t(), atom(), step_fun(), keyword()) :: Effect.t()
 Effect.step(effect, :step_name, fn ctx -> {:ok, %{result: value}} end)
 Effect.step(effect, :step_name, &module_fun/1, opts)
 
-# Nested effect - embed another effect as a single step
+# Example with halt for fraud detection
+Effect.step(effect, :fraud_check, fn ctx ->
+  case FraudService.check(ctx.user, ctx.amount) do
+    :passed -> {:ok, %{fraud_status: :passed}}
+    :fraud  -> {:halt, %{reason: :fraud, user_id: ctx.user.id}}
+    {:error, e} -> {:error, e}
+  end
+end)
+
+# Embed - nest another effect as a single step
 # The nested effect's steps are flattened into the parent DAG
 # Context flows through: parent context → nested steps → merged back
-@spec steps(Effect.t(), atom(), Effect.t(), keyword()) :: Effect.t()
-Effect.steps(effect, :payment, PaymentFlow.build(), after: :validate)
+@spec embed(Effect.t(), atom(), Effect.t(), keyword()) :: Effect.t()
+Effect.embed(effect, :payment, PaymentFlow.build(), after: :validate)
 # If PaymentFlow has [:authorize, :capture, :log], the DAG becomes:
 #   validate → payment.authorize → payment.capture → payment.log → next_step
 # The :payment step acts as a namespace prefix
@@ -106,11 +170,11 @@ Effect.validate(effect, :check_amount, fn ctx ->
   if ctx.amount > 0, do: :ok, else: {:error, :invalid_amount}
 end)
 
-# Guard - assert condition, halt with error if false
-# Unlike validate which is a step, guard is a gate that doesn't advance the pipeline
-@spec guard(Effect.t(), atom(), condition_fun(), error_term()) :: Effect.t()
-Effect.guard(effect, :authorized, & &1.user.admin?, :unauthorized)
-# Guards are for preconditions: "stop here if X is not true"
+# Require - assert condition, halt with error if false
+# Unlike validate which is a step, require is a gate that doesn't advance the pipeline
+@spec require(Effect.t(), atom(), condition_fun(), error_term()) :: Effect.t()
+Effect.require(effect, :authorized, & &1.user.admin?, :unauthorized)
+# Require is for preconditions: "this condition is required to proceed"
 # They don't produce output, just validate invariants
 
 # Tap - side effect, doesn't modify context
@@ -129,7 +193,7 @@ Effect.group(effect, :validation, fn e ->
   e
   |> Effect.step(:check_user, &check_user/1)
   |> Effect.step(:check_permissions, &check_permissions/1)
-  |> Effect.guard(:authorized, & &1.authorized, :unauthorized)
+  |> Effect.require(:authorized, & &1.authorized, :unauthorized)
 end, after: :load)
 
 # Groups help with:
@@ -149,37 +213,6 @@ Effect.group(effect, :external_calls,
   timeout: 5_000,            # Group-wide timeout
   circuit: [name: :external] # Shared circuit breaker
 )
-```
-
-### Services (Dependency Injection)
-
-Inspired by Effect.ts Layers - define services that steps depend on:
-
-```elixir
-# Define a service contract
-defmodule MyApp.Services.PaymentGateway do
-  use Effect.Service
-
-  @callback authorize(card :: map(), amount :: integer()) ::
-    {:ok, %{auth_id: String.t()}} | {:error, term()}
-  @callback capture(auth_id :: String.t()) ::
-    {:ok, %{receipt: String.t()}} | {:error, term()}
-end
-
-# Provide services at runtime
-Effect.run(effect, context,
-  services: %{
-    PaymentGateway => StripeGateway,  # Production
-    # or
-    PaymentGateway => MockGateway     # Testing
-  }
-)
-
-# Access service in step
-Effect.step(effect, :charge, fn ctx, services ->
-  gateway = services[PaymentGateway]
-  gateway.authorize(ctx.card, ctx.amount)
-end)
 ```
 
 ### Composition
@@ -205,8 +238,13 @@ Effect.append(main_effect, cleanup_effect)
 ### Execution (Single Entry Point)
 
 ```elixir
-# Synchronous execution
-@spec run(Effect.t(), context(), keyword()) :: {:ok, context()} | {:error, Error.t()}
+# Synchronous execution - returns one of:
+#   {:ok, context}      - Completed successfully
+#   {:error, Error.t()} - Failed, rollbacks executed
+#   {:halted, term}     - Halted early via {:halt, _}, ensure ran, no rollback
+
+@spec run(Effect.t(), context(), keyword()) ::
+  {:ok, context()} | {:error, Error.t()} | {:halted, term()}
 Effect.run(effect, %{order_id: 123})
 Effect.run(effect, context, timeout: 30_000, telemetry: [:app, :order])
 
@@ -305,6 +343,82 @@ Effect.inspect(effect, verbose: true)
 # Services required: [PaymentGateway, FraudService]
 ```
 
+### Middleware (Cross-Cutting Concerns)
+
+Middleware wraps every step execution, similar to Plug/Req:
+
+```elixir
+# Middleware signature: fn step_name, context, next_fn -> result
+@spec middleware(Effect.t(), middleware_fun()) :: Effect.t()
+
+# Timing middleware
+Effect.middleware(effect, fn step, ctx, next ->
+  start = System.monotonic_time(:millisecond)
+  result = next.()
+  duration = System.monotonic_time(:millisecond) - start
+  Logger.debug("[#{step}] completed in #{duration}ms")
+  result
+end)
+
+# Auth middleware - check auth before each step
+Effect.middleware(effect, fn step, ctx, next ->
+  if authorized?(ctx.user, step) do
+    next.()
+  else
+    {:error, :unauthorized}
+  end
+end)
+
+# Tracing middleware
+Effect.middleware(effect, fn step, ctx, next ->
+  span = Tracer.start_span(step)
+  try do
+    result = next.()
+    Tracer.set_status(span, :ok)
+    result
+  rescue
+    e ->
+      Tracer.set_status(span, :error)
+      reraise e, __STACKTRACE__
+  after
+    Tracer.end_span(span)
+  end
+end)
+
+# Multiple middleware (executed in order, like onion layers)
+Effect.new(:order)
+|> Effect.middleware(&timing_middleware/3)
+|> Effect.middleware(&auth_middleware/3)
+|> Effect.middleware(&tracing_middleware/3)
+|> Effect.step(:process, &process/1)
+# Execution: tracing → auth → timing → process → timing → auth → tracing
+```
+
+### Checkpoint (Pause/Resume)
+
+For long-running workflows that need persistence:
+
+```elixir
+@spec checkpoint(Effect.t(), atom(), keyword()) :: Effect.t()
+
+# Add checkpoint after critical step
+Effect.new(:order)
+|> Effect.step(:payment, &charge/1)
+|> Effect.checkpoint(:after_payment,
+    store: &Checkpoints.save/2,  # Persistence callback
+    load: &Checkpoints.load/1    # Recovery callback
+  )
+|> Effect.step(:fulfillment, &fulfill/1)
+
+# On failure after checkpoint, can resume:
+{:ok, ctx} = Effect.resume(effect, :after_payment, execution_id)
+
+# Checkpoint stores:
+# - Current context state
+# - Completed steps
+# - Execution metadata (timestamps, attempt counts)
+```
+
 ### Hooks
 
 ```elixir
@@ -337,11 +451,11 @@ Effect.step(:name, fun,
     backoff: :exponential,     # :fixed | :linear | :exponential | :decorrelated_jitter
     max_delay: 30_000,         # Cap
     jitter: 0.1,               # Randomness 0.0-1.0
-    when: &Recoverable.recoverable?/1  # Use Recoverable protocol!
+    when: &Recoverable.recoverable?/1  # Only retry when predicate returns true
   ],
 
   # ─── Conditional ───
-  if: fn ctx -> ctx.enabled end,     # Skip step if returns false
+  when: fn ctx -> ctx.enabled end,   # Skip step when condition is false
 
   # ─── Error Handling ───
   catch: fn error, ctx -> {:ok, fallback} | {:error, e} end,
@@ -352,8 +466,25 @@ Effect.step(:name, fun,
   rollback: fn ctx -> :ok end,
   compensate: fn ctx, error -> :ok end,
 
-  # ─── Telemetry ───
+  # ─── Circuit Breaker ───
+  circuit: [
+    name: :external_api,         # Circuit name (shared across calls)
+    threshold: 5,                # Failures before opening
+    reset_timeout: 30_000,       # Time before half-open
+    trips_on: &Recoverable.trips_circuit?/1  # Which errors trip
+  ],
+
+  # ─── Rate Limiting ───
+  rate_limit: [
+    name: :api_calls,            # Rate limiter name
+    limit: 100,                  # Max calls
+    window: :timer.seconds(60),  # Per time window
+    on_exceeded: :queue          # :queue | :drop | :error
+  ],
+
+  # ─── Telemetry / Tracing ───
   telemetry: [:my_app, :step],
+  trace: true,                   # OpenTelemetry span
   redact: [:password, :token]
 )
 ```
@@ -435,15 +566,20 @@ Effect.step(:nested, nested_effect,
 ```elixir
 Effect.run(effect, context,
   # ─── Execution ───
-  async: false,              # Return handle for async
   timeout: 60_000,           # Total timeout
+  async: false,              # Return handle for async
+
+  # ─── Overrides (merge with Effect.new settings) ───
+  metadata: %{trace_id: "abc"},  # Merged with build-time metadata
+  services: %{payment: MockPayment},  # Overrides build-time services
+  tags: [:test],                 # Appended to build-time tags
 
   # ─── Error Handling ───
   on_error: :fail_fast,      # :fail_fast | :collect_all
   normalize_errors: true,    # Use Normalizable protocol
 
   # ─── Observability ───
-  telemetry: [:my_app, :effects],
+  telemetry: [:my_app, :effects],  # Overrides build-time
   trace: true,               # Capture execution trace
   report: true,              # Return {result, Report.t()}
 
@@ -451,6 +587,12 @@ Effect.run(effect, context,
   mocks: %{step_name: fn ctx -> {:ok, %{}} end},
   dry_run: false
 )
+
+# Override behavior:
+# - metadata: deep merge (run-time wins on conflict)
+# - services: shallow merge (run-time wins on conflict)
+# - tags: append (build-time ++ run-time)
+# - other options: run-time overrides build-time
 ```
 
 ---
@@ -465,14 +607,21 @@ Effect.run(effect, context,
 - `libs/effect/lib/effect/step.ex` - Step struct, options parsing
 - `libs/effect/lib/effect/runtime.ex` - Execution engine
 - `libs/effect/lib/effect/context.ex` - Context management
+- `libs/effect/lib/effect/middleware.ex` - Middleware chain
+- `libs/effect/lib/effect/checkpoint.ex` - Checkpoint persistence
 
 **Features:**
 - [ ] Effect struct with steps list, metadata
 - [ ] `new/2`, `step/4` - lazy step accumulation
 - [ ] `run/3` - sequential execution
 - [ ] Context accumulation (merge step results)
-- [ ] Error handling with `{:ok, map} | {:error, term}`
+- [ ] Return handling: `{:ok, map}`, `{:error, term}`, `{:halt, term}`
 - [ ] `after:` dependencies (linear chain)
+- [ ] `middleware/2` - wrap step execution (onion model)
+- [ ] `checkpoint/3` - persist state, enable resume
+- [ ] `resume/3` - resume from checkpoint
+- [ ] `services:` option - simple module map for DI
+- [ ] `metadata:`, `label:`, `tags:` options
 - [ ] Telemetry integration (start/stop events)
 
 ### Phase 2: Resilience (P0) - Error Recovery
@@ -480,6 +629,8 @@ Effect.run(effect, context,
 **Files to create:**
 - `libs/effect/lib/effect/retry.ex` - Retry logic with backoff
 - `libs/effect/lib/effect/saga.ex` - Rollback orchestration
+- `libs/effect/lib/effect/circuit.ex` - Circuit breaker
+- `libs/effect/lib/effect/rate_limit.ex` - Rate limiting
 
 **Features:**
 - [ ] `retry:` option with all backoff strategies
@@ -488,6 +639,8 @@ Effect.run(effect, context,
 - [ ] `compensate:` with error context
 - [ ] Reverse-order rollback execution
 - [ ] Rollback error collection
+- [ ] `circuit:` - circuit breaker per step/shared
+- [ ] `rate_limit:` - rate limiting per step/shared
 
 ### Phase 3: Control Flow (P0) - DAG Execution
 
@@ -501,8 +654,8 @@ Effect.run(effect, context,
 - [ ] Topological sort for execution order
 - [ ] `parallel/4` - concurrent step groups
 - [ ] `branch/5` - conditional paths
-- [ ] `steps/4` - nested effects
-- [ ] `if:` conditional execution
+- [ ] `embed/4` - nested effects (was `steps`)
+- [ ] `when:` conditional execution
 
 ### Phase 4: Advanced (P1)
 
@@ -526,6 +679,7 @@ Effect.run(effect, context,
 - `libs/effect/lib/effect/report.ex` - Execution report
 - `libs/effect/lib/effect/visualization.ex` - ASCII/Mermaid
 - `libs/effect/lib/effect/error.ex` - Structured errors
+- `libs/effect/lib/effect/telemetry.ex` - Telemetry + OpenTelemetry
 
 **Features:**
 - [ ] Execution report with timing, steps, errors
@@ -533,6 +687,9 @@ Effect.run(effect, context,
 - [ ] `dry_run/2` - simulate without execution
 - [ ] Structured Effect.Error type
 - [ ] Rich telemetry events
+- [ ] OpenTelemetry integration (`trace: true` option)
+- [ ] Span creation, context propagation
+- [ ] Attributes: step name, duration, status, error
 
 ### Phase 6: Testing & Polish (P1)
 
@@ -560,9 +717,14 @@ libs/effect/
 │       ├── step.ex               # Step struct, options
 │       ├── runtime.ex            # Execution engine
 │       ├── context.ex            # Context management
+│       ├── middleware.ex         # Middleware chain (P1)
+│       ├── checkpoint.ex         # Checkpoint/resume (P1)
 │       ├── dag.ex                # DAG using libs/dag
 │       ├── retry.ex              # Retry with Recoverable
 │       ├── saga.ex               # Rollback orchestration
+│       ├── circuit.ex            # Circuit breaker
+│       ├── rate_limit.ex         # Rate limiting
+│       ├── telemetry.ex          # Telemetry + OpenTelemetry
 │       ├── parallel.ex           # Concurrent execution
 │       ├── branch.ex             # Conditional routing
 │       ├── each.ex               # Iteration
@@ -579,6 +741,8 @@ libs/effect/
         ├── runtime_test.exs
         ├── retry_test.exs
         ├── saga_test.exs
+        ├── middleware_test.exs
+        ├── checkpoint_test.exs
         └── ...
 ```
 
@@ -801,7 +965,7 @@ defmodule Orders.ProcessOrder do
       end
     )
 
-    |> Effect.guard(:has_items, & length(&1.items) > 0, :empty_order)
+    |> Effect.require(:has_items, & length(&1.items) > 0, :empty_order)
 
     # ─── Parallel Checks ───
     |> Effect.parallel(:verification, [
@@ -816,21 +980,21 @@ defmodule Orders.ProcessOrder do
       after: :check_status
     )
 
-    |> Effect.guard(:fraud_ok,
+    |> Effect.require(:fraud_ok,
       fn ctx -> ctx.fraud_status in [:passed, :pending_review] end,
       :fraud_rejected
     )
 
-    |> Effect.guard(:inventory_ok,
+    |> Effect.require(:inventory_ok,
       fn ctx -> ctx.inventory_available end,
       :out_of_stock
     )
 
     # ─── Payment Processing (Nested Effect) ───
-    |> Effect.steps(:payment, Payments.ProcessPayment.build(),
+    |> Effect.embed(:payment, Payments.ProcessPayment.build(),
       after: :inventory_ok,
       # Pass only needed context to nested effect
-      input: fn ctx -> %{
+      context: fn ctx -> %{
         card: ctx.order.payment_method,
         amount: ctx.order.total,
         user_id: ctx.user.id
@@ -852,7 +1016,7 @@ defmodule Orders.ProcessOrder do
       },
       after: :payment,
       # Pass relevant context
-      input: fn ctx -> %{
+      context: fn ctx -> %{
         product_id: hd(ctx.items).product_id,
         product_name: hd(ctx.items).name,
         user_id: ctx.user.id,
@@ -994,13 +1158,13 @@ Orders.ProcessOrder.build()
 ```
 1. load_order          - Load order from DB
 2. check_status        - Validate order status
-3. has_items           - Guard: ensure items exist
+3. has_items           - Require: items exist
 4. verification        - PARALLEL:
    ├─ fraud_check      - Check fraud score (5s timeout)
    └─ inventory_check  - Check stock levels
-5. fraud_ok            - Guard: fraud check passed
-6. inventory_ok        - Guard: inventory available
-7. payment             - NESTED EFFECT:
+5. fraud_ok            - Require: fraud check passed
+6. inventory_ok        - Require: inventory available
+7. payment             - EMBEDDED EFFECT:
    ├─ authorize        - Authorize card
    ├─ capture          - Capture payment
    └─ log_transaction  - Record transaction
@@ -1027,10 +1191,10 @@ Orders.ProcessOrder.build()
 ← fulfillment         (not started - skipped)
 ← payment.capture     (FAILED - triggers rollback)
 ← payment.authorize   - PaymentGateway.void(auth_id)
-← inventory_ok        (guard - no rollback)
-← fraud_ok            (guard - no rollback)
+← inventory_ok        (require - no rollback)
+← fraud_ok            (require - no rollback)
 ← verification        (no rollback defined)
-← has_items           (guard - no rollback)
+← has_items           (require - no rollback)
 ← check_status        (no rollback)
 ← load_order          (no rollback)
 ```
@@ -1051,8 +1215,27 @@ Orders.ProcessOrder.build()
 |------|---------|
 | `libs/effect/lib/effect.ex` | Main API facade |
 | `libs/effect/lib/effect/runtime.ex` | Execution engine |
+| `libs/effect/lib/effect/middleware.ex` | Middleware chain |
+| `libs/effect/lib/effect/checkpoint.ex` | Checkpoint/resume |
 | `libs/effect/lib/effect/retry.ex` | Recoverable-aware retry |
 | `libs/effect/lib/effect/saga.ex` | Rollback orchestration |
+| `libs/effect/lib/effect/circuit.ex` | Circuit breaker |
+| `libs/effect/lib/effect/rate_limit.ex` | Rate limiting |
+| `libs/effect/lib/effect/telemetry.ex` | Telemetry + OpenTelemetry |
 | `libs/effect/lib/effect/parallel.ex` | Concurrent execution |
 | `libs/effect/lib/effect/branch.ex` | Conditional routing |
 | `libs/dag/lib/dag.ex` | DAG operations (exists) |
+
+---
+
+## Future Improvements (P2+)
+
+Consider for later phases after core is stable:
+
+### 1. on_skip Hook
+```elixir
+Effect.on_skip(effect, fn step, ctx ->
+  Logger.info("Skipped #{step} due to when: condition")
+end)
+```
+
