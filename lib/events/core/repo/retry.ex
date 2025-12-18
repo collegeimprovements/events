@@ -2,18 +2,15 @@ defmodule Events.Core.Repo.Retry do
   @moduledoc """
   Retry helpers for Repo operations with transient error handling.
 
-  Provides automatic retry logic for database operations that may fail
-  due to transient conditions like deadlocks, connection timeouts, or
-  temporary unavailability.
+  Delegates to `FnTypes.Retry` for core retry logic while providing
+  Repo-specific convenience functions.
 
   ## Usage
 
       alias Events.Core.Repo.Retry
 
       # Simple query with retry
-      Retry.with_retry(fn ->
-        Repo.get(User, id)
-      end)
+      Retry.with_retry(fn -> Repo.get(User, id) end)
 
       # Transaction with retry
       Retry.transaction_with_retry(fn ->
@@ -21,95 +18,55 @@ defmodule Events.Core.Repo.Retry do
         Repo.update(User.changeset(user, %{name: "new"}))
       end)
 
-      # Custom retry options
-      Retry.with_retry(fn -> Repo.all(User) end,
-        max_attempts: 5,
-        base_delay: 100
-      )
+      # Multi with retry
+      Retry.multi_with_retry(multi)
 
   ## Configuration
 
   - `:max_attempts` - Maximum number of attempts (default: 3)
   - `:base_delay` - Base delay in milliseconds (default: 100)
   - `:max_delay` - Maximum delay cap (default: 5000)
+  - `:backoff` - Backoff strategy (default: :exponential)
   - `:on_retry` - Callback for retry events `(error, attempt, delay) -> any`
 
-  ## Retried Errors
-
-  The following transient errors trigger automatic retry:
-
-  - `DBConnection.ConnectionError` with reason `:deadlock`
-  - `DBConnection.ConnectionError` with pool timeout
-  - `Postgrex.Error` with deadlock or serialization failure
-  - Connection reset/refused errors
+  See `FnTypes.Retry` for full options and backoff strategies.
   """
 
-  require Logger
+  alias FnTypes.Retry
 
-  alias FnTypes.Protocols.Recoverable
-  alias FnTypes.Protocols.Recoverable.Helpers
-
-  @type opts :: [
-          max_attempts: pos_integer(),
-          base_delay: pos_integer(),
-          max_delay: pos_integer(),
-          on_retry: (term(), pos_integer(), pos_integer() -> any())
-        ]
-
-  @default_max_attempts 3
-  @default_base_delay 100
-  @default_max_delay 5_000
+  @type opts :: Retry.opts()
 
   @doc """
   Executes a function with automatic retry on transient database errors.
 
+  Delegates to `FnTypes.Retry.execute/2`.
+
   ## Examples
 
-      # Basic usage
       Retry.with_retry(fn -> Repo.get(User, id) end)
 
-      # With options
       Retry.with_retry(fn -> Repo.all(query) end,
         max_attempts: 5,
         on_retry: fn error, attempt, delay ->
           Logger.warning("Retrying after \#{inspect(error)}, attempt \#{attempt}")
         end
       )
-
-  ## Return Values
-
-  - Returns the result of the function on success
-  - Returns `{:error, error}` after all retries exhausted
-  - Non-recoverable errors are returned immediately without retry
   """
   @spec with_retry((-> term()), opts()) :: term()
-  def with_retry(fun, opts \\ []) when is_function(fun, 0) do
-    max_attempts = Keyword.get(opts, :max_attempts, @default_max_attempts)
-    base_delay = Keyword.get(opts, :base_delay, @default_base_delay)
-    max_delay = Keyword.get(opts, :max_delay, @default_max_delay)
-    on_retry = Keyword.get(opts, :on_retry)
-
-    do_with_retry(fun, 1, max_attempts, base_delay, max_delay, on_retry)
-  end
+  defdelegate with_retry(fun, opts \\ []), to: Retry, as: :execute
 
   @doc """
   Executes a transaction with automatic retry on transient errors.
-
-  Wraps `Repo.transaction/2` with retry logic. The entire transaction
-  is retried if a transient error occurs.
 
   ## Examples
 
       Retry.transaction_with_retry(fn ->
         user = Repo.get!(User, id)
-        changeset = User.changeset(user, %{balance: user.balance - 100})
-        Repo.update!(changeset)
+        Repo.update!(User.changeset(user, %{balance: user.balance - 100}))
       end)
 
-      # With transaction options
-      Retry.transaction_with_retry(
-        fn -> ... end,
-        retry_opts: [max_attempts: 5],
+      Retry.transaction_with_retry(fn -> ... end,
+        max_attempts: 5,
         transaction_opts: [timeout: 30_000]
       )
 
@@ -123,18 +80,14 @@ defmodule Events.Core.Repo.Retry do
     retry_opts = Keyword.get(opts, :retry_opts, [])
     transaction_opts = Keyword.get(opts, :transaction_opts, [])
 
-    with_retry(
-      fn ->
-        Events.Core.Repo.transaction(fun, transaction_opts)
-      end,
-      retry_opts
-    )
+    Retry.transaction(fun, Keyword.merge(retry_opts, [
+      repo: Events.Core.Repo,
+      transaction_opts: transaction_opts
+    ]))
   end
 
   @doc """
   Executes a Multi with automatic retry on transient errors.
-
-  Wraps `Repo.transaction/2` for Multi operations with retry logic.
 
   ## Examples
 
@@ -147,7 +100,6 @@ defmodule Events.Core.Repo.Retry do
 
       Retry.multi_with_retry(multi)
 
-      # With options
       Retry.multi_with_retry(multi,
         retry_opts: [max_attempts: 5],
         transaction_opts: [timeout: 60_000]
@@ -158,10 +110,8 @@ defmodule Events.Core.Repo.Retry do
     retry_opts = Keyword.get(opts, :retry_opts, [])
     transaction_opts = Keyword.get(opts, :transaction_opts, [])
 
-    with_retry(
-      fn ->
-        Events.Core.Repo.transaction(multi, transaction_opts)
-      end,
+    Retry.execute(
+      fn -> Events.Core.Repo.transaction(multi, transaction_opts) end,
       retry_opts
     )
   end
@@ -175,9 +125,6 @@ defmodule Events.Core.Repo.Retry do
 
       Retry.safe(fn -> Repo.get!(User, id) end)
       #=> {:ok, %User{}} | {:error, %Ecto.NoResultsError{}}
-
-      Retry.safe(fn -> Repo.insert!(changeset) end)
-      #=> {:ok, %User{}} | {:error, %Ecto.InvalidChangesetError{}}
   """
   @spec safe((-> term())) :: {:ok, term()} | {:error, term()}
   def safe(fun) when is_function(fun, 0) do
@@ -189,7 +136,7 @@ defmodule Events.Core.Repo.Retry do
   @doc """
   Executes a Repo operation safely with automatic retry.
 
-  Combines `safe/1` and `with_retry/2`.
+  Combines `safe/1` with `with_retry/2`.
 
   ## Examples
 
@@ -198,7 +145,7 @@ defmodule Events.Core.Repo.Retry do
   """
   @spec safe_with_retry((-> term()), opts()) :: {:ok, term()} | {:error, term()}
   def safe_with_retry(fun, opts \\ []) when is_function(fun, 0) do
-    with_retry(fn -> safe(fun) end, opts)
+    Retry.execute(fn -> safe(fun) end, opts)
   end
 
   @doc """
@@ -208,9 +155,6 @@ defmodule Events.Core.Repo.Retry do
 
       Retry.deadlock?(%DBConnection.ConnectionError{reason: :deadlock})
       #=> true
-
-      Retry.deadlock?(%Ecto.NoResultsError{})
-      #=> false
   """
   @spec deadlock?(term()) :: boolean()
   def deadlock?(%DBConnection.ConnectionError{message: message}) do
@@ -237,112 +181,4 @@ defmodule Events.Core.Repo.Retry do
   end
 
   def pool_timeout?(_), do: false
-
-  # ============================================
-  # Private Implementation
-  # ============================================
-
-  defp do_with_retry(fun, attempt, max_attempts, base_delay, max_delay, on_retry) do
-    try do
-      case fun.() do
-        {:error, error} = result ->
-          handle_error(error, result, fun, attempt, max_attempts, base_delay, max_delay, on_retry)
-
-        result ->
-          result
-      end
-    rescue
-      error ->
-        handle_error(
-          error,
-          {:error, error},
-          fun,
-          attempt,
-          max_attempts,
-          base_delay,
-          max_delay,
-          on_retry
-        )
-    catch
-      :exit, reason ->
-        handle_error(
-          {:exit, reason},
-          {:error, {:exit, reason}},
-          fun,
-          attempt,
-          max_attempts,
-          base_delay,
-          max_delay,
-          on_retry
-        )
-    end
-  end
-
-  defp handle_error(error, result, fun, attempt, max_attempts, base_delay, max_delay, on_retry) do
-    cond do
-      attempt >= max_attempts ->
-        log_exhausted(error, attempt)
-        result
-
-      not Recoverable.recoverable?(error) ->
-        log_not_recoverable(error)
-        result
-
-      true ->
-        delay = calculate_delay(error, attempt, base_delay, max_delay)
-        maybe_call_on_retry(on_retry, error, attempt, delay)
-        log_retry(error, attempt, delay)
-        Process.sleep(delay)
-        do_with_retry(fun, attempt + 1, max_attempts, base_delay, max_delay, on_retry)
-    end
-  end
-
-  defp calculate_delay(error, attempt, base_delay, max_delay) do
-    # Use protocol delay if available, otherwise calculate
-    protocol_delay = Recoverable.retry_delay(error, attempt)
-
-    delay =
-      if protocol_delay > 0 do
-        protocol_delay
-      else
-        FnTypes.Protocols.Recoverable.Backoff.exponential(attempt, base: base_delay, max: max_delay)
-      end
-
-    min(delay, max_delay)
-  end
-
-  defp maybe_call_on_retry(nil, _error, _attempt, _delay), do: :ok
-
-  defp maybe_call_on_retry(callback, error, attempt, delay) when is_function(callback, 3) do
-    callback.(error, attempt, delay)
-  end
-
-  defp log_retry(error, attempt, delay) do
-    Logger.debug(fn ->
-      "[Repo.Retry] Retrying after #{inspect(error.__struct__)}, attempt #{attempt}, delay #{delay}ms"
-    end)
-
-    Helpers.emit_telemetry(error, %{
-      attempt: attempt,
-      delay: delay,
-      action: :retry
-    })
-  end
-
-  defp log_exhausted(error, attempts) do
-    Logger.warning(fn ->
-      "[Repo.Retry] Max attempts (#{attempts}) exhausted for #{inspect(error.__struct__)}"
-    end)
-
-    Helpers.emit_telemetry(error, %{
-      attempts: attempts,
-      action: :exhausted
-    })
-  end
-
-  defp log_not_recoverable(error) do
-    Logger.debug(fn ->
-      "[Repo.Retry] Non-recoverable error: #{inspect(error.__struct__)}"
-    end)
-  end
 end

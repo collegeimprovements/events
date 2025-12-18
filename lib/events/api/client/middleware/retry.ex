@@ -43,6 +43,7 @@ defmodule Events.Api.Client.Middleware.Retry do
   require Logger
 
   alias FnTypes.Protocols.Recoverable
+  alias FnTypes.Retry
 
   @default_max_attempts 3
   @default_base_delay 1_000
@@ -238,15 +239,8 @@ defmodule Events.Api.Client.Middleware.Retry do
   end
 
   defp calculate_delay_with_jitter(attempt, base_delay, max_delay, jitter) do
-    # Exponential: base * 2^(attempt-1)
-    exponential_delay = base_delay * Integer.pow(2, attempt - 1)
-
-    # Add jitter: delay * (1 + random(-jitter, +jitter))
-    jitter_factor = 1 + (:rand.uniform() * 2 - 1) * jitter
-    delay_with_jitter = round(exponential_delay * jitter_factor)
-
-    # Cap at max delay
-    min(delay_with_jitter, max_delay)
+    # Delegate to FnTypes.Retry for consistent backoff calculation
+    Retry.calculate_delay(attempt, :exponential, base: base_delay, max: max_delay, jitter: jitter)
   end
 
   defp parse_retry_after(value) when is_binary(value) do
