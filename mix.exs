@@ -78,6 +78,9 @@ defmodule Events.MixProject do
       {:om_migration, path: "libs/om_migration"},
       {:om_query, path: "libs/om_query"},
       {:om_crud, path: "libs/om_crud"},
+      {:om_idempotency, path: "libs/om_idempotency"},
+      {:om_kill_switch, path: "libs/om_kill_switch"},
+      {:om_api_client, path: "libs/om_api_client"},
 
       # ============================================
       # Phoenix & Web
@@ -125,6 +128,9 @@ defmodule Events.MixProject do
       {:benchee, "~> 1.3", only: :dev},
       # Static analysis
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+
+      # External process execution with backpressure
+      {:ex_cmd, "~> 0.18"},
 
       # ============================================
       # Testing Libraries

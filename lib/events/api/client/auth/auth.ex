@@ -10,8 +10,7 @@ defprotocol Events.Api.Client.Auth do
 
   - `Events.Api.Client.Auth.APIKey` - API key in header or query
   - `Events.Api.Client.Auth.Basic` - HTTP Basic authentication
-  - `Events.Api.Client.Auth.OAuth2` - OAuth2 bearer tokens with refresh
-  - `Events.Api.Client.Auth.Bearer` - Simple bearer token
+  - `OmApiClient.Auth.OAuth2` - OAuth2 bearer tokens with refresh
 
   ## Usage
 

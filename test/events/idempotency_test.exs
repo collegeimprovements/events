@@ -1,8 +1,8 @@
 defmodule Events.Infra.IdempotencyTest do
   use ExUnit.Case, async: true
 
-  alias Events.Infra.Idempotency
-  alias Events.Infra.Idempotency.Record
+  alias OmIdempotency
+  alias OmIdempotency.Record
 
   # ============================================
   # Key Generation Tests
@@ -10,73 +10,73 @@ defmodule Events.Infra.IdempotencyTest do
 
   describe "generate_key/0" do
     test "generates a UUID" do
-      key = Idempotency.generate_key()
+      key = OmIdempotency.generate_key()
       assert is_binary(key)
       assert String.length(key) == 36
       assert String.contains?(key, "-")
     end
 
     test "generates unique keys" do
-      keys = for _ <- 1..100, do: Idempotency.generate_key()
+      keys = for _ <- 1..100, do: OmIdempotency.generate_key()
       assert length(Enum.uniq(keys)) == 100
     end
   end
 
   describe "generate_key/2" do
     test "generates key from operation name" do
-      key = Idempotency.generate_key(:create_customer)
+      key = OmIdempotency.generate_key(:create_customer)
       assert key == "create_customer"
     end
 
     test "generates key from operation and params" do
-      key = Idempotency.generate_key(:create_customer, user_id: 123)
+      key = OmIdempotency.generate_key(:create_customer, user_id: 123)
       assert key == "create_customer:user_id=123"
     end
 
     test "sorts params for deterministic keys" do
-      key1 = Idempotency.generate_key(:charge, amount: 100, user_id: 123)
-      key2 = Idempotency.generate_key(:charge, user_id: 123, amount: 100)
+      key1 = OmIdempotency.generate_key(:charge, amount: 100, user_id: 123)
+      key2 = OmIdempotency.generate_key(:charge, user_id: 123, amount: 100)
       assert key1 == key2
       assert key1 == "charge:amount=100:user_id=123"
     end
 
     test "adds scope prefix" do
-      key = Idempotency.generate_key(:create_charge, order_id: 456, scope: "stripe")
+      key = OmIdempotency.generate_key(:create_charge, order_id: 456, scope: "stripe")
       assert key == "stripe:create_charge:order_id=456"
     end
 
     test "handles multiple params" do
-      key = Idempotency.generate_key(:transfer, from: "acc_1", to: "acc_2", amount: 500)
+      key = OmIdempotency.generate_key(:transfer, from: "acc_1", to: "acc_2", amount: 500)
       assert key == "transfer:amount=500:from=acc_1:to=acc_2"
     end
   end
 
   describe "hash_key/3" do
     test "generates deterministic hash from params" do
-      key1 = Idempotency.hash_key(:create_customer, %{email: "user@example.com"})
-      key2 = Idempotency.hash_key(:create_customer, %{email: "user@example.com"})
+      key1 = OmIdempotency.hash_key(:create_customer, %{email: "user@example.com"})
+      key2 = OmIdempotency.hash_key(:create_customer, %{email: "user@example.com"})
       assert key1 == key2
     end
 
     test "different params produce different hashes" do
-      key1 = Idempotency.hash_key(:create_customer, %{email: "user1@example.com"})
-      key2 = Idempotency.hash_key(:create_customer, %{email: "user2@example.com"})
+      key1 = OmIdempotency.hash_key(:create_customer, %{email: "user1@example.com"})
+      key2 = OmIdempotency.hash_key(:create_customer, %{email: "user2@example.com"})
       refute key1 == key2
     end
 
     test "includes operation in key" do
-      key = Idempotency.hash_key(:create_customer, %{email: "user@example.com"})
+      key = OmIdempotency.hash_key(:create_customer, %{email: "user@example.com"})
       assert String.starts_with?(key, "create_customer:")
     end
 
     test "hash is 32 characters" do
-      key = Idempotency.hash_key(:op, %{data: "test"})
+      key = OmIdempotency.hash_key(:op, %{data: "test"})
       [_op, hash] = String.split(key, ":")
       assert String.length(hash) == 32
     end
 
     test "adds scope prefix" do
-      key = Idempotency.hash_key(:charge, %{amount: 100}, scope: "stripe")
+      key = OmIdempotency.hash_key(:charge, %{amount: 100}, scope: "stripe")
       assert String.starts_with?(key, "stripe:charge:")
     end
   end
@@ -160,10 +160,10 @@ defmodule Events.Infra.IdempotencyTest do
 
     @tag :skip
     test "executes function on first call" do
-      key = Idempotency.generate_key()
+      key = OmIdempotency.generate_key()
 
       result =
-        Idempotency.execute(key, fn ->
+        OmIdempotency.execute(key, fn ->
           {:ok, %{id: "cus_123", email: "user@example.com"}}
         end)
 
@@ -172,10 +172,10 @@ defmodule Events.Infra.IdempotencyTest do
 
     @tag :skip
     test "returns cached response on duplicate call" do
-      key = Idempotency.generate_key()
+      key = OmIdempotency.generate_key()
 
       # First call
-      Idempotency.execute(key, fn ->
+      OmIdempotency.execute(key, fn ->
         {:ok, %{id: "cus_123"}}
       end)
 
@@ -183,7 +183,7 @@ defmodule Events.Infra.IdempotencyTest do
       {:ok, counter} = Agent.start_link(fn -> 0 end)
 
       result =
-        Idempotency.execute(key, fn ->
+        OmIdempotency.execute(key, fn ->
           Agent.update(counter, &(&1 + 1))
           {:ok, %{id: "cus_456"}}
         end)
@@ -195,13 +195,13 @@ defmodule Events.Infra.IdempotencyTest do
 
     @tag :skip
     test "scoped keys are independent" do
-      key = Idempotency.generate_key(:create, user_id: 1)
+      key = OmIdempotency.generate_key(:create, user_id: 1)
 
-      Idempotency.execute(key, fn -> {:ok, %{scope: "stripe"}} end, scope: "stripe")
-      Idempotency.execute(key, fn -> {:ok, %{scope: "sendgrid"}} end, scope: "sendgrid")
+      OmIdempotency.execute(key, fn -> {:ok, %{scope: "stripe"}} end, scope: "stripe")
+      OmIdempotency.execute(key, fn -> {:ok, %{scope: "sendgrid"}} end, scope: "sendgrid")
 
-      {:ok, stripe_record} = Idempotency.get(key, "stripe")
-      {:ok, sendgrid_record} = Idempotency.get(key, "sendgrid")
+      {:ok, stripe_record} = OmIdempotency.get(key, "stripe")
+      {:ok, sendgrid_record} = OmIdempotency.get(key, "sendgrid")
 
       assert stripe_record.response != sendgrid_record.response
     end

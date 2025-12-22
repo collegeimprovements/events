@@ -1,7 +1,7 @@
 defmodule Events.Api.Client.MiddlewareTest do
   use ExUnit.Case, async: true
 
-  alias Events.Api.Client.Middleware.{Retry, CircuitBreaker, RateLimiter}
+  alias OmApiClient.Middleware.{Retry, CircuitBreaker, RateLimiter}
 
   describe "Retry" do
     test "options/0 returns default retry options" do
@@ -67,7 +67,22 @@ defmodule Events.Api.Client.MiddlewareTest do
   describe "CircuitBreaker" do
     setup do
       name = :"test_breaker_#{:erlang.unique_integer()}"
-      {:ok, _pid} = CircuitBreaker.start_link(name: name, failure_threshold: 3, reset_timeout: 100)
+
+      # Configure should_trip to only trip on external errors, not validation errors
+      should_trip = fn
+        %FnTypes.Error{type: :validation} -> false
+        %FnTypes.Error{type: :external} -> true
+        _ -> true
+      end
+
+      {:ok, _pid} =
+        CircuitBreaker.start_link(
+          name: name,
+          failure_threshold: 3,
+          reset_timeout: 100,
+          should_trip: should_trip
+        )
+
       {:ok, name: name}
     end
 

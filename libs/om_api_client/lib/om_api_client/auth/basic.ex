@@ -1,4 +1,4 @@
-defmodule Events.Api.Client.Auth.Basic do
+defmodule OmApiClient.Auth.Basic do
   @moduledoc """
   HTTP Basic authentication strategy.
 
@@ -11,7 +11,7 @@ defmodule Events.Api.Client.Auth.Basic do
       auth = Basic.new("username", "password")
 
       # Twilio-style (Account SID + Auth Token)
-      auth = Basic.twilio("AC123...", "auth_token_here")
+      auth = Basic.new("AC123...", "auth_token_here")
 
   ## How it works
 
@@ -21,7 +21,7 @@ defmodule Events.Api.Client.Auth.Basic do
       Authorization: Basic dXNlcm5hbWU6cGFzc3dvcmQ=
   """
 
-  alias Events.Api.Client.Request
+  alias OmApiClient.Request
 
   @type t :: %__MODULE__{
           username: String.t(),
@@ -78,9 +78,9 @@ defmodule Events.Api.Client.Auth.Basic do
   # Protocol Implementation
   # ============================================
 
-  defimpl Events.Api.Client.Auth do
+  defimpl OmApiClient.Auth do
     def authenticate(auth, request) do
-      encoded = Events.Api.Client.Auth.Basic.encoded_credentials(auth)
+      encoded = OmApiClient.Auth.Basic.encoded_credentials(auth)
       Request.header(request, "authorization", "Basic #{encoded}")
     end
 

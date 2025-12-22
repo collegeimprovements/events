@@ -397,4 +397,4 @@ Settlement.split(result)    # {successes, failures} tuple
 - `FnTypes.Debouncer` - Debounce rapid calls (wait for quiet)
 - `FnTypes.Throttler` - Throttle to max rate
 - `FnTypes.RateLimiter` - Token bucket rate limiting
-- `Events.Api.Client.Middleware.CircuitBreaker` - Circuit breaker pattern
+- `OmApiClient.Middleware.CircuitBreaker` - Circuit breaker pattern

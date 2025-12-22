@@ -5,8 +5,7 @@ defmodule Events.Api.Client.Request do
   Provides a chainable, composable API for building HTTP requests
   that can be executed against external APIs.
 
-  Implements `Events.Infra.Idempotency.RequestBehaviour` for use with
-  idempotency middleware.
+  Implements `OmIdempotency.Request` for use with idempotency middleware.
 
   ## Quick Start
 
@@ -37,7 +36,7 @@ defmodule Events.Api.Client.Request do
       |> Request.metadata(:user_id, "usr_123")
   """
 
-  @behaviour Events.Infra.Idempotency.RequestBehaviour
+  @behaviour OmIdempotency.Request
 
   alias Events.Api.Client.Response
 
@@ -436,21 +435,21 @@ defmodule Events.Api.Client.Request do
   # RequestBehaviour Implementation
   # ============================================
 
-  @impl Events.Infra.Idempotency.RequestBehaviour
+  @impl OmIdempotency.Request
   def idempotency_key(%__MODULE__{idempotency_key: key}), do: key
 
-  @impl Events.Infra.Idempotency.RequestBehaviour
+  @impl OmIdempotency.Request
   def method(%__MODULE__{method: method}), do: method
 
-  @impl Events.Infra.Idempotency.RequestBehaviour
+  @impl OmIdempotency.Request
   def path(%__MODULE__{path: path}), do: path
 
-  @impl Events.Infra.Idempotency.RequestBehaviour
+  @impl OmIdempotency.Request
   def body(%__MODULE__{body: body}), do: body
 
-  @impl Events.Infra.Idempotency.RequestBehaviour
+  @impl OmIdempotency.Request
   def config(%__MODULE__{config: config}), do: config
 
-  @impl Events.Infra.Idempotency.RequestBehaviour
+  @impl OmIdempotency.Request
   def metadata(%__MODULE__{metadata: meta}), do: meta
 end

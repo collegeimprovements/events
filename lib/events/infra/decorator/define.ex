@@ -2,8 +2,8 @@ defmodule Events.Infra.Decorator.Define do
   @moduledoc """
   Defines and registers all decorators for the Events application.
 
-  This module uses the `Decorator.Define` macro from the `decorator` library
-  to register decorators that can be used with the `@decorate` attribute.
+  This module extends `FnDecorator.Define` with Events-specific decorators
+  (scheduler, workflow) and Events-specific implementations.
 
   ## Usage
 
@@ -15,27 +15,6 @@ defmodule Events.Infra.Decorator.Define do
           # ...
         end
       end
-
-  ## Available Decorators
-
-  ### Caching
-  - `cacheable/1` - Read-through caching
-  - `cache_put/1` - Write-through caching
-  - `cache_evict/1` - Cache invalidation
-
-  ### Telemetry
-  - `telemetry_span/1`, `telemetry_span/2` - Erlang telemetry events
-  - `otel_span/1`, `otel_span/2` - OpenTelemetry spans
-  - `log_call/0`, `log_call/1`, `log_call/2` - Function call logging
-  - `log_context/1` - Set Logger metadata
-  - `log_if_slow/1` - Performance monitoring
-  - `track_memory/1` - Memory profiling
-  - `capture_errors/1` - Error tracking
-
-  ### Advanced
-  - `pipe_through/1` - Pipeline composition
-  - `around/1` - Around advice
-  - `compose/1` - Decorator composition
   """
 
   use Decorator.Define,
@@ -60,7 +39,7 @@ defmodule Events.Infra.Decorator.Define do
     pipe_through: 1,
     around: 1,
     compose: 1,
-    # Additional decorators preserved for compatibility
+    # Additional decorators
     otel_span: 1,
     otel_span: 2,
     track_memory: 1,
@@ -88,6 +67,14 @@ defmodule Events.Infra.Decorator.Define do
     returns_union: 1,
     returns_pipeline: 1,
     normalize_result: 1,
+    # Security decorators
+    role_required: 1,
+    rate_limit: 1,
+    audit_log: 1,
+    # Validation decorators
+    validate_schema: 1,
+    coerce_types: 1,
+    serialize: 1,
     # Scheduler
     scheduled: 1,
     # Workflow
@@ -98,68 +85,80 @@ defmodule Events.Infra.Decorator.Define do
     subworkflow: 1,
     subworkflow: 2
 
-  # Caching decorators
-  defdelegate cacheable(opts, body, context), to: Events.Infra.Decorator.Caching
-  defdelegate cache_put(opts, body, context), to: Events.Infra.Decorator.Caching
-  defdelegate cache_evict(opts, body, context), to: Events.Infra.Decorator.Caching
+  # Caching decorators - delegate directly to FnDecorator
+  defdelegate cacheable(opts, body, context), to: FnDecorator.Caching
+  defdelegate cache_put(opts, body, context), to: FnDecorator.Caching
+  defdelegate cache_evict(opts, body, context), to: FnDecorator.Caching
 
-  # Telemetry decorators
-  defdelegate telemetry_span(opts, body, context), to: Events.Infra.Decorator.Telemetry
-  defdelegate telemetry_span(event, opts, body, context), to: Events.Infra.Decorator.Telemetry
-  defdelegate otel_span(opts, body, context), to: Events.Infra.Decorator.Telemetry
-  defdelegate otel_span(name, opts, body, context), to: Events.Infra.Decorator.Telemetry
-  defdelegate log_call(opts, body, context), to: Events.Infra.Decorator.Telemetry
-  defdelegate log_context(fields, body, context), to: Events.Infra.Decorator.Telemetry
-  defdelegate log_if_slow(opts, body, context), to: Events.Infra.Decorator.Telemetry
-  defdelegate track_memory(opts, body, context), to: Events.Infra.Decorator.Telemetry
-  defdelegate capture_errors(opts, body, context), to: Events.Infra.Decorator.Telemetry
+  # Telemetry decorators - delegate directly to FnDecorator
+  defdelegate telemetry_span(opts, body, context), to: FnDecorator.Telemetry
+  defdelegate telemetry_span(event, opts, body, context), to: FnDecorator.Telemetry
+  defdelegate otel_span(opts, body, context), to: FnDecorator.Telemetry
+  defdelegate otel_span(name, opts, body, context), to: FnDecorator.Telemetry
+  defdelegate log_call(opts, body, context), to: FnDecorator.Telemetry
+  defdelegate log_context(fields, body, context), to: FnDecorator.Telemetry
+  defdelegate log_if_slow(opts, body, context), to: FnDecorator.Telemetry
+  defdelegate track_memory(opts, body, context), to: FnDecorator.Telemetry
+  defdelegate capture_errors(opts, body, context), to: FnDecorator.Telemetry
+  defdelegate benchmark(opts, body, context), to: FnDecorator.Telemetry
+  defdelegate measure(opts, body, context), to: FnDecorator.Telemetry
+
+  # Events-specific telemetry (use Events.Core.Repo, Events.TaskSupervisor)
   defdelegate log_query(opts, body, context), to: Events.Infra.Decorator.Telemetry
   defdelegate log_remote(opts, body, context), to: Events.Infra.Decorator.Telemetry
-  defdelegate benchmark(opts, body, context), to: Events.Infra.Decorator.Telemetry
-  defdelegate measure(opts, body, context), to: Events.Infra.Decorator.Telemetry
 
-  # Debugging decorators
-  defdelegate debug(opts, body, context), to: Events.Infra.Decorator.Debugging
-  defdelegate inspect(opts, body, context), to: Events.Infra.Decorator.Debugging
-  defdelegate pry(opts, body, context), to: Events.Infra.Decorator.Debugging
-  defdelegate trace_vars(opts, body, context), to: Events.Infra.Decorator.Debugging
+  # Debugging decorators - delegate directly to FnDecorator
+  defdelegate debug(opts, body, context), to: FnDecorator.Debugging
+  defdelegate inspect(opts, body, context), to: FnDecorator.Debugging
+  defdelegate pry(opts, body, context), to: FnDecorator.Debugging
+  defdelegate trace_vars(opts, body, context), to: FnDecorator.Debugging
 
-  # Tracing decorators
-  defdelegate trace_calls(opts, body, context), to: Events.Infra.Decorator.Tracing
-  defdelegate trace_modules(opts, body, context), to: Events.Infra.Decorator.Tracing
-  defdelegate trace_dependencies(opts, body, context), to: Events.Infra.Decorator.Tracing
+  # Tracing decorators - delegate directly to FnDecorator
+  defdelegate trace_calls(opts, body, context), to: FnDecorator.Tracing
+  defdelegate trace_modules(opts, body, context), to: FnDecorator.Tracing
+  defdelegate trace_dependencies(opts, body, context), to: FnDecorator.Tracing
 
-  # Purity decorators
-  defdelegate pure(opts, body, context), to: Events.Infra.Decorator.Purity
-  defdelegate deterministic(opts, body, context), to: Events.Infra.Decorator.Purity
-  defdelegate idempotent(opts, body, context), to: Events.Infra.Decorator.Purity
-  defdelegate memoizable(opts, body, context), to: Events.Infra.Decorator.Purity
+  # Purity decorators - delegate directly to FnDecorator
+  defdelegate pure(opts, body, context), to: FnDecorator.Purity
+  defdelegate deterministic(opts, body, context), to: FnDecorator.Purity
+  defdelegate idempotent(opts, body, context), to: FnDecorator.Purity
+  defdelegate memoizable(opts, body, context), to: FnDecorator.Purity
 
-  # Testing decorators
-  defdelegate with_fixtures(opts, body, context), to: Events.Infra.Decorator.Testing
-  defdelegate sample_data(opts, body, context), to: Events.Infra.Decorator.Testing
-  defdelegate timeout_test(opts, body, context), to: Events.Infra.Decorator.Testing
-  defdelegate mock(opts, body, context), to: Events.Infra.Decorator.Testing
+  # Testing decorators - delegate directly to FnDecorator
+  defdelegate with_fixtures(opts, body, context), to: FnDecorator.Testing
+  defdelegate sample_data(opts, body, context), to: FnDecorator.Testing
+  defdelegate timeout_test(opts, body, context), to: FnDecorator.Testing
+  defdelegate mock(opts, body, context), to: FnDecorator.Testing
 
-  # Pipeline decorators
-  defdelegate pipe_through(pipeline, body, context), to: Events.Infra.Decorator.Pipeline
-  defdelegate around(wrapper, body, context), to: Events.Infra.Decorator.Pipeline
-  defdelegate compose(decorators, body, context), to: Events.Infra.Decorator.Pipeline
+  # Pipeline decorators - delegate directly to FnDecorator
+  defdelegate pipe_through(pipeline, body, context), to: FnDecorator.Pipeline
+  defdelegate around(wrapper, body, context), to: FnDecorator.Pipeline
+  defdelegate compose(decorators, body, context), to: FnDecorator.Pipeline
 
-  # Type decorators
-  defdelegate returns_result(opts, body, context), to: Events.Infra.Decorator.Types
-  defdelegate returns_maybe(opts, body, context), to: Events.Infra.Decorator.Types
-  defdelegate returns_bang(opts, body, context), to: Events.Infra.Decorator.Types
-  defdelegate returns_struct(opts, body, context), to: Events.Infra.Decorator.Types
-  defdelegate returns_list(opts, body, context), to: Events.Infra.Decorator.Types
-  defdelegate returns_union(opts, body, context), to: Events.Infra.Decorator.Types
-  defdelegate returns_pipeline(opts, body, context), to: Events.Infra.Decorator.Types
-  defdelegate normalize_result(opts, body, context), to: Events.Infra.Decorator.Types
+  # Type decorators - delegate directly to FnDecorator
+  defdelegate returns_result(opts, body, context), to: FnDecorator.Types
+  defdelegate returns_maybe(opts, body, context), to: FnDecorator.Types
+  defdelegate returns_bang(opts, body, context), to: FnDecorator.Types
+  defdelegate returns_struct(opts, body, context), to: FnDecorator.Types
+  defdelegate returns_list(opts, body, context), to: FnDecorator.Types
+  defdelegate returns_union(opts, body, context), to: FnDecorator.Types
+  defdelegate returns_pipeline(opts, body, context), to: FnDecorator.Types
+  defdelegate normalize_result(opts, body, context), to: FnDecorator.Types
 
-  # Scheduler decorator
+  # Security decorators - delegate directly to FnDecorator
+  defdelegate role_required(opts, body, context), to: FnDecorator.Security
+  defdelegate rate_limit(opts, body, context), to: FnDecorator.Security
+  defdelegate audit_log(opts, body, context), to: FnDecorator.Security
+
+  # Validation decorators - delegate directly to FnDecorator
+  defdelegate validate_schema(opts, body, context), to: FnDecorator.Validation
+  defdelegate coerce_types(opts, body, context), to: FnDecorator.Validation
+  defdelegate serialize(opts, body, context), to: FnDecorator.Validation
+
+  # Scheduler decorator (Events-specific)
   defdelegate scheduled(opts, body, context), to: Events.Infra.Scheduler.Decorator.Scheduled
 
-  # Workflow decorators
+  # Workflow decorators (Events-specific)
   def step(body, context), do: step([], body, context)
 
   def step(opts, body, context) do

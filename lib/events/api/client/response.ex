@@ -5,8 +5,7 @@ defmodule Events.Api.Client.Response do
   Provides a consistent interface for handling responses from external APIs,
   including success/error status, rate limit information, and request tracing.
 
-  Implements `Events.Infra.Idempotency.ResponseBehaviour` for use with
-  idempotency middleware.
+  Implements `OmIdempotency.Response` for use with idempotency middleware.
 
   ## Structure
 
@@ -32,7 +31,7 @@ defmodule Events.Api.Client.Response do
       response |> Response.get(["customer", "email"])
   """
 
-  @behaviour Events.Infra.Idempotency.ResponseBehaviour
+  @behaviour OmIdempotency.Response
 
   @type rate_limit_info :: %{
           limit: non_neg_integer() | nil,
@@ -105,7 +104,7 @@ defmodule Events.Api.Client.Response do
   # ============================================
 
   @doc "Returns true if the response status is 2xx."
-  @impl Events.Infra.Idempotency.ResponseBehaviour
+  @impl OmIdempotency.Response
   @spec success?(t()) :: boolean()
   def success?(%__MODULE__{status: status}), do: status >= 200 and status < 300
 
@@ -475,15 +474,15 @@ defmodule Events.Api.Client.Response do
   # ResponseBehaviour Implementation
   # ============================================
 
-  @impl Events.Infra.Idempotency.ResponseBehaviour
+  @impl OmIdempotency.Response
   @spec status(t()) :: non_neg_integer()
   def status(%__MODULE__{status: status}), do: status
 
-  @impl Events.Infra.Idempotency.ResponseBehaviour
+  @impl OmIdempotency.Response
   @spec body(t()) :: term()
   def body(%__MODULE__{body: body}), do: body
 
-  @impl Events.Infra.Idempotency.ResponseBehaviour
+  @impl OmIdempotency.Response
   @spec headers(t()) :: map()
   def headers(%__MODULE__{headers: headers}), do: headers
 end

@@ -80,10 +80,13 @@ defmodule Events.Core.Repo.Retry do
     retry_opts = Keyword.get(opts, :retry_opts, [])
     transaction_opts = Keyword.get(opts, :transaction_opts, [])
 
-    Retry.transaction(fun, Keyword.merge(retry_opts, [
-      repo: Events.Core.Repo,
-      transaction_opts: transaction_opts
-    ]))
+    Retry.transaction(
+      fun,
+      Keyword.merge(retry_opts,
+        repo: Events.Core.Repo,
+        transaction_opts: transaction_opts
+      )
+    )
   end
 
   @doc """

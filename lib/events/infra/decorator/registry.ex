@@ -9,19 +9,17 @@ defmodule Events.Infra.Decorator.Registry do
 
   | Decorator | Module | Description |
   |-----------|--------|-------------|
-  | `:cacheable` | `Events.Infra.Decorator.Caching` | Read-through caching |
-  | `:cache_put` | `Events.Infra.Decorator.Caching` | Write-through caching |
-  | `:cache_evict` | `Events.Infra.Decorator.Caching` | Cache invalidation |
-  | `:telemetry_span` | `Events.Infra.Decorator.Telemetry` | Telemetry spans |
-  | `:telemetry_event` | `Events.Infra.Decorator.Telemetry` | Telemetry events |
-  | `:role_required` | `Events.Infra.Decorator.Security` | Role-based access |
-  | `:rate_limit` | `Events.Infra.Decorator.Security` | Rate limiting |
-  | `:audit_log` | `Events.Infra.Decorator.Security` | Audit logging |
-  | `:log_call` | `Events.Infra.Decorator.Debugging` | Function call logging |
-  | `:log_if_slow` | `Events.Infra.Decorator.Debugging` | Slow function logging |
-  | `:trace` | `Events.Infra.Decorator.Tracing` | Function tracing |
-  | `:validate_args` | `Events.Infra.Decorator.Validation` | Argument validation |
-  | `:validate_return` | `Events.Infra.Decorator.Validation` | Return value validation |
+  | `:cacheable` | `FnDecorator.Caching` | Read-through caching |
+  | `:cache_put` | `FnDecorator.Caching` | Write-through caching |
+  | `:cache_evict` | `FnDecorator.Caching` | Cache invalidation |
+  | `:telemetry_span` | `FnDecorator.Telemetry` | Telemetry spans |
+  | `:role_required` | `FnDecorator.Security` | Role-based access |
+  | `:rate_limit` | `FnDecorator.Security` | Rate limiting |
+  | `:audit_log` | `FnDecorator.Security` | Audit logging |
+  | `:log_call` | `FnDecorator.Debugging` | Function call logging |
+  | `:log_if_slow` | `FnDecorator.Telemetry` | Slow function logging |
+  | `:trace` | `FnDecorator.Tracing` | Function tracing |
+  | `:validate_schema` | `FnDecorator.Validation` | Schema validation |
 
   ## Custom Decorators
 
@@ -39,39 +37,51 @@ defmodule Events.Infra.Decorator.Registry do
 
   @default_decorators %{
     # Caching decorators
-    cacheable: {Events.Infra.Decorator.Caching, :cacheable},
-    cache_put: {Events.Infra.Decorator.Caching, :cache_put},
-    cache_evict: {Events.Infra.Decorator.Caching, :cache_evict},
+    cacheable: {FnDecorator.Caching, :cacheable},
+    cache_put: {FnDecorator.Caching, :cache_put},
+    cache_evict: {FnDecorator.Caching, :cache_evict},
 
     # Telemetry decorators
-    telemetry_span: {Events.Infra.Decorator.Telemetry, :telemetry_span},
-    telemetry_event: {Events.Infra.Decorator.Telemetry, :telemetry_event},
+    telemetry_span: {FnDecorator.Telemetry, :telemetry_span},
+    log_if_slow: {FnDecorator.Telemetry, :log_if_slow},
+    benchmark: {FnDecorator.Telemetry, :benchmark},
+    measure: {FnDecorator.Telemetry, :measure},
 
     # Security decorators
-    role_required: {Events.Infra.Decorator.Security, :role_required},
-    rate_limit: {Events.Infra.Decorator.Security, :rate_limit},
-    audit_log: {Events.Infra.Decorator.Security, :audit_log},
+    role_required: {FnDecorator.Security, :role_required},
+    rate_limit: {FnDecorator.Security, :rate_limit},
+    audit_log: {FnDecorator.Security, :audit_log},
 
     # Debugging decorators
-    log_call: {Events.Infra.Decorator.Debugging, :log_call},
-    log_if_slow: {Events.Infra.Decorator.Debugging, :log_if_slow},
-    inspect_args: {Events.Infra.Decorator.Debugging, :inspect_args},
-    inspect_result: {Events.Infra.Decorator.Debugging, :inspect_result},
+    debug: {FnDecorator.Debugging, :debug},
+    inspect: {FnDecorator.Debugging, :inspect},
+    pry: {FnDecorator.Debugging, :pry},
+    log_call: {FnDecorator.Telemetry, :log_call},
 
     # Tracing decorators
-    trace: {Events.Infra.Decorator.Tracing, :trace},
+    trace_calls: {FnDecorator.Tracing, :trace_calls},
+    trace_modules: {FnDecorator.Tracing, :trace_modules},
 
     # Validation decorators
-    validate_args: {Events.Infra.Decorator.Validation, :validate_args},
-    validate_return: {Events.Infra.Decorator.Validation, :validate_return},
+    validate_schema: {FnDecorator.Validation, :validate_schema},
+    coerce_types: {FnDecorator.Validation, :coerce_types},
 
     # Purity decorators
-    pure: {Events.Infra.Decorator.Purity, :pure},
-    memoize: {Events.Infra.Decorator.Purity, :memoize},
+    pure: {FnDecorator.Purity, :pure},
+    deterministic: {FnDecorator.Purity, :deterministic},
+    idempotent: {FnDecorator.Purity, :idempotent},
+    memoizable: {FnDecorator.Purity, :memoizable},
 
     # Pipeline decorators
-    pipe_through: {Events.Infra.Decorator.Pipeline, :pipe_through},
-    around: {Events.Infra.Decorator.Pipeline, :around}
+    pipe_through: {FnDecorator.Pipeline, :pipe_through},
+    around: {FnDecorator.Pipeline, :around},
+    compose: {FnDecorator.Pipeline, :compose},
+
+    # Type decorators
+    returns_result: {FnDecorator.Types, :returns_result},
+    returns_maybe: {FnDecorator.Types, :returns_maybe},
+    returns_bang: {FnDecorator.Types, :returns_bang},
+    normalize_result: {FnDecorator.Types, :normalize_result}
   }
 
   @doc """
@@ -91,7 +101,7 @@ defmodule Events.Infra.Decorator.Registry do
   ## Examples
 
       iex> Events.Infra.Decorator.Registry.get(:cacheable)
-      {Events.Infra.Decorator.Caching, :cacheable}
+      {FnDecorator.Caching, :cacheable}
 
       iex> Events.Infra.Decorator.Registry.get(:unknown)
       nil
@@ -190,7 +200,7 @@ defmodule Events.Infra.Decorator.Registry do
   ## Examples
 
       Events.Infra.Decorator.Registry.all()
-      # => %{cacheable: {Events.Infra.Decorator.Caching, :cacheable}, ...}
+      # => %{cacheable: {FnDecorator.Caching, :cacheable}, ...}
   """
   @spec all() :: %{atom() => {module(), atom()}}
   def all do
@@ -235,13 +245,14 @@ defmodule Events.Infra.Decorator.Registry do
   def by_category do
     %{
       caching: [:cacheable, :cache_put, :cache_evict],
-      telemetry: [:telemetry_span, :telemetry_event],
+      telemetry: [:telemetry_span, :log_if_slow, :benchmark, :measure],
       security: [:role_required, :rate_limit, :audit_log],
-      debugging: [:log_call, :log_if_slow, :inspect_args, :inspect_result],
-      tracing: [:trace],
-      validation: [:validate_args, :validate_return],
-      purity: [:pure, :memoize],
-      pipeline: [:pipe_through, :around, :compose]
+      debugging: [:debug, :inspect, :pry, :log_call],
+      tracing: [:trace_calls, :trace_modules],
+      validation: [:validate_schema, :coerce_types],
+      purity: [:pure, :deterministic, :idempotent, :memoizable],
+      pipeline: [:pipe_through, :around, :compose],
+      types: [:returns_result, :returns_maybe, :returns_bang, :normalize_result]
     }
   end
 end
