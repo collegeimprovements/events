@@ -43,6 +43,15 @@ defmodule EventsWeb.Router do
     live "/:name", WorkflowDashboardLive, :workflow
   end
 
+  # Terminal - per-tab web terminals via ttyd
+  # Each browser tab gets its own terminal session
+  # In production, add authentication middleware
+  scope "/ttyd", EventsWeb do
+    pipe_through :browser
+
+    live "/", TtydLive, :index
+  end
+
   # Enable LiveDashboard and Swoosh mailbox preview in development
   if Application.compile_env(:events, :dev_routes) do
     # If you want to use the LiveDashboard in production, you should put

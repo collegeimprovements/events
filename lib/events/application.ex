@@ -12,21 +12,23 @@ defmodule Events.Application do
     validate_critical_configs()
 
     # STEP 2: Start supervision tree
-    children = [
-      EventsWeb.Telemetry,
-      Events.Core.Repo,
-      Events.Core.Cache,
-      Events.Infra.KillSwitch,
-      {DNSCluster, query: Application.get_env(:events, :dns_cluster_query) || :ignore},
-      Events.Infra.PubSub,
-      # Task supervisor for async operations (error storage, telemetry, etc.)
-      {Task.Supervisor, name: Events.TaskSupervisor},
-      # Scheduler for background jobs and workflows (disabled by default in test)
-      # Configure via: config :events, Events.Infra.Scheduler, enabled: true/false
-      Events.Infra.Scheduler.Supervisor,
-      # Start to serve requests, typically the last entry
-      EventsWeb.Endpoint
-    ]
+    children =
+      [
+        EventsWeb.Telemetry,
+        Events.Core.Repo,
+        Events.Core.Cache,
+        Events.Infra.KillSwitch,
+        {DNSCluster, query: Application.get_env(:events, :dns_cluster_query) || :ignore},
+        Events.Infra.PubSub,
+        # Task supervisor for async operations (error storage, telemetry, etc.)
+        {Task.Supervisor, name: Events.TaskSupervisor},
+        # Scheduler for background jobs and workflows (disabled by default in test)
+        # Configure via: config :events, Events.Infra.Scheduler, enabled: true/false
+        Events.Infra.Scheduler.Supervisor,
+        # Start to serve requests, typically the last entry
+        EventsWeb.Endpoint
+      ]
+      |> maybe_add_ttyd_session_manager()
 
     # See https://hexdocs.pm/elixir/Supervisor.html
     # for other strategies and supported options
@@ -41,6 +43,24 @@ defmodule Events.Application do
     maybe_validate_schemas()
 
     result
+  end
+
+  # ============================================
+  # Optional Services
+  # ============================================
+
+  # Add ttyd session manager for per-tab terminal sessions
+  # Configure via: config :events, :ttyd, enabled: true, command: "bash", writable: true
+  # Each browser tab at /ttyd gets its own terminal on a dynamic port (7700-7799)
+  defp maybe_add_ttyd_session_manager(children) do
+    config = Application.get_env(:events, :ttyd, [])
+    enabled = Keyword.get(config, :enabled, false)
+
+    if enabled and Events.Services.Ttyd.available?() do
+      children ++ [Events.Services.Ttyd.SessionManager]
+    else
+      children
+    end
   end
 
   # ============================================

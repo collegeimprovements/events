@@ -192,6 +192,13 @@ case env do
       on_startup: true,
       fail_on_error: false
 
+    # ttyd terminal sessions (per-tab terminals at /ttyd)
+    # Each browser tab gets its own ttyd process on ports 7700-7799
+    config :events, :ttyd,
+      enabled: true,
+      command: System.get_env("SHELL", "/bin/bash"),
+      writable: true
+
     # Set a higher stacktrace during development
     config :phoenix, :stacktrace_depth, 20
 
