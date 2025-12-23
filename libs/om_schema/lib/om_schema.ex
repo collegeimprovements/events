@@ -120,8 +120,8 @@ defmodule OmSchema do
         default: :active
   """
 
-  @app_name Application.compile_env(:om_schema, [__MODULE__, :app_name], :events)
-  @default_repo Application.compile_env(@app_name, [__MODULE__, :repo], nil)
+  # Portable configuration - no hardcoded defaults
+  @default_repo Application.compile_env(:om_schema, :default_repo, nil)
 
   defmacro __using__(_opts) do
     quote do

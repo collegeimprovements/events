@@ -21,7 +21,7 @@ defmodule OmSchema.ValidationPipeline do
   alias OmSchema.ValidatorRegistry
   alias OmSchema.Validators.Constraints
 
-  @app_name Application.compile_env(:events, [__MODULE__, :app_name], :events)
+  @app_name Application.compile_env(:om_schema, :app_name, :om_schema)
 
   @doc """
   Apply all validations for a single field based on its type and options.

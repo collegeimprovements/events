@@ -22,16 +22,16 @@ defmodule OmSchema.DatabaseValidator.PgIntrospection do
       alias OmSchema.DatabaseValidator.PgIntrospection
 
       # Get all columns for a table
-      columns = PgIntrospection.columns(Events.Core.Repo, "users")
+      columns = PgIntrospection.columns(MyApp.Repo, "users")
 
       # Get all constraints
-      constraints = PgIntrospection.constraints(Events.Core.Repo, "users")
+      constraints = PgIntrospection.constraints(MyApp.Repo, "users")
 
       # Get foreign key details
-      fks = PgIntrospection.foreign_keys(Events.Core.Repo, "users")
+      fks = PgIntrospection.foreign_keys(MyApp.Repo, "users")
 
       # Check if specific constraint exists
-      PgIntrospection.constraint_exists?(Events.Core.Repo, "users", "users_pkey")
+      PgIntrospection.constraint_exists?(MyApp.Repo, "users", "users_pkey")
   """
 
   # Safe atom conversion - tries existing atoms first, falls back to creating new ones

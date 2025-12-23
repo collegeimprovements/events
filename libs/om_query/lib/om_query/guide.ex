@@ -947,7 +947,7 @@ defmodule OmQuery.Guide do
   ```elixir
   # config/config.exs
 
-  config :events, OmQuery.Token,
+  config :om_query, :token,
     default_limit: 20,      # Default pagination limit
     max_limit: 1000         # Maximum allowed limit
   ```

@@ -16,9 +16,9 @@ defmodule OmQuery.Executor do
   @default_timeout 15_000
 
   # Configurable defaults - can be overridden via application config
-  # config :events, OmQuery, default_repo: MyApp.Repo, telemetry_prefix: [:my_app, :query]
-  @default_repo Application.compile_env(:om_query, [OmQuery, :default_repo], nil)
-  @telemetry_prefix Application.compile_env(:om_query, [OmQuery, :telemetry_prefix], [:events, :query])
+  # config :om_query, default_repo: MyApp.Repo, telemetry_prefix: [:my_app, :query]
+  @default_repo Application.compile_env(:om_query, :default_repo, nil)
+  @telemetry_prefix Application.compile_env(:om_query, :telemetry_prefix, [:om_query])
 
   @doc """
   Execute a query token and return result or error tuple.
@@ -344,10 +344,10 @@ defmodule OmQuery.Executor do
 
   ## Telemetry
   #
-  # Telemetry events emitted:
-  # - [:events, :query, :start] - Query execution starting
-  # - [:events, :query, :stop] - Query execution completed
-  # - [:events, :query, :exception] - Query execution failed
+  # Telemetry events emitted (prefix configurable via :om_query, :telemetry_prefix):
+  # - [prefix, :start] - Query execution starting
+  # - [prefix, :stop] - Query execution completed
+  # - [prefix, :exception] - Query execution failed
   #
   # Metadata includes filter context for debugging slow queries.
 
@@ -439,6 +439,6 @@ defmodule OmQuery.Executor do
   # Helper to get repo from opts or configured default
   defp get_repo(opts) do
     opts[:repo] || @default_repo ||
-      raise "No repo configured. Pass :repo option or configure default_repo: config :events, OmQuery, default_repo: MyApp.Repo"
+      raise "No repo configured. Pass :repo option or configure default_repo: config :om_query, default_repo: MyApp.Repo"
   end
 end

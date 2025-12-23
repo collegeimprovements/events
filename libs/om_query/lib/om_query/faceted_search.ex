@@ -592,7 +592,7 @@ defmodule OmQuery.FacetedSearch do
   defp maybe_apply_search(token, {term, fields, opts}), do: OmQuery.search(token, term, fields, opts)
 
   defp get_repo do
-    Application.get_env(:events, :ecto_repos, []) |> List.first() ||
-      raise "No Ecto repo configured. Pass :repo option to execute/2."
+    Application.get_env(:om_query, :default_repo) ||
+      raise "No Ecto repo configured. Pass :repo option or configure: config :om_query, default_repo: MyApp.Repo"
   end
 end

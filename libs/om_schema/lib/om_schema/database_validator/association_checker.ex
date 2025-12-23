@@ -165,8 +165,8 @@ defmodule OmSchema.DatabaseValidator.AssociationChecker do
   ## Example
 
       AssociationChecker.validate_association(
-        Events.Core.Repo,
-        Events.Domains.Accounts.Account,
+        MyApp.Repo,
+        MyApp.Accounts.Account,
         :memberships
       )
   """

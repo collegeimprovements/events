@@ -11,7 +11,7 @@ defmodule OmQuery.Token do
   # - :max_limit - Maximum allowed limit (default: 1000)
   #
   # Configure in config.exs:
-  #     config :events, OmQuery.Token,
+  #     config :om_query, :token,
   #       default_limit: 50,
   #       max_limit: 5000
 
@@ -158,7 +158,7 @@ defmodule OmQuery.Token do
   end
 
   # Configurable limits - can be overridden via application config
-  # config :events, OmQuery.Token, default_limit: 50, max_limit: 5000
+  # config :om_query, :token, default_limit: 50, max_limit: 5000
   @configured_default_limit Application.compile_env(:om_query, [__MODULE__, :default_limit], @default_limit)
   @configured_max_limit Application.compile_env(:om_query, [__MODULE__, :max_limit], @default_max_limit)
 

@@ -28,7 +28,7 @@ defmodule OmSchema.RelationshipValidator do
       end
   """
 
-  @app_name Application.compile_env(:events, [__MODULE__, :app_name], :events)
+  @app_name Application.compile_env(:om_schema, :app_name, :om_schema)
 
   @doc """
   Validates all schema relationships and logs warnings for missing inverses.

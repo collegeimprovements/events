@@ -155,7 +155,7 @@ defmodule OmQuery.LimitExceededError do
 
     To increase max_limit, add to config.exs:
 
-        config :events, OmQuery.Token,
+        config :om_query, :token,
           max_limit: #{error.requested}
     """
     |> String.trim()

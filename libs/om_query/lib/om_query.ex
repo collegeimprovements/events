@@ -195,8 +195,8 @@ defmodule OmQuery do
   alias OmQuery.{Token, Builder, Executor, Result, Queryable, Cast, Predicates, Search}
 
   # Configurable defaults - can be overridden via application config
-  # config :events, OmQuery, default_repo: MyApp.Repo
-  @default_repo Application.compile_env(:om_query, [__MODULE__, :default_repo], nil)
+  # config :om_query, default_repo: MyApp.Repo
+  @default_repo Application.compile_env(:om_query, :default_repo, nil)
 
   # Re-export key types
   @type t :: Token.t()
@@ -3337,6 +3337,6 @@ defmodule OmQuery do
   # Private helper to get repo from opts or configured default
   defp get_repo(opts) do
     opts[:repo] || @default_repo ||
-      raise "No repo configured. Pass :repo option or configure default_repo: config :events, OmQuery, default_repo: MyApp.Repo"
+      raise "No repo configured. Pass :repo option or configure default_repo: config :om_query, default_repo: MyApp.Repo"
   end
 end

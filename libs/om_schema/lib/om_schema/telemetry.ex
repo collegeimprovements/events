@@ -2,10 +2,14 @@ defmodule OmSchema.Telemetry do
   @moduledoc """
   Telemetry integration for OmSchema validation monitoring.
 
-  Emits the following events:
-  - `[:events, :schema, :validation, :start]` - When validation starts
-  - `[:events, :schema, :validation, :stop]` - When validation completes
-  - `[:events, :schema, :validation, :exception]` - When validation fails
+  Emits the following events (prefix configurable via `:om_schema, :telemetry_prefix`):
+  - `[prefix, :validation, :start]` - When validation starts
+  - `[prefix, :validation, :stop]` - When validation completes
+  - `[prefix, :validation, :exception]` - When validation fails
+
+  Default prefix is `[:om_schema]`. Configure for your app:
+
+      config :om_schema, telemetry_prefix: [:myapp, :schema]
 
   ## Event Measurements
 
@@ -19,7 +23,8 @@ defmodule OmSchema.Telemetry do
   - `:valid?` - Whether the changeset is valid after validation
   """
 
-  @app_name Application.compile_env(:om_schema, [__MODULE__, :app_name], :events)
+  @app_name Application.compile_env(:om_schema, :app_name, :om_schema)
+  @telemetry_prefix Application.compile_env(:om_schema, :telemetry_prefix, [:om_schema])
 
   @doc """
   Execute a validation function with telemetry tracking.
@@ -27,7 +32,7 @@ defmodule OmSchema.Telemetry do
   @spec span(atom(), map(), (-> any())) :: any()
   def span(event_name, metadata, fun) do
     :telemetry.span(
-      [:events, :schema, :validation, event_name],
+      @telemetry_prefix ++ [:validation, event_name],
       metadata,
       fn ->
         result = fun.()
@@ -56,7 +61,7 @@ defmodule OmSchema.Telemetry do
         # Emit additional event if validity changed
         if result.valid? != changeset.valid? do
           :telemetry.execute(
-            [:events, :schema, :validation, :validity_changed],
+            @telemetry_prefix ++ [:validation, :validity_changed],
             %{},
             %{
               field: field_name,
@@ -112,50 +117,45 @@ defmodule OmSchema.Telemetry do
   Attach default telemetry handlers for logging.
   """
   def attach_default_handlers do
+    prefix = @telemetry_prefix
+
     :telemetry.attach_many(
-      "events-schema-validation",
+      "om-schema-validation",
       [
-        [:events, :schema, :validation, :field, :start],
-        [:events, :schema, :validation, :field, :stop],
-        [:events, :schema, :validation, :validity_changed]
+        prefix ++ [:validation, :field, :start],
+        prefix ++ [:validation, :field, :stop],
+        prefix ++ [:validation, :validity_changed]
       ],
       &handle_event/4,
-      nil
+      %{prefix: prefix}
     )
   end
 
-  defp handle_event(
-         [:events, :schema, :validation, :field, :start],
-         _measurements,
-         metadata,
-         _config
-       ) do
-    if Application.get_env(@app_name, :log_validation_start, false) do
-      require Logger
-      Logger.debug("Validating #{metadata.field} as #{metadata.type}")
+  defp handle_event(event, measurements, metadata, %{prefix: prefix}) do
+    cond do
+      event == prefix ++ [:validation, :field, :start] ->
+        if Application.get_env(@app_name, :log_validation_start, false) do
+          require Logger
+          Logger.debug("Validating #{metadata.field} as #{metadata.type}")
+        end
+
+      event == prefix ++ [:validation, :field, :stop] ->
+        if Application.get_env(@app_name, :log_validation_timing, false) do
+          require Logger
+          duration_ms = System.convert_time_unit(measurements.duration, :native, :millisecond)
+          Logger.debug("Validated #{metadata.field} in #{duration_ms}ms")
+        end
+
+      event == prefix ++ [:validation, :validity_changed] ->
+        if Application.get_env(@app_name, :log_validity_changes, true) do
+          require Logger
+          Logger.info("Field #{metadata.field} changed validity: #{metadata.was_valid} -> #{metadata.is_valid}")
+        end
+
+      true ->
+        :ok
     end
   end
 
-  defp handle_event([:events, :schema, :validation, :field, :stop], measurements, metadata, _config) do
-    if Application.get_env(@app_name, :log_validation_timing, false) do
-      require Logger
-      duration_ms = System.convert_time_unit(measurements.duration, :native, :millisecond)
-      Logger.debug("Validated #{metadata.field} in #{duration_ms}ms")
-    end
-  end
-
-  defp handle_event(
-         [:events, :schema, :validation, :validity_changed],
-         _measurements,
-         metadata,
-         _config
-       ) do
-    if Application.get_env(@app_name, :log_validity_changes, true) do
-      require Logger
-
-      Logger.info(
-        "Field #{metadata.field} changed validity: #{metadata.was_valid} -> #{metadata.is_valid}"
-      )
-    end
-  end
+  defp handle_event(_event, _measurements, _metadata, _config), do: :ok
 end

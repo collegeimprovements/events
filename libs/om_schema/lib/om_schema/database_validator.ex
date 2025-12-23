@@ -34,7 +34,7 @@ defmodule OmSchema.DatabaseValidator do
   ### Startup Validation
 
       # In config/dev.exs
-      config :events, :schema_validation,
+      config :om_schema, :schema_validation,
         enabled: true,
         on_startup: true,
         fail_on_error: false
@@ -62,8 +62,9 @@ defmodule OmSchema.DatabaseValidator do
 
   require Logger
 
-  @app_name Application.compile_env(:om_schema, [__MODULE__, :app_name], :events)
-  @default_repo Application.compile_env(@app_name, [__MODULE__, :repo], Events.Core.Repo)
+  # Portable configuration - no hardcoded defaults
+  @default_repo Application.compile_env(:om_schema, :default_repo, nil)
+  @app_name Application.compile_env(:om_schema, :app_name, :om_schema)
 
   @doc """
   Validates all schemas that use `OmSchema`.
@@ -73,7 +74,7 @@ defmodule OmSchema.DatabaseValidator do
 
   ## Options
 
-    * `:repo` - Ecto repo to use (default: `Events.Core.Repo`)
+    * `:repo` - Ecto repo to use (required, or configure via `:om_schema, :default_repo`)
     * `:fail_on_extra_columns` - Treat extra DB columns as errors (default: false)
     * `:check_indexes` - Validate index existence (default: false)
     * `:quiet` - Only return errors, no logging (default: false)
@@ -121,7 +122,7 @@ defmodule OmSchema.DatabaseValidator do
 
   ## Options
 
-    * `:repo` - Ecto repo to use (default: `Events.Core.Repo`)
+    * `:repo` - Ecto repo to use (required, or configure via `:om_schema, :default_repo`)
     * `:fail_on_extra_columns` - Treat extra DB columns as errors (default: false)
     * `:check_indexes` - Validate index existence (default: false)
 
@@ -250,7 +251,7 @@ defmodule OmSchema.DatabaseValidator do
 
   ## Configuration
 
-      config :events, :schema_validation,
+      config :om_schema, :schema_validation,
         enabled: true,
         on_startup: true,
         fail_on_error: false
@@ -299,19 +300,19 @@ defmodule OmSchema.DatabaseValidator do
   Discovers all schema modules that use OmSchema.
 
   Looks for modules with `__constraints__/0` function as indicator.
-  Uses Application.spec/2 to get all compiled modules for the :events app.
+  Uses Application.spec/2 to get all compiled modules for the configured app.
   """
   @spec discover_schemas() :: [module()]
   def discover_schemas do
-    # Get all modules from the :events application
+    # Get all modules from the configured application
     # This returns all compiled modules, unlike :code.all_loaded()
-    Application.spec(:events, :modules)
+    Application.spec(@app_name, :modules)
     |> Kernel.||([])
-    |> Enum.filter(&events_schema?/1)
+    |> Enum.filter(&om_schema?/1)
     |> Enum.sort()
   end
 
-  defp events_schema?(module) do
+  defp om_schema?(module) do
     # Ensure module is loaded before checking
     Code.ensure_loaded?(module) &&
       function_exported?(module, :__constraints__, 0) &&

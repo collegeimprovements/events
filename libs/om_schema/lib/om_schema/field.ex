@@ -25,7 +25,7 @@ defmodule OmSchema.Field do
     end
   end
 
-  @app_name Application.compile_env(:events, [__MODULE__, :app_name], :events)
+  @app_name Application.compile_env(:om_schema, :app_name, :om_schema)
 
   @doc false
   def __split_options__(opts, type, field_name \\ :unknown) do

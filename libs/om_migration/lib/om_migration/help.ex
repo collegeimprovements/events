@@ -66,8 +66,8 @@ defmodule OmMigration.Help do
   def general_help do
     IO.puts("""
 
-    Events Migration System
-    =======================
+    OmMigration System
+    ==================
 
     A clean, composable migration system using token patterns and pipelines.
 

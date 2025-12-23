@@ -71,7 +71,7 @@ defmodule OmQuery.Debug do
   alias OmQuery.FacetedSearch
 
   # Configurable default repo - can be overridden via application config
-  @default_repo Application.compile_env(:events, [OmQuery, :default_repo], nil)
+  @default_repo Application.compile_env(:om_query, :default_repo, nil)
 
   # Note: Ecto.Query not imported - we work with Token and use Builder
 
@@ -563,8 +563,8 @@ defmodule OmQuery.Debug do
 
   # Helper: Get repo from opts or config
   defp get_repo(opts) do
-    opts[:repo] || Application.get_env(:events, :repo) || @default_repo ||
-      raise "No repo configured. Pass :repo option or configure default_repo: config :events, OmQuery, default_repo: MyApp.Repo"
+    opts[:repo] || @default_repo ||
+      raise "No repo configured. Pass :repo option or configure: config :om_query, default_repo: MyApp.Repo"
   end
 
   # Helper: Extract schema from token source

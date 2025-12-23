@@ -41,7 +41,7 @@ defmodule OmQuery.TestHelpers do
   alias OmQuery.Debug
 
   # Configurable default repo - can be overridden via application config
-  @default_repo Application.compile_env(:events, [OmQuery, :default_repo], nil)
+  @default_repo Application.compile_env(:om_query, :default_repo, nil)
 
   @doc """
   Use this module in test cases.
@@ -173,8 +173,8 @@ defmodule OmQuery.TestHelpers do
   @spec to_sql_with_params(Token.t(), keyword()) :: {:ok, {String.t(), list()}} | {:error, term()}
   def to_sql_with_params(%Token{} = token, opts \\ []) do
     try do
-      repo = opts[:repo] || Application.get_env(:events, :repo) || @default_repo ||
-        raise "No repo configured. Pass :repo option or configure default_repo: config :events, OmQuery, default_repo: MyApp.Repo"
+      repo = opts[:repo] || @default_repo ||
+        raise "No repo configured. Pass :repo option or configure: config :om_query, default_repo: MyApp.Repo"
       query = Builder.build(token)
       {:ok, repo.to_sql(:all, query)}
     rescue

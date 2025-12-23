@@ -16,17 +16,27 @@ config :events, Events.Core.Repo,
     default: {:fragment, "CURRENT_TIMESTAMP"}
   ]
 
-# Query module configuration
-# These settings are used by Events.Core.Query for default repo and telemetry
-config :events, Events.Core.Query,
+# ─────────────────────────────────────────────────────────────
+# OmSchema library configuration
+# ─────────────────────────────────────────────────────────────
+config :om_schema,
+  default_repo: Events.Core.Repo,
+  app_name: :events,
+  telemetry_prefix: [:events, :schema]
+
+# ─────────────────────────────────────────────────────────────
+# OmQuery library configuration
+# ─────────────────────────────────────────────────────────────
+config :om_query,
   default_repo: Events.Core.Repo,
   telemetry_prefix: [:events, :query]
 
+# ─────────────────────────────────────────────────────────────
 # OmCrud library configuration
-# Default repository and telemetry prefix for CRUD operations
+# ─────────────────────────────────────────────────────────────
 config :om_crud,
   default_repo: Events.Core.Repo,
-  telemetry_prefix: [:events, :crud, :execute]
+  telemetry_prefix: [:events, :crud]
 
 # Phoenix endpoint configuration
 config :events, EventsWeb.Endpoint,
