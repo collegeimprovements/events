@@ -1,25 +1,18 @@
+# ─────────────────────────────────────────────────────────────
+# Events.Core.Query.Token Protocol Implementations
+# ─────────────────────────────────────────────────────────────
+
 defimpl OmCrud.Executable, for: Events.Core.Query.Token do
   @moduledoc """
-  Executable implementation for Query.Token.
+  Executable implementation for Events.Core.Query.Token.
 
-  Allows Query tokens to be executed via `Crud.run/1`:
+  Allows Query tokens to be executed via `OmCrud.run/1`:
 
       User
       |> Query.new()
       |> Query.where(:active, true)
-      |> Crud.run()
+      |> OmCrud.run()
       # => {:ok, %Query.Result{data: [%User{}, ...]}}
-
-  ## Options
-
-  - `:repo` - Repository to use (default: Events.Core.Repo)
-  - `:timeout` - Query timeout in milliseconds (default: 15_000)
-  - `:include_total_count` - Include total count for pagination (default: false)
-
-  ## Returns
-
-  - `{:ok, %Query.Result{}}` - Success with query result
-  - `{:error, exception}` - Failure with exception
   """
 
   alias Events.Core.Query.Executor
@@ -32,46 +25,21 @@ defimpl OmCrud.Executable, for: Events.Core.Query.Token do
 end
 
 defimpl OmCrud.Validatable, for: Events.Core.Query.Token do
-  @moduledoc """
-  Validatable implementation for Query.Token.
-
-  Query tokens are validated at operation addition time, so this
-  implementation performs a basic structural check.
-  """
+  @moduledoc "Validatable implementation for Events.Core.Query.Token."
 
   alias Events.Core.Query.Token
 
   @spec validate(Token.t()) :: :ok | {:error, [String.t()]}
   def validate(%Token{source: source, operations: ops}) do
     errors = []
-
-    errors =
-      if is_nil(source) do
-        ["source is required" | errors]
-      else
-        errors
-      end
-
-    errors =
-      if not is_list(ops) do
-        ["operations must be a list" | errors]
-      else
-        errors
-      end
-
-    case errors do
-      [] -> :ok
-      _ -> {:error, Enum.reverse(errors)}
-    end
+    errors = if is_nil(source), do: ["source is required" | errors], else: errors
+    errors = if not is_list(ops), do: ["operations must be a list" | errors], else: errors
+    if errors == [], do: :ok, else: {:error, Enum.reverse(errors)}
   end
 end
 
 defimpl OmCrud.Debuggable, for: Events.Core.Query.Token do
-  @moduledoc """
-  Debuggable implementation for Query.Token.
-
-  Provides a structured debug representation for logging and introspection.
-  """
+  @moduledoc "Debuggable implementation for Events.Core.Query.Token."
 
   alias Events.Core.Query.Token
 
@@ -91,17 +59,89 @@ defimpl OmCrud.Debuggable, for: Events.Core.Query.Token do
   defp format_source(:nested), do: :nested
   defp format_source(_), do: :unknown
 
-  defp format_operation({type, config}) do
-    %{type: type, config: summarize_config(config)}
+  defp format_operation({type, config}), do: %{type: type, config: summarize_config(config)}
+
+  defp summarize_config({field, op, _value, opts}) when is_atom(field) and is_atom(op),
+    do: %{field: field, op: op, opts: opts}
+
+  defp summarize_config({type, opts}) when is_atom(type) and is_list(opts),
+    do: %{subtype: type, opts: Keyword.keys(opts)}
+
+  defp summarize_config(value) when is_atom(value), do: value
+  defp summarize_config(value) when is_integer(value), do: value
+  defp summarize_config(value) when is_list(value), do: {:list, length(value)}
+  defp summarize_config(_), do: :complex
+end
+
+# ─────────────────────────────────────────────────────────────
+# OmQuery.Token Protocol Implementations
+# Enables OmQuery tokens to work with OmCrud.run/1
+# ─────────────────────────────────────────────────────────────
+
+defimpl OmCrud.Executable, for: OmQuery.Token do
+  @moduledoc """
+  Executable implementation for OmQuery.Token.
+
+  Allows OmQuery tokens to be executed via `OmCrud.run/1`:
+
+      User
+      |> OmQuery.new()
+      |> OmQuery.filter(:active, :eq, true)
+      |> OmCrud.run()
+      # => {:ok, %OmQuery.Result{data: [%User{}, ...]}}
+  """
+
+  alias OmQuery.Executor
+
+  @spec execute(OmQuery.Token.t(), keyword()) ::
+          {:ok, OmQuery.Result.t()} | {:error, Exception.t()}
+  def execute(token, opts \\ []) do
+    Executor.execute(token, opts)
+  end
+end
+
+defimpl OmCrud.Validatable, for: OmQuery.Token do
+  @moduledoc "Validatable implementation for OmQuery.Token."
+
+  alias OmQuery.Token
+
+  @spec validate(Token.t()) :: :ok | {:error, [String.t()]}
+  def validate(%Token{source: source, operations: ops}) do
+    errors = []
+    errors = if is_nil(source), do: ["source is required" | errors], else: errors
+    errors = if not is_list(ops), do: ["operations must be a list" | errors], else: errors
+    if errors == [], do: :ok, else: {:error, Enum.reverse(errors)}
+  end
+end
+
+defimpl OmCrud.Debuggable, for: OmQuery.Token do
+  @moduledoc "Debuggable implementation for OmQuery.Token."
+
+  alias OmQuery.Token
+
+  @spec to_debug(Token.t()) :: map()
+  def to_debug(%Token{source: source, operations: ops, metadata: meta}) do
+    %{
+      type: :query,
+      source: format_source(source),
+      operation_count: length(ops),
+      operations: Enum.map(ops, &format_operation/1),
+      metadata: meta
+    }
   end
 
-  defp summarize_config({field, op, _value, opts}) when is_atom(field) and is_atom(op) do
-    %{field: field, op: op, opts: opts}
-  end
+  defp format_source(source) when is_atom(source), do: source
+  defp format_source(%Ecto.Query{}), do: :ecto_query
+  defp format_source(:nested), do: :nested
+  defp format_source(_), do: :unknown
 
-  defp summarize_config({type, opts}) when is_atom(type) and is_list(opts) do
-    %{subtype: type, opts: Keyword.keys(opts)}
-  end
+  defp format_operation({type, config}), do: %{type: type, config: summarize_config(config)}
+
+  defp summarize_config({field, op, _value, opts}) when is_atom(field) and is_atom(op),
+    do: %{field: field, op: op, opts: opts}
+
+  defp summarize_config({type, opts}) when is_atom(type) and is_list(opts),
+    do: %{subtype: type, opts: Keyword.keys(opts)}
 
   defp summarize_config(value) when is_atom(value), do: value
   defp summarize_config(value) when is_integer(value), do: value

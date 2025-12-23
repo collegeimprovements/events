@@ -1163,22 +1163,22 @@ defmodule Events.Support.IExHelpers do
 
     #{subsection("Core Modules")}
 
-      alias Events.Core.Crud
-      alias Events.Core.Crud.{Multi, Merge}
+      alias OmCrud
+      alias OmCrud.{Multi, Merge}
 
     #{subsection("Basic Operations")}
 
-      Crud.create(User, %{email: "test@example.com"})
-      Crud.fetch(User, id)
-      Crud.update(user, %{name: "Updated"})
-      Crud.delete(user)
+      OmCrud.create(User, %{email: "test@example.com"})
+      OmCrud.fetch(User, id)
+      OmCrud.update(user, %{name: "Updated"})
+      OmCrud.delete(user)
 
     #{subsection("Transactions (Multi)")}
 
       Multi.new()
       |> Multi.create(:user, User, user_attrs)
       |> Multi.create(:account, Account, account_attrs)
-      |> Crud.run()
+      |> OmOmCrud.run()
 
     #{subsection("Upserts (Merge)")}
 
@@ -1187,7 +1187,7 @@ defmodule Events.Support.IExHelpers do
       |> Merge.match_on(:email)
       |> Merge.when_matched(:update)
       |> Merge.when_not_matched(:insert)
-      |> Crud.run()
+      |> OmOmCrud.run()
 
     #{subsection("Available Topics")}
 
@@ -1205,29 +1205,29 @@ defmodule Events.Support.IExHelpers do
 
     #{subsection("Create")}
 
-      {:ok, user} = Crud.create(User, %{email: "test@example.com"})
-      {:ok, user} = Crud.create(User, attrs, changeset: :admin_changeset)
+      {:ok, user} = OmCrud.create(User, %{email: "test@example.com"})
+      {:ok, user} = OmCrud.create(User, attrs, changeset: :admin_changeset)
 
     #{subsection("Read")}
 
-      {:ok, user} = Crud.fetch(User, id)
-      {:ok, user} = Crud.fetch(User, id, preload: [:account])
+      {:ok, user} = OmCrud.fetch(User, id)
+      {:ok, user} = OmCrud.fetch(User, id, preload: [:account])
       user = Crud.get(User, id)  # Returns nil if not found
       true = Crud.exists?(User, id)
 
     #{subsection("Update")}
 
-      {:ok, user} = Crud.update(user, %{name: "Updated"})
-      {:ok, user} = Crud.update(User, id, attrs)
+      {:ok, user} = OmCrud.update(user, %{name: "Updated"})
+      {:ok, user} = OmCrud.update(User, id, attrs)
 
     #{subsection("Delete")}
 
-      {:ok, user} = Crud.delete(user)
-      {:ok, user} = Crud.delete(User, id)
+      {:ok, user} = OmCrud.delete(user)
+      {:ok, user} = OmCrud.delete(User, id)
 
     #{subsection("Bulk Operations")}
 
-      {:ok, users} = Crud.create_all(User, [
+      {:ok, users} = OmCrud.create_all(User, [
         %{email: "a@test.com"},
         %{email: "b@test.com"}
       ])
@@ -1235,7 +1235,7 @@ defmodule Events.Support.IExHelpers do
       {:ok, count} = User
       |> Query.new()
       |> Query.filter(:status, :eq, :inactive)
-      |> Crud.delete_all()
+      |> OmCrud.delete_all()
 
     For more: crud_help(:multi)
     """)
@@ -1247,14 +1247,14 @@ defmodule Events.Support.IExHelpers do
 
     #{subsection("Basic Transaction")}
 
-      alias Events.Core.Crud.Multi
+      alias OmCrud.Multi
 
       Multi.new()
       |> Multi.create(:user, User, %{email: "test@example.com"})
       |> Multi.create(:account, Account, fn %{user: u} ->
         %{owner_id: u.id}
       end)
-      |> Crud.run()
+      |> OmCrud.run()
       # => {:ok, %{user: %User{}, account: %Account{}}}
 
     #{subsection("Dynamic Attributes")}
@@ -1264,7 +1264,7 @@ defmodule Events.Support.IExHelpers do
       |> Multi.create(:membership, Membership, fn %{user: u} ->
         %{user_id: u.id, role: :owner}
       end)
-      |> Crud.run()
+      |> OmCrud.run()
 
     #{subsection("Custom Operations")}
 
@@ -1274,7 +1274,7 @@ defmodule Events.Support.IExHelpers do
         Mailer.send_welcome(user)
         {:ok, :sent}
       end)
-      |> Crud.run()
+      |> OmCrud.run()
 
     #{subsection("Conditional Operations")}
 
@@ -1288,7 +1288,7 @@ defmodule Events.Support.IExHelpers do
           Multi.new()
         end
       end)
-      |> Crud.run()
+      |> OmCrud.run()
 
     For more: crud_help(:merge)
     """)
@@ -1300,14 +1300,14 @@ defmodule Events.Support.IExHelpers do
 
     #{subsection("Simple Upsert")}
 
-      alias Events.Core.Crud.Merge
+      alias OmCrud.Merge
 
       User
       |> Merge.new(%{email: "test@example.com", name: "Test"})
       |> Merge.match_on(:email)
       |> Merge.when_matched(:update, [:name, :updated_at])
       |> Merge.when_not_matched(:insert)
-      |> Crud.run()
+      |> OmCrud.run()
 
     #{subsection("Bulk Sync")}
 
@@ -1317,7 +1317,7 @@ defmodule Events.Support.IExHelpers do
       |> Merge.when_matched(:update, [:name, :email])
       |> Merge.when_not_matched(:insert, %{status: :pending})
       |> Merge.returning(true)
-      |> Crud.run()
+      |> OmCrud.run()
 
     #{subsection("Composite Keys")}
 
@@ -1326,7 +1326,7 @@ defmodule Events.Support.IExHelpers do
       |> Merge.match_on([:org_id, :email])
       |> Merge.when_matched(:update)
       |> Merge.when_not_matched(:insert)
-      |> Crud.run()
+      |> OmCrud.run()
 
     #{subsection("Common Options")}
 
@@ -1369,15 +1369,15 @@ defmodule Events.Support.IExHelpers do
     #{subsection("Usage Examples")}
 
       # Custom repo
-      Crud.fetch(User, id, repo: MyApp.ReadOnlyRepo)
+      OmCrud.fetch(User, id, repo: MyApp.ReadOnlyRepo)
 
       # Custom timeout for large operation
-      Crud.create_all(User, data, timeout: 120_000)
+      OmCrud.create_all(User, data, timeout: 120_000)
 
       # Placeholders for bulk insert
       placeholders = %{now: DateTime.utc_now()}
       entries = Enum.map(data, &Map.put(&1, :inserted_at, {:placeholder, :now}))
-      Crud.create_all(User, entries, placeholders: placeholders)
+      OmCrud.create_all(User, entries, placeholders: placeholders)
 
     For more: crud_help(:examples)
     """)
@@ -1399,7 +1399,7 @@ defmodule Events.Support.IExHelpers do
         Mailer.send_welcome(u)
         {:ok, :sent}
       end)
-      |> Crud.run()
+      |> OmCrud.run()
 
     #{subsection("Bulk User Import")}
 
@@ -1409,7 +1409,7 @@ defmodule Events.Support.IExHelpers do
       |> Merge.when_matched(:update, [:name, :phone])
       |> Merge.when_not_matched(:insert, %{status: :pending})
       |> Merge.returning([:id, :email])
-      |> Crud.run(timeout: 120_000)
+      |> OmCrud.run(timeout: 120_000)
 
     #{subsection("Soft Delete with Cascade")}
 
@@ -1421,7 +1421,7 @@ defmodule Events.Support.IExHelpers do
         from(m in Membership, where: m.account_id == ^account.id),
         set: [deleted_at: now]
       )
-      |> Crud.run()
+      |> OmCrud.run()
 
     For more: examples(:crud)
     """)
@@ -1924,7 +1924,7 @@ defmodule Events.Support.IExHelpers do
     #{subsection("Basic Operations (Try in IEx)")}
 
       # Fetch a record (returns {:ok, record} or {:error, :not_found})
-      # Crud.fetch(YourSchema, id)
+      # OmCrud.fetch(YourSchema, id)
 
       # Get a record (returns record or nil)
       # Crud.get(YourSchema, id)
@@ -1940,7 +1940,7 @@ defmodule Events.Support.IExHelpers do
       #   IO.puts("Transaction running!")
       #   {:ok, :logged}
       # end)
-      # |> Crud.run()
+      # |> OmCrud.run()
       # => {:ok, %{validate: :valid, log: :logged}}
 
     #{subsection("Dry Run (Safe to Try)")}
@@ -1955,7 +1955,7 @@ defmodule Events.Support.IExHelpers do
       # => [:step1, :step2]
 
       # Execute it
-      Crud.run(multi)
+      OmCrud.run(multi)
       # => {:ok, %{step1: "first", step2: "first second"}}
 
     Try: examples(:workflow)

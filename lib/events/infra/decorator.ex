@@ -1,23 +1,46 @@
 defmodule Events.Infra.Decorator do
   @moduledoc """
-  Main entry point for using decorators in the Events application.
+  Events-specific decorator entry point.
 
-  This module provides a unified interface for applying decorators to functions
-  using the `@decorate` attribute. It combines caching, telemetry, debugging,
-  tracing, purity checking, testing helpers, and advanced composition patterns
-  in a clean, composable way.
+  This module provides access to BOTH standard decorators (from FnDecorator)
+  AND Events-specific decorators (scheduler, workflow).
+
+  ## When to Use Which
+
+  - **`use FnDecorator`** - For standard decorators (caching, telemetry, debugging, etc.)
+  - **`use Events.Infra.Decorator`** - When you need Events-specific decorators
+
+  ## Events-Specific Decorators
+
+  These decorators are ONLY available via `use Events.Infra.Decorator`:
+
+  - `@decorate log_query(opts)` - Log database queries (uses Events.Core.Repo)
+  - `@decorate log_remote(opts)` - Remote logging (uses Events.TaskSupervisor)
+  - `@decorate scheduled(opts)` - Cron job scheduling
+  - `@decorate step(opts)` - Workflow step definition
+  - `@decorate graft(opts)` - Dynamic workflow grafting
+  - `@decorate subworkflow(name, opts)` - Nested workflows
 
   ## Usage
 
+      # For standard decorators only:
       defmodule MyApp.Users do
-        use Events.Infra.Decorator
+        use FnDecorator
 
         @decorate cacheable(cache: Cache, key: {User, id})
         @decorate telemetry_span([:my_app, :users, :get])
-        @decorate log_if_slow(threshold: 1000)
-        def get_user(id) do
-          Repo.get(User, id)
-        end
+        def get_user(id), do: Repo.get(User, id)
+      end
+
+      # For Events-specific decorators (also includes standard ones):
+      defmodule MyApp.Jobs do
+        use Events.Infra.Decorator
+
+        @decorate scheduled(cron: "0 * * * *")
+        def hourly_task, do: ...
+
+        @decorate step()
+        def workflow_step(ctx), do: ...
       end
 
   ## Features

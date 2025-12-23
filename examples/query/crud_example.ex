@@ -2,7 +2,7 @@ defmodule Events.Domains.Accounts.CrudExample do
   @moduledoc """
   Reference example showing how to use the Crud system in a context.
 
-  This module demonstrates the patterns for using Events.Core.Crud
+  This module demonstrates the patterns for using OmCrud (from libs/om_crud)
   to reduce boilerplate while maintaining explicit control.
 
   ## Quick Start
@@ -10,7 +10,7 @@ defmodule Events.Domains.Accounts.CrudExample do
   ```elixir
   # Option 1: Use the Context macro for simple cases
   defmodule MyApp.Accounts do
-    use Events.Core.Crud.Context
+    use OmCrud.Context
 
     crud User                                    # All CRUD functions
     crud Role, only: [:create, :fetch, :list]   # Specific functions
@@ -27,21 +27,21 @@ defmodule Events.Domains.Accounts.CrudExample do
 
   ## Manual Usage
 
-  For more control, use Crud functions directly:
+  For more control, use OmCrud functions directly:
 
   ```elixir
-  alias Events.Core.Crud
-  alias Events.Core.Crud.{Multi, Merge}
+  alias OmCrud
+  alias OmCrud.{Multi, Merge}
 
   # Simple CRUD
-  Crud.fetch(User, id)
-  Crud.create(User, attrs)
-  Crud.update(user, attrs)
-  Crud.delete(user)
+  OmCrud.fetch(User, id)
+  OmCrud.create(User, attrs)
+  OmCrud.update(user, attrs)
+  OmCrud.delete(user)
 
   # With options
-  Crud.create(User, attrs, changeset: :registration_changeset)
-  Crud.fetch(User, id, preload: [:account, :memberships])
+  OmCrud.create(User, attrs, changeset: :registration_changeset)
+  OmCrud.fetch(User, id, preload: [:account, :memberships])
 
   # Transactions with Multi
   Multi.new()
@@ -50,7 +50,7 @@ defmodule Events.Domains.Accounts.CrudExample do
   |> Multi.create(:membership, Membership, fn %{user: u, account: a} ->
        %{user_id: u.id, account_id: a.id, role: :owner}
      end)
-  |> Crud.run()
+  |> OmOmCrud.run()
 
   # PostgreSQL MERGE for upserts
   User
@@ -58,15 +58,15 @@ defmodule Events.Domains.Accounts.CrudExample do
   |> Merge.match_on(:email)
   |> Merge.when_matched(:update, [:name, :updated_at])
   |> Merge.when_not_matched(:insert)
-  |> Crud.run()
+  |> OmOmCrud.run()
   ```
   """
 
-  use Events.Core.Crud.Context
+  use OmCrud.Context
 
   alias Events.Domains.Accounts.{Account, User, Membership, Role}
-  alias Events.Core.Crud
-  alias Events.Core.Crud.{Multi, Merge}
+  alias OmCrud
+  alias OmCrud.{Multi, Merge}
 
   # ─────────────────────────────────────────────────────────────
   # Generated CRUD functions via macro
@@ -106,7 +106,7 @@ defmodule Events.Domains.Accounts.CrudExample do
         type: :owner
       }
     end)
-    |> Crud.run()
+    |> OmCrud.run()
   end
 
   @doc """
@@ -124,7 +124,7 @@ defmodule Events.Domains.Accounts.CrudExample do
       import Ecto.Query
       from(t in Events.Domains.Accounts.UserToken, where: t.user_id == ^user.id)
     end)
-    |> Crud.run()
+    |> OmCrud.run()
   end
 
   @doc """
@@ -140,7 +140,7 @@ defmodule Events.Domains.Accounts.CrudExample do
     |> Merge.when_matched(:update, [:name, :updated_at])
     |> Merge.when_not_matched(:insert)
     |> Merge.returning(true)
-    |> Crud.run()
+    |> OmCrud.run()
   end
 
   @doc """
@@ -175,7 +175,7 @@ defmodule Events.Domains.Accounts.CrudExample do
     end)
     # Promote new owner
     |> Multi.update(:promote, fn %{new_membership: m} -> m end, %{type: :owner})
-    |> Crud.run()
+    |> OmCrud.run()
   end
 
   defp find_membership(account_id, user_id) do
@@ -206,7 +206,7 @@ defmodule Events.Domains.Accounts.CrudExample do
       |> Query.order_by(:inserted_at, :desc)
       |> Query.limit(criteria[:limit] || 50)
 
-    Crud.run(query)
+    OmCrud.run(query)
   end
 
   defp maybe_filter_status(query, nil), do: query

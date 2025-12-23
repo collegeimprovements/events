@@ -22,62 +22,91 @@
 
 ## Module Structure
 
+### Extracted Libraries (libs/) - USE DIRECTLY
+
+```
+libs/
+├── fn_types/        # FnTypes.* - Functional types
+│   ├── Result, Maybe, Pipeline, AsyncResult, Validation
+│   ├── Guards, Error, Lens, NonEmptyList
+│   └── Protocols: Normalizable, Recoverable, Identifiable
+├── fn_decorator/    # FnDecorator.* - Decorator system
+│   ├── Caching, Telemetry, Debugging, Tracing
+│   ├── Purity, Testing, Pipeline, Types
+│   └── Security, Validation
+├── om_schema/       # OmSchema.* - Schema & validation
+├── om_migration/    # OmMigration.* - Migration DSL
+├── om_query/        # OmQuery.* - Query builder
+├── om_crud/         # OmCrud.* - CRUD operations
+│   ├── Multi, Merge, Options, ChangesetBuilder
+│   └── Context, Schema
+├── om_api_client/   # OmApiClient.* - HTTP API client
+├── om_idempotency/  # OmIdempotency.* - Idempotency support
+├── om_kill_switch/  # OmKillSwitch.* - Service kill switches
+├── dag/             # Dag.* - Directed acyclic graph
+└── effect/          # Effect.* - Effect system
+```
+
+### Events Application (lib/events/) - Events-specific code only
+
 ```
 lib/events/
-├── (functional types in libs/fn_types) # FnTypes.* - Result, Maybe, Pipeline, AsyncResult, etc.
-├── protocols/       # Events.Protocols.* - Protocol definitions
-│   ├── normalizable.ex  # Error normalization
-│   ├── recoverable.ex   # Error recovery strategies
-│   └── identifiable.ex  # Entity identification
-├── errors/          # Events.Errors.*    - Error wrappers
-│   ├── http_error.ex    # HTTP errors
-│   └── posix_error.ex   # System errors
-├── core/            # Events.Core.*      - Database layer
-│   ├── schema/      #   Schema macros and helpers
-│   ├── migration/   #   Migration DSL
-│   ├── query/       #   Query builder
-│   ├── crud/        #   CRUD operations (Multi, Merge, Context)
-│   ├── repo/        #   Repository + SQL scope
-│   └── cache/       #   Caching layer
-├── api/             # Events.Api.*       - External APIs
-│   ├── client/      #   API client with middleware
-│   └── clients/     #   Specific clients (Google, Stripe)
-├── infra/           # Events.Infra.*     - Infrastructure
-│   ├── decorator/   #   Decorator system
+├── core/            # Events.Core.* - Database layer wrappers
+│   ├── schema/      #   Events.Core.Schema (wraps OmSchema with defaults)
+│   ├── migration/   #   Events.Core.Migration (wraps OmMigration)
+│   ├── repo/        #   Events.Core.Repo (Ecto repo)
+│   └── cache/       #   Events.Core.Cache
+├── errors/          # Events.Errors.* - Events-specific errors
+├── infra/           # Events.Infra.* - Infrastructure
+│   ├── decorator/   #   Events-specific decorators (scheduler, workflow)
 │   ├── scheduler/   #   Cron scheduler + workflow system
 │   │   └── workflow/    #   DAG-based workflow orchestration
-│   ├── kill_switch/ #   Service kill switches
-│   ├── idempotency/ #   Idempotency support
-│   └── system_health/   # Health checks
-├── services/        # Events.Services.*  - External services
+│   └── kill_switch/ #   Events.Infra.KillSwitch (wraps OmKillSwitch)
+├── api/             # Events.Api.* - External APIs
+│   ├── client/      #   Events.Api.Client (wraps OmApiClient)
+│   └── clients/     #   Specific clients (Google, Stripe)
+├── services/        # Events.Services.* - External services
 │   └── s3/          #   S3/AWS integration
-├── support/         # Events.Support.*   - Dev utilities
-│   ├── behaviours/  #   Behavior definitions
-│   └── credo/       #   Custom Credo checks
-└── domains/         # Events.Domains.*   - Business logic
+├── support/         # Events.Support.* - Dev utilities
+└── domains/         # Events.Domains.* - Business logic
     └── accounts/    #   User accounts, auth, memberships
 ```
 
 ### Key Module Aliases
 
 ```elixir
-# Functional types (from fn_types library)
+# Functional types (from libs/fn_types)
 alias FnTypes.{Result, Maybe, Pipeline, AsyncResult, Validation, Guards, Error}
 
-# Protocols
+# Protocols (from libs/fn_types)
 alias FnTypes.Protocols.{Normalizable, Recoverable, Identifiable}
 
-# Core (database)
-alias Events.Core.{Schema, Migration, Query, Crud, Repo, Cache}
-alias Events.Core.Crud.{Multi, Merge, ChangesetBuilder, Options}
+# CRUD (from libs/om_crud) - USE DIRECTLY
+alias OmCrud
+alias OmCrud.{Multi, Merge, ChangesetBuilder, Options, Context}
+
+# Query (from libs/om_query) - USE DIRECTLY
+alias OmQuery
+alias OmQuery.{Token, Result, DSL, Fragment}
+
+# Schema (Events wrapper - provides defaults)
+alias Events.Core.Schema
+alias Events.Core.Migration
 
 # Infrastructure
-alias Events.Infra.{Decorator, KillSwitch, SystemHealth, Idempotency}
+alias Events.Infra.{KillSwitch, SystemHealth, Idempotency}
 alias Events.Infra.Scheduler.Workflow
 
-# API
-alias Events.Api.Client
-alias Events.Api.Clients.{Google, Stripe}
+# Decorators (from libs/fn_decorator) - USE DIRECTLY
+# use FnDecorator for standard decorators
+# use Events.Infra.Decorator for Events-specific (scheduler, workflow)
+
+# API Client (from libs/om_api_client)
+alias OmApiClient
+alias OmApiClient.Telemetry
+
+# Repository (Events-specific)
+alias Events.Core.{Repo, Cache}
 
 # Domains (business logic)
 alias Events.Domains.Accounts
@@ -144,6 +173,10 @@ AsyncResult.parallel([fn -> task1() end, fn -> task2() end])
 ### 5. Use Decorators
 
 ```elixir
+# For standard decorators (caching, telemetry, debugging, etc.)
+use FnDecorator
+
+# For Events-specific decorators (scheduler, workflow)
 use Events.Infra.Decorator
 
 @decorate returns_result(ok: User.t(), error: :atom)
@@ -220,15 +253,18 @@ end
 
 See `docs/claude/WORKFLOW.md` for complete reference with real-world examples.
 
-### CRUD System
+### CRUD System (OmCrud)
+
+Use `OmCrud` directly from `libs/om_crud`:
 
 | Module | Purpose |
 |--------|---------|
-| `Events.Core.Crud` | Unified execution API (`run/1`, `create/3`, `fetch/3`) |
-| `Events.Core.Crud.Multi` | Transaction composer (atomic multi-step operations) |
-| `Events.Core.Crud.Merge` | PostgreSQL MERGE for complex upserts |
-| `Events.Core.Crud.Op` | Pure changeset/options builders |
-| `Events.Core.Crud.Context` | Context-level `crud User` macro |
+| `OmCrud` | Unified execution API (`run/1`, `create/3`, `fetch/3`) |
+| `OmCrud.Multi` | Transaction composer (atomic multi-step operations) |
+| `OmCrud.Merge` | PostgreSQL MERGE for complex upserts |
+| `OmCrud.Options` | Option handling utilities |
+| `OmCrud.ChangesetBuilder` | Changeset building utilities |
+| `OmCrud.Context` | Context-level `crud User` macro |
 
 **Common Options (all operations):**
 - `:repo` - Custom repo module
@@ -241,25 +277,28 @@ See `docs/claude/WORKFLOW.md` for complete reference with real-world examples.
 **Bulk Options:** `:placeholders` (reduce data transfer), `:conflict_target`, `:on_conflict`
 
 ```elixir
+alias OmCrud
+alias OmCrud.{Multi, Merge}
+
 # Simple CRUD
-Crud.create(User, attrs)
-Crud.fetch(User, id, preload: [:account])
-Crud.update(user, attrs, changeset: :admin_changeset)
+OmCrud.create(User, attrs)
+OmCrud.fetch(User, id, preload: [:account])
+OmCrud.update(user, attrs, changeset: :admin_changeset)
 
 # With options
-Crud.create(User, attrs, timeout: 30_000, returning: true)
-Crud.fetch(User, id, repo: MyApp.ReadOnlyRepo)
+OmCrud.create(User, attrs, timeout: 30_000, returning: true)
+OmCrud.fetch(User, id, repo: MyApp.ReadOnlyRepo)
 
 # Bulk with placeholders
 placeholders = %{now: DateTime.utc_now(), org_id: org_id}
 entries = Enum.map(data, &Map.put(&1, :org_id, {:placeholder, :org_id}))
-Crud.create_all(User, entries, placeholders: placeholders, timeout: 120_000)
+OmCrud.create_all(User, entries, placeholders: placeholders, timeout: 120_000)
 
 # Transactions with Multi
 Multi.new()
 |> Multi.create(:user, User, user_attrs)
 |> Multi.create(:account, Account, fn %{user: u} -> %{owner_id: u.id} end)
-|> Crud.run(timeout: 60_000)
+|> OmCrud.run(timeout: 60_000)
 
 # PostgreSQL MERGE
 User
@@ -267,11 +306,11 @@ User
 |> Merge.match_on(:email)
 |> Merge.when_matched(:update, [:name])
 |> Merge.when_not_matched(:insert)
-|> Crud.run(timeout: 60_000)
+|> OmCrud.run(timeout: 60_000)
 
 # Context macro (generates overridable CRUD functions)
 defmodule MyApp.Accounts do
-  use Events.Core.Crud.Context
+  use OmCrud.Context
   crud User                           # All CRUD functions
   crud Role, only: [:create, :fetch]  # Specific functions
 end
@@ -295,14 +334,27 @@ See `docs/claude/CRUD.md` for complete options reference.
 | `audit_fields()` | created_by, updated_by |
 | `timestamps()` | inserted_at, updated_at |
 
-### Decorators
+### Decorators (FnDecorator)
+
+Use `FnDecorator` directly from `libs/fn_decorator` for standard decorators:
 
 | Category | Decorators |
 |----------|-----------|
 | Types | `returns_result`, `returns_maybe`, `returns_bang`, `normalize_result` |
 | Cache | `cacheable`, `cache_put`, `cache_evict` |
-| Telemetry | `telemetry_span`, `log_call`, `log_if_slow` |
+| Telemetry | `telemetry_span`, `otel_span`, `log_call`, `log_if_slow`, `benchmark` |
 | Security | `role_required`, `rate_limit`, `audit_log` |
+| Debugging | `debug`, `inspect`, `pry`, `trace_vars` |
+| Purity | `pure`, `deterministic`, `idempotent`, `memoizable` |
+| Testing | `with_fixtures`, `sample_data`, `timeout_test`, `mock` |
+
+**Events-specific decorators** (require `use Events.Infra.Decorator`):
+
+| Category | Decorators |
+|----------|-----------|
+| Telemetry | `log_query`, `log_remote` |
+| Scheduler | `scheduled` |
+| Workflow | `step`, `graft`, `subworkflow` |
 
 ---
 

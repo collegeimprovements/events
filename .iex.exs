@@ -2,8 +2,10 @@
 
 # Core & Database
 alias Events.Core.{Repo, Cache, Query, Schema, Migration}
-alias Events.Core.Crud
-alias Events.Core.Crud.{Multi, Merge, ChangesetBuilder, Options}
+
+# CRUD (from libs/om_crud)
+alias OmCrud
+alias OmCrud.{Multi, Merge, ChangesetBuilder, Options}
 
 # Functional Types
 alias FnTypes.{Result, Maybe, Pipeline, AsyncResult, Guards, Validation}

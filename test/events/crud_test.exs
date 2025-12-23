@@ -1,7 +1,8 @@
-defmodule Events.Core.CrudTest do
+defmodule OmCrudIntegrationTest do
   use ExUnit.Case, async: true
 
-  alias Events.Core.Crud.{Op, Multi, Merge}
+  # Testing OmCrud integration in Events
+  alias OmCrud.{Op, Multi, Merge}
 
   # ─────────────────────────────────────────────────────────────
   # Op Module Tests
@@ -451,7 +452,7 @@ defmodule Events.Core.CrudTest do
   # ─────────────────────────────────────────────────────────────
 
   describe "Validatable protocol for Multi" do
-    alias Events.Core.Crud.Validatable
+    alias OmCrud.Validatable
 
     test "returns error for empty multi" do
       assert {:error, errors} = Validatable.validate(Multi.new())
@@ -465,7 +466,7 @@ defmodule Events.Core.CrudTest do
   end
 
   describe "Validatable protocol for Merge" do
-    alias Events.Core.Crud.Validatable
+    alias OmCrud.Validatable
 
     test "validates complete merge as ok" do
       merge =
@@ -507,7 +508,7 @@ defmodule Events.Core.CrudTest do
   end
 
   describe "Debuggable protocol for Multi" do
-    alias Events.Core.Crud.Debuggable
+    alias OmCrud.Debuggable
 
     test "returns debug info" do
       multi =
@@ -525,7 +526,7 @@ defmodule Events.Core.CrudTest do
   end
 
   describe "Debuggable protocol for Merge" do
-    alias Events.Core.Crud.Debuggable
+    alias OmCrud.Debuggable
 
     test "returns debug info" do
       merge =

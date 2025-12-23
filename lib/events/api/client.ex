@@ -38,7 +38,7 @@ defmodule Events.Api.Client do
   - `[:events, :api_client, :request, :stop]` - Request completed
   - `[:events, :api_client, :request, :exception]` - Request failed
 
-  See `Events.Api.Client.Telemetry` for details.
+  See `OmApiClient.Telemetry` for details.
   """
 
   defmacro __using__(opts) do
@@ -52,8 +52,9 @@ defmodule Events.Api.Client do
     quote do
       use OmApiClient, unquote(opts)
 
-      # Re-alias Events.Api.Client modules for backwards compatibility
-      alias Events.Api.Client.{Request, Response, Auth, Telemetry}
+      # Alias OmApiClient modules
+      alias OmApiClient.{Auth, Telemetry}
+      alias Events.Api.Client.{Request, Response}
     end
   end
 end
