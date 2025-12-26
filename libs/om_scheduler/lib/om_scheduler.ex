@@ -96,7 +96,7 @@ defmodule OmScheduler do
   """
   defmacro __using__(_opts) do
     quote do
-      use Events.Infra.Decorator
+      use OmScheduler.Decorator
       use OmScheduler.Cron.Macros
 
       Module.register_attribute(__MODULE__, :__scheduled_jobs__, accumulate: true)
