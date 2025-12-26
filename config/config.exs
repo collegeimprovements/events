@@ -38,6 +38,20 @@ config :om_crud,
   default_repo: Events.Core.Repo,
   telemetry_prefix: [:events, :crud]
 
+# ─────────────────────────────────────────────────────────────
+# FnTypes library configuration
+# ─────────────────────────────────────────────────────────────
+config :fn_types,
+  telemetry_prefix: [:events]
+
+# ─────────────────────────────────────────────────────────────
+# OmScheduler library configuration
+# ─────────────────────────────────────────────────────────────
+config :om_scheduler,
+  app_name: :events,
+  repo: Events.Core.Repo,
+  telemetry_prefix: [:events, :scheduler]
+
 # Phoenix endpoint configuration
 config :events, EventsWeb.Endpoint,
   url: [host: "localhost"],

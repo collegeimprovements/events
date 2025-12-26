@@ -1,11 +1,8 @@
 defmodule Events.Core.Migration do
   @moduledoc """
-  Elegant migration DSL with token pattern, pipelines, and pattern matching.
+  Events-specific migration wrapper over OmMigration.
 
-  ## Philosophy
-
-  Migrations flow through a pipeline of transformations, each adding or modifying
-  the migration token. This creates a composable, testable, and elegant system.
+  This module provides a thin wrapper that delegates to `OmMigration`.
 
   ## Usage
 
@@ -17,27 +14,33 @@ defmodule Events.Core.Migration do
           |> with_identity(:name, :email)
           |> with_authentication()
           |> with_profile(:bio, :avatar)
-          |> with_audit_fields()
+          |> with_audit()
           |> with_soft_delete()
           |> with_timestamps()
           |> execute()
         end
       end
 
+  ## Submodules
+
+  - `OmMigration.Pipeline` - Pipeline functions
+  - `OmMigration.DSLEnhanced` - Enhanced DSL
+  - `OmMigration.Token` - Migration token
+
   ## Help
 
   Run `Events.Core.Migration.help()` for available commands and patterns.
-  """
 
-  alias Events.Core.Migration.{Token, Help, Executor}
+  See `OmMigration` for full documentation.
+  """
 
   defmacro __using__(_opts) do
     quote do
       use Ecto.Migration
       import Events.Core.Migration
-      import Events.Core.Migration.Pipeline
+      import OmMigration.Pipeline
       # Don't import timestamps - use Ecto's version
-      import Events.Core.Migration.DSLEnhanced, except: [timestamps: 0, timestamps: 1]
+      import OmMigration.DSLEnhanced, except: [timestamps: 0, timestamps: 1]
     end
   end
 
@@ -51,7 +54,7 @@ defmodule Events.Core.Migration do
       Events.Core.Migration.help(:indexes)   # Index helpers
       Events.Core.Migration.help(:examples)  # Complete examples
   """
-  defdelegate help(topic \\ :general), to: Help, as: :show
+  defdelegate help(topic \\ :general), to: OmMigration.Help, as: :show
 
   @doc """
   Creates a new table token to start the pipeline.
@@ -63,9 +66,7 @@ defmodule Events.Core.Migration do
       |> with_fields(...)
       |> execute()
   """
-  def create_table(name, opts \\ []) do
-    Token.new(:table, name, opts)
-  end
+  defdelegate create_table(name, opts \\ []), to: OmMigration
 
   @doc """
   Creates an index token.
@@ -77,12 +78,10 @@ defmodule Events.Core.Migration do
       |> where("deleted_at IS NULL")
       |> execute()
   """
-  def create_index(table, columns, opts \\ []) do
-    Token.new(:index, table, Keyword.put(opts, :columns, columns))
-  end
+  defdelegate create_index(table, columns, opts \\ []), to: OmMigration
 
   @doc """
   Executes the migration token pipeline.
   """
-  defdelegate execute(token), to: Executor
+  defdelegate execute(token), to: OmMigration
 end

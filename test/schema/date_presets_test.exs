@@ -1,7 +1,7 @@
 defmodule Events.Core.Schema.DatePresetsTest do
   use Events.TestCase, async: true
 
-  import Events.Core.Schema.Presets.Dates
+  import OmSchema.Presets.Dates
 
   defmodule Event do
     use Events.Core.Schema

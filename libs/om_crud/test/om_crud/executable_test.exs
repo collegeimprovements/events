@@ -3,33 +3,34 @@ defmodule OmCrud.ExecutableTest do
 
   describe "OmCrud.Executable protocol" do
     test "protocol is defined" do
-      assert Code.ensure_loaded?(OmCrud.Executable)
+      assert {:module, OmCrud.Executable} = Code.ensure_loaded(OmCrud.Executable)
     end
 
-    test "has execute/2 callback" do
-      # Protocol functions are defined
-      assert function_exported?(OmCrud.Executable, :execute, 1)
-      assert function_exported?(OmCrud.Executable, :execute, 2)
+    test "can be invoked via impl" do
+      # Protocol defines execute/2 (opts has default)
+      assert OmCrud.Executable.__protocol__(:functions) == [execute: 2]
     end
   end
 
   describe "OmCrud.Validatable protocol" do
     test "protocol is defined" do
-      assert Code.ensure_loaded?(OmCrud.Validatable)
+      assert {:module, OmCrud.Validatable} = Code.ensure_loaded(OmCrud.Validatable)
     end
 
-    test "has validate/1 callback" do
-      assert function_exported?(OmCrud.Validatable, :validate, 1)
+    test "can be invoked via impl" do
+      # Protocol has __protocol__/1 callback
+      assert OmCrud.Validatable.__protocol__(:functions) == [validate: 1]
     end
   end
 
   describe "OmCrud.Debuggable protocol" do
     test "protocol is defined" do
-      assert Code.ensure_loaded?(OmCrud.Debuggable)
+      assert {:module, OmCrud.Debuggable} = Code.ensure_loaded(OmCrud.Debuggable)
     end
 
-    test "has to_debug/1 callback" do
-      assert function_exported?(OmCrud.Debuggable, :to_debug, 1)
+    test "can be invoked via impl" do
+      # Protocol has __protocol__/1 callback
+      assert OmCrud.Debuggable.__protocol__(:functions) == [to_debug: 1]
     end
   end
 end

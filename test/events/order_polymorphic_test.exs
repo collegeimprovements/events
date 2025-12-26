@@ -183,7 +183,7 @@ defmodule Events.OrderPolymorphicTest do
   end
 
   describe "order_by/order in DSL" do
-    import Events.Core.Query.DSL
+    import OmQuery.DSL
 
     test "DSL order with single field" do
       token =

@@ -2,6 +2,7 @@ defmodule Effect.MixProject do
   use Mix.Project
 
   @version "0.1.0"
+  @source_url "https://github.com/outermagic/effect"
 
   def project do
     [
@@ -13,6 +14,8 @@ defmodule Effect.MixProject do
       elixirc_paths: elixirc_paths(Mix.env()),
       name: "Effect",
       description: "Composable, resumable workflow orchestration for Elixir",
+      package: package(),
+      docs: docs(),
       dialyzer: [plt_add_apps: [:ex_unit]]
     ]
   end
@@ -26,7 +29,7 @@ defmodule Effect.MixProject do
 
   defp deps do
     [
-      # Required - internal dependencies
+      # Required - internal dependencies (use path until hex published)
       {:dag, path: "../dag"},
       {:fn_types, path: "../fn_types"},
 
@@ -39,6 +42,23 @@ defmodule Effect.MixProject do
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
       {:stream_data, "~> 1.0", only: [:dev, :test]},
       {:benchee, "~> 1.0", only: :dev}
+    ]
+  end
+
+  defp package do
+    [
+      maintainers: ["Arpit"],
+      licenses: ["MIT"],
+      links: %{"GitHub" => @source_url},
+      files: ~w(lib .formatter.exs mix.exs README.md LICENSE CHANGELOG.md)
+    ]
+  end
+
+  defp docs do
+    [
+      main: "Effect",
+      source_url: @source_url,
+      extras: ["README.md", "CHANGELOG.md"]
     ]
   end
 end

@@ -2,13 +2,13 @@ defmodule OmApiClient.MixProject do
   use Mix.Project
 
   @version "0.1.0"
-  @source_url "https://github.com/yourusername/om_api_client"
+  @source_url "https://github.com/outermagic/om_api_client"
 
   def project do
     [
       app: :om_api_client,
       version: @version,
-      elixir: "~> 1.14",
+      elixir: "~> 1.19",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       elixirc_paths: elixirc_paths(Mix.env()),
@@ -35,16 +35,17 @@ defmodule OmApiClient.MixProject do
       {:req, "~> 0.5"},
       {:jason, "~> 1.2"},
       {:telemetry, "~> 1.0"},
-      {:fn_types, path: "../fn_types"},
+      {:fn_types, path: "../fn_types"},  # use path until hex published
       {:ex_doc, "~> 0.31", only: :dev, runtime: false}
     ]
   end
 
   defp package do
     [
+      maintainers: ["Arpit"],
       licenses: ["MIT"],
       links: %{"GitHub" => @source_url},
-      files: ~w(lib .formatter.exs mix.exs README.md LICENSE)
+      files: ~w(lib .formatter.exs mix.exs README.md LICENSE CHANGELOG.md)
     ]
   end
 
@@ -52,7 +53,7 @@ defmodule OmApiClient.MixProject do
     [
       main: "OmApiClient",
       source_url: @source_url,
-      extras: ["README.md"]
+      extras: ["README.md", "CHANGELOG.md"]
     ]
   end
 end

@@ -77,18 +77,18 @@ defmodule Mix.Tasks.Schema.Validate do
       case args do
         [] ->
           # Validate all schemas
-          Events.Core.Schema.DatabaseValidator.validate_all(validation_opts)
+          OmSchema.DatabaseValidator.validate_all(validation_opts)
 
         [pattern] ->
           if String.contains?(pattern, "*") do
             # Pattern match
-            schemas = Events.Core.Schema.DatabaseValidator.discover_schemas(pattern)
+            schemas = OmSchema.DatabaseValidator.discover_schemas(pattern)
             validate_multiple(schemas, validation_opts)
           else
             # Single schema
             schema_module = Module.concat([pattern])
 
-            Events.Core.Schema.DatabaseValidator.validate(schema_module, validation_opts)
+            OmSchema.DatabaseValidator.validate(schema_module, validation_opts)
             |> wrap_single_result(schema_module)
           end
       end
@@ -100,7 +100,7 @@ defmodule Mix.Tasks.Schema.Validate do
   defp validate_multiple(schemas, opts) do
     results =
       Enum.map(schemas, fn schema ->
-        {schema, Events.Core.Schema.DatabaseValidator.validate(schema, opts)}
+        {schema, OmSchema.DatabaseValidator.validate(schema, opts)}
       end)
 
     errors = Enum.filter(results, fn {_, r} -> match?({:error, _}, r) end)

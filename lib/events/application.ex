@@ -130,7 +130,7 @@ defmodule Events.Application do
       # Wait for Repo to be fully registered before validation
       case wait_for_repo(50, 100) do
         :ok ->
-          Events.Core.Schema.DatabaseValidator.validate_on_startup()
+          OmSchema.DatabaseValidator.validate_on_startup()
 
         :timeout ->
           require Logger

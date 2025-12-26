@@ -1,4 +1,5 @@
-defimpl FnTypes.Protocols.Normalizable, for: Postgrex.Error do
+if Code.ensure_loaded?(Postgrex.Error) do
+  defimpl FnTypes.Protocols.Normalizable, for: Postgrex.Error do
   @moduledoc """
   Normalizable implementation for Postgrex.Error.
 
@@ -175,4 +176,5 @@ defimpl FnTypes.Protocols.Normalizable, for: Postgrex.Error do
   # Generic fallback
   defp map_postgres_code(code),
     do: {:external, :database_error, "Database error (#{code})", false}
+  end
 end

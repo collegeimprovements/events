@@ -1,7 +1,7 @@
 defmodule Events.Core.Query.ParamsTest do
   use Events.TestCase, async: true
 
-  alias Events.Core.Query.Params
+  alias OmQuery.Params
 
   describe "get/3" do
     test "gets value by atom key" do
@@ -192,7 +192,7 @@ defmodule Events.Core.Query.ParamsTest do
   end
 
   describe "integration with Query" do
-    alias Events.Core.Query
+    alias OmQuery, as: Query
 
     test "params work with maybe filter" do
       params = %{"status" => "active", "role" => nil}

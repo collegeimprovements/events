@@ -1,7 +1,7 @@
 defmodule Events.Core.Query.CursorInferenceTest do
   use Events.TestCase, async: true
 
-  alias Events.Core.Query.DynamicBuilder
+  alias OmQuery.DynamicBuilder
 
   describe "infer_cursor_fields/1" do
     test "infers from order 4-tuples" do

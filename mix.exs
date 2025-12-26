@@ -81,6 +81,7 @@ defmodule Events.MixProject do
       {:om_idempotency, path: "libs/om_idempotency"},
       {:om_kill_switch, path: "libs/om_kill_switch"},
       {:om_api_client, path: "libs/om_api_client"},
+      {:om_scheduler, path: "libs/om_scheduler"},
 
       # ============================================
       # Phoenix & Web

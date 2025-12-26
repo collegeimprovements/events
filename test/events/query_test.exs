@@ -1,8 +1,8 @@
 defmodule Events.Core.QueryTest do
   use Events.TestCase, async: true
 
-  alias Events.Core.Query
-  alias Events.Core.Query.{Token, Result}
+  alias OmQuery, as: Query
+  alias OmQuery.{Token, Result}
 
   describe "token creation" do
     test "creates token from schema" do
@@ -43,7 +43,7 @@ defmodule Events.Core.QueryTest do
       assert %Token{} = Query.filter(token, :name, :like, "%john%")
 
       # Invalid operators should raise ValidationError
-      assert_raise Events.Core.Query.ValidationError, fn ->
+      assert_raise OmQuery.ValidationError, fn ->
         Query.filter(token, :status, :invalid_op, "value")
       end
     end
@@ -387,7 +387,7 @@ defmodule Events.Core.QueryTest do
       token = Query.new(User)
 
       # Should raise LimitExceededError when limit exceeds max
-      assert_raise Events.Core.Query.LimitExceededError, fn ->
+      assert_raise OmQuery.LimitExceededError, fn ->
         Query.limit(token, 10_000)
       end
     end
@@ -396,7 +396,7 @@ defmodule Events.Core.QueryTest do
       token = Query.new(User)
 
       # Should raise LimitExceededError when pagination limit exceeds max
-      assert_raise Events.Core.Query.LimitExceededError, fn ->
+      assert_raise OmQuery.LimitExceededError, fn ->
         Query.paginate(token, :offset, limit: 10_000)
       end
     end
@@ -415,21 +415,21 @@ defmodule Events.Core.QueryTest do
     test "Token.add_operation_safe returns {:error, exception} on validation failure" do
       token = Token.new(User)
 
-      assert {:error, %Events.Core.Query.ValidationError{}} =
+      assert {:error, %OmQuery.ValidationError{}} =
                Token.add_operation_safe(token, {:filter, {:status, :invalid_op, "value", []}})
     end
 
     test "Token.add_operation_safe returns {:error, LimitExceededError} for excessive limits" do
       token = Token.new(User)
 
-      assert {:error, %Events.Core.Query.LimitExceededError{}} =
+      assert {:error, %OmQuery.LimitExceededError{}} =
                Token.add_operation_safe(token, {:limit, 10_000})
     end
 
     test "Token.add_operation! raises on validation failure" do
       token = Token.new(User)
 
-      assert_raise Events.Core.Query.ValidationError, fn ->
+      assert_raise OmQuery.ValidationError, fn ->
         Token.add_operation!(token, {:filter, {:status, :invalid_op, "value", []}})
       end
     end

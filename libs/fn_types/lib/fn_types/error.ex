@@ -186,6 +186,9 @@ defmodule FnTypes.Error do
         end
       end
   """
+
+  @telemetry_prefix Application.compile_env(:fn_types, :telemetry_prefix, [:fn_types])
+
   @spec normalize(term(), keyword()) :: t()
   def normalize(error, opts \\ [])
 
@@ -206,7 +209,7 @@ defmodule FnTypes.Error do
       duration = System.monotonic_time() - start_time
 
       :telemetry.execute(
-        [:events, :error, :normalized],
+        @telemetry_prefix ++ [:error, :normalized],
         %{duration: duration},
         %{
           error_type: normalized.type,

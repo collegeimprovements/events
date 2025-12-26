@@ -1,7 +1,7 @@
 defmodule Events.Core.Query.DynamicBuilderFormatsTest do
   use Events.TestCase, async: true
 
-  alias Events.Core.Query.DynamicBuilder
+  alias OmQuery.DynamicBuilder
 
   @moduledoc """
   Test that all filter and order formats work interchangeably.

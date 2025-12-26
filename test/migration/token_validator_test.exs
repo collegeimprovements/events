@@ -1,9 +1,9 @@
 defmodule Events.Core.Migration.TokenValidatorTest do
   use Events.TestCase, async: true
 
-  alias Events.Core.Migration.Token
-  alias Events.Core.Migration.TokenValidator
-  alias Events.Core.Migration.ValidationError
+  alias OmMigration.Token
+  alias OmMigration.TokenValidator
+  alias OmMigration.ValidationError
 
   describe "TokenValidator.validate/1" do
     test "returns ok for valid table token" do

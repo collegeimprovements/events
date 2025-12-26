@@ -82,18 +82,21 @@ defmodule EventsWeb.TtydLive do
   def render(assigns) do
     ~H"""
     <div class="ttyd-container" style="height: 100vh; display: flex; flex-direction: column;">
-      <div class="ttyd-header" style="padding: 8px 16px; background: #1e1e1e; color: #fff; display: flex; justify-content: space-between; align-items: center;">
+      <div
+        class="ttyd-header"
+        style="padding: 8px 16px; background: #1e1e1e; color: #fff; display: flex; justify-content: space-between; align-items: center;"
+      >
         <div>
           <span style="font-weight: bold;">Terminal</span>
           <%= if @session_id do %>
             <span style="margin-left: 12px; font-size: 12px; opacity: 0.7;">
-              Session: <%= String.slice(@session_id, 0, 8) %>...
+              Session: {String.slice(@session_id, 0, 8)}...
             </span>
           <% end %>
         </div>
         <div style="display: flex; gap: 12px; align-items: center;">
           <%= if @status == :ready do %>
-            <span style="font-size: 12px; opacity: 0.7;">Port: <%= @port %></span>
+            <span style="font-size: 12px; opacity: 0.7;">Port: {@port}</span>
             <span style="color: #4ade80;">Connected</span>
           <% end %>
           <%= if @status == :connecting do %>
@@ -124,7 +127,7 @@ defmodule EventsWeb.TtydLive do
             <div style="display: flex; align-items: center; justify-content: center; height: 100%; color: #fff;">
               <div style="text-align: center; max-width: 400px;">
                 <div style="font-size: 24px; margin-bottom: 16px; color: #f87171;">Terminal Error</div>
-                <div style="opacity: 0.9; margin-bottom: 24px;"><%= @error %></div>
+                <div style="opacity: 0.9; margin-bottom: 24px;">{@error}</div>
                 <button
                   phx-click="retry"
                   style="padding: 8px 24px; background: #3b82f6; color: white; border: none; border-radius: 4px; cursor: pointer;"

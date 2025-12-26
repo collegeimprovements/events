@@ -141,11 +141,11 @@ defmodule OmCrud.OptionsTest do
       assert Options.timeout(opts) == 30_000
     end
 
-    test "returns default timeout when not specified" do
+    test "returns nil when not specified" do
       opts = []
 
-      # Default is 15_000
-      assert Options.timeout(opts) == 15_000
+      # Returns nil when not specified
+      assert Options.timeout(opts) == nil
     end
   end
 

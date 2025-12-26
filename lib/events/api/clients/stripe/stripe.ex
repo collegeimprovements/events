@@ -102,7 +102,6 @@ defmodule Events.Api.Clients.Stripe do
       Stripe.config(api_key: "sk_test_...")
       Stripe.config(api_key: "sk_test_...", api_version: "2023-10-16")
   """
-  @impl true
   def config(opts) when is_list(opts) do
     Config.new(opts)
   end

@@ -11,8 +11,8 @@ defmodule Events.Core.Query.ExecutionTest do
   """
   use Events.DataCase, async: true
 
-  alias Events.Core.Query
-  alias Events.Core.Query.Result
+  alias OmQuery, as: Query
+  alias OmQuery.Result
   alias Events.Core.Repo
 
   # Test schema - maps to query_test_records table

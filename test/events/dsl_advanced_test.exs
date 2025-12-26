@@ -1,8 +1,8 @@
 defmodule Events.DSLAdvancedTest do
   use Events.TestCase, async: true
 
-  import Events.Core.Query.DSL
-  alias Events.Core.Query
+  import OmQuery.DSL
+  alias OmQuery, as: Query
 
   describe "DSL - CTEs" do
     test "with_cte using do block" do

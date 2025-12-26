@@ -134,12 +134,18 @@ defmodule Events.Services.Ttyd.Session do
 
   @impl true
   def handle_info({:DOWN, ref, :process, _pid, reason}, %{owner_ref: ref} = state) do
-    Logger.info("[TtydSession] Owner died (#{inspect(reason)}), stopping session #{state.session_id}")
+    Logger.info(
+      "[TtydSession] Owner died (#{inspect(reason)}), stopping session #{state.session_id}"
+    )
+
     {:stop, :normal, state}
   end
 
   def handle_info({:EXIT, pid, reason}, %{ttyd_pid: pid} = state) do
-    Logger.info("[TtydSession] ttyd exited (#{inspect(reason)}), stopping session #{state.session_id}")
+    Logger.info(
+      "[TtydSession] ttyd exited (#{inspect(reason)}), stopping session #{state.session_id}"
+    )
+
     {:stop, :normal, %{state | ttyd_pid: nil}}
   end
 

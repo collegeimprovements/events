@@ -155,7 +155,7 @@ defmodule Events.Core.Schema.EnhancedFieldPhase2Test do
     end
 
     defp apply_cross_validations(changeset) do
-      Events.Core.Schema.Validators.CrossField.validate(changeset, [
+      OmSchema.Validators.CrossField.validate(changeset, [
         {:confirmation, :password, match: :password_confirmation},
         {:require_if, :shipping_address, when: {:field, :use_billing_address, equals: false}},
         {:one_of, [:email, :phone]},

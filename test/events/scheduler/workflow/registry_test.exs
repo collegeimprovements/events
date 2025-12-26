@@ -1,8 +1,8 @@
-defmodule Events.Infra.Scheduler.Workflow.RegistryTest do
+defmodule OmScheduler.Workflow.RegistryTest do
   use ExUnit.Case, async: false
 
-  alias Events.Infra.Scheduler.Workflow
-  alias Events.Infra.Scheduler.Workflow.{Registry, Execution}
+  alias OmScheduler.Workflow
+  alias OmScheduler.Workflow.{Registry, Execution}
 
   setup do
     # Start a fresh registry for each test

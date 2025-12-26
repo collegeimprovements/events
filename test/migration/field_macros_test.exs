@@ -1,8 +1,8 @@
 defmodule Events.Core.Migration.FieldMacrosTest do
   use Events.TestCase, async: true
 
-  alias Events.Core.Migration.FieldMacros
-  alias Events.Core.Migration.Token
+  alias OmMigration.FieldMacros
+  alias OmMigration.Token
 
   # Helper to create a table token
   defp create_table(name, opts \\ []) do

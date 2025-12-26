@@ -1,7 +1,7 @@
-defmodule Events.Infra.Scheduler.Workflow.TelemetryTest do
+defmodule OmScheduler.Workflow.TelemetryTest do
   use ExUnit.Case, async: true
 
-  alias Events.Infra.Scheduler.Workflow.Telemetry
+  alias OmScheduler.Workflow.Telemetry
 
   @prefix [:events, :scheduler, :workflow]
 

@@ -695,6 +695,7 @@ defmodule Events.Services.Typst do
   end
 
   defp add_pdf_standards(args, nil), do: args
+
   defp add_pdf_standards(args, standard) when is_atom(standard) do
     args ++ ["--pdf-standard", to_string(standard)]
   end

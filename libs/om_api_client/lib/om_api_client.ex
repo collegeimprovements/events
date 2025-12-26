@@ -121,23 +121,26 @@ defmodule OmApiClient do
       def default_headers(_config), do: []
 
       @impl true
+      @spec new(map() | struct()) :: unquote(request_module).t()
       def new(config) do
-        req = Request.new(config)
+        req = unquote(request_module).new(config)
 
         req =
           case @circuit_breaker do
             nil -> req
-            name -> Request.circuit_breaker(req, name)
+            name -> unquote(request_module).circuit_breaker(req, name)
           end
 
         case @rate_limiter do
           nil -> req
-          name -> Request.rate_limit_key(req, name)
+          name -> unquote(request_module).rate_limit_key(req, name)
         end
       end
 
       @impl true
-      def execute(%Request{} = request) do
+      @spec execute(unquote(request_module).t()) ::
+              {:ok, unquote(response_module).t()} | {:error, term()}
+      def execute(%unquote(request_module){} = request) do
         with {:ok, request} <- authenticate_request(request) do
           do_request(request)
         end
@@ -148,58 +151,59 @@ defmodule OmApiClient do
       # ============================================
 
       @doc "Performs a GET request."
-      @spec get(Request.t(), String.t(), keyword()) :: {:ok, Response.t()} | {:error, term()}
-      def get(%Request{} = req, path, opts \\ []) do
+      @spec get(unquote(request_module).t(), String.t(), keyword()) ::
+              {:ok, unquote(response_module).t()} | {:error, term()}
+      def get(%unquote(request_module){} = req, path, opts \\ []) do
         req
-        |> Request.method(:get)
-        |> Request.path(path)
+        |> unquote(request_module).method(:get)
+        |> unquote(request_module).path(path)
         |> maybe_add_query(opts[:query])
         |> execute()
       end
 
       @doc "Performs a POST request."
-      @spec post(Request.t(), String.t(), term(), keyword()) ::
-              {:ok, Response.t()} | {:error, term()}
-      def post(%Request{} = req, path, body, opts \\ []) do
+      @spec post(unquote(request_module).t(), String.t(), term(), keyword()) ::
+              {:ok, unquote(response_module).t()} | {:error, term()}
+      def post(%unquote(request_module){} = req, path, body, opts \\ []) do
         req
-        |> Request.method(:post)
-        |> Request.path(path)
+        |> unquote(request_module).method(:post)
+        |> unquote(request_module).path(path)
         |> add_body(body)
         |> maybe_add_query(opts[:query])
         |> execute()
       end
 
       @doc "Performs a PUT request."
-      @spec put(Request.t(), String.t(), term(), keyword()) ::
-              {:ok, Response.t()} | {:error, term()}
-      def put(%Request{} = req, path, body, opts \\ []) do
+      @spec put(unquote(request_module).t(), String.t(), term(), keyword()) ::
+              {:ok, unquote(response_module).t()} | {:error, term()}
+      def put(%unquote(request_module){} = req, path, body, opts \\ []) do
         req
-        |> Request.method(:put)
-        |> Request.path(path)
+        |> unquote(request_module).method(:put)
+        |> unquote(request_module).path(path)
         |> add_body(body)
         |> maybe_add_query(opts[:query])
         |> execute()
       end
 
       @doc "Performs a PATCH request."
-      @spec patch(Request.t(), String.t(), term(), keyword()) ::
-              {:ok, Response.t()} | {:error, term()}
-      def patch(%Request{} = req, path, body, opts \\ []) do
+      @spec patch(unquote(request_module).t(), String.t(), term(), keyword()) ::
+              {:ok, unquote(response_module).t()} | {:error, term()}
+      def patch(%unquote(request_module){} = req, path, body, opts \\ []) do
         req
-        |> Request.method(:patch)
-        |> Request.path(path)
+        |> unquote(request_module).method(:patch)
+        |> unquote(request_module).path(path)
         |> add_body(body)
         |> maybe_add_query(opts[:query])
         |> execute()
       end
 
       @doc "Performs a DELETE request."
-      @spec delete(Request.t(), String.t(), keyword()) ::
-              {:ok, Response.t()} | {:error, term()}
-      def delete(%Request{} = req, path, opts \\ []) do
+      @spec delete(unquote(request_module).t(), String.t(), keyword()) ::
+              {:ok, unquote(response_module).t()} | {:error, term()}
+      def delete(%unquote(request_module){} = req, path, opts \\ []) do
         req
-        |> Request.method(:delete)
-        |> Request.path(path)
+        |> unquote(request_module).method(:delete)
+        |> unquote(request_module).path(path)
         |> maybe_add_query(opts[:query])
         |> execute()
       end
@@ -208,7 +212,7 @@ defmodule OmApiClient do
       # Private Helpers
       # ============================================
 
-      defp authenticate_request(%Request{config: config} = request) do
+      defp authenticate_request(%unquote(request_module){config: config} = request) do
         config
         |> get_auth()
         |> apply_auth(request)
@@ -271,24 +275,24 @@ defmodule OmApiClient do
 
       defp add_body(req, body) do
         case @content_type do
-          :json -> Request.json(req, body)
-          :form -> Request.form(req, body)
-          _ -> Request.body(req, body)
+          :json -> unquote(request_module).json(req, body)
+          :form -> unquote(request_module).form(req, body)
+          _ -> unquote(request_module).body(req, body)
         end
       end
 
       defp maybe_add_query(req, nil), do: req
       defp maybe_add_query(req, []), do: req
-      defp maybe_add_query(req, query), do: Request.query(req, query)
+      defp maybe_add_query(req, query), do: unquote(request_module).query(req, query)
 
-      defp do_request(%Request{} = request) do
+      defp do_request(%unquote(request_module){} = request) do
         config = request.config
         base = base_url(config)
         headers = default_headers(config) ++ request.headers
 
         opts =
           request
-          |> Request.to_req_options()
+          |> unquote(request_module).to_req_options()
           |> Keyword.put(:base_url, base)
           |> Keyword.update(:headers, headers, &(&1 ++ headers))
 
@@ -315,7 +319,7 @@ defmodule OmApiClient do
                   (start_time || System.monotonic_time(:millisecond))
 
               response =
-                Response.from_req(resp,
+                unquote(response_module).from_req(resp,
                   request_id: request_id,
                   timing_ms: timing
                 )

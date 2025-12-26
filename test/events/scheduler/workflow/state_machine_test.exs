@@ -1,8 +1,8 @@
-defmodule Events.Infra.Scheduler.Workflow.StateMachineTest do
+defmodule OmScheduler.Workflow.StateMachineTest do
   use ExUnit.Case, async: true
 
-  alias Events.Infra.Scheduler.Workflow
-  alias Events.Infra.Scheduler.Workflow.{Step, Execution, StateMachine}
+  alias OmScheduler.Workflow
+  alias OmScheduler.Workflow.{Step, Execution, StateMachine}
 
   # Helper to create a test workflow
   defp build_workflow(steps_spec) do

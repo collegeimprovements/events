@@ -3,7 +3,7 @@ defmodule Events.Core.Schema.FieldLevelValidationTest do
 
   defmodule TestUser do
     use Events.Core.Schema
-    import Events.Core.Schema.Presets
+    import OmSchema.Presets
 
     schema "test_users" do
       field :email, :string, required: true, format: :email, normalize: [:trim, :downcase]

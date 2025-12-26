@@ -1,7 +1,7 @@
-defmodule Events.Infra.Scheduler.Strategies.StrategyRunnerTest do
+defmodule OmScheduler.Strategies.StrategyRunnerTest do
   use ExUnit.Case, async: true
 
-  alias Events.Infra.Scheduler.Strategies.StrategyRunner
+  alias OmScheduler.Strategies.StrategyRunner
 
   describe "init/1" do
     test "initializes with default strategies" do

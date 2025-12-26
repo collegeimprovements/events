@@ -35,6 +35,8 @@ defmodule FnTypes.Protocols.Identifiable.Helpers do
 
   alias FnTypes.Protocols.Identifiable
 
+  @telemetry_prefix Application.compile_env(:fn_types, :telemetry_prefix, [:fn_types])
+
   @type identity :: {atom(), Identifiable.id()}
 
   # =============================================================================
@@ -373,7 +375,7 @@ defmodule FnTypes.Protocols.Identifiable.Helpers do
       has_id: not is_nil(id)
     }
 
-    :telemetry.execute([:events, :identifiable, :lookup], measurements, metadata)
+    :telemetry.execute(@telemetry_prefix ++ [:identifiable, :lookup], measurements, metadata)
   end
 
   @doc """

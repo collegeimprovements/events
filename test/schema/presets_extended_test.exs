@@ -1,8 +1,8 @@
 defmodule Events.Core.Schema.PresetsExtendedTest do
   use Events.TestCase, async: true
 
-  import Events.Core.Schema.TestHelpers
-  import Events.Core.Schema.Presets
+  import OmSchema.TestHelpers
+  import OmSchema.Presets
 
   describe "zip_code/1" do
     test "validates US zip codes" do

@@ -445,7 +445,7 @@ defmodule Events.Infra.ConfigValidator do
 
   defp safe_validate_scheduler_config do
     try do
-      config = Events.Infra.Scheduler.Config.get!()
+      config = OmScheduler.Config.get!()
       {:ok, config}
     rescue
       e -> {:error, Exception.message(e)}

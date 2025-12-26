@@ -1,7 +1,7 @@
-defmodule Events.Infra.Scheduler.Workflow.ExecutionTest do
+defmodule OmScheduler.Workflow.ExecutionTest do
   use ExUnit.Case, async: true
 
-  alias Events.Infra.Scheduler.Workflow.Execution
+  alias OmScheduler.Workflow.Execution
 
   describe "new/3" do
     test "creates execution with workflow name" do

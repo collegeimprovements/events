@@ -155,27 +155,27 @@ defmodule Events.Infra.Decorator.Define do
   defdelegate coerce_types(opts, body, context), to: FnDecorator.Validation
   defdelegate serialize(opts, body, context), to: FnDecorator.Validation
 
-  # Scheduler decorator (Events-specific)
-  defdelegate scheduled(opts, body, context), to: Events.Infra.Scheduler.Decorator.Scheduled
+  # Scheduler decorator (delegates to OmScheduler)
+  defdelegate scheduled(opts, body, context), to: OmScheduler.Decorator.Scheduled
 
-  # Workflow decorators (Events-specific)
+  # Workflow decorators (delegates to OmScheduler)
   def step(body, context), do: step([], body, context)
 
   def step(opts, body, context) do
-    Events.Infra.Scheduler.Workflow.Decorator.Step.step(opts, body, context)
+    OmScheduler.Workflow.Decorator.Step.step(opts, body, context)
   end
 
   def graft(body, context), do: graft([], body, context)
 
   def graft(opts, body, context) do
-    Events.Infra.Scheduler.Workflow.Decorator.Graft.graft(opts, body, context)
+    OmScheduler.Workflow.Decorator.Graft.graft(opts, body, context)
   end
 
   def subworkflow(name, body, context) do
-    Events.Infra.Scheduler.Workflow.Decorator.Workflow.workflow(name, [], body, context)
+    OmScheduler.Workflow.Decorator.Workflow.workflow(name, [], body, context)
   end
 
   def subworkflow(name, opts, body, context) do
-    Events.Infra.Scheduler.Workflow.Decorator.Workflow.workflow(name, opts, body, context)
+    OmScheduler.Workflow.Decorator.Workflow.workflow(name, opts, body, context)
   end
 end

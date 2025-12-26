@@ -1,8 +1,16 @@
-defmodule Events.Infra.Scheduler.Workflow.StoreTest do
+defmodule OmScheduler.Workflow.StoreTest do
   use Events.DataCase, async: false
 
-  alias Events.Infra.Scheduler.Workflow
-  alias Events.Infra.Scheduler.Workflow.{Execution, Store}
+  alias OmScheduler.Workflow
+  alias OmScheduler.Workflow.{Execution, Store}
+
+  setup do
+    # Configure OmScheduler to use Events.Core.Repo
+    # Note: OmScheduler uses :events as app_name (configured in config.exs)
+    Application.put_env(:events, OmScheduler, repo: Events.Core.Repo, prefix: "public")
+    on_exit(fn -> Application.delete_env(:events, OmScheduler) end)
+    :ok
+  end
 
   describe "workflow definition operations" do
     test "saves and retrieves a workflow" do

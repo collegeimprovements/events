@@ -1,12 +1,20 @@
 defmodule OmQuery.MixProject do
   use Mix.Project
 
+  @version "0.1.0"
+  @source_url "https://github.com/outermagic/om_query"
+  @description "Production-grade Ecto query builder with pipelines and validation."
+
   def project do
     [
       app: :om_query,
-      version: "0.1.0",
+      version: @version,
       elixir: "~> 1.19",
       start_permanent: Mix.env() == :prod,
+      description: @description,
+      package: package(),
+      name: "OmQuery",
+      docs: docs(),
       deps: deps(),
       elixirc_paths: elixirc_paths(Mix.env())
     ]
@@ -30,6 +38,23 @@ defmodule OmQuery.MixProject do
       {:jason, "~> 1.0", optional: true},
       # Dev/Test
       {:ex_doc, "~> 0.31", only: :dev, runtime: false}
+    ]
+  end
+
+  defp package do
+    [
+      maintainers: ["Arpit"],
+      licenses: ["MIT"],
+      links: %{"GitHub" => @source_url},
+      files: ~w(lib .formatter.exs mix.exs README.md LICENSE CHANGELOG.md)
+    ]
+  end
+
+  defp docs do
+    [
+      main: "OmQuery",
+      source_url: @source_url,
+      extras: ["README.md", "CHANGELOG.md"]
     ]
   end
 end

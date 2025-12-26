@@ -1,7 +1,7 @@
 defmodule Events.Core.Schema.StringPresetsTest do
   use Events.TestCase, async: true
 
-  import Events.Core.Schema.Presets.Strings
+  import OmSchema.Presets.Strings
 
   defmodule Profile do
     use Events.Core.Schema

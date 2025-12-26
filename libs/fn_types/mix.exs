@@ -2,13 +2,13 @@ defmodule FnTypes.MixProject do
   use Mix.Project
 
   @version "0.1.0"
-  @source_url "https://github.com/yourusername/fn_types"
+  @source_url "https://github.com/outermagic/fn_types"
 
   def project do
     [
       app: :fn_types,
       version: @version,
-      elixir: "~> 1.15",
+      elixir: "~> 1.19",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       elixirc_paths: elixirc_paths(Mix.env()),
@@ -73,7 +73,7 @@ defmodule FnTypes.MixProject do
 
   defp package do
     [
-      maintainers: ["Your Name"],
+      maintainers: ["Arpit"],
       licenses: ["MIT"],
       links: %{"GitHub" => @source_url},
       files: ~w(lib .formatter.exs mix.exs README.md LICENSE CHANGELOG.md)

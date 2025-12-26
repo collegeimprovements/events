@@ -1,7 +1,7 @@
 defmodule Events.Core.Query.PaginationValidatorTest do
   use Events.TestCase, async: true
 
-  alias Events.Core.Query.PaginationValidator
+  alias OmQuery.PaginationValidator
 
   describe "infer/1" do
     test "infers from empty orders" do

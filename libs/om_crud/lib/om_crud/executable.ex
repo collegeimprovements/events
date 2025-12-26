@@ -61,6 +61,8 @@ defprotocol OmCrud.Validatable do
       end
   """
 
+  @fallback_to_any true
+
   @doc """
   Validate the token configuration.
 
@@ -71,6 +73,10 @@ defprotocol OmCrud.Validatable do
   def validate(token)
 end
 
+defimpl OmCrud.Validatable, for: Any do
+  def validate(_), do: :ok
+end
+
 defprotocol OmCrud.Debuggable do
   @moduledoc """
   Protocol for debugging and inspecting tokens.
@@ -78,6 +84,8 @@ defprotocol OmCrud.Debuggable do
   Provides a structured representation of the token for debugging,
   logging, and error reporting.
   """
+
+  @fallback_to_any true
 
   @doc """
   Convert the token to a debug-friendly map representation.
@@ -88,4 +96,8 @@ defprotocol OmCrud.Debuggable do
   """
   @spec to_debug(t()) :: map()
   def to_debug(token)
+end
+
+defimpl OmCrud.Debuggable, for: Any do
+  def to_debug(term), do: %{type: :unknown, value: inspect(term)}
 end

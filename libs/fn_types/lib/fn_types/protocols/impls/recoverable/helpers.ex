@@ -25,6 +25,8 @@ defmodule FnTypes.Protocols.Recoverable.Helpers do
 
   alias FnTypes.Protocols.Recoverable
 
+  @telemetry_prefix Application.compile_env(:fn_types, :telemetry_prefix, [:fn_types])
+
   @type recovery_decision ::
           {:retry, keyword()}
           | {:wait, keyword()}
@@ -261,7 +263,7 @@ defmodule FnTypes.Protocols.Recoverable.Helpers do
       severity: Recoverable.severity(error)
     }
 
-    :telemetry.execute([:events, :recoverable, :decision], measurements, metadata)
+    :telemetry.execute(@telemetry_prefix ++ [:recoverable, :decision], measurements, metadata)
   end
 
   @doc """

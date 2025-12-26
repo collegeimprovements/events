@@ -1,7 +1,7 @@
-defmodule Events.Infra.Scheduler.Workflow.Step.ExecutableTest do
+defmodule OmScheduler.Workflow.Step.ExecutableTest do
   use ExUnit.Case, async: true
 
-  alias Events.Infra.Scheduler.Workflow.Step.Executable
+  alias OmScheduler.Workflow.Step.Executable
 
   # Test module implementing perform/1
   defmodule TestWorker do

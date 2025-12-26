@@ -1,4 +1,5 @@
-defimpl FnTypes.Protocols.Recoverable, for: Postgrex.Error do
+if Code.ensure_loaded?(Postgrex.Error) do
+  defimpl FnTypes.Protocols.Recoverable, for: Postgrex.Error do
   @moduledoc """
   Recoverable implementation for Postgrex errors.
 
@@ -124,4 +125,5 @@ defimpl FnTypes.Protocols.Recoverable, for: Postgrex.Error do
 
   @impl true
   def fallback(%Postgrex.Error{}), do: nil
+  end
 end

@@ -2,13 +2,13 @@ defmodule OmKillSwitch.MixProject do
   use Mix.Project
 
   @version "0.1.0"
-  @source_url "https://github.com/yourusername/om_kill_switch"
+  @source_url "https://github.com/outermagic/om_kill_switch"
 
   def project do
     [
       app: :om_kill_switch,
       version: @version,
-      elixir: "~> 1.14",
+      elixir: "~> 1.19",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       elixirc_paths: elixirc_paths(Mix.env()),
@@ -39,9 +39,10 @@ defmodule OmKillSwitch.MixProject do
 
   defp package do
     [
+      maintainers: ["Arpit"],
       licenses: ["MIT"],
       links: %{"GitHub" => @source_url},
-      files: ~w(lib .formatter.exs mix.exs README.md LICENSE)
+      files: ~w(lib .formatter.exs mix.exs README.md LICENSE CHANGELOG.md)
     ]
   end
 
@@ -49,7 +50,7 @@ defmodule OmKillSwitch.MixProject do
     [
       main: "OmKillSwitch",
       source_url: @source_url,
-      extras: ["README.md"]
+      extras: ["README.md", "CHANGELOG.md"]
     ]
   end
 end

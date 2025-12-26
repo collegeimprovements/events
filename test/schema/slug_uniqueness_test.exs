@@ -89,7 +89,7 @@ defmodule Events.Core.Schema.SlugUniquenessTest do
   describe "slug preset" do
     defmodule Article do
       use Events.Core.Schema
-      import Events.Core.Schema.Presets
+      import OmSchema.Presets
 
       schema "articles" do
         field :title, :string, required: true
