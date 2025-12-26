@@ -82,6 +82,8 @@ defmodule Events.MixProject do
       {:om_kill_switch, path: "libs/om_kill_switch"},
       {:om_api_client, path: "libs/om_api_client"},
       {:om_scheduler, path: "libs/om_scheduler"},
+      {:om_s3, path: "libs/om_s3"},
+      {:om_health, path: "libs/om_health"},
 
       # ============================================
       # Phoenix & Web

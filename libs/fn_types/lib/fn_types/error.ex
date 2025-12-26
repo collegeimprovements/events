@@ -208,7 +208,7 @@ defmodule FnTypes.Error do
     if emit_telemetry do
       duration = System.monotonic_time() - start_time
 
-      :telemetry.execute(
+      FnTypes.Telemetry.execute(
         @telemetry_prefix ++ [:error, :normalized],
         %{duration: duration},
         %{

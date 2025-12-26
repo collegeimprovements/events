@@ -263,7 +263,7 @@ defmodule FnTypes.Protocols.Recoverable.Helpers do
       severity: Recoverable.severity(error)
     }
 
-    :telemetry.execute(@telemetry_prefix ++ [:recoverable, :decision], measurements, metadata)
+    FnTypes.Telemetry.execute(@telemetry_prefix ++ [:recoverable, :decision], measurements, metadata)
   end
 
   @doc """

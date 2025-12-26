@@ -1011,7 +1011,7 @@ defmodule FnTypes.Pipeline do
   defp emit_telemetry_start(%{telemetry_prefix: nil}), do: :ok
 
   defp emit_telemetry_start(%{telemetry_prefix: prefix} = pipeline) do
-    :telemetry.execute(
+    FnTypes.Telemetry.execute(
       prefix ++ [:pipeline, :start],
       %{system_time: System.system_time()},
       %{pipeline: pipeline.metadata, step_count: length(pipeline.steps)}
@@ -1027,7 +1027,7 @@ defmodule FnTypes.Pipeline do
         _ -> :ok
       end
 
-    :telemetry.execute(
+    FnTypes.Telemetry.execute(
       prefix ++ [:pipeline, :stop],
       %{duration: System.monotonic_time(:microsecond)},
       %{pipeline: pipeline.metadata, status: status}
@@ -1037,7 +1037,7 @@ defmodule FnTypes.Pipeline do
   defp emit_step_start(%{telemetry_prefix: nil}, _step), do: :ok
 
   defp emit_step_start(%{telemetry_prefix: prefix} = pipeline, step) do
-    :telemetry.execute(
+    FnTypes.Telemetry.execute(
       prefix ++ [:step, :start],
       %{system_time: System.system_time()},
       %{pipeline: pipeline.metadata, step: step.name}
@@ -1047,7 +1047,7 @@ defmodule FnTypes.Pipeline do
   defp emit_step_stop(%{telemetry_prefix: nil}, _step, _status), do: :ok
 
   defp emit_step_stop(%{telemetry_prefix: prefix} = pipeline, step, status) do
-    :telemetry.execute(
+    FnTypes.Telemetry.execute(
       prefix ++ [:step, :stop],
       %{duration: System.monotonic_time(:microsecond)},
       %{pipeline: pipeline.metadata, step: step.name, status: status}

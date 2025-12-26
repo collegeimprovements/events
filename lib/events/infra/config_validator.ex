@@ -28,147 +28,54 @@ defmodule Events.Infra.ConfigValidator do
       #=> {:ok, metadata} | {:error, reason}
   """
 
+  use FnTypes.Config.Validator
+
   alias FnTypes.Config, as: Cfg
+  alias FnTypes.Config.Validator
   alias Events.Infra.KillSwitch
 
   @app_name Application.compile_env(:events, [__MODULE__, :app_name], :events)
 
-  @type validation_result ::
-          {:ok, map()}
-          | {:error, String.t()}
-          | {:warning, String.t(), map()}
-          | {:disabled, String.t()}
+  # ============================================
+  # Service Validator Definitions (DSL)
+  # ============================================
 
-  @type validator_spec :: %{
-          service: atom(),
-          validator: (-> validation_result()),
-          critical: boolean(),
-          description: String.t()
-        }
-
-  # Service validator definitions
-  @validators [
-    %{
-      service: :database,
+  validators do
+    service(:database,
       validator: &__MODULE__.validate_database/0,
       critical: true,
       description: "PostgreSQL connection"
-    },
-    %{
-      service: :cache,
+    )
+
+    service(:cache,
       validator: &__MODULE__.validate_cache/0,
       critical: false,
       description: "Cache adapter (Redis/Local)"
-    },
-    %{
-      service: :s3,
+    )
+
+    service(:s3,
       validator: &__MODULE__.validate_s3/0,
       critical: false,
       description: "S3/MinIO configuration"
-    },
-    %{
-      service: :scheduler,
+    )
+
+    service(:scheduler,
       validator: &__MODULE__.validate_scheduler/0,
       critical: false,
       description: "Background job scheduler"
-    },
-    %{
-      service: :email,
+    )
+
+    service(:email,
       validator: &__MODULE__.validate_email/0,
       critical: false,
       description: "Email service (Swoosh)"
-    },
-    %{
-      service: :stripe,
+    )
+
+    service(:stripe,
       validator: &__MODULE__.validate_stripe/0,
       critical: false,
       description: "Stripe payment gateway"
-    }
-  ]
-
-  @doc """
-  Validates all service configurations.
-
-  Returns a map with categorized results:
-  - `:ok` - Services that passed validation
-  - `:warnings` - Services with warnings (still usable)
-  - `:errors` - Services with configuration errors
-  - `:disabled` - Services intentionally disabled
-
-  ## Examples
-
-      ConfigValidator.validate_all()
-      #=> %{
-      #     ok: [%{service: :database, ...}],
-      #     warnings: [%{service: :s3, reason: "Bucket not set", ...}],
-      #     errors: [],
-      #     disabled: [%{service: :email, reason: "Disabled via EMAIL_ENABLED=false"}]
-      #   }
-  """
-  @spec validate_all() :: %{
-          ok: list(map()),
-          warnings: list(map()),
-          errors: list(map()),
-          disabled: list(map())
-        }
-  def validate_all do
-    @validators
-    |> Enum.map(&run_validator/1)
-    |> categorize_results()
-  end
-
-  @doc """
-  Validates only critical services and fails fast.
-
-  Returns `{:ok, results}` if all critical services are valid.
-  Returns `{:error, errors}` if any critical service has errors.
-
-  ## Examples
-
-      ConfigValidator.validate_critical()
-      #=> {:ok, [...]}
-
-      ConfigValidator.validate_critical()
-      #=> {:error, [{:database, "DATABASE_URL not set"}]}
-  """
-  @spec validate_critical() :: {:ok, list(map())} | {:error, list({atom(), String.t()})}
-  def validate_critical do
-    critical_validators = Enum.filter(@validators, & &1.critical)
-
-    results =
-      critical_validators
-      |> Enum.map(&run_validator/1)
-
-    errors =
-      results
-      |> Enum.filter(&(&1.status == :error))
-      |> Enum.map(&{&1.service, &1.reason})
-
-    case errors do
-      [] -> {:ok, results}
-      errors -> {:error, errors}
-    end
-  end
-
-  @doc """
-  Validates a specific service configuration.
-
-  ## Examples
-
-      ConfigValidator.validate_service(:database)
-      #=> {:ok, %{url: "...", pool_size: 10}}
-
-      ConfigValidator.validate_service(:s3)
-      #=> {:warning, "Bucket not set", %{configured: false}}
-  """
-  @spec validate_service(atom()) :: validation_result()
-  def validate_service(service_name) do
-    @validators
-    |> Enum.find(&(&1.service == service_name))
-    |> case do
-      nil -> {:error, "Unknown service: #{service_name}"}
-      validator_spec -> validator_spec.validator.()
-    end
+    )
   end
 
   # ============================================
@@ -183,19 +90,18 @@ defmodule Events.Infra.ConfigValidator do
   - Connection string is parseable
   - Pool size is reasonable
   """
-  @spec validate_database() :: validation_result()
+  @spec validate_database() :: Validator.validation_result()
   def validate_database do
-    with {:ok, url} <- get_database_url(),
-         {:ok, parsed} <- parse_database_url(url),
-         {:ok, pool_size} <- validate_pool_size() do
-      {:ok,
-       %{
-         url: mask_url(url),
-         host: parsed.host,
-         database: parsed.path,
-         pool_size: pool_size,
-         ssl: Cfg.boolean("DB_SSL", false)
-       }}
+    Validator.with_checks(
+      [
+        fn -> check_database_url() end,
+        fn -> check_pool_size() end
+      ],
+      %{}
+    )
+    |> case do
+      {:ok, _} -> build_database_metadata()
+      error -> error
     end
   end
 
@@ -206,7 +112,7 @@ defmodule Events.Infra.ConfigValidator do
   - Cache adapter is configured
   - Adapter-specific settings are valid
   """
-  @spec validate_cache() :: validation_result()
+  @spec validate_cache() :: Validator.validation_result()
   def validate_cache do
     with {:ok, config} <- safe_build_cache_config(),
          {:ok, adapter_info} <- validate_cache_adapter(config) do
@@ -223,31 +129,12 @@ defmodule Events.Infra.ConfigValidator do
   - S3 bucket is configured
   - Region is specified
   """
-  @spec validate_s3() :: validation_result()
+  @spec validate_s3() :: Validator.validation_result()
   def validate_s3 do
-    # Check if S3 is disabled via KillSwitch
     if not KillSwitch.enabled?(:s3) do
       {:disabled, "Service disabled via KillSwitch"}
     else
       validate_s3_config()
-    end
-  end
-
-  defp validate_s3_config do
-    with {:ok, config} <- safe_build_s3_config(),
-         {:ok, bucket} <- validate_s3_bucket() do
-      result = %{
-        region: config.region,
-        bucket: bucket,
-        endpoint: config.endpoint
-      }
-
-      # Check if bucket is set - warning if not
-      if is_nil(bucket) do
-        {:warning, "S3 bucket not configured (optional service)", result}
-      else
-        {:ok, result}
-      end
     end
   end
 
@@ -259,7 +146,7 @@ defmodule Events.Infra.ConfigValidator do
   - Store backend is compatible
   - Peer module is available (if using database store)
   """
-  @spec validate_scheduler() :: validation_result()
+  @spec validate_scheduler() :: Validator.validation_result()
   def validate_scheduler do
     with {:ok, config} <- safe_validate_scheduler_config(),
          :ok <- validate_scheduler_store(config) do
@@ -280,7 +167,7 @@ defmodule Events.Infra.ConfigValidator do
   - Mailer adapter is configured
   - Production adapter has credentials (if prod)
   """
-  @spec validate_email() :: validation_result()
+  @spec validate_email() :: Validator.validation_result()
   def validate_email do
     config = Application.get_env(@app_name, Events.Infra.Mailer, [])
     adapter = Keyword.get(config, :adapter)
@@ -296,7 +183,6 @@ defmodule Events.Infra.ConfigValidator do
         {:ok, %{adapter: "Test", configured: true}}
 
       _ ->
-        # Production adapter - validate credentials exist
         validate_production_mailer(adapter, config)
     end
   end
@@ -309,7 +195,7 @@ defmodule Events.Infra.ConfigValidator do
   - API key format (test vs live)
   - API version is specified
   """
-  @spec validate_stripe() :: validation_result()
+  @spec validate_stripe() :: Validator.validation_result()
   def validate_stripe do
     case Cfg.string(["STRIPE_API_KEY", "STRIPE_SECRET_KEY"]) do
       nil ->
@@ -333,18 +219,57 @@ defmodule Events.Infra.ConfigValidator do
   # Database Validation Helpers
   # ============================================
 
-  defp get_database_url do
+  defp check_database_url do
     case Cfg.string("DATABASE_URL") do
       nil ->
         if Mix.env() == :prod do
           {:error, "DATABASE_URL not set (required in production)"}
         else
-          {:ok, default_dev_url()}
+          :ok
         end
 
       url ->
-        {:ok, url}
+        parse_database_url(url)
     end
+  end
+
+  defp parse_database_url(url) do
+    try do
+      parsed = URI.parse(url)
+
+      if parsed.host && parsed.path do
+        :ok
+      else
+        {:error, "Invalid DATABASE_URL format"}
+      end
+    rescue
+      _ -> {:error, "Failed to parse DATABASE_URL"}
+    end
+  end
+
+  defp check_pool_size do
+    pool_size = Cfg.integer("DB_POOL_SIZE", 10)
+
+    cond do
+      pool_size < 1 -> {:error, "DB_POOL_SIZE must be at least 1"}
+      pool_size > 100 -> {:error, "DB_POOL_SIZE too large (max 100)"}
+      true -> :ok
+    end
+  end
+
+  defp build_database_metadata do
+    url = Cfg.string("DATABASE_URL") || default_dev_url()
+    parsed = URI.parse(url)
+    pool_size = Cfg.integer("DB_POOL_SIZE", 10)
+
+    {:ok,
+     %{
+       url: Validator.mask_url(url),
+       host: parsed.host,
+       database: parsed.path,
+       pool_size: pool_size,
+       ssl: Cfg.boolean("DB_SSL", false)
+     }}
   end
 
   defp default_dev_url do
@@ -355,30 +280,6 @@ defmodule Events.Infra.ConfigValidator do
 
       :dev ->
         "ecto://postgres:postgres@localhost:5432/events_dev"
-    end
-  end
-
-  defp parse_database_url(url) do
-    try do
-      parsed = URI.parse(url)
-
-      if parsed.host && parsed.path do
-        {:ok, parsed}
-      else
-        {:error, "Invalid DATABASE_URL format"}
-      end
-    rescue
-      _ -> {:error, "Failed to parse DATABASE_URL"}
-    end
-  end
-
-  defp validate_pool_size do
-    pool_size = Cfg.integer("DB_POOL_SIZE", 10)
-
-    cond do
-      pool_size < 1 -> {:error, "DB_POOL_SIZE must be at least 1"}
-      pool_size > 100 -> {:error, "DB_POOL_SIZE too large (max 100)"}
-      true -> {:ok, pool_size}
     end
   end
 
@@ -422,6 +323,23 @@ defmodule Events.Infra.ConfigValidator do
   # ============================================
   # S3 Validation Helpers
   # ============================================
+
+  defp validate_s3_config do
+    with {:ok, config} <- safe_build_s3_config(),
+         {:ok, bucket} <- validate_s3_bucket() do
+      result = %{
+        region: config.region,
+        bucket: bucket,
+        endpoint: config.endpoint
+      }
+
+      if is_nil(bucket) do
+        {:warning, "S3 bucket not configured (optional service)", result}
+      else
+        {:ok, result}
+      end
+    end
+  end
 
   defp safe_build_s3_config do
     try do
@@ -476,7 +394,6 @@ defmodule Events.Infra.ConfigValidator do
       |> Module.split()
       |> List.last()
 
-    # Check if adapter has required config
     case {adapter_name, config} do
       {"Mailgun", config} ->
         validate_mailgun_config(config)
@@ -521,92 +438,5 @@ defmodule Events.Infra.ConfigValidator do
     rescue
       e -> {:error, Exception.message(e)}
     end
-  end
-
-  # ============================================
-  # Result Processing
-  # ============================================
-
-  defp run_validator(%{service: service, validator: validator_fn, critical: critical} = spec) do
-    case validator_fn.() do
-      {:ok, metadata} ->
-        %{
-          service: service,
-          status: :ok,
-          critical: critical,
-          description: spec.description,
-          metadata: metadata,
-          reason: nil
-        }
-
-      {:warning, reason, metadata} ->
-        %{
-          service: service,
-          status: :warning,
-          critical: critical,
-          description: spec.description,
-          metadata: metadata,
-          reason: reason
-        }
-
-      {:error, reason} ->
-        %{
-          service: service,
-          status: :error,
-          critical: critical,
-          description: spec.description,
-          metadata: %{},
-          reason: reason
-        }
-
-      {:disabled, reason} ->
-        %{
-          service: service,
-          status: :disabled,
-          critical: critical,
-          description: spec.description,
-          metadata: %{},
-          reason: reason
-        }
-    end
-  end
-
-  defp categorize_results(results) do
-    Enum.reduce(results, %{ok: [], warnings: [], errors: [], disabled: []}, fn result, acc ->
-      case result.status do
-        :ok -> Map.update!(acc, :ok, &[result | &1])
-        :warning -> Map.update!(acc, :warnings, &[result | &1])
-        :error -> Map.update!(acc, :errors, &[result | &1])
-        :disabled -> Map.update!(acc, :disabled, &[result | &1])
-      end
-    end)
-    |> Map.new(fn {k, v} -> {k, Enum.reverse(v)} end)
-  end
-
-  # ============================================
-  # Utility Functions
-  # ============================================
-
-  defp mask_url(nil), do: nil
-
-  defp mask_url(url) when is_binary(url) do
-    url
-    |> URI.parse()
-    |> mask_userinfo()
-    |> URI.to_string()
-  rescue
-    _ -> url
-  end
-
-  defp mask_userinfo(%URI{userinfo: nil} = uri), do: uri
-
-  defp mask_userinfo(%URI{userinfo: userinfo} = uri) do
-    masked =
-      case String.split(userinfo, ":", parts: 2) do
-        [user] -> user
-        [user, _password] -> "#{user}:********"
-      end
-
-    Map.put(uri, :userinfo, masked)
   end
 end

@@ -375,7 +375,7 @@ defmodule FnTypes.Protocols.Identifiable.Helpers do
       has_id: not is_nil(id)
     }
 
-    :telemetry.execute(@telemetry_prefix ++ [:identifiable, :lookup], measurements, metadata)
+    FnTypes.Telemetry.execute(@telemetry_prefix ++ [:identifiable, :lookup], measurements, metadata)
   end
 
   @doc """

@@ -1,4 +1,4 @@
-defmodule Events.Services.S3.URI do
+defmodule OmS3.URI do
   @moduledoc """
   S3 URI parsing utilities.
 
@@ -6,11 +6,11 @@ defmodule Events.Services.S3.URI do
 
   ## Examples
 
-      {:ok, "my-bucket", "path/to/file.txt"} = S3.URI.parse("s3://my-bucket/path/to/file.txt")
-      {:ok, "my-bucket", "prefix/"} = S3.URI.parse("s3://my-bucket/prefix/")
-      {:ok, "my-bucket", ""} = S3.URI.parse("s3://my-bucket")
+      {:ok, "my-bucket", "path/to/file.txt"} = OmS3.URI.parse("s3://my-bucket/path/to/file.txt")
+      {:ok, "my-bucket", "prefix/"} = OmS3.URI.parse("s3://my-bucket/prefix/")
+      {:ok, "my-bucket", ""} = OmS3.URI.parse("s3://my-bucket")
 
-      {"my-bucket", "file.txt"} = S3.URI.parse!("s3://my-bucket/file.txt")
+      {"my-bucket", "file.txt"} = OmS3.URI.parse!("s3://my-bucket/file.txt")
   """
 
   @doc """
@@ -20,9 +20,9 @@ defmodule Events.Services.S3.URI do
 
   ## Examples
 
-      {:ok, "my-bucket", "file.txt"} = S3.URI.parse("s3://my-bucket/file.txt")
-      {:ok, "my-bucket", ""} = S3.URI.parse("s3://my-bucket")
-      :error = S3.URI.parse("not-an-s3-uri")
+      {:ok, "my-bucket", "file.txt"} = OmS3.URI.parse("s3://my-bucket/file.txt")
+      {:ok, "my-bucket", ""} = OmS3.URI.parse("s3://my-bucket")
+      :error = OmS3.URI.parse("not-an-s3-uri")
   """
   @spec parse(String.t()) :: {:ok, String.t(), String.t()} | :error
   def parse("s3://" <> rest) do
@@ -42,7 +42,7 @@ defmodule Events.Services.S3.URI do
 
   ## Examples
 
-      {"my-bucket", "file.txt"} = S3.URI.parse!("s3://my-bucket/file.txt")
+      {"my-bucket", "file.txt"} = OmS3.URI.parse!("s3://my-bucket/file.txt")
 
   ## Raises
 
@@ -61,8 +61,8 @@ defmodule Events.Services.S3.URI do
 
   ## Examples
 
-      true = S3.URI.valid?("s3://bucket/key")
-      false = S3.URI.valid?("https://example.com")
+      true = OmS3.URI.valid?("s3://bucket/key")
+      false = OmS3.URI.valid?("https://example.com")
   """
   @spec valid?(String.t()) :: boolean()
   def valid?(uri), do: match?({:ok, _, _}, parse(uri))
@@ -72,8 +72,8 @@ defmodule Events.Services.S3.URI do
 
   ## Examples
 
-      "s3://my-bucket/path/file.txt" = S3.URI.build("my-bucket", "path/file.txt")
-      "s3://my-bucket" = S3.URI.build("my-bucket", "")
+      "s3://my-bucket/path/file.txt" = OmS3.URI.build("my-bucket", "path/file.txt")
+      "s3://my-bucket" = OmS3.URI.build("my-bucket", "")
   """
   @spec build(String.t(), String.t()) :: String.t()
   def build(bucket, ""), do: "s3://#{bucket}"
@@ -84,8 +84,8 @@ defmodule Events.Services.S3.URI do
 
   ## Examples
 
-      {:ok, "my-bucket"} = S3.URI.bucket("s3://my-bucket/file.txt")
-      :error = S3.URI.bucket("invalid")
+      {:ok, "my-bucket"} = OmS3.URI.bucket("s3://my-bucket/file.txt")
+      :error = OmS3.URI.bucket("invalid")
   """
   @spec bucket(String.t()) :: {:ok, String.t()} | :error
   def bucket(uri) do
@@ -100,9 +100,9 @@ defmodule Events.Services.S3.URI do
 
   ## Examples
 
-      {:ok, "path/file.txt"} = S3.URI.key("s3://my-bucket/path/file.txt")
-      {:ok, ""} = S3.URI.key("s3://my-bucket")
-      :error = S3.URI.key("invalid")
+      {:ok, "path/file.txt"} = OmS3.URI.key("s3://my-bucket/path/file.txt")
+      {:ok, ""} = OmS3.URI.key("s3://my-bucket")
+      :error = OmS3.URI.key("invalid")
   """
   @spec key(String.t()) :: {:ok, String.t()} | :error
   def key(uri) do
@@ -117,8 +117,8 @@ defmodule Events.Services.S3.URI do
 
   ## Examples
 
-      "s3://bucket/uploads/photo.jpg" = S3.URI.join("s3://bucket/uploads/", "photo.jpg")
-      "s3://bucket/a/b/c.txt" = S3.URI.join("s3://bucket/a/", "b/c.txt")
+      "s3://bucket/uploads/photo.jpg" = OmS3.URI.join("s3://bucket/uploads/", "photo.jpg")
+      "s3://bucket/a/b/c.txt" = OmS3.URI.join("s3://bucket/a/", "b/c.txt")
   """
   @spec join(String.t(), String.t()) :: String.t()
   def join(base_uri, path) do
@@ -141,8 +141,8 @@ defmodule Events.Services.S3.URI do
 
   ## Examples
 
-      "s3://bucket/uploads/" = S3.URI.parent("s3://bucket/uploads/photo.jpg")
-      "s3://bucket" = S3.URI.parent("s3://bucket/file.txt")
+      "s3://bucket/uploads/" = OmS3.URI.parent("s3://bucket/uploads/photo.jpg")
+      "s3://bucket" = OmS3.URI.parent("s3://bucket/file.txt")
   """
   @spec parent(String.t()) :: String.t()
   def parent(uri) do
@@ -159,8 +159,8 @@ defmodule Events.Services.S3.URI do
 
   ## Examples
 
-      "photo.jpg" = S3.URI.filename("s3://bucket/uploads/photo.jpg")
-      "file.txt" = S3.URI.filename("s3://bucket/file.txt")
+      "photo.jpg" = OmS3.URI.filename("s3://bucket/uploads/photo.jpg")
+      "file.txt" = OmS3.URI.filename("s3://bucket/file.txt")
   """
   @spec filename(String.t()) :: String.t()
   def filename(uri) do
@@ -173,8 +173,8 @@ defmodule Events.Services.S3.URI do
 
   ## Examples
 
-      ".jpg" = S3.URI.extname("s3://bucket/photo.jpg")
-      "" = S3.URI.extname("s3://bucket/no-extension")
+      ".jpg" = OmS3.URI.extname("s3://bucket/photo.jpg")
+      "" = OmS3.URI.extname("s3://bucket/no-extension")
   """
   @spec extname(String.t()) :: String.t()
   def extname(uri) do

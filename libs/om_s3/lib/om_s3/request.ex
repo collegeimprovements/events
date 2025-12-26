@@ -1,4 +1,4 @@
-defmodule Events.Services.S3.Request do
+defmodule OmS3.Request do
   @moduledoc """
   Pipeline-style request builder for S3 operations.
 
@@ -7,46 +7,46 @@ defmodule Events.Services.S3.Request do
   ## Quick Start
 
       # Create a request with config
-      S3.new(config)
-      |> S3.put("s3://bucket/file.txt", "content")
+      OmS3.new(config)
+      |> OmS3.put("s3://bucket/file.txt", "content")
 
       # Or start from environment
-      S3.from_env()
-      |> S3.get("s3://bucket/file.txt")
+      OmS3.from_env()
+      |> OmS3.get("s3://bucket/file.txt")
 
   ## Pipeline Style
 
-      S3.new(config)
-      |> S3.bucket("my-bucket")
-      |> S3.prefix("uploads/2024/")
-      |> S3.content_type("image/jpeg")
-      |> S3.metadata(%{user_id: "123"})
-      |> S3.put("photo.jpg", image_data)
+      OmS3.new(config)
+      |> OmS3.bucket("my-bucket")
+      |> OmS3.prefix("uploads/2024/")
+      |> OmS3.content_type("image/jpeg")
+      |> OmS3.metadata(%{user_id: "123"})
+      |> OmS3.put("photo.jpg", image_data)
 
   ## Batch Operations
 
-      S3.new(config)
-      |> S3.bucket("my-bucket")
-      |> S3.prefix("photos/")
-      |> S3.concurrency(10)
-      |> S3.put_all([{"a.jpg", data1}, {"b.jpg", data2}])
+      OmS3.new(config)
+      |> OmS3.bucket("my-bucket")
+      |> OmS3.prefix("photos/")
+      |> OmS3.concurrency(10)
+      |> OmS3.put_all([{"a.jpg", data1}, {"b.jpg", data2}])
 
   ## Presigned URLs
 
-      S3.new(config)
-      |> S3.expires_in({5, :minutes})
-      |> S3.presign(:get, "s3://bucket/file.pdf")
+      OmS3.new(config)
+      |> OmS3.expires_in({5, :minutes})
+      |> OmS3.presign(:get, "s3://bucket/file.pdf")
 
   ## Glob Operations
 
-      S3.new(config)
-      |> S3.get_all(["s3://bucket/docs/*.pdf"])
+      OmS3.new(config)
+      |> OmS3.get_all(["s3://bucket/docs/*.pdf"])
 
-      S3.new(config)
-      |> S3.copy_all("s3://source/*.jpg", to: "s3://dest/images/")
+      OmS3.new(config)
+      |> OmS3.copy_all("s3://source/*.jpg", to: "s3://dest/images/")
   """
 
-  alias Events.Services.S3.Config
+  alias OmS3.Config
 
   @type t :: %__MODULE__{
           config: Config.t(),
@@ -85,8 +85,8 @@ defmodule Events.Services.S3.Request do
 
   ## Examples
 
-      req = S3.Request.new(config)
-      req = S3.Request.new(access_key_id: "...", secret_access_key: "...")
+      req = OmS3.Request.new(config)
+      req = OmS3.Request.new(access_key_id: "...", secret_access_key: "...")
   """
   @spec new(Config.t() | keyword()) :: t()
   def new(%Config{} = config) do
@@ -105,7 +105,7 @@ defmodule Events.Services.S3.Request do
 
   ## Examples
 
-      req = S3.Request.from_env()
+      req = OmS3.Request.from_env()
   """
   @spec from_env() :: t()
   def from_env do
@@ -121,7 +121,7 @@ defmodule Events.Services.S3.Request do
 
   ## Examples
 
-      req |> S3.Request.bucket("my-bucket")
+      req |> OmS3.Request.bucket("my-bucket")
   """
   @spec bucket(t(), String.t()) :: t()
   def bucket(%__MODULE__{} = req, bucket) do
@@ -133,7 +133,7 @@ defmodule Events.Services.S3.Request do
 
   ## Examples
 
-      req |> S3.Request.prefix("uploads/2024/")
+      req |> OmS3.Request.prefix("uploads/2024/")
   """
   @spec prefix(t(), String.t()) :: t()
   def prefix(%__MODULE__{} = req, prefix) do
@@ -145,7 +145,7 @@ defmodule Events.Services.S3.Request do
 
   ## Examples
 
-      req |> S3.Request.content_type("image/jpeg")
+      req |> OmS3.Request.content_type("image/jpeg")
   """
   @spec content_type(t(), String.t()) :: t()
   def content_type(%__MODULE__{} = req, content_type) do
@@ -157,7 +157,7 @@ defmodule Events.Services.S3.Request do
 
   ## Examples
 
-      req |> S3.Request.metadata(%{user_id: "123", source: "web"})
+      req |> OmS3.Request.metadata(%{user_id: "123", source: "web"})
   """
   @spec metadata(t(), map()) :: t()
   def metadata(%__MODULE__{} = req, metadata) do
@@ -169,7 +169,7 @@ defmodule Events.Services.S3.Request do
 
   ## Examples
 
-      req |> S3.Request.acl("public-read")
+      req |> OmS3.Request.acl("public-read")
   """
   @spec acl(t(), String.t()) :: t()
   def acl(%__MODULE__{} = req, acl) do
@@ -181,7 +181,7 @@ defmodule Events.Services.S3.Request do
 
   ## Examples
 
-      req |> S3.Request.storage_class("GLACIER")
+      req |> OmS3.Request.storage_class("GLACIER")
   """
   @spec storage_class(t(), String.t()) :: t()
   def storage_class(%__MODULE__{} = req, storage_class) do
@@ -195,10 +195,10 @@ defmodule Events.Services.S3.Request do
 
   ## Examples
 
-      req |> S3.Request.expires_in(3600)
-      req |> S3.Request.expires_in({5, :minutes})
-      req |> S3.Request.expires_in({1, :hour})
-      req |> S3.Request.expires_in({7, :days})
+      req |> OmS3.Request.expires_in(3600)
+      req |> OmS3.Request.expires_in({5, :minutes})
+      req |> OmS3.Request.expires_in({1, :hour})
+      req |> OmS3.Request.expires_in({7, :days})
   """
   @spec expires_in(t(), pos_integer() | {pos_integer(), atom()}) :: t()
   def expires_in(%__MODULE__{} = req, duration) do
@@ -210,7 +210,7 @@ defmodule Events.Services.S3.Request do
 
   ## Examples
 
-      req |> S3.Request.method(:put)
+      req |> OmS3.Request.method(:put)
   """
   @spec method(t(), :get | :put) :: t()
   def method(%__MODULE__{} = req, method) when method in [:get, :put] do
@@ -222,7 +222,7 @@ defmodule Events.Services.S3.Request do
 
   ## Examples
 
-      req |> S3.Request.concurrency(10)
+      req |> OmS3.Request.concurrency(10)
   """
   @spec concurrency(t(), pos_integer()) :: t()
   def concurrency(%__MODULE__{} = req, concurrency) do
@@ -234,8 +234,8 @@ defmodule Events.Services.S3.Request do
 
   ## Examples
 
-      req |> S3.Request.timeout(120_000)
-      req |> S3.Request.timeout({2, :minutes})
+      req |> OmS3.Request.timeout(120_000)
+      req |> OmS3.Request.timeout({2, :minutes})
   """
   @spec timeout(t(), pos_integer() | {pos_integer(), atom()}) :: t()
   def timeout(%__MODULE__{} = req, duration) do
@@ -257,21 +257,21 @@ defmodule Events.Services.S3.Request do
 
   ## Examples
 
-      S3.Request.new(config)
-      |> S3.Request.put("s3://bucket/file.txt", "content")
+      OmS3.Request.new(config)
+      |> OmS3.Request.put("s3://bucket/file.txt", "content")
 
-      S3.Request.new(config)
-      |> S3.Request.bucket("my-bucket")
-      |> S3.Request.prefix("uploads/")
-      |> S3.Request.content_type("text/plain")
-      |> S3.Request.put("file.txt", "content")
+      OmS3.Request.new(config)
+      |> OmS3.Request.bucket("my-bucket")
+      |> OmS3.Request.prefix("uploads/")
+      |> OmS3.Request.content_type("text/plain")
+      |> OmS3.Request.put("file.txt", "content")
   """
   @spec put(t(), String.t(), binary()) :: :ok | {:error, term()}
   def put(%__MODULE__{} = req, key_or_uri, content) do
     {bucket, key} = resolve_location(req, key_or_uri)
     opts = build_upload_opts(req)
 
-    Events.Services.S3.Client.put_object(req.config, bucket, key, content, opts)
+    OmS3.Client.put_object(req.config, bucket, key, content, opts)
   end
 
   @doc """
@@ -279,17 +279,17 @@ defmodule Events.Services.S3.Request do
 
   ## Examples
 
-      S3.Request.new(config)
-      |> S3.Request.get("s3://bucket/file.txt")
+      OmS3.Request.new(config)
+      |> OmS3.Request.get("s3://bucket/file.txt")
 
-      S3.Request.new(config)
-      |> S3.Request.bucket("my-bucket")
-      |> S3.Request.get("path/to/file.txt")
+      OmS3.Request.new(config)
+      |> OmS3.Request.bucket("my-bucket")
+      |> OmS3.Request.get("path/to/file.txt")
   """
   @spec get(t(), String.t()) :: {:ok, binary()} | {:error, term()}
   def get(%__MODULE__{} = req, key_or_uri) do
     {bucket, key} = resolve_location(req, key_or_uri)
-    Events.Services.S3.Client.get_object(req.config, bucket, key)
+    OmS3.Client.get_object(req.config, bucket, key)
   end
 
   @doc """
@@ -297,13 +297,13 @@ defmodule Events.Services.S3.Request do
 
   ## Examples
 
-      S3.Request.new(config)
-      |> S3.Request.delete("s3://bucket/file.txt")
+      OmS3.Request.new(config)
+      |> OmS3.Request.delete("s3://bucket/file.txt")
   """
   @spec delete(t(), String.t()) :: :ok | {:error, term()}
   def delete(%__MODULE__{} = req, key_or_uri) do
     {bucket, key} = resolve_location(req, key_or_uri)
-    Events.Services.S3.Client.delete_object(req.config, bucket, key)
+    OmS3.Client.delete_object(req.config, bucket, key)
   end
 
   @doc """
@@ -311,14 +311,14 @@ defmodule Events.Services.S3.Request do
 
   ## Examples
 
-      S3.Request.new(config)
-      |> S3.Request.exists?("s3://bucket/file.txt")
+      OmS3.Request.new(config)
+      |> OmS3.Request.exists?("s3://bucket/file.txt")
   """
   @spec exists?(t(), String.t()) :: boolean()
   def exists?(%__MODULE__{} = req, key_or_uri) do
     {bucket, key} = resolve_location(req, key_or_uri)
 
-    case Events.Services.S3.Client.head_object(req.config, bucket, key) do
+    case OmS3.Client.head_object(req.config, bucket, key) do
       {:ok, _} -> true
       {:error, _} -> false
     end
@@ -329,13 +329,13 @@ defmodule Events.Services.S3.Request do
 
   ## Examples
 
-      S3.Request.new(config)
-      |> S3.Request.head("s3://bucket/file.txt")
+      OmS3.Request.new(config)
+      |> OmS3.Request.head("s3://bucket/file.txt")
   """
   @spec head(t(), String.t()) :: {:ok, map()} | {:error, term()}
   def head(%__MODULE__{} = req, key_or_uri) do
     {bucket, key} = resolve_location(req, key_or_uri)
-    Events.Services.S3.Client.head_object(req.config, bucket, key)
+    OmS3.Client.head_object(req.config, bucket, key)
   end
 
   @doc """
@@ -343,13 +343,13 @@ defmodule Events.Services.S3.Request do
 
   ## Examples
 
-      S3.Request.new(config)
-      |> S3.Request.list("s3://bucket/prefix/")
+      OmS3.Request.new(config)
+      |> OmS3.Request.list("s3://bucket/prefix/")
 
-      S3.Request.new(config)
-      |> S3.Request.bucket("my-bucket")
-      |> S3.Request.prefix("uploads/")
-      |> S3.Request.list()
+      OmS3.Request.new(config)
+      |> OmS3.Request.bucket("my-bucket")
+      |> OmS3.Request.prefix("uploads/")
+      |> OmS3.Request.list()
   """
   @spec list(t()) :: {:ok, map()} | {:error, term()}
   @spec list(t(), String.t()) :: {:ok, map()} | {:error, term()}
@@ -357,12 +357,12 @@ defmodule Events.Services.S3.Request do
 
   def list(%__MODULE__{} = req, nil) do
     bucket = req.bucket || raise ArgumentError, "bucket required"
-    Events.Services.S3.Client.list_objects(req.config, bucket, req.prefix, [])
+    OmS3.Client.list_objects(req.config, bucket, req.prefix, [])
   end
 
   def list(%__MODULE__{} = req, key_or_uri) do
     {bucket, prefix} = resolve_location(req, key_or_uri)
-    Events.Services.S3.Client.list_objects(req.config, bucket, prefix, [])
+    OmS3.Client.list_objects(req.config, bucket, prefix, [])
   end
 
   @doc """
@@ -370,14 +370,14 @@ defmodule Events.Services.S3.Request do
 
   ## Examples
 
-      S3.Request.new(config)
-      |> S3.Request.copy("s3://bucket/old.txt", "s3://bucket/new.txt")
+      OmS3.Request.new(config)
+      |> OmS3.Request.copy("s3://bucket/old.txt", "s3://bucket/new.txt")
   """
   @spec copy(t(), String.t(), String.t()) :: :ok | {:error, term()}
   def copy(%__MODULE__{} = req, source_uri, dest_uri) do
     {src_bucket, src_key} = resolve_location(req, source_uri)
     {dst_bucket, dst_key} = resolve_location(req, dest_uri)
-    Events.Services.S3.Client.copy_object(req.config, src_bucket, src_key, dst_bucket, dst_key)
+    OmS3.Client.copy_object(req.config, src_bucket, src_key, dst_bucket, dst_key)
   end
 
   @doc """
@@ -385,13 +385,13 @@ defmodule Events.Services.S3.Request do
 
   ## Examples
 
-      S3.Request.new(config)
-      |> S3.Request.expires_in({5, :minutes})
-      |> S3.Request.presign("s3://bucket/file.pdf")
+      OmS3.Request.new(config)
+      |> OmS3.Request.expires_in({5, :minutes})
+      |> OmS3.Request.presign("s3://bucket/file.pdf")
 
-      S3.Request.new(config)
-      |> S3.Request.method(:put)
-      |> S3.Request.presign("s3://bucket/upload.jpg")
+      OmS3.Request.new(config)
+      |> OmS3.Request.method(:put)
+      |> OmS3.Request.presign("s3://bucket/upload.jpg")
   """
   @spec presign(t(), String.t()) :: {:ok, String.t()} | {:error, term()}
   def presign(%__MODULE__{} = req, key_or_uri) do
@@ -399,10 +399,10 @@ defmodule Events.Services.S3.Request do
 
     case req.method do
       :get ->
-        Events.Services.S3.Client.presigned_get_url(req.config, bucket, key, req.expires_in)
+        OmS3.Client.presigned_get_url(req.config, bucket, key, req.expires_in)
 
       :put ->
-        Events.Services.S3.Client.presigned_upload_form(req.config, bucket, key,
+        OmS3.Client.presigned_upload_form(req.config, bucket, key,
           expires_in: req.expires_in
         )
     end
@@ -417,15 +417,15 @@ defmodule Events.Services.S3.Request do
 
   ## Examples
 
-      S3.Request.new(config)
-      |> S3.Request.bucket("my-bucket")
-      |> S3.Request.prefix("uploads/")
-      |> S3.Request.concurrency(10)
-      |> S3.Request.put_all([{"a.txt", "content"}, {"b.txt", "content"}])
+      OmS3.Request.new(config)
+      |> OmS3.Request.bucket("my-bucket")
+      |> OmS3.Request.prefix("uploads/")
+      |> OmS3.Request.concurrency(10)
+      |> OmS3.Request.put_all([{"a.txt", "content"}, {"b.txt", "content"}])
 
       # With full URIs
-      S3.Request.new(config)
-      |> S3.Request.put_all([
+      OmS3.Request.new(config)
+      |> OmS3.Request.put_all([
         {"s3://bucket/a.txt", "content a"},
         {"s3://bucket/b.txt", "content b"}
       ])
@@ -438,9 +438,9 @@ defmodule Events.Services.S3.Request do
     |> Task.async_stream(
       fn {key_or_uri, content} ->
         {bucket, key} = resolve_location(req, key_or_uri)
-        uri = Events.Services.S3.URI.build(bucket, key)
+        uri = OmS3.URI.build(bucket, key)
 
-        case Events.Services.S3.Client.put_object(req.config, bucket, key, content, opts) do
+        case OmS3.Client.put_object(req.config, bucket, key, content, opts) do
           :ok -> {:ok, uri}
           {:error, reason} -> {:error, uri, reason}
         end
@@ -458,12 +458,12 @@ defmodule Events.Services.S3.Request do
 
   ## Examples
 
-      S3.Request.new(config)
-      |> S3.Request.get_all(["s3://bucket/a.txt", "s3://bucket/b.txt"])
+      OmS3.Request.new(config)
+      |> OmS3.Request.get_all(["s3://bucket/a.txt", "s3://bucket/b.txt"])
 
       # With globs
-      S3.Request.new(config)
-      |> S3.Request.get_all(["s3://bucket/docs/*.pdf"])
+      OmS3.Request.new(config)
+      |> OmS3.Request.get_all(["s3://bucket/docs/*.pdf"])
   """
   @spec get_all(t(), [String.t()]) :: [{:ok, String.t(), binary()} | {:error, String.t(), term()}]
   def get_all(%__MODULE__{} = req, uris) do
@@ -489,8 +489,8 @@ defmodule Events.Services.S3.Request do
 
   ## Examples
 
-      S3.Request.new(config)
-      |> S3.Request.delete_all(["s3://bucket/old/*.tmp"])
+      OmS3.Request.new(config)
+      |> OmS3.Request.delete_all(["s3://bucket/old/*.tmp"])
   """
   @spec delete_all(t(), [String.t()]) :: [{:ok, String.t()} | {:error, String.t(), term()}]
   def delete_all(%__MODULE__{} = req, uris) do
@@ -515,15 +515,15 @@ defmodule Events.Services.S3.Request do
   ## Examples
 
       # Explicit pairs
-      S3.Request.new(config)
-      |> S3.Request.copy_all([
+      OmS3.Request.new(config)
+      |> OmS3.Request.copy_all([
         {"s3://bucket/old/a.txt", "s3://bucket/new/a.txt"},
         {"s3://bucket/old/b.txt", "s3://bucket/new/b.txt"}
       ])
 
       # Glob with destination
-      S3.Request.new(config)
-      |> S3.Request.copy_all("s3://source/*.jpg", to: "s3://dest/images/")
+      OmS3.Request.new(config)
+      |> OmS3.Request.copy_all("s3://source/*.jpg", to: "s3://dest/images/")
   """
   @spec copy_all(t(), [{String.t(), String.t()}] | String.t(), keyword()) ::
           [{:ok, String.t(), String.t()} | {:error, String.t(), term()}]
@@ -546,7 +546,7 @@ defmodule Events.Services.S3.Request do
 
   def copy_all(%__MODULE__{} = req, source_pattern, opts) when is_binary(source_pattern) do
     dest_base = Keyword.fetch!(opts, :to)
-    {dest_bucket, dest_prefix} = Events.Services.S3.URI.parse!(dest_base)
+    {dest_bucket, dest_prefix} = OmS3.URI.parse!(dest_base)
     dest_prefix = String.trim_trailing(dest_prefix, "/")
     dest_prefix = if dest_prefix == "", do: "", else: dest_prefix <> "/"
 
@@ -554,8 +554,8 @@ defmodule Events.Services.S3.Request do
     |> expand_pattern(req)
     |> Task.async_stream(
       fn source_uri ->
-        filename = Events.Services.S3.URI.filename(source_uri)
-        dest_uri = Events.Services.S3.URI.build(dest_bucket, dest_prefix <> filename)
+        filename = OmS3.URI.filename(source_uri)
+        dest_uri = OmS3.URI.build(dest_bucket, dest_prefix <> filename)
 
         case copy(req, source_uri, dest_uri) do
           :ok -> {:ok, source_uri, dest_uri}
@@ -575,9 +575,9 @@ defmodule Events.Services.S3.Request do
 
   ## Examples
 
-      S3.Request.new(config)
-      |> S3.Request.expires_in({1, :hour})
-      |> S3.Request.presign_all(["s3://bucket/a.pdf", "s3://bucket/docs/*.pdf"])
+      OmS3.Request.new(config)
+      |> OmS3.Request.expires_in({1, :hour})
+      |> OmS3.Request.presign_all(["s3://bucket/a.pdf", "s3://bucket/docs/*.pdf"])
   """
   @spec presign_all(t(), [String.t()]) ::
           [{:ok, String.t(), String.t()} | {:error, String.t(), term()}]
@@ -597,7 +597,7 @@ defmodule Events.Services.S3.Request do
   # ============================================
 
   defp resolve_location(%__MODULE__{}, "s3://" <> _ = uri) do
-    Events.Services.S3.URI.parse!(uri)
+    OmS3.URI.parse!(uri)
   end
 
   defp resolve_location(%__MODULE__{bucket: nil}, key) do
@@ -626,7 +626,7 @@ defmodule Events.Services.S3.Request do
   defp maybe_add(opts, key, value), do: Keyword.put(opts, key, value)
 
   defp expand_pattern(%__MODULE__{} = req, uri) do
-    alias Events.Services.S3.URI, as: S3URI
+    alias OmS3.URI, as: S3URI
 
     case S3URI.parse(uri) do
       {:ok, bucket, key} ->
@@ -642,7 +642,7 @@ defmodule Events.Services.S3.Request do
   end
 
   defp expand_glob(%__MODULE__{} = req, bucket, key_pattern) do
-    alias Events.Services.S3.URI, as: S3URI
+    alias OmS3.URI, as: S3URI
 
     # Get the prefix (everything before the first *)
     prefix = key_pattern |> String.split("*") |> List.first() |> get_directory_prefix()
@@ -669,7 +669,7 @@ defmodule Events.Services.S3.Request do
       [limit: 1000] ++
         if(continuation_token, do: [continuation_token: continuation_token], else: [])
 
-    case Events.Services.S3.Client.list_objects(config, bucket, prefix, opts) do
+    case OmS3.Client.list_objects(config, bucket, prefix, opts) do
       {:ok, %{files: files, next: nil}} ->
         keys = Enum.map(files, & &1.key)
         {:ok, acc ++ keys}

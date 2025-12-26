@@ -1,12 +1,12 @@
-defmodule Events.Services.S3.Client do
+defmodule OmS3.Client do
   @moduledoc """
   Low-level S3 HTTP client using Req and ReqS3.
 
   This module handles the actual HTTP communication with S3.
-  Use the `Events.Services.S3` module for the public API.
+  Use the `OmS3` module for the public API.
   """
 
-  alias Events.Services.S3.Config
+  alias OmS3.Config
 
   @default_expires_in 3600
 

@@ -36,6 +36,11 @@ defmodule FnDecorator.Telemetry do
   import FnDecorator.Shared
 
   @default_repo Application.compile_env(:fn_decorator, [__MODULE__, :repo], nil)
+  @default_telemetry_prefix Application.compile_env(
+                              :fn_decorator,
+                              [__MODULE__, :telemetry_prefix],
+                              [:app]
+                            )
 
   ## Schemas
 
@@ -580,11 +585,11 @@ defmodule FnDecorator.Telemetry do
   ## Private Helpers
 
   defp default_event_name(context) do
-    [
-      :events,
-      context.module |> Module.split() |> List.last() |> Macro.underscore() |> String.to_atom(),
-      context.name
-    ]
+    @default_telemetry_prefix ++
+      [
+        context.module |> Module.split() |> List.last() |> Macro.underscore() |> String.to_atom(),
+        context.name
+      ]
   end
 
   defp default_span_name(context) do

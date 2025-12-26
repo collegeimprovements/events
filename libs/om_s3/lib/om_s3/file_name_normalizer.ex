@@ -1,4 +1,4 @@
-defmodule Events.Services.S3.FileNameNormalizer do
+defmodule OmS3.FileNameNormalizer do
   @moduledoc """
   Normalizes file names for S3 storage.
 

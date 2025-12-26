@@ -1,4 +1,4 @@
-defmodule Events.Services.S3.Config do
+defmodule OmS3.Config do
   @moduledoc """
   S3 configuration with AWS credentials and HTTP options.
 

@@ -45,6 +45,13 @@ config :fn_types,
   telemetry_prefix: [:events]
 
 # ─────────────────────────────────────────────────────────────
+# FnDecorator library configuration
+# ─────────────────────────────────────────────────────────────
+config :fn_decorator, FnDecorator.Telemetry,
+  repo: Events.Core.Repo,
+  telemetry_prefix: [:events]
+
+# ─────────────────────────────────────────────────────────────
 # OmScheduler library configuration
 # ─────────────────────────────────────────────────────────────
 config :om_scheduler,

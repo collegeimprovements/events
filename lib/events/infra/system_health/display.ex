@@ -1,6 +1,8 @@
 defmodule Events.Infra.SystemHealth.Display do
   @moduledoc """
   Clean tabular display for system health information.
+
+  This is a thin wrapper around `OmHealth.Display` with Events-specific extensions.
   """
 
   @table_width 93
@@ -58,7 +60,7 @@ defmodule Events.Infra.SystemHealth.Display do
 
   defp print_infra_list(connections, color?) do
     Enum.each(connections, fn conn ->
-      IO.puts(colorize("● #{conn.name}", :cyan, color?))
+      IO.puts(colorize("* #{conn.name}", :cyan, color?))
 
       IO.puts(
         "    Endpoint : " <>
@@ -77,14 +79,14 @@ defmodule Events.Infra.SystemHealth.Display do
       IO.puts("")
     end)
 
-    IO.puts(String.duplicate("═", @table_width))
+    IO.puts(String.duplicate("=", @table_width))
     IO.puts("")
   end
 
   # Header
 
   defp print_header(color?) do
-    line = String.duplicate("═", @table_width)
+    line = String.duplicate("=", @table_width)
     title = "SYSTEM HEALTH STATUS"
     padding = div(@table_width - String.length(title), 2)
     centered_title = String.duplicate(" ", padding) <> title
@@ -110,7 +112,7 @@ defmodule Events.Infra.SystemHealth.Display do
     IO.puts("  Hostname        : #{colorize(env.hostname, :light_black, color?)}")
 
     if env.in_docker do
-      IO.puts("  Container       : #{colorize("✓ Docker", :cyan, color?)}")
+      IO.puts("  Container       : #{colorize("Docker", :cyan, color?)}")
     end
 
     if env.mix_env == :dev and length(env.watchers) > 0 do
@@ -118,10 +120,37 @@ defmodule Events.Infra.SystemHealth.Display do
       IO.puts("  Development:")
 
       IO.puts(
-        "    Live Reload : #{if env.live_reload == :enabled, do: colorize("✓ Enabled", :green, color?), else: colorize("Disabled", :light_black, color?)}"
+        "    Live Reload : #{if env.live_reload == :enabled, do: colorize("Enabled", :green, color?), else: colorize("Disabled", :light_black, color?)}"
       )
 
       IO.puts("    Watchers    : #{colorize(Enum.join(env.watchers, ", "), :cyan, color?)}")
+    end
+
+    print_separator()
+  end
+
+  # Proxy
+
+  defp print_proxy(proxy, color?) do
+    if proxy.http_proxy do
+      IO.puts("  HTTP Proxy      : #{colorize(proxy.http_proxy, :light_black, color?)}")
+    end
+
+    if proxy.https_proxy do
+      IO.puts("  HTTPS Proxy     : #{colorize(proxy.https_proxy, :light_black, color?)}")
+    end
+
+    if proxy.no_proxy do
+      IO.puts("  No Proxy        : #{colorize(proxy.no_proxy, :light_black, color?)}")
+    end
+
+    if length(proxy.services_using_proxy) > 0 do
+      IO.puts("")
+      IO.puts("  Services Using Proxy:")
+
+      Enum.each(proxy.services_using_proxy, fn service ->
+        IO.puts("    * #{service}")
+      end)
     end
 
     print_separator()
@@ -158,33 +187,6 @@ defmodule Events.Infra.SystemHealth.Display do
     print_separator()
   end
 
-  # Proxy
-
-  defp print_proxy(proxy, color?) do
-    if proxy.http_proxy do
-      IO.puts("  HTTP Proxy      : #{colorize(proxy.http_proxy, :light_black, color?)}")
-    end
-
-    if proxy.https_proxy do
-      IO.puts("  HTTPS Proxy     : #{colorize(proxy.https_proxy, :light_black, color?)}")
-    end
-
-    if proxy.no_proxy do
-      IO.puts("  No Proxy        : #{colorize(proxy.no_proxy, :light_black, color?)}")
-    end
-
-    if length(proxy.services_using_proxy) > 0 do
-      IO.puts("")
-      IO.puts("  Services Using Proxy:")
-
-      Enum.each(proxy.services_using_proxy, fn service ->
-        IO.puts("    • #{service}")
-      end)
-    end
-
-    print_separator()
-  end
-
   # Config Validation Table
 
   defp print_config_table(config, color?) do
@@ -193,22 +195,22 @@ defmodule Events.Infra.SystemHealth.Display do
     # Table header
     header =
       String.pad_trailing("SERVICE", 12) <>
-        " │ " <>
+        " | " <>
         String.pad_trailing("STATUS", 10) <>
-        " │ " <>
+        " | " <>
         String.pad_trailing("ADAPTER", 18) <>
-        " │ DETAILS"
+        " | DETAILS"
 
     IO.puts(header)
 
     divider =
-      String.duplicate("─", 12) <>
-        "─┼─" <>
-        String.duplicate("─", 10) <>
-        "─┼─" <>
-        String.duplicate("─", 18) <>
-        "─┼─" <>
-        String.duplicate("─", 40)
+      String.duplicate("-", 12) <>
+        "-+-" <>
+        String.duplicate("-", 10) <>
+        "-+-" <>
+        String.duplicate("-", 18) <>
+        "-+-" <>
+        String.duplicate("-", 40)
 
     IO.puts(divider)
 
@@ -217,17 +219,17 @@ defmodule Events.Infra.SystemHealth.Display do
       print_config_row(service, color?)
     end)
 
-    IO.puts(String.duplicate("═", @table_width))
+    IO.puts(String.duplicate("=", @table_width))
     IO.puts("")
   end
 
   defp print_config_row(service, color?) do
     {status_text, status_color} =
       case service.status do
-        :ok -> {"✓ Valid", :green}
-        :warning -> {"⚠ Warning", :yellow}
-        :error -> {"✗ Invalid", :red}
-        :disabled -> {"◯ Disabled", :light_black}
+        :ok -> {"Valid", :green}
+        :warning -> {"Warning", :yellow}
+        :error -> {"Invalid", :red}
+        :disabled -> {"Disabled", :light_black}
       end
 
     status_colored = colorize(status_text, status_color, color?)
@@ -252,11 +254,11 @@ defmodule Events.Infra.SystemHealth.Display do
 
     IO.puts(
       String.pad_trailing(service.name, 12) <>
-        " │ " <>
+        " | " <>
         pad_colored(status_text, status_colored, 10) <>
-        " │ " <>
+        " | " <>
         String.pad_trailing(service.adapter || "-", 18) <>
-        " │ " <>
+        " | " <>
         String.slice(details_text, 0, 40)
     )
   end
@@ -267,26 +269,26 @@ defmodule Events.Infra.SystemHealth.Display do
     # Table header
     header =
       String.pad_trailing("SERVICE", 12) <>
-        " │ " <>
+        " | " <>
         String.pad_trailing("STATUS", 10) <>
-        " │ " <>
+        " | " <>
         String.pad_trailing("ADAPTER", 18) <>
-        " │ " <>
+        " | " <>
         String.pad_trailing("LEVEL", 8) <>
-        " │ INFO"
+        " | INFO"
 
     IO.puts(header)
 
     divider =
-      String.duplicate("─", 12) <>
-        "─┼─" <>
-        String.duplicate("─", 10) <>
-        "─┼─" <>
-        String.duplicate("─", 18) <>
-        "─┼─" <>
-        String.duplicate("─", 8) <>
-        "─┼─" <>
-        String.duplicate("─", 30)
+      String.duplicate("-", 12) <>
+        "-+-" <>
+        String.duplicate("-", 10) <>
+        "-+-" <>
+        String.duplicate("-", 18) <>
+        "-+-" <>
+        String.duplicate("-", 8) <>
+        "-+-" <>
+        String.duplicate("-", 30)
 
     IO.puts(divider)
 
@@ -295,12 +297,12 @@ defmodule Events.Infra.SystemHealth.Display do
       print_service_row(service, color?)
     end)
 
-    IO.puts(String.duplicate("═", @table_width))
+    IO.puts(String.duplicate("=", @table_width))
     IO.puts("")
   end
 
   defp print_service_row(service, color?) do
-    status_text = if service.status == :ok, do: "✓ Running", else: "✗ Failed"
+    status_text = if service.status == :ok, do: "Running", else: "Failed"
 
     status_colored =
       if service.status == :ok do
@@ -334,13 +336,13 @@ defmodule Events.Infra.SystemHealth.Display do
 
     IO.puts(
       String.pad_trailing(service.name, 12) <>
-        " │ " <>
+        " | " <>
         pad_colored(status_text, status_colored, 10) <>
-        " │ " <>
+        " | " <>
         String.pad_trailing(service.adapter, 18) <>
-        " │ " <>
+        " | " <>
         pad_colored(level_text, level_colored, 8) <>
-        " │ " <>
+        " | " <>
         info_text
     )
   end
@@ -357,13 +359,13 @@ defmodule Events.Infra.SystemHealth.Display do
     cond do
       ok_count == total_count ->
         IO.puts(
-          colorize("✓ ALL SYSTEMS OPERATIONAL (#{ok_count}/#{total_count})", :green_bright, color?)
+          colorize("ALL SYSTEMS OPERATIONAL (#{ok_count}/#{total_count})", :green_bright, color?)
         )
 
       length(critical_failed) > 0 ->
         IO.puts(
           colorize(
-            "✗ CRITICAL: #{length(critical_failed)} critical service(s) failed!",
+            "CRITICAL: #{length(critical_failed)} critical service(s) failed!",
             :red_bright,
             color?
           )
@@ -372,13 +374,13 @@ defmodule Events.Infra.SystemHealth.Display do
         IO.puts(colorize("  Application may not function correctly", :red, color?))
 
         Enum.each(critical_failed, fn service ->
-          IO.puts(colorize("  • #{service.name}: #{service.info}", :red, color?))
+          IO.puts(colorize("  * #{service.name}: #{service.info}", :red, color?))
         end)
 
       length(optional_failed) > 0 ->
         IO.puts(
           colorize(
-            "⚠ DEGRADED: #{length(optional_failed)} optional service(s) unavailable",
+            "DEGRADED: #{length(optional_failed)} optional service(s) unavailable",
             :yellow,
             color?
           )
@@ -387,11 +389,11 @@ defmodule Events.Infra.SystemHealth.Display do
         IO.puts(colorize("  Application running with reduced functionality", :light_black, color?))
 
         Enum.each(optional_failed, fn service ->
-          IO.puts(colorize("  • #{service.name}: #{service.impact}", :yellow, color?))
+          IO.puts(colorize("  * #{service.name}: #{service.impact}", :yellow, color?))
         end)
 
       true ->
-        IO.puts(colorize("✓ All services running (#{ok_count}/#{total_count})", :green, color?))
+        IO.puts(colorize("All services running (#{ok_count}/#{total_count})", :green, color?))
     end
 
     IO.puts("")
@@ -404,7 +406,7 @@ defmodule Events.Infra.SystemHealth.Display do
     if health.migrations.status == :pending do
       IO.puts(
         colorize(
-          "⚠ Migrations: #{health.migrations.applied}/#{health.migrations.total} applied, #{health.migrations.pending} pending",
+          "Migrations: #{health.migrations.applied}/#{health.migrations.total} applied, #{health.migrations.pending} pending",
           :yellow,
           color?
         )
@@ -416,7 +418,7 @@ defmodule Events.Infra.SystemHealth.Display do
       if health.migrations.total > 0 do
         IO.puts(
           colorize(
-            "✓ Migrations: #{health.migrations.applied}/#{health.migrations.total} applied, up to date",
+            "Migrations: #{health.migrations.applied}/#{health.migrations.total} applied, up to date",
             :green,
             color?
           )
@@ -444,7 +446,7 @@ defmodule Events.Infra.SystemHealth.Display do
   end
 
   defp print_separator do
-    IO.puts(String.duplicate("─", @table_width))
+    IO.puts(String.duplicate("-", @table_width))
     IO.puts("")
   end
 

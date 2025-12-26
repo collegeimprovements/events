@@ -863,14 +863,14 @@ defmodule FnTypes.AsyncResult do
     telemetry_prefix = Keyword.get(opts, :telemetry)
 
     if telemetry_prefix do
-      :telemetry.execute(telemetry_prefix ++ [:start], %{system_time: System.system_time()}, %{})
+      FnTypes.Telemetry.execute(telemetry_prefix ++ [:start], %{system_time: System.system_time()}, %{})
     end
 
     result = do_retry_from_error(task, 1, normalize, on_retry, telemetry_prefix)
 
     if telemetry_prefix do
       status = if match?({:ok, _}, result), do: :ok, else: :error
-      :telemetry.execute(telemetry_prefix ++ [:stop], %{}, %{result: status})
+      FnTypes.Telemetry.execute(telemetry_prefix ++ [:stop], %{}, %{result: status})
     end
 
     result
@@ -935,7 +935,7 @@ defmodule FnTypes.AsyncResult do
   end
 
   defp emit_retry_telemetry(prefix, attempt, error, delay, strategy, will_retry) do
-    :telemetry.execute(
+    FnTypes.Telemetry.execute(
       prefix ++ [:retry],
       %{attempt: attempt, delay_ms: delay},
       %{
@@ -1354,10 +1354,10 @@ defmodule FnTypes.AsyncResult do
   end
 
   defp emit_start(prefix, metadata) do
-    :telemetry.execute(prefix ++ [:start], %{system_time: System.system_time()}, metadata)
+    FnTypes.Telemetry.execute(prefix ++ [:start], %{system_time: System.system_time()}, metadata)
   end
 
   defp emit_stop(prefix, metadata) do
-    :telemetry.execute(prefix ++ [:stop], %{}, metadata)
+    FnTypes.Telemetry.execute(prefix ++ [:stop], %{}, metadata)
   end
 end

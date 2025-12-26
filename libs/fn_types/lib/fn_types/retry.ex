@@ -466,7 +466,7 @@ defmodule FnTypes.Retry do
   end
 
   defp emit_telemetry(event, measurements, metadata) do
-    :telemetry.execute(event, measurements, metadata)
+    FnTypes.Telemetry.execute(event, measurements, metadata)
   rescue
     # Don't let telemetry errors break retry logic
     _ -> :ok
