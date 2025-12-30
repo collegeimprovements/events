@@ -127,7 +127,7 @@ defmodule Events.Api.Clients.Google.ServiceAccount do
   """
   @spec from_json(String.t()) :: {:ok, credentials()} | {:error, term()}
   def from_json(json) when is_binary(json) do
-    case Jason.decode(json) do
+    case JSON.decode(json) do
       {:ok, data} -> from_map(data)
       {:error, reason} -> {:error, {:json_decode_error, reason}}
     end

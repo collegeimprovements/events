@@ -123,7 +123,7 @@ defmodule EventsWeb.Plugs.RateLimiterTest do
       opts = RateLimiter.init([])
       result_conn = RateLimiter.call(conn, opts)
 
-      body = Jason.decode!(result_conn.resp_body)
+      body = JSON.decode!(result_conn.resp_body)
 
       assert body["error"] == "Too many requests"
       assert body["message"] =~ "Rate limit exceeded"
@@ -141,7 +141,7 @@ defmodule EventsWeb.Plugs.RateLimiterTest do
 
       assert get_resp_header(result_conn, "retry-after") == ["120"]
 
-      body = Jason.decode!(result_conn.resp_body)
+      body = JSON.decode!(result_conn.resp_body)
       assert body["retry_after"] == 120
     end
   end

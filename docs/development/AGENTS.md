@@ -256,23 +256,77 @@ end
 
 ---
 
+## Caching
+
+> **Full Reference:** `docs/claude/CACHING.md`
+
+### Use Presets for Common Patterns
+
+```elixir
+alias FnDecorator.Caching.Presets
+
+# High availability - serves stale data, auto-refreshes
+@decorate cacheable(Presets.high_availability(cache: MyApp.Cache, key: {User, id}))
+def get_user(id), do: Repo.get(User, id)
+
+# Always fresh - critical config
+@decorate cacheable(Presets.always_fresh(cache: MyApp.Cache, key: :feature_flags))
+def get_flags, do: ConfigService.fetch()
+
+# External API - resilient to outages
+@decorate cacheable(Presets.external_api(cache: MyApp.Cache, key: {:weather, city}))
+def get_weather(city), do: WeatherAPI.fetch(city)
+```
+
+### Preset Selection Guide
+
+| Use Case | Preset | Why |
+|----------|--------|-----|
+| User reads | `high_availability` | Tolerate staleness, prioritize availability |
+| Feature flags | `always_fresh` | Must be current, short TTL |
+| Third-party API | `external_api` | Survive outages, long stale window |
+| Reports | `expensive` | Long TTL, cron refresh |
+| Sessions | `session` | No stale serving |
+| DB queries | `database` | Standard caching pattern |
+
+### Creating Custom Presets
+
+```elixir
+# lib/my_app/cache_presets.ex
+defmodule MyApp.CachePresets do
+  alias FnDecorator.Caching.Presets
+
+  def microservice(opts \\ []) do
+    Presets.merge([
+      store: [ttl: :timer.seconds(30)],
+      refresh: [on: :stale_access],
+      serve_stale: [ttl: :timer.minutes(5)]
+    ], opts)
+  end
+end
+
+# Usage
+@decorate cacheable(MyApp.CachePresets.microservice(cache: MyApp.Cache, key: {:orders, id}))
+def get_orders(id), do: OrderService.fetch(id)
+```
+
+---
+
 ## S3 API
 
 > **Full Reference:** `docs/claude/S3.md`
 
 ```elixir
-alias Events.Services.S3
-
 # Direct API
-config = S3.from_env()
-{:ok, data} = S3.get("s3://bucket/file.txt", config)
-:ok = S3.put("s3://bucket/file.txt", "content", config)
+config = OmS3.from_env()
+{:ok, data} = OmS3.get("s3://bucket/file.txt", config)
+:ok = OmS3.put("s3://bucket/file.txt", "content", config)
 
 # Pipeline API
-S3.new(config)
-|> S3.bucket("my-bucket")
-|> S3.prefix("uploads/")
-|> S3.put("file.txt", content)
+OmS3.new(config)
+|> OmS3.bucket("my-bucket")
+|> OmS3.prefix("uploads/")
+|> OmS3.put("file.txt", content)
 ```
 
 ---
@@ -391,6 +445,7 @@ mix dialyzer
 | `docs/claude/EXAMPLES.md` | 10 real-world Pipeline + AsyncResult examples |
 | `docs/claude/SCHEMA.md` | Schema and Migration quick reference |
 | `docs/claude/DECORATORS.md` | Decorator quick reference |
+| `docs/claude/CACHING.md` | Caching presets, @cacheable API, custom presets |
 | `docs/claude/S3.md` | S3 API reference |
 | `docs/functional/OVERVIEW.md` | Comprehensive functional module documentation |
 | `docs/EVENTS_REFERENCE.md` | Complete Schema/Migration/Decorator reference |

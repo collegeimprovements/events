@@ -33,7 +33,6 @@ defmodule OmApiClient.MixProject do
   defp deps do
     [
       {:req, "~> 0.5"},
-      {:jason, "~> 1.2"},
       {:telemetry, "~> 1.0"},
       {:fn_types, path: "../fn_types"},  # use path until hex published
       {:ex_doc, "~> 0.31", only: :dev, runtime: false}

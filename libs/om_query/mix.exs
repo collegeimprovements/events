@@ -34,8 +34,6 @@ defmodule OmQuery.MixProject do
       {:telemetry, "~> 1.0"},
       # Optional - for database integration
       {:postgrex, ">= 0.0.0", optional: true},
-      # Optional - for JSON serialization
-      {:jason, "~> 1.0", optional: true},
       # Dev/Test
       {:ex_doc, "~> 0.31", only: :dev, runtime: false}
     ]

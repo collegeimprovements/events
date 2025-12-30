@@ -42,8 +42,8 @@ defmodule Events.Test.Mocks do
   def mockable_modules do
     [
       # External services
-      Events.Services.S3,
-      Events.Services.S3.Client,
+      OmS3,
+      OmS3.Client,
       Events.Core.Cache,
 
       # External libraries

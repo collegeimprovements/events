@@ -49,14 +49,19 @@ defmodule OmScheduler.Config do
         doc: "Ecto repo module. Required when store is :database."
       ],
       store: [
-        type: {:in, [:memory, :database, :auto]},
+        type: {:in, [:memory, :database, :redis, :auto]},
         default: :auto,
         doc: """
         Storage backend for job state.
         - `:memory` - ETS-based, suitable for development
         - `:database` - PostgreSQL-based, suitable for production
+        - `:redis` - Redis-based, high-throughput production
         - `:auto` - Use :database if repo is configured, otherwise :memory
         """
+      ],
+      redis_url: [
+        type: :string,
+        doc: "Redis connection URL. Required when store is :redis. Example: redis://localhost:6379/0"
       ],
       peer: [
         type: {:or, [:atom, {:in, [false]}]},
@@ -380,6 +385,7 @@ defmodule OmScheduler.Config do
     case Keyword.get(conf, :store) do
       :memory -> OmScheduler.Store.Memory
       :database -> OmScheduler.Store.Database
+      :redis -> OmScheduler.Store.Redis
       module when is_atom(module) and not is_nil(module) -> module
       _ -> OmScheduler.Store.Memory
     end
@@ -444,9 +450,22 @@ defmodule OmScheduler.Config do
   end
 
   defp validate_store_repo(opts) do
-    case {Keyword.get(opts, :store), Keyword.get(opts, :repo)} do
-      {:database, nil} -> {:error, "repo is required when store is :database"}
-      _ -> :ok
+    case {Keyword.get(opts, :store), Keyword.get(opts, :repo), Keyword.get(opts, :redis_url)} do
+      {:database, nil, _} ->
+        {:error, "repo is required when store is :database"}
+
+      {:redis, _, nil} ->
+        {:error, "redis_url is required when store is :redis"}
+
+      {:redis, _, _} ->
+        if Code.ensure_loaded?(Redix) do
+          :ok
+        else
+          {:error, "Redix library is required for Redis store. Add {:redix, \"~> 1.5\"} to deps."}
+        end
+
+      _ ->
+        :ok
     end
   end
 end

@@ -6,59 +6,59 @@ defmodule OmScheduler.Telemetry do
 
       config :om_scheduler.Telemetry, telemetry_prefix: [:my_app, :scheduler]
 
-  Default prefix: `[:events, :scheduler]`
+  Default prefix: `[:om_scheduler]`
 
   ## Job Events
 
-  - `[:events, :scheduler, :job, :start]` - Job execution started
-  - `[:events, :scheduler, :job, :stop]` - Job execution completed
-  - `[:events, :scheduler, :job, :exception]` - Job execution raised
-  - `[:events, :scheduler, :job, :skip]` - Job skipped (unique conflict, paused)
-  - `[:events, :scheduler, :job, :discard]` - Job discarded (max retries)
-  - `[:events, :scheduler, :job, :cancel]` - Job cancelled
-  - `[:events, :scheduler, :job, :rescue]` - Stuck job rescued by lifeline
+  - `[:om_scheduler, :job, :start]` - Job execution started
+  - `[:om_scheduler, :job, :stop]` - Job execution completed
+  - `[:om_scheduler, :job, :exception]` - Job execution raised
+  - `[:om_scheduler, :job, :skip]` - Job skipped (unique conflict, paused)
+  - `[:om_scheduler, :job, :discard]` - Job discarded (max retries)
+  - `[:om_scheduler, :job, :cancel]` - Job cancelled
+  - `[:om_scheduler, :job, :rescue]` - Stuck job rescued by lifeline
 
   ## Batch Events
 
-  - `[:events, :scheduler, :batch, :start]` - Batch processing started
-  - `[:events, :scheduler, :batch, :stop]` - Batch processing completed
+  - `[:om_scheduler, :batch, :start]` - Batch processing started
+  - `[:om_scheduler, :batch, :stop]` - Batch processing completed
 
   ## Peer Events
 
-  - `[:events, :scheduler, :peer, :election]` - Node became leader
-  - `[:events, :scheduler, :peer, :resignation]` - Node lost leadership
+  - `[:om_scheduler, :peer, :election]` - Node became leader
+  - `[:om_scheduler, :peer, :resignation]` - Node lost leadership
 
   ## Queue Events
 
-  - `[:events, :scheduler, :queue, :pause]` - Queue paused
-  - `[:events, :scheduler, :queue, :resume]` - Queue resumed
-  - `[:events, :scheduler, :queue, :scale]` - Queue concurrency changed
+  - `[:om_scheduler, :queue, :pause]` - Queue paused
+  - `[:om_scheduler, :queue, :resume]` - Queue resumed
+  - `[:om_scheduler, :queue, :scale]` - Queue concurrency changed
 
   ## Rate Limiting Events
 
-  - `[:events, :scheduler, :rate_limit, :exceeded]` - Rate limit exceeded
+  - `[:om_scheduler, :rate_limit, :exceeded]` - Rate limit exceeded
 
   ## Plugin Events
 
-  - `[:events, :scheduler, :plugin, :start]` - Plugin action started
-  - `[:events, :scheduler, :plugin, :stop]` - Plugin action completed
-  - `[:events, :scheduler, :plugin, :exception]` - Plugin action failed
+  - `[:om_scheduler, :plugin, :start]` - Plugin action started
+  - `[:om_scheduler, :plugin, :stop]` - Plugin action completed
+  - `[:om_scheduler, :plugin, :exception]` - Plugin action failed
 
   ## Usage
 
       :telemetry.attach_many(
         "scheduler-logger",
         [
-          [:events, :scheduler, :job, :start],
-          [:events, :scheduler, :job, :stop],
-          [:events, :scheduler, :job, :exception]
+          [:om_scheduler, :job, :start],
+          [:om_scheduler, :job, :stop],
+          [:om_scheduler, :job, :exception]
         ],
         &MyApp.Telemetry.handle_scheduler_event/4,
         nil
       )
   """
 
-  @prefix Application.compile_env(:events, [__MODULE__, :telemetry_prefix], [:events, :scheduler])
+  @prefix Application.compile_env(:om_scheduler, [__MODULE__, :telemetry_prefix], [:om_scheduler])
 
   @doc """
   Executes a job within a telemetry span.

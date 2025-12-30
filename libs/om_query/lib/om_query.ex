@@ -620,7 +620,7 @@ defmodule OmQuery do
       # JSONB operations
       User
       |> OmQuery.raw("settings->>'theme' = ?", ["dark"])
-      |> OmQuery.raw("metadata @> ?", [Jason.encode!(%{role: "admin"})])
+      |> OmQuery.raw("metadata @> ?", [JSON.encode!(%{role: "admin"})])
 
       # PostgreSQL specific features
       Product

@@ -1,7 +1,7 @@
-defmodule Events.Services.S3.FileNameNormalizerTest do
+defmodule OmS3.FileNameNormalizerTest do
   use Events.TestCase, async: true
 
-  alias Events.Services.S3.FileNameNormalizer
+  alias OmS3.FileNameNormalizer
 
   describe "normalize/2" do
     test "normalizes basic filename" do

@@ -496,10 +496,9 @@ defmodule OmApiClient.Webhook do
   end
 
   defp decode_payload(payload) when is_binary(payload) do
-    case Jason.decode(payload) do
-      {:ok, decoded} -> {:ok, decoded}
-      {:error, _} -> {:ok, payload}
-    end
+    {:ok, JSON.decode!(payload)}
+  rescue
+    _ -> {:ok, payload}
   end
 
   defp decode_payload(payload), do: {:ok, payload}

@@ -289,7 +289,7 @@ defmodule Events.Infra.ConfigValidator do
 
   defp safe_build_cache_config do
     try do
-      config = Events.Core.Cache.Config.build()
+      config = OmCache.Config.build()
       {:ok, config}
     rescue
       e -> {:error, Exception.message(e)}
@@ -343,7 +343,7 @@ defmodule Events.Infra.ConfigValidator do
 
   defp safe_build_s3_config do
     try do
-      config = Events.Services.S3.Config.from_env()
+      config = OmS3.Config.from_env()
       {:ok, config}
     rescue
       e -> {:error, Exception.message(e)}

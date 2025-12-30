@@ -689,7 +689,7 @@ defmodule Events.Services.Ttyd do
   defp format_option_value(true), do: "true"
   defp format_option_value(false), do: "false"
   defp format_option_value(value) when is_atom(value), do: Atom.to_string(value)
-  defp format_option_value(value) when is_map(value), do: Jason.encode!(value)
+  defp format_option_value(value) when is_map(value), do: JSON.encode!(value)
   defp format_option_value(value), do: to_string(value)
 
   defp uncapitalize(<<first::utf8, rest::binary>>) do

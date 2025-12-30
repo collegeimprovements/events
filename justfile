@@ -188,9 +188,9 @@ health-s3:
     if command -v mix &> /dev/null; then
         mix run -e "
         bucket = System.get_env(\"S3_BUCKET\") || raise \"S3_BUCKET not set\"
-        config = Events.Services.S3.Config.from_env()
+        config = OmS3.from_env()
         uri = \"s3://#{bucket}/\"
-        case Events.Services.S3.list(uri, config, limit: 1) do
+        case OmS3.list(uri, config, limit: 1) do
           {:ok, _} -> IO.puts(\"✓ Bucket '#{bucket}': ACCESSIBLE\")
           {:error, {:s3_error, status, _}} -> IO.puts(\"✗ Bucket access failed: HTTP #{status}\"); System.halt(1)
           {:error, reason} -> IO.puts(\"✗ Bucket access failed: #{inspect(reason)}\"); System.halt(1)
@@ -204,9 +204,9 @@ health-s3:
             {{IMAGE_NAME}} \
             mix run -e "
             bucket = System.get_env(\"S3_BUCKET\") || raise \"S3_BUCKET not set\"
-            config = Events.Services.S3.Config.from_env()
+            config = OmS3.from_env()
             uri = \"s3://#{bucket}/\"
-            case Events.Services.S3.list(uri, config, limit: 1) do
+            case OmS3.list(uri, config, limit: 1) do
               {:ok, _} -> IO.puts(\"✓ Bucket '#{bucket}': ACCESSIBLE\")
               {:error, {:s3_error, status, _}} -> IO.puts(\"✗ Bucket access failed: HTTP #{status}\"); System.halt(1)
               {:error, reason} -> IO.puts(\"✗ Bucket access failed: #{inspect(reason)}\"); System.halt(1)

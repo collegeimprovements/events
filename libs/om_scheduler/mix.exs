@@ -40,9 +40,9 @@ defmodule OmScheduler.MixProject do
     [
       {:ecto_sql, "~> 3.12"},
       {:postgrex, "~> 0.19", optional: true},
+      {:redix, "~> 1.5", optional: true},
       {:decorator, "~> 1.4"},
       {:telemetry, "~> 1.0"},
-      {:jason, "~> 1.4"},
       {:nimble_options, "~> 1.1"},
       {:dag, path: "../dag"},  # use path until hex published
       {:fn_types, path: "../fn_types"},  # use path until hex published

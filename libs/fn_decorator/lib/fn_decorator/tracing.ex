@@ -235,7 +235,7 @@ defmodule FnDecorator.Tracing do
       @decorate trace_dependencies(type: :external)
       def fetch_and_process_data(url) do
         HTTPoison.get!(url)
-        |> Jason.decode!()
+        |> JSON.decode!()
         |> process()
       end
 

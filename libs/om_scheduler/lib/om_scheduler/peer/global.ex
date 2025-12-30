@@ -18,8 +18,8 @@ defmodule OmScheduler.Peer.Global do
         leader_key: :my_app_scheduler_leader,
         telemetry_prefix: [:my_app, :scheduler, :peer]
 
-  Default leader key: `:events_scheduler_leader`
-  Default telemetry prefix: `[:events, :scheduler, :peer]`
+  Default leader key: `:om_scheduler_leader`
+  Default telemetry prefix: `[:om_scheduler, :peer]`
   """
 
   use GenServer
@@ -27,10 +27,9 @@ defmodule OmScheduler.Peer.Global do
 
   @behaviour OmScheduler.Peer.Behaviour
 
-  @leader_key Application.compile_env(:events, [__MODULE__, :leader_key], :events_scheduler_leader)
-  @telemetry_prefix Application.compile_env(:events, [__MODULE__, :telemetry_prefix], [
-                      :events,
-                      :scheduler,
+  @leader_key Application.compile_env(:om_scheduler, [__MODULE__, :leader_key], :om_scheduler_leader)
+  @telemetry_prefix Application.compile_env(:om_scheduler, [__MODULE__, :telemetry_prefix], [
+                      :om_scheduler,
                       :peer
                     ])
   @check_interval 5_000

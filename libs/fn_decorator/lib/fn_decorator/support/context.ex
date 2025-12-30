@@ -85,7 +85,7 @@ defmodule FnDecorator.Support.Context do
       iex> FnDecorator.Support.Context.telemetry_event(context, [:myapp])
       [:myapp, :user_service, :create]
   """
-  def telemetry_event(%__MODULE__{name: name} = context, prefix \\ [:events]) do
+  def telemetry_event(%__MODULE__{name: name} = context, prefix \\ [:fn_decorator]) do
     prefix ++ [telemetry_module(context), name]
   end
 

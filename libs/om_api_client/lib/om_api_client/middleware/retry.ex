@@ -17,16 +17,18 @@ defmodule OmApiClient.Middleware.Retry do
   ## Options
 
   - `:max_attempts` - Maximum retry attempts (default: 3)
-  - `:base_delay` - Base delay in milliseconds (default: 1000)
+  - `:initial_delay` - Initial delay in milliseconds (default: 1000)
   - `:max_delay` - Maximum delay cap in milliseconds (default: 30000)
   - `:jitter` - Jitter factor 0.0-1.0 (default: 0.25)
   - `:retry_statuses` - HTTP statuses to retry (default: [429, 500, 502, 503, 504])
   - `:retry_on` - Custom retry predicate function
 
+  Note: `:base_delay` is accepted as a deprecated alias for `:initial_delay`.
+
   ## Examples
 
       # Basic usage
-      opts = Retry.options(max_attempts: 5, base_delay: 500)
+      opts = Retry.options(max_attempts: 5, initial_delay: 500)
       Req.request(opts)
 
       # With custom retry condition
@@ -43,14 +45,14 @@ defmodule OmApiClient.Middleware.Retry do
   require Logger
 
   @default_max_attempts 3
-  @default_base_delay 1_000
+  @default_initial_delay 1_000
   @default_max_delay 30_000
   @default_jitter 0.25
   @default_retry_statuses [408, 429, 500, 502, 503, 504]
 
   @type opts :: [
           max_attempts: pos_integer(),
-          base_delay: pos_integer(),
+          initial_delay: pos_integer(),
           max_delay: pos_integer(),
           jitter: float(),
           retry_statuses: [pos_integer()],
@@ -64,12 +66,13 @@ defmodule OmApiClient.Middleware.Retry do
 
       Retry.options()
       Retry.options(max_attempts: 5)
-      Retry.options(max_attempts: 3, base_delay: 500)
+      Retry.options(max_attempts: 3, initial_delay: 500)
   """
   @spec options(opts()) :: keyword()
   def options(opts \\ []) do
     max_attempts = Keyword.get(opts, :max_attempts, @default_max_attempts)
-    base_delay = Keyword.get(opts, :base_delay, @default_base_delay)
+    # Support both :initial_delay and deprecated :base_delay
+    initial_delay = Keyword.get(opts, :initial_delay, Keyword.get(opts, :base_delay, @default_initial_delay))
     max_delay = Keyword.get(opts, :max_delay, @default_max_delay)
     jitter = Keyword.get(opts, :jitter, @default_jitter)
     retry_statuses = Keyword.get(opts, :retry_statuses, @default_retry_statuses)
@@ -79,7 +82,7 @@ defmodule OmApiClient.Middleware.Retry do
 
     [
       retry: retry_fn,
-      retry_delay: build_delay_fn(base_delay, max_delay, jitter),
+      retry_delay: build_delay_fn(initial_delay, max_delay, jitter),
       max_retries: max_attempts - 1
     ]
   end
@@ -116,11 +119,12 @@ defmodule OmApiClient.Middleware.Retry do
   """
   @spec calculate_delay(pos_integer(), keyword()) :: pos_integer()
   def calculate_delay(attempt, opts \\ []) do
-    base_delay = Keyword.get(opts, :base_delay, @default_base_delay)
+    # Support both :initial_delay and deprecated :base_delay
+    initial_delay = Keyword.get(opts, :initial_delay, Keyword.get(opts, :base_delay, @default_initial_delay))
     max_delay = Keyword.get(opts, :max_delay, @default_max_delay)
     jitter = Keyword.get(opts, :jitter, @default_jitter)
 
-    calculate_delay_with_jitter(attempt, base_delay, max_delay, jitter)
+    calculate_delay_with_jitter(attempt, initial_delay, max_delay, jitter)
   end
 
   @doc """

@@ -25,13 +25,11 @@ defmodule OmScheduler.Store.Database do
 
   alias OmScheduler.{Job, Execution, Config}
   alias OmScheduler.Workflow
+  alias OmScheduler.Workflow.Schemas.WorkflowDefinition
 
   @behaviour OmScheduler.Store.Behaviour
 
-  @default_repo Application.compile_env(:events, [__MODULE__, :repo], OmScheduler.Config.repo())
-
-  # ETS table for workflow definitions (workflows are stored in memory only for now)
-  @workflows_table :scheduler_workflows_database
+  @default_repo Application.compile_env(:om_scheduler, [__MODULE__, :repo], nil)
 
   # ============================================
   # Configuration
@@ -45,90 +43,135 @@ defmodule OmScheduler.Store.Database do
     Config.get()[:prefix] || "public"
   end
 
-  defp ensure_workflows_table do
-    case :ets.whereis(@workflows_table) do
-      :undefined ->
-        :ets.new(@workflows_table, [
-          :set,
-          :public,
-          :named_table,
-          read_concurrency: true,
-          write_concurrency: true
-        ])
-
-      _ref ->
-        :ok
-    end
-  end
-
   # ============================================
-  # Workflow Operations (stored in ETS, not database for now)
+  # Workflow Operations (stored in PostgreSQL)
   # ============================================
 
   @impl OmScheduler.Store.Behaviour
   def register_workflow(%Workflow{} = workflow) do
-    ensure_workflows_table()
+    attrs = WorkflowDefinition.from_workflow(workflow)
 
-    case :ets.insert_new(@workflows_table, {workflow.name, workflow}) do
-      true -> {:ok, workflow}
-      false -> {:error, :already_exists}
+    %WorkflowDefinition{}
+    |> WorkflowDefinition.changeset(attrs)
+    |> repo().insert(
+      prefix: prefix(),
+      on_conflict: :nothing,
+      conflict_target: [:name, :version]
+    )
+    |> case do
+      {:ok, _record} -> {:ok, workflow}
+      {:error, %Ecto.Changeset{errors: [name: {"has already been taken", _}]}} -> {:error, :already_exists}
+      {:error, changeset} -> {:error, changeset}
     end
   end
 
   @impl OmScheduler.Store.Behaviour
   def get_workflow(name) when is_atom(name) do
-    ensure_workflows_table()
+    name_str = Atom.to_string(name)
 
-    case :ets.lookup(@workflows_table, name) do
-      [{^name, workflow}] -> {:ok, workflow}
-      [] -> {:error, :not_found}
+    query =
+      from(w in WorkflowDefinition,
+        where: w.name == ^name_str and w.enabled == true,
+        order_by: [desc: w.version],
+        limit: 1
+      )
+
+    case repo().one(query, prefix: prefix()) do
+      nil -> {:error, :not_found}
+      record -> {:ok, WorkflowDefinition.to_workflow(record)}
     end
+  rescue
+    ArgumentError ->
+      # String.to_existing_atom failed - workflow module not loaded
+      {:error, :not_found}
   end
 
   @impl OmScheduler.Store.Behaviour
   def list_workflows(opts \\ []) do
-    ensure_workflows_table()
-
     tags = Keyword.get(opts, :tags, [])
     trigger_type = Keyword.get(opts, :trigger_type)
 
-    :ets.tab2list(@workflows_table)
-    |> Enum.map(fn {_name, workflow} ->
+    query =
+      from(w in WorkflowDefinition,
+        where: w.enabled == true,
+        distinct: w.name,
+        order_by: [desc: w.version]
+      )
+      |> maybe_filter_workflow_tags(tags)
+      |> maybe_filter_trigger_type(trigger_type)
+
+    repo().all(query, prefix: prefix())
+    |> Enum.map(fn record ->
       %{
-        name: workflow.name,
-        steps: map_size(workflow.steps),
-        trigger_type: workflow.trigger_type,
-        schedule: workflow.schedule,
-        tags: workflow.tags,
-        state: workflow.state
+        name: String.to_atom(record.name),
+        steps: map_size(record.steps),
+        trigger_type: String.to_atom(record.trigger_type),
+        schedule: record.schedule,
+        tags: record.tags,
+        state: :pending
       }
     end)
-    |> Enum.filter(fn workflow_info ->
-      (tags == [] or Enum.any?(tags, &(&1 in workflow_info.tags))) and
-        (is_nil(trigger_type) or workflow_info.trigger_type == trigger_type)
-    end)
+  end
+
+  defp maybe_filter_workflow_tags(query, []), do: query
+
+  defp maybe_filter_workflow_tags(query, tags) do
+    from(w in query, where: fragment("? && ?", w.tags, ^tags))
+  end
+
+  defp maybe_filter_trigger_type(query, nil), do: query
+
+  defp maybe_filter_trigger_type(query, trigger_type) do
+    from(w in query, where: w.trigger_type == ^to_string(trigger_type))
   end
 
   @impl OmScheduler.Store.Behaviour
   def update_workflow(name, attrs) when is_atom(name) and is_map(attrs) do
-    case get_workflow(name) do
-      {:ok, workflow} ->
-        updated = struct(workflow, Map.to_list(attrs))
-        :ets.insert(@workflows_table, {name, updated})
-        {:ok, updated}
+    name_str = Atom.to_string(name)
 
-      error ->
-        error
+    query =
+      from(w in WorkflowDefinition,
+        where: w.name == ^name_str and w.enabled == true,
+        order_by: [desc: w.version],
+        limit: 1
+      )
+
+    case repo().one(query, prefix: prefix()) do
+      nil ->
+        {:error, :not_found}
+
+      record ->
+        # Convert atom keys to string keys for changeset
+        db_attrs =
+          attrs
+          |> Enum.map(fn
+            {:state, v} -> {:trigger_type, to_string(v)}
+            {k, v} when is_atom(k) -> {k, v}
+            pair -> pair
+          end)
+          |> Map.new()
+
+        record
+        |> WorkflowDefinition.changeset(db_attrs)
+        |> repo().update(prefix: prefix())
+        |> case do
+          {:ok, updated} -> {:ok, WorkflowDefinition.to_workflow(updated)}
+          {:error, changeset} -> {:error, changeset}
+        end
     end
+  rescue
+    ArgumentError -> {:error, :not_found}
   end
 
   @impl OmScheduler.Store.Behaviour
   def delete_workflow(name) when is_atom(name) do
-    ensure_workflows_table()
+    name_str = Atom.to_string(name)
 
-    case :ets.delete(@workflows_table, name) do
-      true -> :ok
-      false -> {:error, :not_found}
+    query = from(w in WorkflowDefinition, where: w.name == ^name_str)
+
+    case repo().delete_all(query, prefix: prefix()) do
+      {0, _} -> {:error, :not_found}
+      {_, _} -> :ok
     end
   end
 

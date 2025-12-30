@@ -34,7 +34,6 @@ defmodule Events.Infra.KillSwitch.S3 do
   """
 
   alias Events.Infra.KillSwitch
-  alias Events.Services.S3
 
   @service :s3
 
@@ -87,11 +86,11 @@ defmodule Events.Infra.KillSwitch.S3 do
   def list(bucket, opts) when is_binary(bucket) do
     {fallback, s3_opts} = Keyword.pop(opts, :fallback)
     prefix = Keyword.get(s3_opts, :prefix, "")
-    uri = S3.uri(bucket, prefix)
+    uri = OmS3.uri(bucket, prefix)
     config = s3_config()
 
     execute_with_fallback(
-      fn -> S3.list(uri, config, s3_opts) end,
+      fn -> OmS3.list(uri, config, s3_opts) end,
       fallback
     )
   end
@@ -117,11 +116,11 @@ defmodule Events.Infra.KillSwitch.S3 do
   def upload(bucket, path, content, opts)
       when is_binary(bucket) and is_binary(path) do
     {fallback, s3_opts} = Keyword.pop(opts, :fallback)
-    uri = S3.uri(bucket, path)
+    uri = OmS3.uri(bucket, path)
     config = s3_config()
 
     execute_with_fallback(
-      fn -> S3.put(uri, content, config, s3_opts) end,
+      fn -> OmS3.put(uri, content, config, s3_opts) end,
       fallback
     )
   end
@@ -144,11 +143,11 @@ defmodule Events.Infra.KillSwitch.S3 do
 
   def download(bucket, path, opts) when is_binary(bucket) and is_binary(path) do
     fallback = Keyword.get(opts, :fallback)
-    uri = S3.uri(bucket, path)
+    uri = OmS3.uri(bucket, path)
     config = s3_config()
 
     execute_with_fallback(
-      fn -> S3.get(uri, config) end,
+      fn -> OmS3.get(uri, config) end,
       fallback
     )
   end
@@ -171,11 +170,11 @@ defmodule Events.Infra.KillSwitch.S3 do
 
   def delete(bucket, path, opts) when is_binary(bucket) and is_binary(path) do
     fallback = Keyword.get(opts, :fallback)
-    uri = S3.uri(bucket, path)
+    uri = OmS3.uri(bucket, path)
     config = s3_config()
 
     execute_with_fallback(
-      fn -> S3.delete(uri, config) end,
+      fn -> OmS3.delete(uri, config) end,
       fallback
     )
   end
@@ -198,11 +197,11 @@ defmodule Events.Infra.KillSwitch.S3 do
 
   def exists?(bucket, path, opts) when is_binary(bucket) and is_binary(path) do
     fallback = Keyword.get(opts, :fallback, fn -> false end)
-    uri = S3.uri(bucket, path)
+    uri = OmS3.uri(bucket, path)
     config = s3_config()
 
     execute_with_fallback(
-      fn -> S3.exists?(uri, config) end,
+      fn -> OmS3.exists?(uri, config) end,
       fallback
     )
   end
@@ -227,11 +226,11 @@ defmodule Events.Infra.KillSwitch.S3 do
 
   def url_for_upload(bucket, path, opts) when is_binary(bucket) and is_binary(path) do
     {fallback, s3_opts} = Keyword.pop(opts, :fallback)
-    uri = S3.uri(bucket, path)
+    uri = OmS3.uri(bucket, path)
     config = s3_config()
 
     execute_with_fallback(
-      fn -> S3.presign(uri, config, Keyword.put(s3_opts, :method, :put)) end,
+      fn -> OmS3.presign(uri, config, Keyword.put(s3_opts, :method, :put)) end,
       fallback
     )
   end
@@ -257,11 +256,11 @@ defmodule Events.Infra.KillSwitch.S3 do
 
   def url_for_download(bucket, path, opts) when is_binary(bucket) and is_binary(path) do
     {fallback, s3_opts} = Keyword.pop(opts, :fallback)
-    uri = S3.uri(bucket, path)
+    uri = OmS3.uri(bucket, path)
     config = s3_config()
 
     execute_with_fallback(
-      fn -> S3.presign(uri, config, Keyword.put(s3_opts, :method, :get)) end,
+      fn -> OmS3.presign(uri, config, Keyword.put(s3_opts, :method, :get)) end,
       fallback
     )
   end
@@ -269,7 +268,7 @@ defmodule Events.Infra.KillSwitch.S3 do
   ## Private Helpers
 
   defp s3_config do
-    S3.Config.from_env()
+    OmS3.from_env()
   end
 
   defp execute_with_fallback(func, nil) do

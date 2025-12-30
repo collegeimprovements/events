@@ -314,7 +314,7 @@ defmodule OmQuery.Builder do
 
   def filter_dynamic(field, :jsonb_contains, value, opts) do
     binding = opts[:binding] || :root
-    json_value = Jason.encode!(value)
+    json_value = JSON.encode!(value)
     dynamic([{^binding, q}], fragment("? @> ?::jsonb", field(q, ^field), ^json_value))
   end
 

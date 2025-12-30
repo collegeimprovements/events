@@ -149,7 +149,7 @@ Functional helpers for result tuples inspired by Rust's Result type.
 
 ### 3. Services
 
-#### Events.Services.S3 (✅ Complete)
+#### OmS3 (libs/om_s3) (✅ Complete)
 Unified S3 API with pipeline support and first-class `s3://` URI handling.
 
 **Two API Styles**:
@@ -407,7 +407,7 @@ S3.get_object(context, "nonexistent.txt")
 Context.from_env()
 |> Result.ok()
 |> Result.and_then(&S3.get_object(&1, "data.json"))
-|> Result.map(&Jason.decode!/1)
+|> Result.map(&JSON.decode!/1)
 |> Result.map_error(&Normalizer.normalize/1)
 ```
 

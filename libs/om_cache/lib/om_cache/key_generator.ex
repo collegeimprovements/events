@@ -1,41 +1,45 @@
-defmodule Events.Core.Cache.KeyGenerator do
+defmodule OmCache.KeyGenerator do
   @moduledoc """
-  Behaviour for generating cache keys from function arguments.
+  Behaviour and default implementation for generating cache keys from function arguments.
 
   This module provides a default implementation of cache key generation,
   but you can implement your own by creating a module that adopts this behaviour.
 
   ## Default Algorithm
 
-  - `generate(_mod, _fun, [])` → `0` (no arguments)
-  - `generate(_mod, _fun, [arg])` → `arg` (single argument used as key)
-  - `generate(_mod, _fun, args)` → `:erlang.phash2(args)` (hash multiple arguments)
+  - `generate(_mod, _fun, [])` -> `0` (no arguments)
+  - `generate(_mod, _fun, [arg])` -> `arg` (single argument used as key)
+  - `generate(_mod, _fun, args)` -> `:erlang.phash2(args)` (hash multiple arguments)
 
   ## Custom Key Generators
 
       defmodule MyApp.CustomKeyGenerator do
-        @behaviour Events.Core.Cache.KeyGenerator
+        @behaviour OmCache.KeyGenerator
 
         @impl true
         def generate(mod, fun, args) do
-          # Include module and function in key
+          # Include module and function in key for namespacing
           {mod, fun, :erlang.phash2(args)}
         end
       end
 
       # Use in cache configuration
-      config :events, Events.Core.Cache,
-        default_key_generator: MyApp.CustomKeyGenerator
+      defmodule MyApp.Cache do
+        use OmCache,
+          otp_app: :my_app,
+          key_generator: MyApp.CustomKeyGenerator
+      end
 
   ## Important Notes
 
+  When used with decorators:
   - Only explicitly assigned variables are included in args
   - Ignored/underscored arguments are excluded
   - Pattern matches without assignment are excluded
 
   ## Examples
 
-      # Only x and y included
+      # Only x and y included (ignored args excluded)
       def my_function(x, _ignored, _, {_, _}, [_, _], %{a: a}, %{} = y)
       generate(Mod, :my_function, [x_value, y_value])
 
@@ -64,13 +68,13 @@ defmodule Events.Core.Cache.KeyGenerator do
 
   ## Examples
 
-      iex> KeyGenerator.generate(MyMod, :func, [])
+      iex> OmCache.KeyGenerator.generate(MyMod, :func, [])
       0
 
-      iex> KeyGenerator.generate(MyMod, :func, [123])
+      iex> OmCache.KeyGenerator.generate(MyMod, :func, [123])
       123
 
-      iex> KeyGenerator.generate(MyMod, :func, [1, 2, 3])
+      iex> OmCache.KeyGenerator.generate(MyMod, :func, [1, 2, 3])
       # Returns phash2 of [1, 2, 3]
   """
   @spec generate(module(), atom(), [term()]) :: term()

@@ -2,21 +2,9 @@ defmodule Events.Infra.PubSub do
   @moduledoc """
   PubSub wrapper with Redis adapter and local fallback.
 
-  Uses Redis for cross-node communication when available,
-  automatically falls back to local PG2 when Redis is unavailable.
-
-  ## Configuration
-
-  Uses the same Redis configuration as the cache system:
-  - `REDIS_HOST` - Redis host (default: "localhost")
-  - `REDIS_PORT` - Redis port (default: 6379)
-  - `PUBSUB_ADAPTER` - Force adapter: "redis" or "local" (optional)
+  Wraps `OmPubSub` with Events-specific defaults. See `OmPubSub` for full documentation.
 
   ## Usage
-
-  The module starts a Phoenix.PubSub server named `Events.Infra.PubSub.Server`.
-  You can use the standard Phoenix.PubSub functions or the convenience
-  wrappers provided by this module:
 
       # Subscribe to a topic
       Events.Infra.PubSub.subscribe("room:123")
@@ -25,38 +13,37 @@ defmodule Events.Infra.PubSub do
       Events.Infra.PubSub.broadcast("room:123", :new_message, %{text: "Hello"})
 
       # Or use Phoenix.PubSub directly
-      Phoenix.PubSub.broadcast(Events.Infra.PubSub.Server, "room:123", {:new_message, payload})
+      Phoenix.PubSub.broadcast(Events.Infra.PubSub.server(), "room:123", {:new_message, payload})
 
   ## Adapter Selection
 
-  At startup, the module checks Redis availability:
-  1. If `PUBSUB_ADAPTER=local` is set, uses local adapter directly
-  2. If `PUBSUB_ADAPTER=redis` is set, uses Redis adapter (fails if unavailable)
-  3. Otherwise, attempts Redis connection and falls back to local if unavailable
+  - `PUBSUB_ADAPTER=local` - Uses local adapter directly
+  - `PUBSUB_ADAPTER=redis` - Uses Redis adapter
+  - Otherwise, auto-detects Redis availability
   """
 
-  use Supervisor
-  require Logger
-
-  alias FnTypes.Config, as: Cfg
-
-  @pubsub_name Events.Infra.PubSub.Server
+  @pubsub_name __MODULE__
 
   # ==============================================================================
-  # Supervisor API
+  # Child Spec for Supervision Tree
   # ==============================================================================
 
-  def start_link(opts) do
-    Supervisor.start_link(__MODULE__, opts, name: __MODULE__)
-  end
+  @doc """
+  Returns the child spec for starting the PubSub supervisor.
 
-  @impl true
-  def init(_opts) do
-    adapter = determine_adapter()
-    Logger.info("PubSub starting with #{adapter} adapter")
+  Add to your application supervision tree:
 
-    children = [pubsub_child_spec(adapter)]
-    Supervisor.init(children, strategy: :one_for_one)
+      children = [
+        Events.Infra.PubSub,
+        # ...
+      ]
+  """
+  def child_spec(opts) do
+    %{
+      id: __MODULE__,
+      start: {OmPubSub, :start_link, [Keyword.merge([name: @pubsub_name], opts)]},
+      type: :supervisor
+    }
   end
 
   # ==============================================================================
@@ -71,7 +58,7 @@ defmodule Events.Infra.PubSub do
       Phoenix.PubSub.broadcast(Events.Infra.PubSub.server(), "topic", message)
   """
   @spec server() :: atom()
-  def server, do: @pubsub_name
+  def server, do: OmPubSub.server(@pubsub_name)
 
   @doc """
   Subscribe the current process to a topic.
@@ -83,7 +70,7 @@ defmodule Events.Infra.PubSub do
   """
   @spec subscribe(String.t(), keyword()) :: :ok | {:error, term()}
   def subscribe(topic, opts \\ []) do
-    Phoenix.PubSub.subscribe(@pubsub_name, topic, opts)
+    OmPubSub.subscribe(@pubsub_name, topic, opts)
   end
 
   @doc """
@@ -95,7 +82,7 @@ defmodule Events.Infra.PubSub do
   """
   @spec unsubscribe(String.t()) :: :ok
   def unsubscribe(topic) do
-    Phoenix.PubSub.unsubscribe(@pubsub_name, topic)
+    OmPubSub.unsubscribe(@pubsub_name, topic)
   end
 
   @doc """
@@ -108,7 +95,7 @@ defmodule Events.Infra.PubSub do
   """
   @spec broadcast(String.t(), atom(), term()) :: :ok | {:error, term()}
   def broadcast(topic, event, payload) do
-    Phoenix.PubSub.broadcast(@pubsub_name, topic, {event, payload})
+    OmPubSub.broadcast(@pubsub_name, topic, event, payload)
   end
 
   @doc """
@@ -120,7 +107,7 @@ defmodule Events.Infra.PubSub do
   """
   @spec broadcast_from(pid(), String.t(), atom(), term()) :: :ok | {:error, term()}
   def broadcast_from(from_pid, topic, event, payload) do
-    Phoenix.PubSub.broadcast_from(@pubsub_name, from_pid, topic, {event, payload})
+    OmPubSub.broadcast_from(@pubsub_name, from_pid, topic, event, payload)
   end
 
   @doc """
@@ -132,7 +119,7 @@ defmodule Events.Infra.PubSub do
   """
   @spec direct_broadcast(node(), String.t(), atom(), term()) :: :ok | {:error, term()}
   def direct_broadcast(node, topic, event, payload) do
-    Phoenix.PubSub.direct_broadcast(node, @pubsub_name, topic, {event, payload})
+    OmPubSub.direct_broadcast(@pubsub_name, node, topic, event, payload)
   end
 
   @doc """
@@ -140,106 +127,18 @@ defmodule Events.Infra.PubSub do
   """
   @spec adapter() :: :redis | :local
   def adapter do
-    # Check which adapter is actually running by examining the supervisor children
-    case Supervisor.which_children(__MODULE__) do
-      [{_, pid, _, _}] when is_pid(pid) ->
-        case :sys.get_state(pid) do
-          %{adapter: Phoenix.PubSub.Redis} -> :redis
-          _ -> :local
-        end
-
-      _ ->
-        :local
-    end
-  rescue
-    _ -> :local
+    OmPubSub.adapter(@pubsub_name)
   end
 
   @doc """
   Checks if Redis adapter is currently active.
   """
   @spec redis?() :: boolean()
-  def redis?, do: adapter() == :redis
+  def redis?, do: OmPubSub.redis?(@pubsub_name)
 
-  # ==============================================================================
-  # Private Functions
-  # ==============================================================================
-
-  defp determine_adapter do
-    case Cfg.string("PUBSUB_ADAPTER") do
-      "local" ->
-        Logger.debug("PubSub: Using local adapter (forced via PUBSUB_ADAPTER)")
-        :local
-
-      "redis" ->
-        Logger.debug("PubSub: Using Redis adapter (forced via PUBSUB_ADAPTER)")
-        :redis
-
-      _ ->
-        if redis_available?() do
-          Logger.debug("PubSub: Redis available, using Redis adapter")
-          :redis
-        else
-          Logger.warning("PubSub: Redis unavailable, falling back to local adapter")
-          :local
-        end
-    end
-  end
-
-  defp redis_available? do
-    host = get_redis_host()
-    port = get_redis_port()
-
-    case Redix.start_link(host: host, port: port, timeout: 5_000) do
-      {:ok, conn} ->
-        result =
-          case Redix.command(conn, ["PING"]) do
-            {:ok, "PONG"} -> true
-            _ -> false
-          end
-
-        Redix.stop(conn)
-        result
-
-      {:error, reason} ->
-        Logger.debug("PubSub: Redis connection failed: #{inspect(reason)}")
-        false
-    end
-  end
-
-  defp pubsub_child_spec(:redis) do
-    {Phoenix.PubSub,
-     name: @pubsub_name, adapter: Phoenix.PubSub.Redis, url: redis_url(), node_name: node_name()}
-  end
-
-  defp pubsub_child_spec(:local) do
-    {Phoenix.PubSub, name: @pubsub_name}
-  end
-
-  defp redis_url do
-    host = get_redis_host()
-    port = get_redis_port()
-    "redis://#{host}:#{port}"
-  end
-
-  defp get_redis_host do
-    Cfg.string("REDIS_HOST", "localhost")
-  end
-
-  defp get_redis_port do
-    Cfg.integer("REDIS_PORT", 6379)
-  end
-
-  defp node_name do
-    # For named nodes, use the actual node name
-    # For unnamed nodes (like in tests), generate a unique name
-    case node() do
-      :nonode@nohost ->
-        # Generate a unique node name for unnamed nodes
-        :"events_pubsub_#{System.unique_integer([:positive])}"
-
-      named_node ->
-        named_node
-    end
-  end
+  @doc """
+  Checks if local adapter is currently active.
+  """
+  @spec local?() :: boolean()
+  def local?, do: OmPubSub.local?(@pubsub_name)
 end

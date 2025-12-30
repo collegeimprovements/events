@@ -146,10 +146,16 @@ defmodule OmScheduler do
   - `:tags` - Filter by tags
   - `:limit` - Max results
   """
-  @spec all(keyword()) :: {:ok, [Job.t()]}
-  def all(opts \\ []) do
+  @spec list_jobs(keyword()) :: {:ok, [Job.t()]}
+  def list_jobs(opts \\ []) do
     store().list_jobs(opts)
   end
+
+  @doc """
+  Alias for `list_jobs/1`.
+  """
+  @spec all(keyword()) :: {:ok, [Job.t()]}
+  def all(opts \\ []), do: list_jobs(opts)
 
   @doc """
   Updates a job by name.
@@ -291,16 +297,22 @@ defmodule OmScheduler do
   - `:since` - Only executions after this time
   - `:result` - Filter by result
   """
-  @spec history(String.t(), keyword()) :: {:ok, [Execution.t()]}
-  def history(name, opts \\ []) do
+  @spec job_history(String.t(), keyword()) :: {:ok, [Execution.t()]}
+  def job_history(name, opts \\ []) do
     store().get_executions(name, opts)
   end
 
   @doc """
+  Alias for `job_history/2`.
+  """
+  @spec history(String.t(), keyword()) :: {:ok, [Execution.t()]}
+  def history(name, opts \\ []), do: job_history(name, opts)
+
+  @doc """
   Gets status for a job.
   """
-  @spec status(String.t()) :: {:ok, map()} | {:error, :not_found}
-  def status(name) do
+  @spec job_status(String.t()) :: {:ok, map()} | {:error, :not_found}
+  def job_status(name) do
     case get_job(name) do
       {:ok, job} ->
         {:ok,
@@ -309,8 +321,8 @@ defmodule OmScheduler do
            state: job.state,
            enabled: job.enabled,
            paused: job.paused,
-           last_run: job.last_run_at,
-           next_run: job.next_run_at,
+           last_run_at: job.last_run_at,
+           next_run_at: job.next_run_at,
            run_count: job.run_count,
            error_count: job.error_count,
            last_result: job.last_result,
@@ -322,6 +334,12 @@ defmodule OmScheduler do
     end
   end
 
+  @doc """
+  Alias for `job_status/1`.
+  """
+  @spec status(String.t()) :: {:ok, map()} | {:error, :not_found}
+  def status(name), do: job_status(name)
+
   # ============================================
   # Cluster Info
   # ============================================
@@ -329,10 +347,14 @@ defmodule OmScheduler do
   @doc """
   Returns true if this node is the leader.
   """
-  @spec is_leader?() :: boolean()
-  def is_leader? do
+  @spec leader?() :: boolean()
+  def leader? do
     Config.get()[:peer] |> Config.leader?()
   end
+
+  @doc false
+  @deprecated "Use leader?/0 instead"
+  def is_leader?, do: leader?()
 
   @doc """
   Returns the current leader node.

@@ -2,21 +2,19 @@ defmodule Events.Services.Aws do
   @moduledoc """
   AWS service helpers.
 
-  **Note:** For S3 operations, use `Events.Services.S3` directly which provides
+  **Note:** For S3 operations, use `OmS3` directly which provides
   a clean, unified API with pipeline support.
 
   ## S3 Usage
 
-      alias Events.Services.S3
-
-      # From environment
-      S3.from_env()
-      |> S3.bucket("my-bucket")
-      |> S3.get("file.txt")
+      # From environment (pipeline API)
+      OmS3.from_env()
+      |> OmS3.bucket("my-bucket")
+      |> OmS3.get("file.txt")
 
       # Or direct API
-      config = S3.Config.from_env()
-      S3.get("s3://bucket/file.txt", config)
+      config = OmS3.from_env()
+      OmS3.get("s3://bucket/file.txt", config)
 
   ## Environment Variables
 
@@ -40,7 +38,7 @@ defmodule Events.Services.Aws do
   Connects to AWS with explicit credentials.
 
   Returns a connection map. For S3 operations, prefer using
-  `Events.Services.S3.Config.new/1` directly.
+  `OmS3.Config.new/1` directly.
 
   ## Options
 
@@ -92,13 +90,13 @@ defmodule Events.Services.Aws do
       config = Aws.to_s3_config(conn)
       S3.get("s3://bucket/file.txt", config)
   """
-  @spec to_s3_config(connection_or_nil()) :: Events.Services.S3.Config.t()
+  @spec to_s3_config(connection_or_nil()) :: OmS3.config()
   def to_s3_config(nil) do
-    Events.Services.S3.Config.from_env()
+    OmS3.from_env()
   end
 
   def to_s3_config(%{key: key, secret: secret, region: region, endpoint: endpoint}) do
-    Events.Services.S3.Config.new(
+    OmS3.config(
       access_key_id: key,
       secret_access_key: secret,
       region: region,

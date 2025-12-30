@@ -308,7 +308,7 @@ defmodule OmQuery.SqlScope.Scope do
   @spec jsonb_contains(t(), atom() | String.t(), map()) :: t()
   def jsonb_contains(scope, field, value) when is_map(value) do
     field_str = Security.validate_identifier!(field)
-    json_value = Jason.encode!(value)
+    json_value = JSON.encode!(value)
     add_condition(scope, "#{field_str} @> $::jsonb", [json_value])
   end
 
@@ -318,7 +318,7 @@ defmodule OmQuery.SqlScope.Scope do
   @spec jsonb_contained(t(), atom() | String.t(), map()) :: t()
   def jsonb_contained(scope, field, value) when is_map(value) do
     field_str = Security.validate_identifier!(field)
-    json_value = Jason.encode!(value)
+    json_value = JSON.encode!(value)
     add_condition(scope, "#{field_str} <@ $::jsonb", [json_value])
   end
 

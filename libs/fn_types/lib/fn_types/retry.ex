@@ -30,7 +30,7 @@ defmodule FnTypes.Retry do
       # Custom options
       Retry.execute(fn -> api_call() end,
         max_attempts: 5,
-        base_delay: 500,
+        initial_delay: 500,
         on_retry: fn error, attempt, delay ->
           Logger.warn("Retrying: \#{inspect(error)}")
         end
@@ -84,7 +84,7 @@ defmodule FnTypes.Retry do
 
   @type opts :: [
           max_attempts: pos_integer(),
-          base_delay: pos_integer(),
+          initial_delay: pos_integer(),
           max_delay: pos_integer(),
           jitter: float(),
           backoff: backoff_strategy(),
@@ -100,7 +100,7 @@ defmodule FnTypes.Retry do
   # ============================================
 
   @default_max_attempts 3
-  @default_base_delay 100
+  @default_initial_delay 100
   @default_max_delay 30_000
   @default_jitter 0.25
   @default_backoff :exponential
@@ -123,13 +123,15 @@ defmodule FnTypes.Retry do
   ## Options
 
   - `:max_attempts` - Maximum retry attempts (default: 3)
-  - `:base_delay` - Base delay in milliseconds (default: 100)
+  - `:initial_delay` - Initial delay in milliseconds (default: 100)
   - `:max_delay` - Maximum delay cap (default: 30000)
   - `:jitter` - Jitter factor 0.0-1.0 (default: 0.25)
   - `:backoff` - Backoff strategy (default: :exponential)
   - `:when` - Predicate function to determine if error is retryable
   - `:on_retry` - Callback `(error, attempt, delay) -> any`
   - `:telemetry_prefix` - Custom telemetry event prefix
+
+  Note: `:base_delay` is accepted as a deprecated alias for `:initial_delay`.
 
   ## Examples
 
@@ -139,7 +141,7 @@ defmodule FnTypes.Retry do
       # Custom configuration
       Retry.execute(fn -> database_query() end,
         max_attempts: 5,
-        base_delay: 50,
+        initial_delay: 50,
         backoff: :exponential
       )
 
@@ -264,7 +266,7 @@ defmodule FnTypes.Retry do
   def calculate_delay(attempt, strategy, opts \\ [])
 
   def calculate_delay(attempt, :exponential, opts) do
-    base = Keyword.get(opts, :base, @default_base_delay)
+    base = Keyword.get(opts, :base, @default_initial_delay)
     max = Keyword.get(opts, :max, @default_max_delay)
     jitter = Keyword.get(opts, :jitter, @default_jitter)
 
@@ -274,17 +276,17 @@ defmodule FnTypes.Retry do
   end
 
   def calculate_delay(attempt, :linear, opts) do
-    base = Keyword.get(opts, :base, @default_base_delay)
+    base = Keyword.get(opts, :base, @default_initial_delay)
     max = Keyword.get(opts, :max, @default_max_delay)
     min(base * attempt, max)
   end
 
   def calculate_delay(_attempt, :fixed, opts) do
-    Keyword.get(opts, :delay, Keyword.get(opts, :base, @default_base_delay))
+    Keyword.get(opts, :delay, Keyword.get(opts, :base, @default_initial_delay))
   end
 
   def calculate_delay(attempt, :decorrelated, opts) do
-    base = Keyword.get(opts, :base, @default_base_delay)
+    base = Keyword.get(opts, :base, @default_initial_delay)
     max = Keyword.get(opts, :max, @default_max_delay)
 
     upper = base * :math.pow(3, attempt - 1)
@@ -293,7 +295,7 @@ defmodule FnTypes.Retry do
   end
 
   def calculate_delay(attempt, :full_jitter, opts) do
-    base = Keyword.get(opts, :base, @default_base_delay)
+    base = Keyword.get(opts, :base, @default_initial_delay)
     max = Keyword.get(opts, :max, @default_max_delay)
 
     upper = base * :math.pow(2, attempt)
@@ -302,7 +304,7 @@ defmodule FnTypes.Retry do
   end
 
   def calculate_delay(attempt, :equal_jitter, opts) do
-    base = Keyword.get(opts, :base, @default_base_delay)
+    base = Keyword.get(opts, :base, @default_initial_delay)
     max = Keyword.get(opts, :max, @default_max_delay)
 
     exp_delay = base * :math.pow(2, attempt - 1)
@@ -366,9 +368,12 @@ defmodule FnTypes.Retry do
   # ============================================
 
   defp build_config(opts) do
+    # Support both :initial_delay and deprecated :base_delay
+    initial_delay = Keyword.get(opts, :initial_delay, Keyword.get(opts, :base_delay, @default_initial_delay))
+
     %{
       max_attempts: Keyword.get(opts, :max_attempts, @default_max_attempts),
-      base_delay: Keyword.get(opts, :base_delay, @default_base_delay),
+      initial_delay: initial_delay,
       max_delay: Keyword.get(opts, :max_delay, @default_max_delay),
       jitter: Keyword.get(opts, :jitter, @default_jitter),
       backoff: Keyword.get(opts, :backoff, @default_backoff),
@@ -447,10 +452,10 @@ defmodule FnTypes.Retry do
         protocol_delay
       else
         backoff_opts = [
-          base: config.base_delay,
+          base: config.initial_delay,
           max: config.max_delay,
           jitter: config.jitter,
-          delay: config.base_delay
+          delay: config.initial_delay
         ]
 
         calculate_delay(attempt, config.backoff, backoff_opts)

@@ -111,8 +111,8 @@ config :logger, :default_formatter,
   format: "$time $metadata[$level] $message\n",
   metadata: [:request_id]
 
-# Use Jason for JSON parsing in Phoenix
-config :phoenix, :json_library, Jason
+# Use built-in JSON module (Elixir 1.18+)
+config :phoenix, :json_library, JSON
 
 # Compile-time options (Phoenix reads these during compilation)
 if config_env() == :dev do

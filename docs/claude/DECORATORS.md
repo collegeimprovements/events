@@ -95,15 +95,62 @@ def fetch_external(id), do: ExternalAPI.get(id)
 
 ## Caching Decorators
 
-### cacheable
+> **Full Reference:** `docs/claude/CACHING.md`
 
-Caches function results.
+### cacheable (with Presets)
+
+Use presets for common caching patterns:
+
+```elixir
+alias FnDecorator.Caching.Presets
+
+# High availability - serves stale, auto-refreshes
+@decorate cacheable(Presets.high_availability(cache: MyApp.Cache, key: {User, id}))
+def get_user(id), do: Repo.get(User, id)
+
+# Always fresh - critical config
+@decorate cacheable(Presets.always_fresh(cache: MyApp.Cache, key: :feature_flags))
+def get_flags, do: ConfigService.fetch()
+
+# External API - resilient to outages
+@decorate cacheable(Presets.external_api(cache: MyApp.Cache, key: {:weather, city}))
+def get_weather(city), do: WeatherAPI.fetch(city)
+```
+
+| Preset | TTL | Stale | Best For |
+|--------|-----|-------|----------|
+| `high_availability` | 5m | 24h | User reads |
+| `always_fresh` | 30s | - | Critical config |
+| `external_api` | 15m | 4h | Third-party APIs |
+| `expensive` | 6h | 7d | Reports, aggregations |
+| `session` | 30m | - | User sessions |
+| `database` | 5m | 1h | DB queries |
+
+### cacheable (Full API)
 
 ```elixir
 @decorate cacheable(
-  cache: MyApp.Cache,
-  key: {:user, id},
-  ttl: :timer.minutes(5)
+  store: [
+    cache: MyApp.Cache,                        # Required: cache module
+    key: {User, id},                           # Required: cache key
+    ttl: :timer.minutes(5),                    # Required: freshness duration
+    only_if: &match?({:ok, _}, &1)             # Optional: condition to cache
+  ],
+  refresh: [
+    on: :stale_access,                         # When to refresh
+    retries: 3                                 # Retry attempts
+  ],
+  serve_stale: [ttl: :timer.hours(1)],         # Serve expired data while refreshing
+  prevent_thunder_herd: [                      # Stampede prevention (default ON)
+    max_wait: :timer.seconds(5),
+    retries: 3,
+    lock_timeout: :timer.seconds(30),
+    on_timeout: :serve_stale
+  ],
+  fallback: [
+    on_refresh_failure: :serve_stale,
+    on_cache_unavailable: {:call, &fallback/1}
+  ]
 )
 def get_user(id), do: Repo.get(User, id)
 ```

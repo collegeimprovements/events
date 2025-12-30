@@ -577,7 +577,7 @@ defmodule FnDecorator.Validation do
 
     # Convert to target format
     case format do
-      :json -> Jason.encode!(transformed)
+      :json -> JSON.encode!(transformed)
       :map -> transformed
       :keyword -> Map.to_list(transformed)
       :binary -> :erlang.term_to_binary(transformed)

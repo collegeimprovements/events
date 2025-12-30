@@ -23,7 +23,7 @@ defmodule Events.Infra.SystemHealth.Services do
   alias Redix
 
   @app_name Application.compile_env(:events, [__MODULE__, :app_name], :events)
-  @s3_module Application.compile_env(:events, [__MODULE__, :s3_module], Events.Services.S3)
+  @s3_module Application.compile_env(:events, [__MODULE__, :s3_module], OmS3)
 
   @default_services [
     %{name: "Repo", module: Events.Core.Repo, type: :repo, critical: true},
@@ -390,7 +390,7 @@ defmodule Events.Infra.SystemHealth.Services do
         {:error, "S3 bucket not configured"}
 
       true ->
-        config = @s3_module.Config.from_env()
+        config = OmS3.from_env()
         {:ok, config, bucket}
     end
   rescue

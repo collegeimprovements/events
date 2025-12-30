@@ -58,7 +58,7 @@ defmodule EventsWeb.ConnCase do
   Parses JSON response body.
   """
   def json_body(conn) do
-    Jason.decode!(conn.resp_body)
+    JSON.decode!(conn.resp_body)
   end
 
   @doc """
@@ -98,7 +98,7 @@ defmodule EventsWeb.ConnCase do
     quote do
       unquote(conn)
       |> EventsWeb.ConnCase.put_json_headers()
-      |> post(unquote(path), Jason.encode!(unquote(body)))
+      |> post(unquote(path), JSON.encode!(unquote(body)))
     end
   end
 
@@ -111,7 +111,7 @@ defmodule EventsWeb.ConnCase do
     quote do
       unquote(conn)
       |> EventsWeb.ConnCase.put_json_headers()
-      |> put(unquote(path), Jason.encode!(unquote(body)))
+      |> put(unquote(path), JSON.encode!(unquote(body)))
     end
   end
 
@@ -124,7 +124,7 @@ defmodule EventsWeb.ConnCase do
     quote do
       unquote(conn)
       |> EventsWeb.ConnCase.put_json_headers()
-      |> patch(unquote(path), Jason.encode!(unquote(body)))
+      |> patch(unquote(path), JSON.encode!(unquote(body)))
     end
   end
 end

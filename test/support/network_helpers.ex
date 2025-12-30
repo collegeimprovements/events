@@ -69,12 +69,12 @@ defmodule Events.Test.NetworkHelpers do
   ## Examples
 
       add_route("/api/users", fn conn ->
-        Plug.Conn.send_resp(conn, 200, Jason.encode!(%{users: []}))
+        Plug.Conn.send_resp(conn, 200, JSON.encode!(%{users: []}))
       end)
 
       add_route("/api/users/:id", via: :get, to: fn conn ->
         id = conn.path_params["id"]
-        Plug.Conn.send_resp(conn, 200, Jason.encode!(%{id: id}))
+        Plug.Conn.send_resp(conn, 200, JSON.encode!(%{id: id}))
       end)
   """
   def add_route(path, opts_or_handler) do
@@ -104,7 +104,7 @@ defmodule Events.Test.NetworkHelpers do
       to: fn conn ->
         conn
         |> Plug.Conn.put_resp_content_type("application/json")
-        |> Plug.Conn.send_resp(status, Jason.encode!(body))
+        |> Plug.Conn.send_resp(status, JSON.encode!(body))
       end
     )
   end
@@ -147,24 +147,24 @@ defmodule Events.Test.NetworkHelpers do
 
         :server_error ->
           fn conn ->
-            Plug.Conn.send_resp(conn, 500, Jason.encode!(%{error: "Internal Server Error"}))
+            Plug.Conn.send_resp(conn, 500, JSON.encode!(%{error: "Internal Server Error"}))
           end
 
         :rate_limited ->
           fn conn ->
             conn
             |> Plug.Conn.put_resp_header("retry-after", "60")
-            |> Plug.Conn.send_resp(429, Jason.encode!(%{error: "Too Many Requests"}))
+            |> Plug.Conn.send_resp(429, JSON.encode!(%{error: "Too Many Requests"}))
           end
 
         :bad_gateway ->
           fn conn ->
-            Plug.Conn.send_resp(conn, 502, Jason.encode!(%{error: "Bad Gateway"}))
+            Plug.Conn.send_resp(conn, 502, JSON.encode!(%{error: "Bad Gateway"}))
           end
 
         :service_unavailable ->
           fn conn ->
-            Plug.Conn.send_resp(conn, 503, Jason.encode!(%{error: "Service Unavailable"}))
+            Plug.Conn.send_resp(conn, 503, JSON.encode!(%{error: "Service Unavailable"}))
           end
       end
 
@@ -209,13 +209,13 @@ defmodule Events.Test.NetworkHelpers do
           Plug.Conn.send_resp(
             conn,
             status,
-            Jason.encode!(%{error: "Simulated failure #{count + 1}"})
+            JSON.encode!(%{error: "Simulated failure #{count + 1}"})
           )
         else
           # Return success
           conn
           |> Plug.Conn.put_resp_content_type("application/json")
-          |> Plug.Conn.send_resp(200, Jason.encode!(success_body))
+          |> Plug.Conn.send_resp(200, JSON.encode!(success_body))
         end
       end
     )
@@ -240,7 +240,7 @@ defmodule Events.Test.NetworkHelpers do
 
         conn
         |> Plug.Conn.put_resp_content_type("application/json")
-        |> Plug.Conn.send_resp(200, Jason.encode!(body))
+        |> Plug.Conn.send_resp(200, JSON.encode!(body))
       end
     )
   end

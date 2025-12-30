@@ -84,6 +84,8 @@ defmodule Events.MixProject do
       {:om_scheduler, path: "libs/om_scheduler"},
       {:om_s3, path: "libs/om_s3"},
       {:om_health, path: "libs/om_health"},
+      {:om_cache, path: "libs/om_cache"},
+      {:om_pubsub, path: "libs/om_pubsub"},
 
       # ============================================
       # Phoenix & Web
@@ -111,7 +113,6 @@ defmodule Events.MixProject do
       {:telemetry_metrics, "~> 1.0"},
       {:telemetry_poller, "~> 1.0"},
       {:gettext, "~> 1.0"},
-      {:jason, "~> 1.2"},
       {:dns_cluster, "~> 0.2.0"},
       {:bandit, "~> 1.5"},
       # {:decorator, "~> 1.4"},  # Now provided by fn_decorator

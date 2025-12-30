@@ -34,7 +34,6 @@ defmodule OmS3.MixProject do
     [
       {:req, "~> 0.5"},
       {:req_s3, "~> 0.2"},
-      {:jason, "~> 1.2"},
       {:telemetry, "~> 1.0"},
       {:fn_types, path: "../fn_types"},
       {:ex_doc, "~> 0.31", only: :dev, runtime: false}

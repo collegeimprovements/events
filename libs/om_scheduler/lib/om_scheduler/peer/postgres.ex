@@ -24,7 +24,7 @@ defmodule OmScheduler.Peer.Postgres do
 
       config :om_scheduler.Peer.Postgres, telemetry_prefix: [:my_app, :scheduler, :peer]
 
-  Default prefix: `[:events, :scheduler, :peer]`
+  Default prefix: `[:om_scheduler, :peer]`
   """
 
   use GenServer
@@ -34,12 +34,11 @@ defmodule OmScheduler.Peer.Postgres do
 
   @behaviour OmScheduler.Peer.Behaviour
 
-  @telemetry_prefix Application.compile_env(:events, [__MODULE__, :telemetry_prefix], [
-                      :events,
-                      :scheduler,
+  @telemetry_prefix Application.compile_env(:om_scheduler, [__MODULE__, :telemetry_prefix], [
+                      :om_scheduler,
                       :peer
                     ])
-  @default_repo Application.compile_env(:events, [__MODULE__, :repo], OmScheduler.Config.repo())
+  @default_repo Application.compile_env(:om_scheduler, [__MODULE__, :repo], nil)
 
   # Advisory lock key - using consistent hash of scheduler name
   @lock_key 123_456_789

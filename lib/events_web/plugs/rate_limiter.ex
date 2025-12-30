@@ -96,7 +96,7 @@ defmodule EventsWeb.Plugs.RateLimiter do
   end
 
   defp rate_limit_message(retry_after) do
-    Jason.encode!(%{
+    JSON.encode!(%{
       error: "Too many requests",
       message: "Rate limit exceeded. Please try again in #{retry_after} seconds.",
       retry_after: retry_after

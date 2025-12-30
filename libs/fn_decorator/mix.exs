@@ -34,8 +34,6 @@ defmodule FnDecorator.MixProject do
       {:telemetry, "~> 1.0"},
       # Optional - for Ecto-related decorators
       {:ecto, "~> 3.11", optional: true},
-      # Optional - for JSON serialization in validation
-      {:jason, "~> 1.0", optional: true},
       # Dev/Test
       {:ex_doc, "~> 0.31", only: :dev, runtime: false}
     ]

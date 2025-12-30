@@ -33,8 +33,8 @@ Faker.start()
 
 mockable_modules = [
   # External services
-  Events.Services.S3,
-  Events.Services.S3.Client,
+  OmS3,
+  OmS3.Client,
   Events.Core.Cache,
 
   # External libraries (only if loaded)

@@ -97,7 +97,7 @@ config :events, Events.Core.Repo, repo_config
 # CACHE CONFIGURATION
 # ==============================================================================
 
-config :events, Events.Core.Cache, Events.Core.Cache.Config.build()
+config :events, Events.Core.Cache, OmCache.Config.build()
 
 # ==============================================================================
 # HAMMER RATE LIMITER CONFIGURATION
@@ -108,7 +108,7 @@ config :hammer,
     {Hammer.Backend.Redis,
      [
        expiry_ms: :timer.hours(2),
-       redix_config: Events.Core.Cache.Config.redis_opts()
+       redix_config: OmCache.Config.redis_opts()
      ]}
 
 # ==============================================================================

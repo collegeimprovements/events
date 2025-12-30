@@ -13,6 +13,7 @@
 | `docs/claude/SCHEMA.md` | Schema and Migration quick reference |
 | `docs/claude/SCHEMA_CHANGESET_REFERENCE.md` | Full Schema, Field, Changeset reference |
 | `docs/claude/DECORATORS.md` | Decorator quick reference |
+| `docs/claude/CACHING.md` | Caching presets, @cacheable API, custom presets |
 | `docs/claude/CRUD.md` | CRUD system, Multi, Merge, options reference |
 | `docs/claude/S3.md` | S3 API reference |
 | `docs/claude/SCHEDULER.md` | Cron scheduler quick reference |
@@ -356,6 +357,85 @@ Use `FnDecorator` directly from `libs/fn_decorator` for standard decorators:
 | Scheduler | `scheduled` |
 | Workflow | `step`, `graft`, `subworkflow` |
 
+### Caching with `@cacheable`
+
+Use `FnDecorator.Caching.Presets` for common caching patterns:
+
+| Preset | TTL | Stale | Best For |
+|--------|-----|-------|----------|
+| `high_availability` | 5m | 24h | User-facing reads, tolerate staleness |
+| `always_fresh` | 30s | - | Feature flags, permissions, critical config |
+| `external_api` | 15m | 4h | Third-party APIs, rate-limited endpoints |
+| `expensive` | 6h | 7d | Reports, aggregations, ML results |
+| `session` | 30m | - | User sessions, shopping carts |
+| `database` | 5m | 1h | Standard DB query caching |
+| `minimal` | user | - | Simple caching, just TTL |
+
+```elixir
+alias FnDecorator.Caching.Presets
+
+# Use a preset - high availability for user reads
+@decorate cacheable(Presets.high_availability(cache: MyApp.Cache, key: {User, id}))
+def get_user(id), do: Repo.get(User, id)
+
+# Critical config - always fresh
+@decorate cacheable(Presets.always_fresh(cache: MyApp.Cache, key: :feature_flags))
+def get_flags, do: ConfigService.fetch()
+
+# External API - resilient to outages
+@decorate cacheable(Presets.external_api(cache: MyApp.Cache, key: {:weather, city}))
+def get_weather(city), do: WeatherAPI.fetch(city)
+
+# Override preset defaults
+@decorate cacheable(Presets.high_availability(
+  cache: MyApp.Cache,
+  key: {User, id},
+  ttl: :timer.minutes(10)  # Override default 5m TTL
+))
+def get_user(id), do: Repo.get(User, id)
+```
+
+**Creating Custom Presets** in your codebase:
+
+```elixir
+# lib/my_app/cache_presets.ex
+defmodule MyApp.CachePresets do
+  alias FnDecorator.Caching.Presets
+
+  def microservice(opts \\ []) do
+    Presets.merge([
+      store: [ttl: :timer.seconds(30)],
+      refresh: [on: :stale_access],
+      serve_stale: [ttl: :timer.minutes(5)],
+      prevent_thunder_herd: [max_wait: :timer.seconds(5)]
+    ], opts)
+  end
+
+  def resilient_api(opts \\ []) do
+    Presets.compose([Presets.high_availability(), opts])
+  end
+end
+
+# Usage
+@decorate cacheable(MyApp.CachePresets.microservice(cache: MyApp.Cache, key: {:orders, id}))
+def get_orders(id), do: OrderService.fetch(id)
+```
+
+**Full `@cacheable` API** (when presets don't fit):
+
+```elixir
+@decorate cacheable(
+  store: [cache: MyApp.Cache, key: {User, id}, ttl: :timer.minutes(5), only_if: &match?({:ok, _}, &1)],
+  refresh: [on: [:stale_access, :immediately_when_expired], retries: 3],
+  serve_stale: [ttl: :timer.hours(1)],
+  prevent_thunder_herd: [max_wait: :timer.seconds(5), retries: 3, lock_timeout: :timer.seconds(30)],
+  fallback: [on_refresh_failure: :serve_stale, on_cache_unavailable: {:call, &fallback/1}]
+)
+def get_user(id), do: Repo.get(User, id)
+```
+
+See `docs/claude/CACHING.md` for complete reference.
+
 ---
 
 ## Common Patterns
@@ -465,6 +545,7 @@ docs/
 │   ├── SCHEMA.md             # Schema/Migration quick reference
 │   ├── SCHEMA_CHANGESET_REFERENCE.md  # Full Schema, Field, Changeset guide
 │   ├── DECORATORS.md         # Decorator reference
+│   ├── CACHING.md            # Caching presets, @cacheable API
 │   ├── S3.md                 # S3 API reference
 │   ├── SCHEDULER.md          # Cron scheduler reference
 │   └── WORKFLOW.md           # Workflow system (DAG, dependencies, rollbacks)

@@ -624,9 +624,9 @@ defmodule SafeParser do
   alias Events.Result
 
   def parse_json(string) do
-    Result.try_with(fn -> Jason.decode!(string) end)
+    Result.try_with(fn -> JSON.decode!(string) end)
     |> Result.map_error(fn
-      %Jason.DecodeError{} = e -> {:json_error, e.position}
+      %JSON.DecodeError{} = e -> {:json_error, e.position}
       e -> {:parse_error, e}
     end)
   end

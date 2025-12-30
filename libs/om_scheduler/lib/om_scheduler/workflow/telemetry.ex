@@ -6,46 +6,46 @@ defmodule OmScheduler.Workflow.Telemetry do
 
       config :om_scheduler.Workflow.Telemetry, telemetry_prefix: [:my_app, :scheduler, :workflow]
 
-  Default prefix: `[:events, :scheduler, :workflow]`
+  Default prefix: `[:om_scheduler, :workflow]`
 
   ## Workflow Events
 
-  - `[:events, :scheduler, :workflow, :start]` - Workflow execution started
-  - `[:events, :scheduler, :workflow, :stop]` - Workflow execution completed
-  - `[:events, :scheduler, :workflow, :exception]` - Workflow execution raised
-  - `[:events, :scheduler, :workflow, :pause]` - Workflow paused (awaiting approval)
-  - `[:events, :scheduler, :workflow, :resume]` - Workflow resumed
-  - `[:events, :scheduler, :workflow, :cancel]` - Workflow cancelled
-  - `[:events, :scheduler, :workflow, :fail]` - Workflow failed
+  - `[:om_scheduler, :workflow, :start]` - Workflow execution started
+  - `[:om_scheduler, :workflow, :stop]` - Workflow execution completed
+  - `[:om_scheduler, :workflow, :exception]` - Workflow execution raised
+  - `[:om_scheduler, :workflow, :pause]` - Workflow paused (awaiting approval)
+  - `[:om_scheduler, :workflow, :resume]` - Workflow resumed
+  - `[:om_scheduler, :workflow, :cancel]` - Workflow cancelled
+  - `[:om_scheduler, :workflow, :fail]` - Workflow failed
 
   ## Step Events
 
-  - `[:events, :scheduler, :workflow, :step, :start]` - Step execution started
-  - `[:events, :scheduler, :workflow, :step, :stop]` - Step execution completed
-  - `[:events, :scheduler, :workflow, :step, :exception]` - Step execution raised
-  - `[:events, :scheduler, :workflow, :step, :skip]` - Step skipped (condition false)
-  - `[:events, :scheduler, :workflow, :step, :retry]` - Step being retried
-  - `[:events, :scheduler, :workflow, :step, :cancel]` - Step cancelled
+  - `[:om_scheduler, :workflow, :step, :start]` - Step execution started
+  - `[:om_scheduler, :workflow, :step, :stop]` - Step execution completed
+  - `[:om_scheduler, :workflow, :step, :exception]` - Step execution raised
+  - `[:om_scheduler, :workflow, :step, :skip]` - Step skipped (condition false)
+  - `[:om_scheduler, :workflow, :step, :retry]` - Step being retried
+  - `[:om_scheduler, :workflow, :step, :cancel]` - Step cancelled
 
   ## Rollback Events
 
-  - `[:events, :scheduler, :workflow, :rollback, :start]` - Rollback started
-  - `[:events, :scheduler, :workflow, :rollback, :stop]` - Rollback completed
-  - `[:events, :scheduler, :workflow, :rollback, :exception]` - Rollback failed
+  - `[:om_scheduler, :workflow, :rollback, :start]` - Rollback started
+  - `[:om_scheduler, :workflow, :rollback, :stop]` - Rollback completed
+  - `[:om_scheduler, :workflow, :rollback, :exception]` - Rollback failed
 
   ## Graft Events
 
-  - `[:events, :scheduler, :workflow, :graft, :expand]` - Graft expanded to steps
+  - `[:om_scheduler, :workflow, :graft, :expand]` - Graft expanded to steps
 
   ## Usage
 
       :telemetry.attach_many(
         "workflow-logger",
         [
-          [:events, :scheduler, :workflow, :start],
-          [:events, :scheduler, :workflow, :stop],
-          [:events, :scheduler, :workflow, :step, :start],
-          [:events, :scheduler, :workflow, :step, :stop]
+          [:om_scheduler, :workflow, :start],
+          [:om_scheduler, :workflow, :stop],
+          [:om_scheduler, :workflow, :step, :start],
+          [:om_scheduler, :workflow, :step, :stop]
         ],
         &MyApp.Telemetry.handle_workflow_event/4,
         nil
@@ -69,7 +69,7 @@ defmodule OmScheduler.Workflow.Telemetry do
         require Logger
 
         def handle_workflow_event(
-          [:events, :scheduler, :workflow, :start],
+          [:om_scheduler, :workflow, :start],
           _measurements,
           %{workflow_name: name, execution_id: id},
           _config
@@ -78,7 +78,7 @@ defmodule OmScheduler.Workflow.Telemetry do
         end
 
         def handle_workflow_event(
-          [:events, :scheduler, :workflow, :stop],
+          [:om_scheduler, :workflow, :stop],
           %{duration: duration},
           %{workflow_name: name, execution_id: id},
           _config
@@ -87,7 +87,7 @@ defmodule OmScheduler.Workflow.Telemetry do
         end
 
         def handle_workflow_event(
-          [:events, :scheduler, :workflow, :step, :stop],
+          [:om_scheduler, :workflow, :step, :stop],
           %{duration: duration},
           %{workflow_name: name, step_name: step, execution_id: id},
           _config
@@ -97,9 +97,8 @@ defmodule OmScheduler.Workflow.Telemetry do
       end
   """
 
-  @prefix Application.compile_env(:events, [__MODULE__, :telemetry_prefix], [
-            :events,
-            :scheduler,
+  @prefix Application.compile_env(:om_scheduler, [__MODULE__, :telemetry_prefix], [
+            :om_scheduler,
             :workflow
           ])
 

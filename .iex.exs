@@ -16,7 +16,7 @@ alias Events.Infra.Scheduler.Workflow
 
 # API & Services
 alias Events.Api.Client
-alias Events.Services.S3
+alias OmS3
 
 # Web
 alias EventsWeb.{Endpoint, Router}

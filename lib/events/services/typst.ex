@@ -410,7 +410,7 @@ defmodule Events.Services.Typst do
         |> Enum.into(<<>>)
         |> String.trim()
 
-      case Jason.decode(result) do
+      case JSON.decode(result) do
         {:ok, data} -> {:ok, data}
         {:error, _} -> {:ok, result}
       end

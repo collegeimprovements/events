@@ -95,7 +95,7 @@ defmodule FnTypes.Resource do
           {:ok, file} ->
             file
             |> IO.read(:all)
-            |> Jason.decode()
+            |> JSON.decode()
 
           {:error, reason} ->
             {:error, reason}
