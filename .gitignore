@@ -49,3 +49,4 @@ libs/*/deps/
 libs/*/doc/
 libs/*/.fetch
 libs/*/cover/
+libs/fn_decorator/_build

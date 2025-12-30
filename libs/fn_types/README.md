@@ -95,6 +95,40 @@ def process(result) when is_ok(result), do: ...
 def process(result) when is_error(result), do: ...
 ```
 
+### Timing - Execution measurement
+
+```elixir
+alias FnTypes.Timing
+alias FnTypes.Timing.Duration
+
+# Measure execution time
+{result, duration} = Timing.measure(fn -> expensive_operation() end)
+IO.puts("Took #{duration.ms}ms")
+
+# Quick measurement (returns ms)
+{result, ms} = Timing.measure!(fn -> api_call() end)
+
+# Safe measurement (captures exceptions)
+case Timing.measure_safe(fn -> risky_operation() end) do
+  {:ok, result, duration} -> handle_success(result, duration)
+  {:error, kind, reason, stacktrace, duration} -> handle_error(reason, duration)
+end
+
+# Callback on completion
+Timing.timed(fn -> work() end, fn duration ->
+  Logger.info("Operation took #{Timing.format(duration)}")
+end)
+
+# Only log slow operations
+Timing.timed_if_slow(fn -> query() end, 100, fn duration ->
+  Logger.warn("Slow query: #{duration.ms}ms")
+end)
+
+# Benchmarking
+stats = Timing.benchmark(fn -> operation() end, iterations: 100)
+IO.puts("Mean: #{stats.mean.ms}ms, P99: #{stats.p99.ms}ms")
+```
+
 ## Modules
 
 | Module | Purpose |
@@ -108,6 +142,8 @@ def process(result) when is_error(result), do: ...
 | `FnTypes.Error` | Structured error type |
 | `FnTypes.Lens` | Functional lenses for nested data |
 | `FnTypes.NonEmptyList` | Non-empty list type |
+| `FnTypes.Timing` | Execution timing, duration, benchmarking |
+| `FnTypes.Retry` | Retry with backoff strategies |
 
 ## Configuration
 

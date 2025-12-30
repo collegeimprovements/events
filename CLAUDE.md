@@ -18,6 +18,7 @@
 | `docs/claude/S3.md` | S3 API reference |
 | `docs/claude/SCHEDULER.md` | Cron scheduler quick reference |
 | `docs/claude/WORKFLOW.md` | Workflow system with DAG, dependencies, rollbacks |
+| `docs/claude/DUPLICATION_REPORT.md` | Cross-library code duplication analysis (TODO) |
 
 ---
 
@@ -29,7 +30,7 @@
 libs/
 ├── fn_types/        # FnTypes.* - Functional types
 │   ├── Result, Maybe, Pipeline, AsyncResult, Validation
-│   ├── Guards, Error, Lens, NonEmptyList
+│   ├── Guards, Error, Lens, NonEmptyList, Timing, Retry
 │   └── Protocols: Normalizable, Recoverable, Identifiable
 ├── fn_decorator/    # FnDecorator.* - Decorator system
 │   ├── Caching, Telemetry, Debugging, Tracing
@@ -77,7 +78,7 @@ lib/events/
 
 ```elixir
 # Functional types (from libs/fn_types)
-alias FnTypes.{Result, Maybe, Pipeline, AsyncResult, Validation, Guards, Error}
+alias FnTypes.{Result, Maybe, Pipeline, AsyncResult, Validation, Guards, Error, Timing, Retry}
 
 # Protocols (from libs/fn_types)
 alias FnTypes.Protocols.{Normalizable, Recoverable, Identifiable}
@@ -199,6 +200,8 @@ def get_user(id), do: ...
 | Concurrent tasks | `FnTypes.AsyncResult` | `AsyncResult.parallel(tasks)` |
 | Guard clauses | `FnTypes.Guards` | `when is_ok(result)` |
 | Accumulating errors | `FnTypes.Validation` | `Validation.validate(v, &check/1)` |
+| Execution timing | `FnTypes.Timing` | `Timing.measure(fn -> work() end)` |
+| Retry with backoff | `FnTypes.Retry` | `Retry.execute(fn -> api() end)` |
 
 ### Pipeline + AsyncResult Composition
 

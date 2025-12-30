@@ -1,349 +1,529 @@
 defmodule FnDecorator.Caching.Validation do
   @moduledoc """
-  Compile-time validation for @cacheable decorator options.
+  Compile-time validation for cacheable decorator options.
 
-  Validates configuration at compile time to catch errors early and provide
-  helpful error messages.
+  Validates configuration at compile time using NimbleOptions to catch errors
+  early and provide helpful error messages.
+
+  ## Grouped API Schema
+
+  The cacheable decorator uses a grouped structure for clarity:
+
+      @decorate cacheable(
+        store: [
+          cache: MyCache,
+          key: {User, id},
+          ttl: :timer.minutes(5),
+          only_if: &match?({:ok, _}, &1)
+        ],
+        serve_stale: [ttl: :timer.hours(1)],
+        refresh: [on: :stale_access],
+        prevent_thunder_herd: [
+          max_wait: 5_000,
+          lock_ttl: 30_000,
+          on_timeout: :serve_stale
+        ],
+        fallback: [on_error: :serve_stale]
+      )
+
+  ## NimbleOptions Integration
+
+  This module uses NimbleOptions for schema definition and validation,
+  providing consistent error messages and documentation.
   """
 
-  @type validation_error :: {:error, String.t()}
-  @type validation_warning :: {:warning, String.t()}
-  @type validation_result :: :ok | validation_error | {:ok, [validation_warning]}
+  # ============================================
+  # Schema Definition
+  # ============================================
+
+  @store_schema NimbleOptions.new!([
+    cache: [
+      # Type is :any because at compile-time we receive AST nodes, not atoms
+      type: :any,
+      required: true,
+      doc: "Cache module implementing get/1 and put/3, or MFA tuple for dynamic resolution"
+    ],
+    key: [
+      type: :any,
+      required: true,
+      doc: "Cache key (any term)"
+    ],
+    ttl: [
+      type: :pos_integer,
+      required: true,
+      doc: "Time-to-live in milliseconds. Value is considered fresh until TTL expires."
+    ],
+    only_if: [
+      # Type is :any because at compile-time we receive AST for functions
+      type: :any,
+      required: false,
+      default: nil,
+      doc: """
+      Function to determine if a result should be cached. Takes the result
+      and returns a boolean. If nil, all results are cached.
+      Example: &match?({:ok, _}, &1)
+      """
+    ],
+    tags: [
+      # Type is :any because it can be a list or a function (AST at compile-time)
+      type: :any,
+      required: false,
+      default: nil,
+      doc: """
+      Tags for group-based invalidation. Can be:
+      - A list of atoms/strings: [:users, :admins]
+      - A function taking result: fn result -> ["org:\#{result.org_id}"] end
+      """
+    ]
+  ])
+
+  @serve_stale_schema NimbleOptions.new!([
+    ttl: [
+      type: :pos_integer,
+      required: true,
+      doc: """
+      Extended TTL for stale-while-revalidate pattern.
+      When set, expired values (beyond store.ttl but within serve_stale.ttl)
+      are returned while triggering a background refresh.
+      """
+    ]
+  ])
+
+  @refresh_schema NimbleOptions.new!([
+    on: [
+      type: {:or, [{:in, [:stale_access]}, {:list, {:in, [:stale_access]}}, nil]},
+      required: false,
+      default: nil,
+      doc: """
+      Refresh trigger. Currently supports:
+      - :stale_access - Trigger background refresh when stale data is accessed
+      """
+    ]
+  ])
+
+  @thunder_herd_schema NimbleOptions.new!([
+    max_wait: [
+      type: :pos_integer,
+      required: false,
+      default: 5_000,
+      doc: "Maximum time (ms) to wait for another process to finish fetching"
+    ],
+    lock_ttl: [
+      type: :pos_integer,
+      required: false,
+      default: 30_000,
+      doc: "Lock validity duration (ms)"
+    ],
+    on_timeout: [
+      type: :any,
+      required: false,
+      default: :serve_stale,
+      doc: """
+      Action when wait times out:
+      - :serve_stale - Return stale value if available
+      - :error - Return {:error, :cache_timeout}
+      - :proceed - Execute fetch anyway
+      - {:call, fun} - Call fun.() to get value
+      - {:value, term} - Return fixed value
+      """
+    ]
+  ])
+
+  @fallback_schema NimbleOptions.new!([
+    on_error: [
+      type: :any,
+      required: false,
+      default: :raise,
+      doc: """
+      How to handle errors during fetch:
+      - :raise - Re-raise the exception (default)
+      - :serve_stale - Return stale value if available, else raise
+      - {:call, fun} - Call fun.(error) to handle
+      - {:value, term} - Return a fixed value
+      """
+    ]
+  ])
+
+  # Top-level schema without nested keys validation (we do that manually)
+  @cacheable_schema NimbleOptions.new!([
+    store: [
+      type: :keyword_list,
+      required: true,
+      doc: "Cache storage configuration"
+    ],
+    serve_stale: [
+      type: {:or, [:keyword_list, nil]},
+      required: false,
+      default: nil,
+      doc: "Stale-while-revalidate configuration"
+    ],
+    refresh: [
+      type: {:or, [:keyword_list, nil]},
+      required: false,
+      default: nil,
+      doc: "Background refresh configuration"
+    ],
+    prevent_thunder_herd: [
+      type: {:or, [:keyword_list, :boolean, nil]},
+      required: false,
+      default: true,
+      doc: "Thunder herd prevention configuration. Set to false to disable."
+    ],
+    fallback: [
+      type: {:or, [:keyword_list, nil]},
+      required: false,
+      default: nil,
+      doc: "Fallback/error handling configuration"
+    ]
+  ])
+
+  @cache_put_schema NimbleOptions.new!([
+    cache: [
+      # Type is :any because at compile-time we receive AST nodes, not atoms
+      type: :any,
+      required: true,
+      doc: "Cache module or MFA tuple"
+    ],
+    keys: [
+      type: {:list, :any},
+      required: true,
+      doc: "List of cache keys to update"
+    ],
+    ttl: [
+      type: {:or, [:pos_integer, nil]},
+      required: false,
+      default: nil,
+      doc: "Time-to-live in milliseconds"
+    ],
+    match: [
+      # Type is :any because at compile-time we receive AST for functions
+      type: :any,
+      required: false,
+      default: nil,
+      doc: "Function to determine if result should be cached"
+    ]
+  ])
+
+  @cache_evict_schema NimbleOptions.new!([
+    cache: [
+      # Type is :any because at compile-time we receive AST nodes, not atoms
+      type: :any,
+      required: true,
+      doc: "Cache module or MFA tuple"
+    ],
+    keys: [
+      type: {:or, [{:list, :any}, nil]},
+      required: false,
+      default: nil,
+      doc: "List of specific cache keys to evict"
+    ],
+    match: [
+      type: :any,
+      required: false,
+      default: nil,
+      doc: """
+      Pattern to match keys for eviction.
+      - `:all` - Match all entries
+      - `{User, :_}` - Match all User entries
+      - `{:_, :profile}` - Match all profile entries
+      """
+    ],
+    all_entries: [
+      type: :boolean,
+      required: false,
+      default: false,
+      doc: "If true, delete all cache entries (shorthand for match: :all)"
+    ],
+    before_invocation: [
+      type: :boolean,
+      required: false,
+      default: false,
+      doc: "If true, evict before function executes"
+    ],
+    only_if: [
+      # Type is :any because at compile-time we receive AST for functions
+      type: :any,
+      required: false,
+      default: nil,
+      doc: "Function to determine if eviction should happen based on result"
+    ],
+    tags: [
+      # Type is :any because it can be a list or a function (AST at compile-time)
+      type: :any,
+      required: false,
+      default: nil,
+      doc: """
+      Tags for group-based invalidation. Can be:
+      - A list of atoms/strings: [:users, :admins]
+      - A function taking result: fn result -> ["org:\#{result.org_id}"] end
+      """
+    ]
+  ])
+
+  # ============================================
+  # Public API
+  # ============================================
 
   @doc """
-  Validates the complete cacheable options and returns errors or warnings.
+  Validates cacheable options at compile time.
 
-  Returns `:ok` if valid, `{:error, message}` if invalid, or
-  `{:ok, warnings}` if valid with warnings.
+  Returns `{:ok, validated_opts}` on success or `{:error, exception}` on failure.
+
+  ## Examples
+
+      iex> Validation.validate(store: [cache: MyCache, key: :foo, ttl: 5000])
+      {:ok, [store: [cache: MyCache, key: :foo, ttl: 5000, ...], ...]}
+
+      iex> Validation.validate(store: [cache: MyCache, key: :foo])
+      {:error, %NimbleOptions.ValidationError{...}}
   """
-  @spec validate(keyword()) :: validation_result()
+  @spec validate(keyword()) :: {:ok, keyword()} | {:error, NimbleOptions.ValidationError.t()}
   def validate(opts) do
-    with :ok <- validate_required_fields(opts),
-         :ok <- validate_types(opts),
-         :ok <- validate_dependencies(opts),
-         :ok <- validate_logical_constraints(opts) do
-      case collect_warnings(opts) do
-        [] -> :ok
-        warnings -> {:ok, warnings}
-      end
+    with {:ok, top_level} <- NimbleOptions.validate(opts, @cacheable_schema),
+         {:ok, store} <- validate_nested(top_level[:store], @store_schema, :store),
+         {:ok, serve_stale} <- validate_optional_nested(top_level[:serve_stale], @serve_stale_schema, :serve_stale),
+         {:ok, refresh} <- validate_optional_nested(top_level[:refresh], @refresh_schema, :refresh),
+         {:ok, thunder_herd} <- validate_thunder_herd_option(top_level[:prevent_thunder_herd]),
+         {:ok, fallback} <- validate_optional_nested(top_level[:fallback], @fallback_schema, :fallback) do
+      validated = [
+        store: store,
+        serve_stale: serve_stale,
+        refresh: refresh,
+        prevent_thunder_herd: thunder_herd,
+        fallback: fallback
+      ]
+
+      validate_constraints(validated)
     end
   end
 
   @doc """
-  Validates and raises on error. Returns opts if valid.
+  Validates cacheable options and raises on error.
+
+  Returns validated options on success.
+
+  ## Examples
+
+      iex> Validation.validate!(store: [cache: MyCache, key: :foo, ttl: 5000])
+      [store: [cache: MyCache, key: :foo, ttl: 5000, ...], ...]
+
+      iex> Validation.validate!(store: [cache: MyCache, key: :foo])
+      ** (NimbleOptions.ValidationError) ...
   """
   @spec validate!(keyword()) :: keyword()
   def validate!(opts) do
     case validate(opts) do
-      :ok ->
-        opts
-
-      {:ok, warnings} ->
-        Enum.each(warnings, fn {:warning, msg} ->
-          IO.warn("cacheable warning: #{msg}", [])
-        end)
-
-        opts
-
-      {:error, message} ->
-        raise CompileError, description: "cacheable: #{message}"
+      {:ok, validated} -> validated
+      {:error, error} -> raise error
     end
   end
 
-  # ============================================
-  # Required Fields
-  # ============================================
+  @doc """
+  Validates cache_put options.
+  """
+  @spec validate_cache_put(keyword()) :: {:ok, keyword()} | {:error, NimbleOptions.ValidationError.t()}
+  def validate_cache_put(opts) do
+    NimbleOptions.validate(opts, @cache_put_schema)
+  end
 
-  defp validate_required_fields(opts) do
-    store = Keyword.get(opts, :store, [])
+  @doc """
+  Validates cache_put options and raises on error.
+  """
+  @spec validate_cache_put!(keyword()) :: keyword()
+  def validate_cache_put!(opts) do
+    NimbleOptions.validate!(opts, @cache_put_schema)
+  end
 
-    cond do
-      !Keyword.has_key?(store, :cache) ->
-        {:error, "store.cache is required"}
-
-      !Keyword.has_key?(store, :key) ->
-        {:error, "store.key is required"}
-
-      !Keyword.has_key?(store, :ttl) ->
-        {:error, "store.ttl is required"}
-
-      true ->
-        :ok
+  @doc """
+  Validates cache_evict options.
+  """
+  @spec validate_cache_evict(keyword()) :: {:ok, keyword()} | {:error, NimbleOptions.ValidationError.t()}
+  def validate_cache_evict(opts) do
+    with {:ok, validated} <- NimbleOptions.validate(opts, @cache_evict_schema) do
+      validate_cache_evict_constraints(validated)
     end
   end
 
-  # ============================================
-  # Type Validation
-  # ============================================
-
-  defp validate_types(opts) do
-    with :ok <- validate_store_types(Keyword.get(opts, :store, [])),
-         :ok <- validate_refresh_types(Keyword.get(opts, :refresh, [])),
-         :ok <- validate_serve_stale_types(Keyword.get(opts, :serve_stale, [])),
-         :ok <- validate_thunder_herd_types(Keyword.get(opts, :prevent_thunder_herd, true)),
-         :ok <- validate_fallback_types(Keyword.get(opts, :fallback, [])) do
-      :ok
+  @doc """
+  Validates cache_evict options and raises on error.
+  """
+  @spec validate_cache_evict!(keyword()) :: keyword()
+  def validate_cache_evict!(opts) do
+    case validate_cache_evict(opts) do
+      {:ok, validated} -> validated
+      {:error, error} -> raise error
     end
   end
 
-  defp validate_store_types(store) do
-    ttl = Keyword.get(store, :ttl)
-    only_if = Keyword.get(store, :only_if)
+  defp validate_cache_evict_constraints(opts) do
+    keys = opts[:keys]
+    match = opts[:match]
+    tags = opts[:tags]
+    all_entries = opts[:all_entries]
 
-    cond do
-      ttl != nil and not is_positive_integer(ttl) ->
-        {:error, "store.ttl must be a positive integer (timeout in milliseconds)"}
+    has_keys = is_list(keys) and length(keys) > 0
+    has_match = not is_nil(match)
+    has_tags = not is_nil(tags)
+    has_all = all_entries == true
 
-      only_if != nil and not is_function(only_if, 1) ->
-        {:error, "store.only_if must be a function with arity 1"}
-
-      true ->
-        :ok
-    end
-  end
-
-  defp validate_refresh_types(refresh) do
-    triggers = Keyword.get(refresh, :on)
-    retries = Keyword.get(refresh, :retries)
-
-    cond do
-      triggers != nil and not valid_triggers?(triggers) ->
-        {:error, "refresh.on contains invalid trigger. Valid: :stale_access, :immediately_when_expired, {:every, ms}, {:cron, \"...\"}"}
-
-      retries != nil and not is_positive_integer(retries) ->
-        {:error, "refresh.retries must be a positive integer"}
-
-      true ->
-        validate_cron_expressions(triggers)
-    end
-  end
-
-  defp validate_serve_stale_types(serve_stale) do
-    ttl = Keyword.get(serve_stale, :ttl)
-
-    cond do
-      ttl != nil and not is_positive_integer(ttl) ->
-        {:error, "serve_stale.ttl must be a positive integer"}
-
-      true ->
-        :ok
-    end
-  end
-
-  defp validate_thunder_herd_types(thunder_herd) when is_boolean(thunder_herd), do: :ok
-  defp validate_thunder_herd_types(thunder_herd) when is_integer(thunder_herd) and thunder_herd > 0, do: :ok
-
-  defp validate_thunder_herd_types(thunder_herd) when is_list(thunder_herd) do
-    max_wait = Keyword.get(thunder_herd, :max_wait)
-    retries = Keyword.get(thunder_herd, :retries)
-    lock_timeout = Keyword.get(thunder_herd, :lock_timeout)
-    on_timeout = Keyword.get(thunder_herd, :on_timeout)
-
-    cond do
-      max_wait != nil and not is_positive_integer(max_wait) ->
-        {:error, "prevent_thunder_herd.max_wait must be a positive integer"}
-
-      retries != nil and (not is_integer(retries) or retries < 0) ->
-        {:error, "prevent_thunder_herd.retries must be a non-negative integer"}
-
-      lock_timeout != nil and not is_positive_integer(lock_timeout) ->
-        {:error, "prevent_thunder_herd.lock_timeout must be a positive integer"}
-
-      on_timeout != nil and not valid_on_timeout?(on_timeout) ->
-        {:error, "prevent_thunder_herd.on_timeout must be :serve_stale, :error, {:call, fn}, or {:value, term}"}
-
-      true ->
-        :ok
-    end
-  end
-
-  defp validate_thunder_herd_types(_), do: {:error, "prevent_thunder_herd must be boolean, timeout, or keyword list"}
-
-  defp validate_fallback_types(fallback) do
-    on_refresh_failure = Keyword.get(fallback, :on_refresh_failure)
-    on_cache_unavailable = Keyword.get(fallback, :on_cache_unavailable)
-
-    cond do
-      on_refresh_failure != nil and not valid_fallback_action?(on_refresh_failure) ->
-        {:error, "fallback.on_refresh_failure must be :serve_stale, :error, {:call, fn}, or {:value, term}"}
-
-      on_cache_unavailable != nil and not valid_fallback_action?(on_cache_unavailable) ->
-        {:error, "fallback.on_cache_unavailable must be :serve_stale, :error, {:call, fn}, or {:value, term}"}
-
-      true ->
-        :ok
-    end
-  end
-
-  # ============================================
-  # Dependency Validation
-  # ============================================
-
-  defp validate_dependencies(opts) do
-    refresh = Keyword.get(opts, :refresh, [])
-    serve_stale = Keyword.get(opts, :serve_stale)
-    thunder_herd = Keyword.get(opts, :prevent_thunder_herd)
-    fallback = Keyword.get(opts, :fallback, [])
-
-    triggers = Keyword.get(refresh, :on, []) |> List.wrap()
-    has_serve_stale = serve_stale != nil
-
-    cond do
-      # :stale_access requires serve_stale
-      :stale_access in triggers and not has_serve_stale ->
-        {:error, ":stale_access trigger requires serve_stale to be configured. Either add serve_stale: [ttl: ...] or use a different trigger like :immediately_when_expired"}
-
-      # on_timeout: :serve_stale requires serve_stale (only check if explicitly set)
-      explicitly_set_on_timeout?(thunder_herd) == :serve_stale and not has_serve_stale ->
-        {:error, "prevent_thunder_herd.on_timeout: :serve_stale requires serve_stale to be configured"}
-
-      # on_refresh_failure: :serve_stale requires serve_stale
-      Keyword.get(fallback, :on_refresh_failure) == :serve_stale and not has_serve_stale ->
-        {:error, "fallback.on_refresh_failure: :serve_stale requires serve_stale to be configured"}
-
-      # only_if_stale option requires serve_stale
-      has_only_if_stale_trigger?(triggers) and not has_serve_stale ->
-        {:error, "only_if_stale: true option requires serve_stale to be configured"}
-
-      true ->
-        :ok
-    end
-  end
-
-  # ============================================
-  # Logical Constraints
-  # ============================================
-
-  defp validate_logical_constraints(opts) do
-    store = Keyword.get(opts, :store, [])
-    serve_stale = Keyword.get(opts, :serve_stale, [])
-    refresh = Keyword.get(opts, :refresh, [])
-
-    store_ttl = Keyword.get(store, :ttl)
-    stale_ttl = Keyword.get(serve_stale, :ttl)
-    triggers = Keyword.get(refresh, :on, []) |> List.wrap()
-
-    cond do
-      # serve_stale.ttl must be > store.ttl
-      stale_ttl != nil and store_ttl != nil and stale_ttl <= store_ttl ->
-        {:error, "serve_stale.ttl (#{format_duration(stale_ttl)}) must be greater than store.ttl (#{format_duration(store_ttl)}). serve_stale extends the cache lifetime beyond the fresh ttl."}
-
-      # {:every, interval} < store.ttl without only_if_stale
-      has_short_interval_without_stale?(triggers, store_ttl) ->
-        {:error, "refresh interval is shorter than store.ttl, causing unnecessary refreshes while cache is still fresh. Use :immediately_when_expired instead, or add only_if_stale: true to the interval trigger."}
-
-      true ->
-        :ok
-    end
-  end
-
-  # ============================================
-  # Warnings (non-fatal)
-  # ============================================
-
-  defp collect_warnings(opts) do
-    []
-    |> maybe_add_lock_timeout_warning(opts)
-    |> Enum.reverse()
-  end
-
-  defp maybe_add_lock_timeout_warning(warnings, opts) do
-    thunder_herd = Keyword.get(opts, :prevent_thunder_herd, [])
-
-    case thunder_herd do
-      opts when is_list(opts) ->
-        max_wait = Keyword.get(opts, :max_wait, 5_000)
-        lock_timeout = Keyword.get(opts, :lock_timeout, 30_000)
-
-        if lock_timeout < max_wait do
-          warning =
-            {:warning,
-             "lock_timeout (#{format_duration(lock_timeout)}) is less than max_wait (#{format_duration(max_wait)}). This may cause duplicate fetches if the lock expires while waiters are still waiting."}
-
-          [warning | warnings]
-        else
-          warnings
-        end
-
-      _ ->
-        warnings
-    end
-  end
-
-  # ============================================
-  # Helper Functions
-  # ============================================
-
-  defp is_positive_integer(val), do: is_integer(val) and val > 0
-
-  defp valid_triggers?(triggers) when is_list(triggers), do: Enum.all?(triggers, &valid_trigger?/1)
-  defp valid_triggers?(trigger), do: valid_trigger?(trigger)
-
-  defp valid_trigger?(:stale_access), do: true
-  defp valid_trigger?(:immediately_when_expired), do: true
-  defp valid_trigger?(:when_expired), do: true
-  defp valid_trigger?(:on_expiry), do: true
-  defp valid_trigger?({:every, ms}) when is_integer(ms) and ms > 0, do: true
-  defp valid_trigger?({:every, ms, opts}) when is_integer(ms) and ms > 0 and is_list(opts), do: true
-  defp valid_trigger?({:cron, expr}) when is_binary(expr), do: true
-  defp valid_trigger?({:cron, expr, opts}) when is_binary(expr) and is_list(opts), do: true
-  defp valid_trigger?(_), do: false
-
-  defp validate_cron_expressions(nil), do: :ok
-  defp validate_cron_expressions(triggers) when is_list(triggers) do
-    Enum.find_value(triggers, :ok, fn
-      {:cron, expr} -> validate_cron_expression(expr)
-      {:cron, expr, _opts} -> validate_cron_expression(expr)
-      _ -> nil
-    end)
-  end
-  defp validate_cron_expressions({:cron, expr}), do: validate_cron_expression(expr)
-  defp validate_cron_expressions({:cron, expr, _opts}), do: validate_cron_expression(expr)
-  defp validate_cron_expressions(_), do: :ok
-
-  defp validate_cron_expression(expr) do
-    parts = String.split(expr, " ")
-    if length(parts) in [5, 6] do
-      :ok
+    if has_keys or has_match or has_tags or has_all do
+      {:ok, opts}
     else
-      {:error, "invalid cron expression: \"#{expr}\". Expected 5 or 6 space-separated fields."}
+      {:error,
+       NimbleOptions.ValidationError.exception(
+         "cache_evict requires at least one of: keys (non-empty list), match (pattern), tags, or all_entries: true"
+       )}
     end
   end
 
-  defp valid_on_timeout?(:serve_stale), do: true
-  defp valid_on_timeout?(:error), do: true
-  defp valid_on_timeout?({:call, f}) when is_function(f), do: true
-  defp valid_on_timeout?({:value, _}), do: true
-  defp valid_on_timeout?(_), do: false
-
-  defp valid_fallback_action?(:serve_stale), do: true
-  defp valid_fallback_action?(:error), do: true
-  defp valid_fallback_action?({:call, f}) when is_function(f), do: true
-  defp valid_fallback_action?({:value, _}), do: true
-  defp valid_fallback_action?(_), do: false
-
-  # Returns on_timeout only if explicitly set by user (not default)
-  # Boolean and integer shorthands use defaults, so return nil
-  defp explicitly_set_on_timeout?(opts) when is_list(opts), do: Keyword.get(opts, :on_timeout)
-  defp explicitly_set_on_timeout?(_), do: nil
-
-  defp has_only_if_stale_trigger?(triggers) do
-    Enum.any?(triggers, fn
-      {:every, _, opts} -> Keyword.get(opts, :only_if_stale, false)
-      {:cron, _, opts} -> Keyword.get(opts, :only_if_stale, false)
-      _ -> false
-    end)
+  @doc """
+  Returns the schema documentation for cacheable decorator.
+  """
+  @spec docs() :: String.t()
+  def docs do
+    NimbleOptions.docs(@cacheable_schema)
   end
 
-  defp has_short_interval_without_stale?(triggers, store_ttl) when is_integer(store_ttl) do
-    Enum.any?(triggers, fn
-      {:every, interval} when interval < store_ttl -> true
-      {:every, interval, opts} ->
-        interval < store_ttl and not Keyword.get(opts, :only_if_stale, false)
-      _ -> false
-    end)
+  @doc """
+  Returns the schema documentation for cache_put decorator.
+  """
+  @spec cache_put_docs() :: String.t()
+  def cache_put_docs do
+    NimbleOptions.docs(@cache_put_schema)
   end
-  defp has_short_interval_without_stale?(_, _), do: false
+
+  @doc """
+  Returns the schema documentation for cache_evict decorator.
+  """
+  @spec cache_evict_docs() :: String.t()
+  def cache_evict_docs do
+    NimbleOptions.docs(@cache_evict_schema)
+  end
+
+  # ============================================
+  # Nested Validation Helpers
+  # ============================================
+
+  defp validate_nested(opts, schema, _key) do
+    NimbleOptions.validate(opts, schema)
+  end
+
+  defp validate_optional_nested(nil, _schema, _key), do: {:ok, nil}
+
+  defp validate_optional_nested(opts, schema, _key) when is_list(opts) do
+    NimbleOptions.validate(opts, schema)
+  end
+
+  defp validate_thunder_herd_option(nil), do: {:ok, nil}
+  defp validate_thunder_herd_option(false), do: {:ok, false}
+  defp validate_thunder_herd_option(true), do: {:ok, true}
+
+  defp validate_thunder_herd_option(opts) when is_list(opts) do
+    NimbleOptions.validate(opts, @thunder_herd_schema)
+  end
+
+  # ============================================
+  # Constraint Validation
+  # ============================================
+
+  defp validate_constraints(opts) do
+    with :ok <- validate_stale_ttl_constraint(opts),
+         :ok <- validate_refresh_constraint(opts),
+         :ok <- validate_thunder_herd_constraint(opts),
+         :ok <- validate_fallback_constraint(opts) do
+      {:ok, opts}
+    end
+  end
+
+  defp validate_stale_ttl_constraint(opts) do
+    store = opts[:store] || []
+    serve_stale = opts[:serve_stale]
+    store_ttl = store[:ttl]
+    stale_ttl = if serve_stale, do: serve_stale[:ttl], else: nil
+
+    cond do
+      is_nil(stale_ttl) ->
+        :ok
+
+      stale_ttl <= store_ttl ->
+        {:error,
+         NimbleOptions.ValidationError.exception(
+           "serve_stale.ttl (#{format_duration(stale_ttl)}) must be greater than store.ttl (#{format_duration(store_ttl)})"
+         )}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp validate_refresh_constraint(opts) do
+    refresh = opts[:refresh]
+    serve_stale = opts[:serve_stale]
+
+    triggers = if refresh, do: List.wrap(refresh[:on]), else: []
+    has_stale_access = :stale_access in triggers
+    has_serve_stale = not is_nil(serve_stale)
+
+    if has_stale_access and not has_serve_stale do
+      {:error,
+       NimbleOptions.ValidationError.exception(
+         "refresh.on: :stale_access requires serve_stale to be configured"
+       )}
+    else
+      :ok
+    end
+  end
+
+  defp validate_thunder_herd_constraint(opts) do
+    case opts[:prevent_thunder_herd] do
+      nil -> :ok
+      false -> :ok
+      true -> :ok
+
+      thunder_herd when is_list(thunder_herd) ->
+        max_wait = thunder_herd[:max_wait] || 5_000
+        lock_ttl = thunder_herd[:lock_ttl] || 30_000
+        on_timeout = thunder_herd[:on_timeout] || :serve_stale
+        serve_stale = opts[:serve_stale]
+
+        cond do
+          lock_ttl < max_wait ->
+            {:error,
+             NimbleOptions.ValidationError.exception(
+               "prevent_thunder_herd.lock_ttl (#{format_duration(lock_ttl)}) should be >= max_wait (#{format_duration(max_wait)}) to prevent duplicate fetches"
+             )}
+
+          on_timeout == :serve_stale and is_nil(serve_stale) ->
+            {:error,
+             NimbleOptions.ValidationError.exception(
+               "prevent_thunder_herd.on_timeout: :serve_stale requires serve_stale to be configured"
+             )}
+
+          true ->
+            :ok
+        end
+    end
+  end
+
+  defp validate_fallback_constraint(opts) do
+    fallback = opts[:fallback]
+    serve_stale = opts[:serve_stale]
+
+    on_error = if fallback, do: fallback[:on_error], else: nil
+
+    if on_error == :serve_stale and is_nil(serve_stale) do
+      {:error,
+       NimbleOptions.ValidationError.exception(
+         "fallback.on_error: :serve_stale requires serve_stale to be configured"
+       )}
+    else
+      :ok
+    end
+  end
+
+  # ============================================
+  # Helpers
+  # ============================================
 
   defp format_duration(ms) when is_integer(ms) do
     cond do

@@ -1,231 +1,302 @@
 defmodule FnDecorator.Caching.Presets do
   @moduledoc """
-  Built-in cache presets for common use cases.
+  Built-in cache configuration presets for common use cases.
 
-  Presets are just keyword lists - compose them freely with your own options.
+  Presets provide sensible defaults for typical caching scenarios. Each preset
+  returns a keyword list that can be merged with your specific options.
 
   ## Usage
 
       alias FnDecorator.Caching.Presets
 
-      @decorate cacheable(Presets.high_availability(cache: MyApp.Cache, key: {User, id}))
+      @decorate cacheable(Presets.database(store: [cache: MyCache, key: {User, id}]))
       def get_user(id), do: Repo.get(User, id)
 
-  ## Creating Custom Presets
+  ## Custom Presets
 
-  Presets are plain keyword lists. Create your own:
+  Create your own presets by composing existing ones:
 
       defmodule MyApp.CachePresets do
         alias FnDecorator.Caching.Presets
 
         def api_client(opts) do
-          Presets.merge([
-            store: [ttl: :timer.minutes(15)],
-            serve_stale: [ttl: :timer.hours(4)],
-            prevent_thunder_herd: [max_wait: :timer.seconds(30)]
-          ], opts)
+          Presets.merge(
+            Presets.external_api([]),
+            opts
+          )
         end
       end
 
-  See `merge/2` for composing presets.
+  ## Available Presets
+
+  | Preset | Fresh | Stale | max_wait | on_timeout | Use Case |
+  |--------|-------|-------|----------|------------|----------|
+  | `minimal/1` | - | - | default | - | Full control |
+  | `database/1` | 30s | 5m | 2s | stale | CRUD reads |
+  | `session/1` | 1m | - | 1s | error | Auth/session |
+  | `high_availability/1` | 1m | 1h | 5s | stale | User-facing |
+  | `always_fresh/1` | 10s | - | 5s | error | Feature flags |
+  | `external_api/1` | 5m | 1h | 30s | stale | Third-party APIs |
+  | `expensive/1` | 1h | 24h | 60s | stale | Reports |
+  | `reference_data/1` | 1h | 24h | default | - | Static data |
   """
 
   # ============================================
-  # Built-in Presets
+  # Core Presets
   # ============================================
 
   @doc """
-  High availability - prioritizes returning data over freshness.
+  Minimal preset - just thunder herd protection.
 
-  - Serves stale data for 24 hours while refreshing
-  - Refreshes on stale access and immediately when expired
-  - 5 retry attempts
-  - Patient thunder herd protection (10s wait)
+  No TTL, no stale serving, no refresh. You must provide all store options.
+
+  ## Options
+
+  Required:
+  - `store: [cache: MyCache, key: ..., ttl: ...]`
+
+  ## Examples
+
+      @decorate cacheable(Presets.minimal(store: [cache: MyCache, key: {Item, id}, ttl: :timer.minutes(10)]))
+      def get_item(id), do: Repo.get(Item, id)
+  """
+  @spec minimal(keyword()) :: keyword()
+  def minimal(opts) do
+    merge([prevent_thunder_herd: true], opts)
+  end
+
+  @doc """
+  Database preset - standard DB query caching.
+
+  - 30 second fresh TTL (data changes frequently)
+  - 5 minute stale window (brief buffer for spikes)
+  - Refresh on stale access
+  - Quick thunder herd protection (2s wait)
+
+  Best for: Database reads, entity lookups, CRUD operations.
+
+  ## Options
+
+  Required:
+  - `store: [cache: MyCache, key: ...]`
+
+  ## Examples
+
+      @decorate cacheable(Presets.database(store: [cache: MyCache, key: {User, id}]))
+      def get_user(id), do: Repo.get(User, id)
+  """
+  @spec database(keyword()) :: keyword()
+  def database(opts) do
+    merge(
+      [
+        store: [ttl: :timer.seconds(30)],
+        serve_stale: [ttl: :timer.minutes(5)],
+        refresh: [on: :stale_access],
+        prevent_thunder_herd: [max_wait: 2_000, lock_ttl: 10_000]
+      ],
+      opts
+    )
+  end
+
+  @doc """
+  Session preset - user session and auth data caching.
+
+  - 1 minute TTL (sessions need to reflect current auth state)
+  - No stale serving (auth data must be current)
+  - Very quick thunder herd protection (1s wait, error on timeout)
+
+  Best for: Session data, auth tokens, user permissions, shopping carts.
+
+  ## Options
+
+  Required:
+  - `store: [cache: MyCache, key: ...]`
+
+  ## Examples
+
+      @decorate cacheable(Presets.session(store: [cache: MyCache, key: {:session, session_id}]))
+      def get_session(session_id), do: Sessions.fetch(session_id)
+  """
+  @spec session(keyword()) :: keyword()
+  def session(opts) do
+    merge(
+      [
+        store: [ttl: :timer.minutes(1)],
+        prevent_thunder_herd: [max_wait: 1_000, lock_ttl: 5_000, on_timeout: :error]
+      ],
+      opts
+    )
+  end
+
+  @doc """
+  High availability preset - prioritizes returning data over freshness.
+
+  - 1 minute fresh TTL
+  - 1 hour stale window (survive brief outages)
+  - Refresh on stale access
+  - Patient thunder herd protection (5s wait, serve stale on timeout)
+  - Falls back to stale data on errors
 
   Best for: User-facing reads where some staleness is acceptable.
 
   ## Options
 
-  All standard `@cacheable` options, plus:
-  - `:cache` - Required. Cache module
-  - `:key` - Required. Cache key
-  - `:ttl` - Override default 5 minute TTL
+  Required:
+  - `store: [cache: MyCache, key: ...]`
 
   ## Examples
 
-      @decorate cacheable(Presets.high_availability(cache: MyApp.Cache, key: {User, id}))
-      def get_user(id), do: Repo.get(User, id)
-
-      # With custom TTL
-      @decorate cacheable(Presets.high_availability(cache: MyApp.Cache, key: {User, id}, ttl: :timer.minutes(10)))
+      @decorate cacheable(Presets.high_availability(store: [cache: MyCache, key: {User, id}]))
       def get_user(id), do: Repo.get(User, id)
   """
   @spec high_availability(keyword()) :: keyword()
-  def high_availability(opts \\ []) do
+  def high_availability(opts) do
     merge(
       [
-        store: [ttl: :timer.minutes(5)],
-        refresh: [on: [:stale_access, :immediately_when_expired], retries: 5],
-        serve_stale: [ttl: :timer.hours(24)],
-        prevent_thunder_herd: [max_wait: :timer.seconds(10)]
+        store: [ttl: :timer.minutes(1)],
+        serve_stale: [ttl: :timer.hours(1)],
+        refresh: [on: :stale_access],
+        prevent_thunder_herd: [max_wait: 5_000, lock_ttl: 15_000, on_timeout: :serve_stale],
+        fallback: [on_error: :serve_stale]
       ],
       opts
     )
   end
 
   @doc """
-  Always fresh - critical data that must be current.
+  Always fresh preset - critical data with minimal caching.
 
-  - Short TTL (30 seconds)
-  - Proactive refresh on expiry
-  - 10 retry attempts
-  - No stale serving
+  - 10 second TTL (very short, just for thunder herd protection)
+  - No stale serving (stale config = bugs)
+  - Error on timeout (don't serve old data)
 
-  Best for: Feature flags, permissions, critical config.
+  Best for: Feature flags, permissions, critical configuration.
+
+  ## Options
+
+  Required:
+  - `store: [cache: MyCache, key: ...]`
 
   ## Examples
 
-      @decorate cacheable(Presets.always_fresh(cache: MyApp.Cache, key: :feature_flags))
+      @decorate cacheable(Presets.always_fresh(store: [cache: MyCache, key: :feature_flags]))
       def get_flags, do: ConfigService.fetch()
   """
   @spec always_fresh(keyword()) :: keyword()
-  def always_fresh(opts \\ []) do
+  def always_fresh(opts) do
     merge(
       [
-        store: [ttl: :timer.seconds(30)],
-        refresh: [on: :immediately_when_expired, retries: 10],
-        prevent_thunder_herd: [max_wait: :timer.seconds(15)]
+        store: [ttl: :timer.seconds(10)],
+        prevent_thunder_herd: [max_wait: 5_000, lock_ttl: 15_000, on_timeout: :error]
       ],
       opts
     )
   end
 
   @doc """
-  External API - resilient caching for third-party APIs.
+  External API preset - resilient caching for third-party APIs.
 
-  - 15 minute TTL
-  - Cron-based refresh every 15 minutes
-  - Serves stale for 4 hours (survives API outages)
-  - Long lock timeout for slow APIs
+  - 5 minute TTL (respect rate limits)
+  - 1 hour stale window (survive API outages)
+  - Refresh on stale access
+  - Long wait for slow APIs (30s)
+  - Falls back to stale data on errors
 
-  Best for: Weather APIs, external services, rate-limited endpoints.
+  Best for: Weather APIs, payment gateways, rate-limited endpoints.
+
+  ## Options
+
+  Required:
+  - `store: [cache: MyCache, key: ...]`
 
   ## Examples
 
-      @decorate cacheable(Presets.external_api(cache: MyApp.Cache, key: {:weather, city}))
+      @decorate cacheable(Presets.external_api(store: [cache: MyCache, key: {:weather, city}]))
       def get_weather(city), do: WeatherAPI.fetch(city)
   """
   @spec external_api(keyword()) :: keyword()
-  def external_api(opts \\ []) do
-    merge(
-      [
-        store: [ttl: :timer.minutes(15)],
-        refresh: [on: {:cron, "*/15 * * * *"}, retries: 3],
-        serve_stale: [ttl: :timer.hours(4)],
-        prevent_thunder_herd: [max_wait: :timer.seconds(30), lock_timeout: :timer.minutes(2)]
-      ],
-      opts
-    )
-  end
-
-  @doc """
-  Expensive computation - long-lived cache for costly operations.
-
-  - 6 hour TTL
-  - Cron-based refresh
-  - Serves stale for 7 days
-  - Very patient lock (handles long computations)
-
-  Best for: Reports, aggregations, ML model results.
-
-  ## Examples
-
-      @decorate cacheable(Presets.expensive(cache: MyApp.Cache, key: {:report, date}))
-      def generate_report(date), do: Reports.compute(date)
-  """
-  @spec expensive(keyword()) :: keyword()
-  def expensive(opts \\ []) do
-    merge(
-      [
-        store: [ttl: :timer.hours(6)],
-        refresh: [on: {:cron, "0 */6 * * *"}, retries: 3],
-        serve_stale: [ttl: :timer.hours(24 * 7)],
-        prevent_thunder_herd: [max_wait: :timer.minutes(2), lock_timeout: :timer.minutes(10)]
-      ],
-      opts
-    )
-  end
-
-  @doc """
-  Session data - short-lived user session caching.
-
-  - 30 minute TTL
-  - No stale serving (sessions should be current)
-  - Quick thunder herd protection
-
-  Best for: Session data, user preferences, shopping carts.
-
-  ## Examples
-
-      @decorate cacheable(Presets.session(cache: MyApp.Cache, key: {:session, session_id}))
-      def get_session(session_id), do: Sessions.fetch(session_id)
-  """
-  @spec session(keyword()) :: keyword()
-  def session(opts \\ []) do
-    merge(
-      [
-        store: [ttl: :timer.minutes(30)],
-        prevent_thunder_herd: [max_wait: :timer.seconds(2)]
-      ],
-      opts
-    )
-  end
-
-  @doc """
-  Read-through database - standard DB query caching.
-
-  - 5 minute TTL
-  - Refresh on stale access
-  - 1 hour stale window
-  - Standard thunder herd protection
-
-  Best for: Database reads, entity lookups.
-
-  ## Examples
-
-      @decorate cacheable(Presets.database(cache: MyApp.Cache, key: {User, id}))
-      def get_user(id), do: Repo.get(User, id)
-  """
-  @spec database(keyword()) :: keyword()
-  def database(opts \\ []) do
+  def external_api(opts) do
     merge(
       [
         store: [ttl: :timer.minutes(5)],
-        refresh: [on: :stale_access],
         serve_stale: [ttl: :timer.hours(1)],
+        refresh: [on: :stale_access],
+        prevent_thunder_herd: [max_wait: 30_000, lock_ttl: 60_000, on_timeout: :serve_stale],
+        fallback: [on_error: :serve_stale]
+      ],
+      opts
+    )
+  end
+
+  @doc """
+  Expensive computation preset - long-lived cache for costly operations.
+
+  - 1 hour TTL
+  - 24 hour stale window
+  - Refresh on stale access
+  - Very patient lock (60s wait, handles long computations)
+  - Falls back to stale data on errors
+
+  Best for: Reports, aggregations, ML model results, analytics.
+
+  ## Options
+
+  Required:
+  - `store: [cache: MyCache, key: ...]`
+
+  ## Examples
+
+      @decorate cacheable(Presets.expensive(store: [cache: MyCache, key: {:report, date}]))
+      def generate_report(date), do: Reports.compute(date)
+  """
+  @spec expensive(keyword()) :: keyword()
+  def expensive(opts) do
+    merge(
+      [
+        store: [ttl: :timer.hours(1)],
+        serve_stale: [ttl: :timer.hours(24)],
+        refresh: [on: :stale_access],
+        prevent_thunder_herd: [max_wait: 60_000, lock_ttl: 300_000, on_timeout: :serve_stale],
+        fallback: [on_error: :serve_stale]
+      ],
+      opts
+    )
+  end
+
+  @doc """
+  Reference data preset - static or slow-changing data.
+
+  - 1 hour TTL
+  - 24 hour stale window
+  - Refresh on stale access
+  - Standard thunder herd protection
+
+  Best for: Countries, currencies, timezones, app config, lookup tables.
+
+  ## Options
+
+  Required:
+  - `store: [cache: MyCache, key: ...]`
+
+  ## Examples
+
+      @decorate cacheable(Presets.reference_data(store: [cache: MyCache, key: :countries]))
+      def list_countries, do: Repo.all(Country)
+
+      @decorate cacheable(Presets.reference_data(store: [cache: MyCache, key: {:currency, code}]))
+      def get_currency(code), do: Repo.get_by(Currency, code: code)
+  """
+  @spec reference_data(keyword()) :: keyword()
+  def reference_data(opts) do
+    merge(
+      [
+        store: [ttl: :timer.hours(1)],
+        serve_stale: [ttl: :timer.hours(24)],
+        refresh: [on: :stale_access],
         prevent_thunder_herd: true
       ],
       opts
     )
-  end
-
-  @doc """
-  Minimal - just caching with defaults, no bells and whistles.
-
-  - TTL only (you specify)
-  - Thunder herd protection ON
-  - No stale serving, no refresh
-
-  Best for: Simple caching needs.
-
-  ## Examples
-
-      @decorate cacheable(Presets.minimal(cache: MyApp.Cache, key: {Item, id}, ttl: :timer.minutes(10)))
-      def get_item(id), do: Repo.get(Item, id)
-  """
-  @spec minimal(keyword()) :: keyword()
-  def minimal(opts \\ []) do
-    merge([prevent_thunder_herd: true], opts)
   end
 
   # ============================================
@@ -240,35 +311,23 @@ defmodule FnDecorator.Caching.Presets do
 
   ## Examples
 
-      Presets.merge(Presets.high_availability(), [store: [ttl: :timer.minutes(10)]])
-      # => [..., store: [ttl: 600000, ...], ...]
-
-      # Override specific nested values
-      Presets.merge(
-        Presets.database(),
-        [store: [cache: MyApp.Cache, key: {User, id}]]
-      )
+      Presets.merge(Presets.database([]), [store: [ttl: :timer.minutes(1)]])
+      # => [store: [ttl: 60000, ...], serve_stale: [...], ...]
   """
   @spec merge(keyword(), keyword()) :: keyword()
   def merge(base, override) do
-    deep_merge(base, normalize_opts(override))
+    deep_merge(base, override)
   end
 
   @doc """
-  Composes multiple presets. Later presets override earlier ones.
+  Composes multiple option lists. Later lists override earlier ones.
 
   ## Examples
 
       Presets.compose([
-        Presets.high_availability(),
-        [store: [cache: MyApp.Cache, key: {User, id}]]
-      ])
-
-      # Multiple presets
-      Presets.compose([
-        Presets.database(),
-        [refresh: [retries: 10]],
-        [store: [cache: MyApp.Cache, key: {User, id}]]
+        Presets.database([]),
+        [store: [cache: MyCache, key: {User, id}]],
+        [store: [ttl: :timer.minutes(1)]]
       ])
   """
   @spec compose([keyword()]) :: keyword()
@@ -295,56 +354,4 @@ defmodule FnDecorator.Caching.Presets do
   end
 
   defp deep_merge(_left, right), do: right
-
-  # Normalize shorthand options to full structure
-  defp normalize_opts(opts) do
-    opts
-    |> normalize_store_opts()
-    |> normalize_thunder_herd_opts()
-  end
-
-  # Allow top-level cache, key, ttl to be moved into store
-  defp normalize_store_opts(opts) do
-    {cache, opts} = Keyword.pop(opts, :cache)
-    {key, opts} = Keyword.pop(opts, :key)
-    {ttl, opts} = Keyword.pop(opts, :ttl)
-
-    store_additions =
-      [cache: cache, key: key, ttl: ttl]
-      |> Enum.reject(fn {_k, v} -> is_nil(v) end)
-
-    if store_additions == [] do
-      opts
-    else
-      existing_store = Keyword.get(opts, :store, [])
-      merged_store = Keyword.merge(existing_store, store_additions)
-      Keyword.put(opts, :store, merged_store)
-    end
-  end
-
-  # Allow boolean or timeout shorthand for prevent_thunder_herd
-  defp normalize_thunder_herd_opts(opts) do
-    case Keyword.get(opts, :prevent_thunder_herd) do
-      true ->
-        Keyword.put(opts, :prevent_thunder_herd, default_thunder_herd_opts())
-
-      false ->
-        opts
-
-      timeout when is_integer(timeout) ->
-        Keyword.put(opts, :prevent_thunder_herd, Keyword.put(default_thunder_herd_opts(), :max_wait, timeout))
-
-      _ ->
-        opts
-    end
-  end
-
-  defp default_thunder_herd_opts do
-    [
-      max_wait: :timer.seconds(5),
-      retries: 3,
-      lock_timeout: :timer.seconds(30),
-      on_timeout: :serve_stale
-    ]
-  end
 end

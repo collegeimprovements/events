@@ -1,1 +1,0 @@
-{application,om_field_names,[{modules,['Elixir.OmFieldNames']},{optional_applications,[]},{applications,[kernel,stdlib,elixir,logger]},{description,"Field name helpers and conventions for Ecto schemas."},{registered,[]},{vsn,"0.1.0"}]}.

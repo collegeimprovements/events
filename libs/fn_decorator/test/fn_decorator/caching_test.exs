@@ -11,13 +11,26 @@ defmodule FnDecorator.CachingTest do
   # ============================================
 
   describe "cacheable schema validation" do
-    test "validates cache is required" do
+    test "validates store option is required" do
+      assert_raise NimbleOptions.ValidationError, ~r/required :store option not found/, fn ->
+        Code.compile_string("""
+        defmodule TestCacheableNoStore do
+          use FnDecorator
+
+          @decorate cacheable(prevent_thunder_herd: false)
+          def test_fn, do: :ok
+        end
+        """)
+      end
+    end
+
+    test "validates cache within store is required" do
       assert_raise NimbleOptions.ValidationError, ~r/required :cache option not found/, fn ->
         Code.compile_string("""
         defmodule TestCacheableNoCache do
           use FnDecorator
 
-          @decorate cacheable(key: :test)
+          @decorate cacheable(store: [key: :test, ttl: 1000])
           def test_fn, do: :ok
         end
         """)
@@ -84,11 +97,12 @@ defmodule FnDecorator.CachingTest do
       end
     end
 
-    test "validates keys is required" do
+    test "validates at least one eviction target is required" do
       # Use literal atom for cache module to avoid AST issues
-      assert_raise NimbleOptions.ValidationError, ~r/required :keys option not found/, fn ->
+      # cache_evict now requires at least one of: keys, match, or all_entries
+      assert_raise NimbleOptions.ValidationError, ~r/requires at least one of/, fn ->
         Code.compile_string("""
-        defmodule TestCacheEvictNoKeys do
+        defmodule TestCacheEvictNoTarget do
           use FnDecorator
 
           @decorate cache_evict(cache: :fake_cache_module)
