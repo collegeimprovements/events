@@ -14,7 +14,6 @@ This document outlines the plan to migrate tests from the Events application to 
 | `fn_decorator` | 4 | Good |
 | `fn_types` | 17 | Excellent |
 | `om_crud` | 7 | Good |
-| `om_field_names` | 1 | Basic |
 | `om_health` | 3 | Good (new) |
 | `om_idempotency` | 0 | Needs tests |
 | `om_kill_switch` | 0 | Needs tests |

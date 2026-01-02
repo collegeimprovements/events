@@ -33,7 +33,7 @@ defmodule OmMigration.FieldDefinitions do
   - `:citext` - Case-insensitive text (status, type fields)
   """
 
-  alias OmFieldNames
+  alias OmSchema.FieldNames, as: OmFieldNames
 
   # ============================================
   # Type Definitions

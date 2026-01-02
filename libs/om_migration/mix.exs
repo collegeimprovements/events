@@ -30,7 +30,7 @@ defmodule OmMigration.MixProject do
   defp deps do
     [
       {:ecto_sql, "~> 3.11"},
-      {:om_field_names, path: "../om_field_names"},  # use path until hex published
+      {:om_schema, path: "../om_schema"},
       # Dev/Test
       {:ex_doc, "~> 0.31", only: :dev, runtime: false}
     ]

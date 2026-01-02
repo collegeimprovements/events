@@ -67,7 +67,8 @@ config :om_scheduler,
 # ─────────────────────────────────────────────────────────────
 config :om_kill_switch,
   services: [:s3, :cache, :database, :email],
-  telemetry_prefix: [:events, :kill_switch]
+  telemetry_prefix: [:events, :kill_switch],
+  cache_module: Events.Core.Cache
 
 # Phoenix endpoint configuration
 config :events, EventsWeb.Endpoint,

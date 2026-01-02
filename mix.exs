@@ -73,7 +73,6 @@ defmodule Events.MixProject do
       {:effect, path: "libs/effect"},
       {:fn_types, path: "libs/fn_types"},
       {:fn_decorator, path: "libs/fn_decorator"},
-      {:om_field_names, path: "libs/om_field_names"},
       {:om_schema, path: "libs/om_schema"},
       {:om_migration, path: "libs/om_migration"},
       {:om_query, path: "libs/om_query"},
@@ -92,6 +91,7 @@ defmodule Events.MixProject do
       {:om_ttyd, path: "libs/om_ttyd"},
       {:om_middleware, path: "libs/om_middleware"},
       {:om_behaviours, path: "libs/om_behaviours"},
+      {:om_credo, path: "libs/om_credo"},
 
       # ============================================
       # Phoenix & Web

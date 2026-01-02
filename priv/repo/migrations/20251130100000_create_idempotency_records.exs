@@ -1,5 +1,5 @@
 defmodule Events.Repo.Migrations.CreateIdempotencyRecords do
-  use Events.Core.Migration
+  use OmMigration
 
   @moduledoc """
   Creates the idempotency_records table for tracking idempotent operations.

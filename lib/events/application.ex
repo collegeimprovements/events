@@ -56,8 +56,8 @@ defmodule Events.Application do
     config = Application.get_env(:events, :ttyd, [])
     enabled = Keyword.get(config, :enabled, false)
 
-    if enabled and Events.Services.Ttyd.available?() do
-      children ++ [Events.Services.Ttyd.SessionManager]
+    if enabled and OmTtyd.available?() do
+      children ++ [OmTtyd.SessionManager]
     else
       children
     end

@@ -1,5 +1,5 @@
 defmodule Events.Core.Repo.Migrations.CreateSchedulerTables do
-  use Events.Core.Migration
+  use OmMigration
 
   def change do
     # ============================================

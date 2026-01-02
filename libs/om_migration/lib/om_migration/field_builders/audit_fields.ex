@@ -50,7 +50,7 @@ defmodule OmMigration.FieldBuilders.AuditFields do
 
   alias OmMigration.Token
   alias OmMigration.Behaviours.FieldBuilder
-  alias OmFieldNames
+  alias OmSchema.FieldNames, as: OmFieldNames
 
   @impl true
   def default_config do

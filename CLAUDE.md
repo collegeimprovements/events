@@ -64,6 +64,11 @@ libs/
 ├── om_ttyd/         # OmTtyd.* - Web terminal sharing
 │   ├── Server, Session, SessionManager
 │   └── Per-session terminal instances
+├── om_credo/        # OmCredo.* - Configurable Credo checks
+│   ├── PreferPatternMatching, NoBangRepoOperations
+│   ├── RequireResultTuples, UseEnhancedSchema
+│   ├── UseEnhancedMigration, UseDecorator
+│   └── All checks are configurable via params
 ├── dag/             # Dag.* - Directed acyclic graph
 └── effect/          # Effect.* - Effect system
 ```
@@ -74,19 +79,11 @@ libs/
 lib/events/
 ├── core/            # Events.Core.* - Database layer
 │   ├── repo/        #   Events.Core.Repo (Ecto repo)
-│   ├── cache/       #   Events.Core.Cache
-│   └── migration/   #   Events.Core.Migration (combined imports)
+│   └── cache/       #   Events.Core.Cache
 ├── errors/          # Events.Errors.* - Events-specific errors
 ├── infra/           # Events.Infra.* - Infrastructure
-│   ├── decorator/   #   Events-specific decorators (scheduler, workflow)
-│   └── kill_switch/ #   Thin wrappers → OmKillSwitch.S3, OmKillSwitch.Cache
-├── api/             # Events.Api.* - External APIs (thin wrappers)
-│   ├── client/      #   Events.Api.Client → OmApiClient
-│   └── clients/     #   Google → OmGoogle, Stripe → OmStripe
-├── services/        # Events.Services.* - External services (thin wrappers)
-│   ├── typst/       #   Events.Services.Typst → OmTypst
-│   └── ttyd/        #   Events.Services.Ttyd → OmTtyd
-├── support/         # Events.Support.* - Dev utilities
+│   └── decorator/   #   Events-specific decorators (scheduler, workflow)
+├── support/         # Events.Support.* - Dev utilities (constants, iex_helpers)
 └── domains/         # Events.Domains.* - Business logic
     └── accounts/    #   User accounts, auth, memberships
 ```
@@ -191,25 +188,7 @@ All libs are configured with Events defaults in `config/config.exs`:
 |--------|-----|
 | `Events.Core.Repo` | Ecto Repo with Events database |
 | `Events.Core.Cache` | Events cache configuration |
-| `Events.Core.Migration` | Combined Ecto + OmMigration imports |
 | `Events.Infra.Decorator` | Events-specific decorators (scheduler, workflow) |
-
-**Thin wrapper modules** (delegate to libs, kept for backwards compatibility):
-
-| Module | Delegates To |
-|--------|--------------|
-| `Events.Infra.KillSwitch.S3` | `OmKillSwitch.S3` |
-| `Events.Infra.KillSwitch.Cache` | `OmKillSwitch.Cache` |
-| `Events.Api.Clients.Stripe` | `OmStripe` |
-| `Events.Api.Clients.Google.FCM` | `OmGoogle.FCM` |
-| `Events.Api.Clients.Google.ServiceAccount` | `OmGoogle.ServiceAccount` |
-| `Events.Services.Typst` | `OmTypst` |
-| `Events.Services.Ttyd` | `OmTtyd` |
-| `Events.Support.Middleware` | `OmMiddleware` |
-| `Events.Support.Behaviours.*` | `OmBehaviours.*` |
-| `Events.Support.Telemetry` | `FnDecorator.Telemetry.Helpers` |
-| `Events.Support.ProtocolRegistry` | `FnTypes.Protocols.Registry` |
-| `Events.Support.FieldNames` | `OmSchema.FieldNames` |
 
 ---
 
@@ -244,7 +223,7 @@ end
 ```elixir
 # CORRECT - Use libs directly
 use OmSchema
-use OmMigration  # or Events.Core.Migration for combined imports
+use OmMigration
 
 # WRONG - Raw Ecto without enhancements
 use Ecto.Schema
@@ -626,8 +605,8 @@ end
 |-------|--------|
 | `if...else` | `case`, `cond`, pattern matching |
 | `Repo.insert!()` | `Repo.insert()` |
-| `use Ecto.Schema` | `use Events.Core.Schema` |
-| `use Ecto.Migration` | `use Events.Core.Migration` |
+| `use Ecto.Schema` | `use OmSchema` |
+| `use Ecto.Migration` | `use OmMigration` |
 | Nested case | `with` statement |
 | Macros for logic | Functions + pattern matching |
 | Raising errors | Return `{:error, reason}` |
@@ -672,9 +651,10 @@ mix dialyzer
 
 | Check | Description |
 |-------|-------------|
-| `UseEventsSchema` | Ensures Events.Core.Schema usage |
-| `UseEventsMigration` | Ensures Events.Core.Migration usage |
-| `NoBangRepoOperations` | Prevents Repo.insert!/update! |
-| `RequireResultTuples` | Ensures result tuple returns |
-| `PreferPatternMatching` | Encourages case/with over if/else |
+| `OmCredo.Checks.UseEnhancedSchema` | Ensures OmSchema usage over Ecto.Schema |
+| `OmCredo.Checks.UseEnhancedMigration` | Ensures OmMigration usage over Ecto.Migration |
+| `OmCredo.Checks.NoBangRepoOperations` | Prevents Repo.insert!/update! |
+| `OmCredo.Checks.RequireResultTuples` | Ensures result tuple returns |
+| `OmCredo.Checks.PreferPatternMatching` | Encourages case/with over if/else |
+| `OmCredo.Checks.UseDecorator` | Encourages decorator usage |
 - Remember this - specially opensourcing the functional types, schema, query and decorator system

@@ -1,4 +1,4 @@
-defmodule Events.Support.Credo.Checks.PreferPatternMatching do
+defmodule OmCredo.Checks.PreferPatternMatching do
   @moduledoc """
   Checks for if/else chains that could be replaced with pattern matching.
 
@@ -38,6 +38,10 @@ defmodule Events.Support.Credo.Checks.PreferPatternMatching do
         end
       end
 
+  ## Configuration
+
+      {OmCredo.Checks.PreferPatternMatching, []}
+
   ## Exceptions
 
   Simple boolean checks are acceptable:
@@ -48,16 +52,24 @@ defmodule Events.Support.Credo.Checks.PreferPatternMatching do
   use Credo.Check,
     base_priority: :low,
     category: :readability,
+    param_defaults: [
+      paths: ["/lib/"]
+    ],
     explanations: [
       check: """
       Consider using pattern matching (case, function clauses) instead of if/else
       when checking tuple structure or complex conditions.
-      """
+      """,
+      params: [
+        paths: "List of path patterns to check (default: [\"/lib/\"])"
+      ]
     ]
 
   @impl Credo.Check
   def run(%SourceFile{} = source_file, params) do
-    if should_check?(source_file.filename) do
+    paths = Params.get(params, :paths, __MODULE__)
+
+    if should_check?(source_file.filename, paths) do
       issue_meta = IssueMeta.for(source_file, params)
 
       source_file
@@ -69,11 +81,10 @@ defmodule Events.Support.Credo.Checks.PreferPatternMatching do
     end
   end
 
-  defp should_check?(filename) do
-    String.contains?(filename, "/lib/")
+  defp should_check?(filename, paths) do
+    Enum.any?(paths, &String.contains?(filename, &1))
   end
 
-  # Check for if with elem() checks or nested if/else
   defp traverse({:if, meta, [condition | rest]} = ast, issues, issue_meta) do
     cond do
       has_elem_check?(condition) ->
@@ -106,17 +117,12 @@ defmodule Events.Support.Credo.Checks.PreferPatternMatching do
 
   defp traverse(ast, issues, _issue_meta), do: {ast, issues}
 
-  # Check for nested if in else clause
   defp has_nested_if?([[do: _, else: {:if, _, _}]]), do: true
   defp has_nested_if?(_), do: false
 
-  # Check if the condition contains elem() calls
   defp has_elem_check?({:==, _, [{:elem, _, _}, _]}), do: true
   defp has_elem_check?({:==, _, [_, {:elem, _, _}]}), do: true
-
-  defp has_elem_check?({:and, _, [left, right]}),
-    do: has_elem_check?(left) or has_elem_check?(right)
-
+  defp has_elem_check?({:and, _, [left, right]}), do: has_elem_check?(left) or has_elem_check?(right)
   defp has_elem_check?({:or, _, [left, right]}), do: has_elem_check?(left) or has_elem_check?(right)
   defp has_elem_check?(_), do: false
 end

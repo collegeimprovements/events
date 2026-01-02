@@ -10,7 +10,7 @@
 # =============================================================================
 
 defmodule Events.Core.Repo.Migrations.CreateTableName do
-  use Events.Core.Migration
+  use OmMigration
 
   # Uncomment if using migration constants
   # alias Events.Core.Repo.MigrationConstants, as: C

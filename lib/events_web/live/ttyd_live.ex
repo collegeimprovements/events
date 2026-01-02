@@ -20,7 +20,7 @@ defmodule EventsWeb.TtydLive do
 
   use EventsWeb, :live_view
 
-  alias Events.Services.Ttyd.SessionManager
+  alias OmTtyd.SessionManager
 
   require Logger
 

@@ -1,5 +1,5 @@
 defmodule Events.Core.Repo.Migrations.CreateWorkflowTables do
-  use Events.Core.Migration
+  use OmMigration
 
   def change do
     # ============================================

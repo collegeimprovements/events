@@ -1,5 +1,5 @@
 defmodule Events.Core.Repo.Migrations.AddSchedulerLifeline do
-  use Events.Core.Migration
+  use OmMigration
 
   def change do
     # Add heartbeat_at to executions for lifeline tracking

@@ -433,7 +433,7 @@ defmodule Events.Infra.ConfigValidator do
 
   defp safe_build_stripe_config do
     try do
-      config = Events.Api.Clients.Stripe.Config.from_env()
+      config = OmStripe.Config.from_env()
       {:ok, config}
     rescue
       e -> {:error, Exception.message(e)}
