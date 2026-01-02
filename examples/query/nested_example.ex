@@ -1,4 +1,4 @@
-defmodule Events.Core.Query.NestedExample do
+defmodule OmQuery.NestedExample do
   @moduledoc false
   # Example module - not part of public API.
   #
@@ -8,8 +8,8 @@ defmodule Events.Core.Query.NestedExample do
   # Suppress warnings for undefined schemas
   @compile {:no_warn_undefined, [Organization, User, Post, Comment, Tag]}
 
-  import Events.Core.Query.DSL
-  alias Events.Core.Query
+  import OmQuery.DSL
+  alias OmQuery
 
   # Suppress warnings for undefined schemas (documentation example)
   @compile {:no_warn_undefined, [Organization, User, Post, Comment, Tag]}
@@ -341,7 +341,7 @@ defmodule Events.Core.Query.NestedExample do
     IO.puts("Root operations count: #{length(token.operations)}\n")
 
     # Find preload operations
-    preload_ops = Events.Core.Query.Token.get_operations(token, :preload)
+    preload_ops = OmQuery.Token.get_operations(token, :preload)
 
     Enum.each(preload_ops, fn {:preload, preload_spec} ->
       case preload_spec do
@@ -360,7 +360,7 @@ defmodule Events.Core.Query.NestedExample do
 
   # Helper to recursively inspect nested preloads
   defp inspect_nested_preloads(token, indent) do
-    preload_ops = Events.Core.Query.Token.get_operations(token, :preload)
+    preload_ops = OmQuery.Token.get_operations(token, :preload)
 
     Enum.each(preload_ops, fn {:preload, preload_spec} ->
       case preload_spec do

@@ -1,4 +1,4 @@
-defmodule Events.Core.Query.Examples do
+defmodule OmQuery.Examples do
   @moduledoc false
   # Documentation examples module - not part of public API.
   #
@@ -23,8 +23,8 @@ defmodule Events.Core.Query.Examples do
               Invoice
             ]}
 
-  import Events.Core.Query.DSL
-  alias Events.Core.Query
+  import OmQuery.DSL
+  alias OmQuery
 
   ## 1. Basic Queries
 
@@ -337,7 +337,7 @@ defmodule Events.Core.Query.Examples do
 
   @doc "Multi-step transaction with Ecto.Multi"
   def multi_transaction do
-    alias Events.Core.Query.Multi, as: QM
+    alias OmQuery.Multi, as: QM
 
     user_query =
       User
@@ -857,8 +857,8 @@ defmodule Events.Core.Query.Examples do
 
   defmodule Fragments do
     @moduledoc false
-    alias Events.Core.Query
-    alias Events.Core.Query.Token
+    alias OmQuery
+    alias OmQuery.Token
 
     # Soft delete scope
     def not_deleted do
@@ -990,7 +990,7 @@ defmodule Events.Core.Query.Examples do
 
   def blog_feed_dsl(cursor \\ nil) do
     # MACRO DSL STYLE - Concise, declarative, SQL-like readability
-    import Events.Core.Query.DSL
+    import OmQuery.DSL
 
     opts = if cursor, do: [limit: 10, after: cursor], else: [limit: 10]
 
@@ -1070,7 +1070,7 @@ defmodule Events.Core.Query.Examples do
 
   def user_search_dsl(params) do
     # MACRO DSL STYLE - Note: conditionals require falling back to pipeline
-    import Events.Core.Query.DSL
+    import OmQuery.DSL
 
     base =
       query User do
@@ -1168,7 +1168,7 @@ defmodule Events.Core.Query.Examples do
 
   def orders_dashboard_dsl(params) do
     # MACRO DSL STYLE - Base query with DSL, conditionals with pipeline
-    import Events.Core.Query.DSL
+    import OmQuery.DSL
 
     base =
       query Order do
@@ -1256,7 +1256,7 @@ defmodule Events.Core.Query.Examples do
 
   def inventory_report_dsl(params) do
     # MACRO DSL STYLE
-    import Events.Core.Query.DSL
+    import OmQuery.DSL
 
     base =
       query Product do
@@ -1325,7 +1325,7 @@ defmodule Events.Core.Query.Examples do
 
   def activity_timeline_dsl(user_id, cursor \\ nil) do
     # MACRO DSL STYLE
-    import Events.Core.Query.DSL
+    import OmQuery.DSL
 
     opts = if cursor, do: [limit: 20, after: cursor], else: [limit: 20]
 
@@ -1384,7 +1384,7 @@ defmodule Events.Core.Query.Examples do
 
   def tenant_scoped_dsl(tenant_id, params) do
     # MACRO DSL STYLE
-    import Events.Core.Query.DSL
+    import OmQuery.DSL
 
     base =
       query Project do
@@ -1446,7 +1446,7 @@ defmodule Events.Core.Query.Examples do
 
   def leaderboard_dsl(params \\ %{}) do
     # MACRO DSL STYLE
-    import Events.Core.Query.DSL
+    import OmQuery.DSL
 
     base =
       query User do
@@ -1524,7 +1524,7 @@ defmodule Events.Core.Query.Examples do
 
   def moderation_queue_dsl(moderator_id, params \\ %{}) do
     # MACRO DSL STYLE
-    import Events.Core.Query.DSL
+    import OmQuery.DSL
 
     base =
       query Report do
@@ -1617,7 +1617,7 @@ defmodule Events.Core.Query.Examples do
 
   def billing_report_dsl(params \\ %{}) do
     # MACRO DSL STYLE
-    import Events.Core.Query.DSL
+    import OmQuery.DSL
 
     base =
       query Subscription do
@@ -1693,7 +1693,7 @@ defmodule Events.Core.Query.Examples do
 
   ```elixir
   # HYBRID: DSL base + Pipeline conditionals
-  import Events.Core.Query.DSL
+  import OmQuery.DSL
 
   query User do
     filter :status, :eq, "active"
@@ -1709,7 +1709,7 @@ defmodule Events.Core.Query.Examples do
   ```
   """
   def best_practices_example(params) do
-    import Events.Core.Query.DSL
+    import OmQuery.DSL
 
     # HYBRID APPROACH
     query User do
@@ -2041,7 +2041,7 @@ defmodule Events.Core.Query.Examples do
   More concise for the base query, with pipeline for conditionals.
   """
   def ecommerce_listing_dsl(params) do
-    import Events.Core.Query.DSL
+    import OmQuery.DSL
 
     search = params[:search]
     category_ids = params[:category_ids] || []
@@ -2099,11 +2099,11 @@ defmodule Events.Core.Query.Examples do
   @doc """
   ### FACETED SEARCH PATTERN - The Elegant Solution
 
-  Using the `Events.Core.Query.FacetedSearch` module for a clean, reusable pattern.
+  Using the `OmQuery.FacetedSearch` module for a clean, reusable pattern.
   This encapsulates the common e-commerce faceted search logic.
   """
   def ecommerce_faceted_search(params) do
-    alias Events.Core.Query.FacetedSearch
+    alias OmQuery.FacetedSearch
 
     FacetedSearch.new(Product)
     # Text search across multiple fields
@@ -2355,7 +2355,7 @@ defmodule Events.Core.Query.Examples do
 
   ```elixir
   defmodule MyApp.ProductSearch do
-    alias Events.Core.Query
+    alias OmQuery
 
     def search_products(term, opts \\\\ []) do
       include_variants = Keyword.get(opts, :include_variants, false)
@@ -2486,11 +2486,11 @@ defmodule Events.Core.Query.Examples do
   |> Query.execute()
 
   # Get debug output as string (without printing)
-  sql = Events.Core.Query.Debug.to_string(token, :raw_sql)
+  sql = OmQuery.Debug.to_string(token, :raw_sql)
   Logger.info("Executing: \#{sql}")
 
   # Get all formats as a map
-  info = Events.Core.Query.Debug.inspect_all(token)
+  info = OmQuery.Debug.inspect_all(token)
   # => %{raw_sql: "SELECT ...", dsl: "query Product do...", ...}
 
   # Works with FacetedSearch too
@@ -2504,7 +2504,7 @@ defmodule Events.Core.Query.Examples do
   ## Summary: FacetedSearch Pattern
 
   ```elixir
-  alias Events.Core.Query.FacetedSearch
+  alias OmQuery.FacetedSearch
 
   FacetedSearch.new(Product)
   |> FacetedSearch.search(term, [:name, :description])
@@ -2577,8 +2577,8 @@ defmodule Events.Core.Query.Examples do
 
   ```elixir
   defmodule ProductSearch do
-    alias Events.Core.Query
-    import Events.Core.Query.Helpers
+    alias OmQuery
+    import OmQuery.Helpers
 
     def search(params \\\\ %{}) do
       Product
@@ -2768,7 +2768,7 @@ defmodule Events.Core.Query.Examples do
   ```elixir
   # Define scopes in a module
   defmodule UserScopes do
-    alias Events.Core.Query
+    alias OmQuery
 
     def active(token), do: Query.filter(token, :status, :eq, "active")
     def verified(token), do: Query.filter(token, :verified_at, :not_nil, true)
@@ -2782,7 +2782,7 @@ defmodule Events.Core.Query.Examples do
   end
 
   defmodule ProductScopes do
-    alias Events.Core.Query
+    alias OmQuery
 
     def active(token), do: Query.filter(token, :active, :eq, true)
     def in_stock(token), do: Query.filter(token, :stock_quantity, :gt, 0)
@@ -3233,7 +3233,7 @@ defmodule Events.Core.Query.Examples do
   # ========== Pagination Helper Pattern ==========
 
   defmodule PaginationHelper do
-    alias Events.Core.Query
+    alias OmQuery
 
     def paginate(token, params) do
       limit = params[:limit] || params["limit"] || 20
@@ -3264,7 +3264,7 @@ defmodule Events.Core.Query.Examples do
   # ========== Result Structure ==========
 
   # Query.execute() returns:
-  %Events.Core.Query.Result{
+  %OmQuery.Result{
     data: [%Product{}, %Product{}, ...],
     pagination: %{
       has_next_page: true,
@@ -3388,7 +3388,7 @@ defmodule Events.Core.Query.Examples do
   def maybe_predicates_examples, do: :see_docs_above
 
   @doc """
-  ## Summary: Query Params Helper (`Events.Core.Query.Params`)
+  ## Summary: Query Params Helper (`OmQuery.Params`)
 
   Utility module for working with query parameters from Phoenix controllers, LiveView, etc.
   Provides indifferent access (atom or string keys) and normalization.
@@ -3396,7 +3396,7 @@ defmodule Events.Core.Query.Examples do
   ### Indifferent Access
 
   ```elixir
-  alias Events.Core.Query.Params
+  alias OmQuery.Params
 
   # Works with both string and atom keys
   params = %{"limit" => 20, "status" => "active"}
@@ -3410,8 +3410,8 @@ defmodule Events.Core.Query.Examples do
   ### With Query Functions
 
   ```elixir
-  alias Events.Core.Query
-  alias Events.Core.Query.Params
+  alias OmQuery
+  alias OmQuery.Params
 
   def search(params) do
     Product
@@ -3471,8 +3471,8 @@ defmodule Events.Core.Query.Examples do
 
   ```elixir
   defmodule MyAppWeb.ProductController do
-    alias Events.Core.Query
-    alias Events.Core.Query.Params
+    alias OmQuery
+    alias OmQuery.Params
 
     def index(conn, params) do
       result =
@@ -3498,8 +3498,8 @@ defmodule Events.Core.Query.Examples do
 
   ```elixir
   defmodule MyAppWeb.ProductLive.Index do
-    alias Events.Core.Query
-    alias Events.Core.Query.Params
+    alias OmQuery
+    alias OmQuery.Params
 
     def handle_event("filter", params, socket) do
       products = search_products(params)
@@ -3529,12 +3529,12 @@ defmodule Events.Core.Query.Examples do
   defmodule MyApp.Catalog.ProductQuery do
     @moduledoc "Product search with all advanced query features"
 
-    alias Events.Core.Query
-    import Events.Core.Query.Helpers
+    alias OmQuery
+    import OmQuery.Helpers
 
     # Scope definitions
     defmodule Scopes do
-      alias Events.Core.Query
+      alias OmQuery
 
       def active(q), do: Query.filter(q, :status, :eq, "active")
       def in_stock(q), do: Query.filter(q, :stock_quantity, :gt, 0)
@@ -3762,7 +3762,7 @@ defmodule Events.Core.Query.Examples do
   @doc """
   ## Production-Ready Assessment
 
-  The Events.Core.Query module is **production-ready** for complex queries because:
+  The OmQuery module is **production-ready** for complex queries because:
 
   ### 1. Complete Filter Coverage
   - All comparison operators: eq, neq, gt, gte, lt, lte
@@ -4144,7 +4144,7 @@ defmodule Events.Core.Query.Examples do
   # ---------------------------------------------------------------------------
 
   def order_dashboard_comprehensive_dsl(params, current_user) do
-    import Events.Core.Query.DSL
+    import OmQuery.DSL
 
     # Build base query with DSL - static parts
     base =
@@ -4368,7 +4368,7 @@ defmodule Events.Core.Query.Examples do
   ### Result Structure
 
   ```elixir
-  %Events.Core.Query.Result{
+  %OmQuery.Result{
     data: [
       %{
         id: 12345,

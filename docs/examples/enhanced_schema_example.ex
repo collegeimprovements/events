@@ -1,10 +1,10 @@
 defmodule Examples.EnhancedSchema do
   @moduledoc """
-  Example showcasing all the Events.Core.Schema enhancements.
+  Example showcasing all the OmSchema enhancements.
   """
 
-  use Events.Core.Schema
-  import Events.Core.Schema.Presets
+  use OmSchema
+  import OmSchema.Presets
 
   # Enable telemetry for this schema
   # Application.put_env(:events, :validation_telemetry, true)
@@ -71,7 +71,7 @@ defmodule Examples.EnhancedSchema do
 
   # Cross-field validations
   defp apply_cross_validations(changeset) do
-    Events.Core.Schema.Validators.CrossField.validate(changeset, [
+    OmSchema.Validators.CrossField.validate(changeset, [
       {:confirmation, :password, match: :password_confirmation},
       {:one_of, [:email, :phone]}
     ])
@@ -100,7 +100,7 @@ defmodule Examples.UsingEnhancedSchema do
   alias Examples.EnhancedSchema
 
   def demo do
-    IO.puts("=== Events.Core.Schema Enhanced Features Demo ===\n")
+    IO.puts("=== OmSchema Enhanced Features Demo ===\n")
 
     # 1. Introspection
     demo_introspection()
@@ -123,19 +123,19 @@ defmodule Examples.UsingEnhancedSchema do
     IO.puts("----------------------")
 
     # Get all field specs
-    specs = Events.Core.Schema.Introspection.inspect_schema(EnhancedSchema)
+    specs = OmSchema.Introspection.inspect_schema(EnhancedSchema)
     IO.puts("Total fields: #{length(specs)}")
 
     # Get required fields
-    required = Events.Core.Schema.Introspection.required_fields(EnhancedSchema)
+    required = OmSchema.Introspection.required_fields(EnhancedSchema)
     IO.puts("Required fields: #{inspect(required)}")
 
     # Check specific field
-    email_spec = Events.Core.Schema.Introspection.inspect_field(EnhancedSchema, :email)
+    email_spec = OmSchema.Introspection.inspect_field(EnhancedSchema, :email)
     IO.puts("Email field spec: #{inspect(email_spec, pretty: true, limit: :infinity)}")
 
     # Generate JSON schema
-    json_schema = Events.Core.Schema.Introspection.to_json_schema(EnhancedSchema)
+    json_schema = OmSchema.Introspection.to_json_schema(EnhancedSchema)
     IO.puts("JSON Schema properties: #{map_size(json_schema.properties)}")
 
     IO.puts("")
@@ -157,11 +157,11 @@ defmodule Examples.UsingEnhancedSchema do
     changeset = EnhancedSchema.changeset(%EnhancedSchema{}, invalid_attrs)
 
     # Get errors as simple map
-    errors = Events.Core.Schema.Errors.to_simple_map(changeset)
+    errors = OmSchema.Errors.to_simple_map(changeset)
     IO.puts("Validation errors: #{inspect(errors, pretty: true)}")
 
     # Get formatted message
-    message = Events.Core.Schema.Errors.to_message(changeset)
+    message = OmSchema.Errors.to_message(changeset)
     IO.puts("\nFormatted message:")
     IO.puts(message)
 
@@ -180,14 +180,14 @@ defmodule Examples.UsingEnhancedSchema do
     })
 
     # Group by priority
-    prioritized = Events.Core.Schema.Errors.group_by_priority(changeset)
+    prioritized = OmSchema.Errors.group_by_priority(changeset)
 
     IO.puts("High priority errors: #{inspect(prioritized.high)}")
     IO.puts("Medium priority errors: #{inspect(prioritized.medium)}")
     IO.puts("Low priority errors: #{inspect(prioritized.low)}")
 
     # Get highest priority per field
-    highest = Events.Core.Schema.Errors.highest_priority_per_field(changeset)
+    highest = OmSchema.Errors.highest_priority_per_field(changeset)
     IO.puts("\nHighest priority error per field: #{inspect(highest, pretty: true)}")
 
     IO.puts("")
@@ -197,7 +197,7 @@ defmodule Examples.UsingEnhancedSchema do
     IO.puts("4. Test Helpers")
     IO.puts("---------------")
 
-    import Events.Core.Schema.TestHelpers
+    import OmSchema.TestHelpers
 
     # Test string validation
     IO.puts("Testing email validation:")
@@ -239,7 +239,7 @@ defmodule Examples.UsingEnhancedSchema do
     Application.put_env(:events, :validation_telemetry, true)
 
     # Attach handlers
-    Events.Core.Schema.Telemetry.attach_default_handlers()
+    OmSchema.Telemetry.attach_default_handlers()
 
     IO.puts("Telemetry enabled and handlers attached")
     IO.puts("Validation events will be logged during validation")

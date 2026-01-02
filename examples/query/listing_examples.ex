@@ -1,4 +1,4 @@
-defmodule Events.Core.Query.ListingExamples do
+defmodule OmQuery.ListingExamples do
   @moduledoc false
   # Example module - not part of public API.
   #
@@ -10,8 +10,8 @@ defmodule Events.Core.Query.ListingExamples do
   # 4. Single orders() call with list - Pass all orders at once
   # 5. Mixed approaches - Combine both patterns
 
-  import Events.Core.Query.DSL
-  alias Events.Core.Query
+  import OmQuery.DSL
+  alias OmQuery
 
   # Suppress warnings for undefined schemas
   @compile {:no_warn_undefined, [User, Post, Product, Order]}

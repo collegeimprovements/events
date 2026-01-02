@@ -1,12 +1,12 @@
 defmodule Examples.SchemaPresetsUsage do
   @moduledoc """
-  Example module demonstrating the use of Events.Core.Schema presets.
+  Example module demonstrating the use of OmSchema presets.
 
   This shows how to use the 44 built-in validation presets for common field types.
   """
 
-  use Events.Core.Schema
-  import Events.Core.Schema.Presets
+  use OmSchema
+  import OmSchema.Presets
 
   schema "user_profiles" do
     # Basic Information
@@ -94,8 +94,8 @@ defmodule Examples.PaymentSchema do
   Example schema focused on financial fields.
   """
 
-  use Events.Core.Schema
-  import Events.Core.Schema.Presets
+  use OmSchema
+  import OmSchema.Presets
 
   schema "payments" do
     field :amount, :decimal, money(required: true)
@@ -118,8 +118,8 @@ defmodule Examples.NetworkDeviceSchema do
   Example schema for network device management.
   """
 
-  use Events.Core.Schema
-  import Events.Core.Schema.Presets
+  use OmSchema
+  import OmSchema.Presets
 
   schema "network_devices" do
     field :device_name, :string, required: true, max_length: 100
@@ -139,8 +139,8 @@ defmodule Examples.APIClientSchema do
   Example schema for API client configuration.
   """
 
-  use Events.Core.Schema
-  import Events.Core.Schema.Presets
+  use OmSchema
+  import OmSchema.Presets
 
   schema "api_clients" do
     field :client_id, :string, uuid()
@@ -161,8 +161,8 @@ defmodule Examples.InternationalProductSchema do
   Example schema for international product catalog.
   """
 
-  use Events.Core.Schema
-  import Events.Core.Schema.Presets
+  use OmSchema
+  import OmSchema.Presets
 
   schema "products" do
     field :sku, :string, required: true, unique: true

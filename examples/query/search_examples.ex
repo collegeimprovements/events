@@ -1,4 +1,4 @@
-defmodule Events.Core.Query.SearchExamples do
+defmodule OmQuery.SearchExamples do
   @moduledoc false
   # Example module - not part of public API.
   #
@@ -6,7 +6,7 @@ defmodule Events.Core.Query.SearchExamples do
   # Demonstrates: dynamic filter construction, multi-level nested preloads,
   # different pagination at each level, parameter interpolation, real-world scenarios.
 
-  alias Events.Core.Query.DynamicBuilder
+  alias OmQuery.DynamicBuilder
 
   # Suppress warnings for undefined schemas
   @compile {:no_warn_undefined,

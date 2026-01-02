@@ -15,11 +15,11 @@ defmodule MyApp.Context.SchemaName do
   - ...
   """
 
-  # IMPORTANT: Always use Events.Core.Schema, never Ecto.Schema
-  use Events.Core.Schema
+  # IMPORTANT: Always use OmSchema, never Ecto.Schema
+  use OmSchema
 
   # Import presets for common field validations
-  import Events.Core.Schema.Presets
+  import OmSchema.Presets
 
   @doc """
   Schema definition with inline validations.
@@ -243,7 +243,7 @@ defmodule MyApp.Context.SchemaName do
     else
       case get_change(changeset, :name) do
         nil -> changeset
-        name -> put_change(changeset, :slug, Events.Core.Schema.Slugify.slugify(name))
+        name -> put_change(changeset, :slug, OmSchema.Slugify.slugify(name))
       end
     end
   end

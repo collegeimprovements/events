@@ -1,18 +1,18 @@
 defmodule Examples.HelpersUsageExample do
   @moduledoc """
-  Practical examples of using Events.Core.Query.Helpers in real-world scenarios.
+  Practical examples of using OmQuery.Helpers in real-world scenarios.
 
   ## Setup
 
   Add this to your module to use the helpers:
 
-      import Events.Core.Query.Helpers
+      import OmQuery.Helpers
 
   """
 
-  import Events.Core.Query.DSL
-  import Events.Core.Query.Helpers
-  alias Events.Core.Query
+  import OmQuery.DSL
+  import OmQuery.Helpers
+  alias OmQuery
 
   @doc """
   Example 1: Recent posts query using date helpers

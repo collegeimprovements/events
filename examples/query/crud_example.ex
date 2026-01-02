@@ -50,7 +50,7 @@ defmodule Events.Domains.Accounts.CrudExample do
   |> Multi.create(:membership, Membership, fn %{user: u, account: a} ->
        %{user_id: u.id, account_id: a.id, role: :owner}
      end)
-  |> OmOmCrud.run()
+  |> OmCrud.run()
 
   # PostgreSQL MERGE for upserts
   User
@@ -58,7 +58,7 @@ defmodule Events.Domains.Accounts.CrudExample do
   |> Merge.match_on(:email)
   |> Merge.when_matched(:update, [:name, :updated_at])
   |> Merge.when_not_matched(:insert)
-  |> OmOmCrud.run()
+  |> OmCrud.run()
   ```
   """
 
@@ -192,19 +192,17 @@ defmodule Events.Domains.Accounts.CrudExample do
   @doc """
   Find users by criteria using Query tokens.
 
-  Shows integration with Events.Core.Query.
+  Shows integration with OmQuery.
   """
   @spec find_users(keyword()) :: {:ok, [User.t()]} | {:error, any()}
   def find_users(criteria) do
-    alias Events.Core.Query
-
     query =
       User
-      |> Query.new()
+      |> OmQuery.new()
       |> maybe_filter_status(criteria[:status])
       |> maybe_filter_account(criteria[:account_id])
-      |> Query.order_by(:inserted_at, :desc)
-      |> Query.limit(criteria[:limit] || 50)
+      |> OmQuery.order_by(:inserted_at, :desc)
+      |> OmQuery.limit(criteria[:limit] || 50)
 
     OmCrud.run(query)
   end
@@ -212,12 +210,12 @@ defmodule Events.Domains.Accounts.CrudExample do
   defp maybe_filter_status(query, nil), do: query
 
   defp maybe_filter_status(query, status) do
-    Events.Core.Query.filter(query, :status, :eq, status)
+    OmQuery.filter(query, :status, :eq, status)
   end
 
   defp maybe_filter_account(query, nil), do: query
 
   defp maybe_filter_account(query, account_id) do
-    Events.Core.Query.filter(query, :account_id, :eq, account_id)
+    OmQuery.filter(query, :account_id, :eq, account_id)
   end
 end
