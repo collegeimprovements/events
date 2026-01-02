@@ -41,29 +41,29 @@ defmodule Events.Infra.KillSwitch.Cache do
   """
 
   alias Events.Core.Cache
-  alias Events.Infra.KillSwitch
+  alias OmKillSwitch
 
   @service :cache
 
   @doc "Check if Cache service is enabled"
   @spec enabled?() :: boolean()
-  def enabled?, do: KillSwitch.enabled?(@service)
+  def enabled?, do: OmKillSwitch.enabled?(@service)
 
   @doc "Check Cache service status"
   @spec check() :: :enabled | {:disabled, String.t()}
-  def check, do: KillSwitch.check(@service)
+  def check, do: OmKillSwitch.check(@service)
 
   @doc "Get detailed Cache service status"
-  @spec status() :: KillSwitch.status()
-  def status, do: KillSwitch.status(@service)
+  @spec status() :: OmKillSwitch.status()
+  def status, do: OmKillSwitch.status(@service)
 
   @doc "Disable Cache service"
   @spec disable(keyword()) :: :ok
-  def disable(opts \\ []), do: KillSwitch.disable(@service, opts)
+  def disable(opts \\ []), do: OmKillSwitch.disable(@service, opts)
 
   @doc "Enable Cache service"
   @spec enable() :: :ok
-  def enable, do: KillSwitch.enable(@service)
+  def enable, do: OmKillSwitch.enable(@service)
 
   ## Cache Operations with Kill Switch
 
@@ -257,6 +257,6 @@ defmodule Events.Infra.KillSwitch.Cache do
   def with_cache(func, opts \\ []) when is_function(func, 0) do
     fallback = Keyword.get(opts, :fallback, fn -> {:ok, :cache_disabled} end)
 
-    KillSwitch.with_service(@service, func, fallback: fallback)
+    OmKillSwitch.with_service(@service, func, fallback: fallback)
   end
 end

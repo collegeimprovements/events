@@ -8,7 +8,7 @@ defmodule Events.Domains.Accounts.User do
 
   @derive {FnTypes.Protocols.Identifiable, type: :user}
 
-  use Events.Core.Schema
+  use OmSchema
 
   @types [:human, :system, :service]
   @subtypes [:standard, :admin, :bot]

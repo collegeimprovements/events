@@ -17,14 +17,14 @@ defmodule Events.Application do
         EventsWeb.Telemetry,
         Events.Core.Repo,
         Events.Core.Cache,
-        Events.Infra.KillSwitch,
+        OmKillSwitch,
         {DNSCluster, query: Application.get_env(:events, :dns_cluster_query) || :ignore},
         Events.Infra.PubSub,
         # Task supervisor for async operations (error storage, telemetry, etc.)
         {Task.Supervisor, name: Events.TaskSupervisor},
         # Scheduler for background jobs and workflows (disabled by default in test)
-        # Configure via: config :events, Events.Infra.Scheduler, enabled: true/false
-        Events.Infra.Scheduler.Supervisor,
+        # Configure via: config :events, OmScheduler, enabled: true/false
+        OmScheduler.Supervisor,
         # Start to serve requests, typically the last entry
         EventsWeb.Endpoint
       ]
@@ -147,33 +147,17 @@ defmodule Events.Application do
 
   defp wait_for_repo(attempts, interval) do
     case Ecto.Repo.Registry.lookup(Events.Core.Repo) do
-      # Ecto 3.x returns a map with adapter meta and pid
-      %{pid: pid} when is_pid(pid) ->
-        :ok
-
-      # Legacy format (tuple) for backwards compatibility
-      {_adapter_meta, pid} when is_pid(pid) ->
-        :ok
-
-      nil ->
-        Process.sleep(interval)
-        wait_for_repo(attempts - 1, interval)
+      %{pid: pid} when is_pid(pid) -> :ok
+      nil -> retry_wait_for_repo(attempts, interval)
     end
   rescue
-    # Handle ArgumentError when Repo module not yet loaded
-    ArgumentError ->
-      Process.sleep(interval)
-      wait_for_repo(attempts - 1, interval)
-
-    # Handle UndefinedFunctionError when Ecto.Repo.Registry not available
-    UndefinedFunctionError ->
-      Process.sleep(interval)
-      wait_for_repo(attempts - 1, interval)
-
     # Ecto 3.13+ throws RuntimeError when repo not started
-    RuntimeError ->
-      Process.sleep(interval)
-      wait_for_repo(attempts - 1, interval)
+    RuntimeError -> retry_wait_for_repo(attempts, interval)
+  end
+
+  defp retry_wait_for_repo(attempts, interval) do
+    Process.sleep(interval)
+    wait_for_repo(attempts - 1, interval)
   end
 
   # Tell Phoenix to update the endpoint configuration

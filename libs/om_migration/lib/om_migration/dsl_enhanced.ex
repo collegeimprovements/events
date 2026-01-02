@@ -512,15 +512,6 @@ defmodule OmMigration.DSLEnhanced do
       end
   """
   defmacro soft_delete_fields(opts \\ []) do
-    # Handle deprecated option name
-    opts =
-      if Keyword.has_key?(opts, :track_role_mapping) do
-        IO.warn("track_role_mapping is deprecated, use track_urm instead")
-        Keyword.put(opts, :track_urm, Keyword.get(opts, :track_role_mapping))
-      else
-        opts
-      end
-
     track_urm = Keyword.get(opts, :track_urm, true)
     track_user = Keyword.get(opts, :track_user, false)
     track_reason = Keyword.get(opts, :track_reason, false)

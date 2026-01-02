@@ -492,8 +492,7 @@ defmodule Events.Support.IExHelpers do
     #{subsection("Basic Usage")}
 
       defmodule MyApp.Product do
-        use Events.Core.Schema
-        import Events.Core.Schema.FieldMacros
+        use OmSchema
 
         schema "products" do
           field :name, :string
@@ -661,8 +660,7 @@ defmodule Events.Support.IExHelpers do
     #{subsection("User Schema with Validations")}
 
       defmodule MyApp.User do
-        use Events.Core.Schema
-        import Events.Core.Schema.FieldMacros
+        use OmSchema
 
         schema "users" do
           field :email, :string
@@ -690,8 +688,7 @@ defmodule Events.Support.IExHelpers do
     #{subsection("Product Schema with Money Fields")}
 
       defmodule MyApp.Product do
-        use Events.Core.Schema
-        import Events.Core.Schema.FieldMacros
+        use OmSchema
 
         schema "products" do
           field :name, :string
@@ -722,8 +719,7 @@ defmodule Events.Support.IExHelpers do
     #{subsection("Order Schema with Cross-Field Validations")}
 
       defmodule MyApp.Order do
-        use Events.Core.Schema
-        import Events.Core.Schema.FieldMacros
+        use OmSchema
 
         schema "orders" do
           field :order_number, :string
@@ -1460,7 +1456,7 @@ defmodule Events.Support.IExHelpers do
     #{subsection("Quick Example")}
 
       defmodule MyApp.UserOnboarding do
-        use Events.Infra.Scheduler.Workflow, name: :user_onboarding
+        use OmScheduler.Workflow, name: :user_onboarding
 
         @decorate step()
         def create_account(ctx) do
@@ -1476,7 +1472,7 @@ defmodule Events.Support.IExHelpers do
       end
 
       # Start workflow
-      {:ok, execution_id} = Workflow.start(:user_onboarding, %{
+      {:ok, execution_id} = OmScheduler.Workflow.start(:user_onboarding, %{
         email: "alice@example.com"
       })
 
@@ -1496,7 +1492,7 @@ defmodule Events.Support.IExHelpers do
     #{subsection("1. Define Workflow Module")}
 
       defmodule MyApp.OrderProcessing do
-        use Events.Infra.Scheduler.Workflow,
+        use OmScheduler.Workflow,
           name: :order_processing,
           timeout: {30, :minutes}
 
@@ -1530,13 +1526,13 @@ defmodule Events.Support.IExHelpers do
 
     #{subsection("2. Start Workflow")}
 
-      {:ok, execution_id} = Workflow.start(:order_processing, %{
+      {:ok, execution_id} = OmScheduler.Workflow.start(:order_processing, %{
         order_id: 123
       })
 
     #{subsection("3. Monitor Execution")}
 
-      {:ok, state} = Workflow.get_state(execution_id)
+      {:ok, state} = OmScheduler.Workflow.get_state(execution_id)
 
     For more: workflow_help(:steps)
     """)
@@ -1680,7 +1676,7 @@ defmodule Events.Support.IExHelpers do
 
     #{subsection("Cancel with Rollback")}
 
-      Workflow.cancel(execution_id, rollback: true)
+      OmScheduler.Workflow.cancel(execution_id, rollback: true)
 
     For more: examples(:workflow)
     """)
@@ -1715,7 +1711,7 @@ defmodule Events.Support.IExHelpers do
 
     #{subsection("Enable in Module")}
 
-      use Events.Infra.Decorator
+      use FnDecorator
 
     #{subsection("Common Decorators")}
 
@@ -1971,7 +1967,7 @@ defmodule Events.Support.IExHelpers do
       # This is a complete workflow definition you can paste in IEx:
 
       defmodule IExExample do
-        use Events.Infra.Scheduler.Workflow, name: :iex_example
+        use OmScheduler.Workflow, name: :iex_example
 
         @decorate step()
         def step_one(ctx) do
@@ -1993,21 +1989,21 @@ defmodule Events.Support.IExHelpers do
       end
 
       # Start the workflow
-      {:ok, execution_id} = Workflow.start(:iex_example, %{input: "test"})
+      {:ok, execution_id} = OmScheduler.Workflow.start(:iex_example, %{input: "test"})
 
       # Check the state
-      Workflow.get_state(execution_id)
+      OmScheduler.Workflow.get_state(execution_id)
 
     #{subsection("Workflow Introspection")}
 
       # List all registered workflows
-      Workflow.list_all()
+      OmScheduler.Workflow.list_all()
 
       # Get workflow summary
-      Workflow.summary(:iex_example)
+      OmScheduler.Workflow.summary(:iex_example)
 
       # Generate Mermaid diagram
-      Workflow.to_mermaid(:iex_example)
+      OmScheduler.Workflow.to_mermaid(:iex_example)
 
     Try these examples in your IEx session!
     """)

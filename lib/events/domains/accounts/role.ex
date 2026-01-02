@@ -11,7 +11,7 @@ defmodule Events.Domains.Accounts.Role do
 
   @derive {FnTypes.Protocols.Identifiable, type: :role}
 
-  use Events.Core.Schema
+  use OmSchema
 
   @types [:system, :custom]
   @subtypes [:global, :account_specific]

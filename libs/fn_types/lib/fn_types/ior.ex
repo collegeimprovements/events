@@ -110,14 +110,6 @@ defmodule FnTypes.Ior do
   @type t(a) :: t(a, term())
   @type t() :: t(term(), term())
 
-  # Deprecated type aliases for backward compatibility
-  @typedoc false
-  @type right(a) :: success(a)
-  @typedoc false
-  @type left(e) :: failure(e)
-  @typedoc false
-  @type both(e, a) :: partial(e, a)
-
   # ============================================
   # Construction
   # ============================================
@@ -170,23 +162,6 @@ defmodule FnTypes.Ior do
   @spec partial(error() | errors(), a) :: partial(error(), a) when a: term()
   def partial(errors, value) when is_list(errors), do: {:partial, errors, value}
   def partial(error, value), do: {:partial, [error], value}
-
-  # Deprecated constructors for backward compatibility
-
-  @doc false
-  @deprecated "Use success/1 instead"
-  @spec right(a) :: success(a) when a: term()
-  def right(value), do: success(value)
-
-  @doc false
-  @deprecated "Use failure/1 instead"
-  @spec left(error() | errors()) :: failure(error())
-  def left(errors), do: failure(errors)
-
-  @doc false
-  @deprecated "Use partial/2 instead"
-  @spec both(error() | errors(), a) :: partial(error(), a) when a: term()
-  def both(errors, value), do: partial(errors, value)
 
   # ============================================
   # Type Checking
@@ -284,23 +259,6 @@ defmodule FnTypes.Ior do
   def has_errors?({:partial, _, _}), do: true
   def has_errors?({:success, _}), do: false
 
-  # Deprecated predicates for backward compatibility
-
-  @doc false
-  @deprecated "Use success?/1 instead"
-  @spec right?(t()) :: boolean()
-  def right?(ior), do: success?(ior)
-
-  @doc false
-  @deprecated "Use failure?/1 instead"
-  @spec left?(t()) :: boolean()
-  def left?(ior), do: failure?(ior)
-
-  @doc false
-  @deprecated "Use partial?/1 instead"
-  @spec both?(t()) :: boolean()
-  def both?(ior), do: partial?(ior)
-
   # ============================================
   # Functor Operations (map)
   # ============================================
@@ -364,11 +322,6 @@ defmodule FnTypes.Ior do
   @impl FnTypes.Behaviours.BiMappable
   @spec map_error(t(a, e1), (e1 -> e2)) :: t(a, e2) when a: term(), e1: term(), e2: term()
   def map_error(ior, fun), do: map_failure(ior, fun)
-
-  @doc false
-  @deprecated "Use map_failure/2 instead"
-  @spec map_left(t(a, e1), (e1 -> e2)) :: t(a, e2) when a: term(), e1: term(), e2: term()
-  def map_left(ior, fun), do: map_failure(ior, fun)
 
   @doc """
   Maps both value and failures/warnings using keyword options.
@@ -439,30 +392,6 @@ defmodule FnTypes.Ior do
         failure
     end
   end
-
-  @doc """
-  Maps both value and failures/warnings (positional arguments).
-
-  Prefer `bimap/2` with keyword options for better readability.
-
-  ## Examples
-
-      iex> Ior.bimap(Ior.success(5), &(&1 * 2), &Atom.to_string/1)
-      {:success, 10}
-
-      iex> Ior.bimap(Ior.partial(:warn, 5), &(&1 * 2), &Atom.to_string/1)
-      {:partial, ["warn"], 10}
-  """
-  @deprecated "Use bimap/2 with keyword options: bimap(ior, on_success: success_fun, on_failure: failure_fun)"
-  @spec bimap(t(a, e1), (a -> b), (e1 -> e2)) :: t(b, e2)
-        when a: term(), b: term(), e1: term(), e2: term()
-  def bimap({:success, value}, value_fun, _error_fun), do: {:success, value_fun.(value)}
-
-  def bimap({:partial, errors, value}, value_fun, error_fun) do
-    {:partial, Enum.map(errors, error_fun), value_fun.(value)}
-  end
-
-  def bimap({:failure, errors}, _value_fun, error_fun), do: {:failure, Enum.map(errors, error_fun)}
 
   # ============================================
   # Monad Operations (and_then/bind)
@@ -726,11 +655,6 @@ defmodule FnTypes.Ior do
   def add_warning({:partial, errors, value}, error), do: {:partial, errors ++ [error], value}
   def add_warning({:failure, errors}, error), do: {:failure, errors ++ [error]}
 
-  @doc false
-  @deprecated "Use add_warning/2 instead"
-  @spec add_error(t(a, e), e) :: t(a, e) when a: term(), e: term()
-  def add_error(ior, error), do: add_warning(ior, error)
-
   @doc """
   Adds multiple warnings/errors to the Ior.
 
@@ -744,11 +668,6 @@ defmodule FnTypes.Ior do
   def add_warnings({:success, value}, errors), do: {:partial, errors, value}
   def add_warnings({:partial, existing, value}, errors), do: {:partial, existing ++ errors, value}
   def add_warnings({:failure, existing}, errors), do: {:failure, existing ++ errors}
-
-  @doc false
-  @deprecated "Use add_warnings/2 instead"
-  @spec add_errors(t(a, e), [e]) :: t(a, e) when a: term(), e: term()
-  def add_errors(ior, errors), do: add_warnings(ior, errors)
 
   @doc """
   Clears all warnings/errors, keeping the value.
@@ -767,11 +686,6 @@ defmodule FnTypes.Ior do
   def clear_warnings({:success, _} = success), do: success
   def clear_warnings({:partial, _, value}), do: {:success, value}
   def clear_warnings({:failure, _}), do: {:success, nil}
-
-  @doc false
-  @deprecated "Use clear_warnings/1 instead"
-  @spec clear_errors(t(a, e)) :: success(a | nil) when a: term(), e: term()
-  def clear_errors(ior), do: clear_warnings(ior)
 
   @doc """
   Conditionally adds a warning based on a predicate.
@@ -829,11 +743,6 @@ defmodule FnTypes.Ior do
   end
 
   def fail_if_warning({:failure, _} = failure, _pred), do: failure
-
-  @doc false
-  @deprecated "Use fail_if_warning/2 instead"
-  @spec fail_if_error(t(a, e), (e -> boolean())) :: t(a, e) when a: term(), e: term()
-  def fail_if_error(ior, pred), do: fail_if_warning(ior, pred)
 
   # ============================================
   # Extraction
@@ -911,11 +820,6 @@ defmodule FnTypes.Ior do
   def warnings({:success, _}), do: []
   def warnings({:partial, errors, _}), do: errors
   def warnings({:failure, errors}), do: errors
-
-  @doc false
-  @deprecated "Use warnings/1 instead"
-  @spec errors(t(a, e)) :: [e] when a: term(), e: term()
-  def errors(ior), do: warnings(ior)
 
   @doc """
   Gets the value as Maybe.
@@ -1146,11 +1050,6 @@ defmodule FnTypes.Ior do
     fun.(errors)
     failure
   end
-
-  @doc false
-  @deprecated "Use tap_warnings/2 instead"
-  @spec tap_left(t(a, e), ([e] -> any())) :: t(a, e) when a: term(), e: term()
-  def tap_left(ior, fun), do: tap_warnings(ior, fun)
 
   @doc """
   Swaps success and failure.

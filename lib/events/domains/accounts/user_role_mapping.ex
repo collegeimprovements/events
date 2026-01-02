@@ -9,7 +9,7 @@ defmodule Events.Domains.Accounts.UserRoleMapping do
 
   @derive {FnTypes.Protocols.Identifiable, type: :user_role_mapping}
 
-  use Events.Core.Schema
+  use OmSchema
 
   @types [:permanent, :temporary]
   @subtypes [:direct, :inherited]

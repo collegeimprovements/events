@@ -11,8 +11,8 @@ defmodule EventsWeb.WorkflowDashboardLive do
 
   use EventsWeb, :live_view
 
-  alias Events.Infra.Scheduler.Workflow
-  alias Events.Infra.Scheduler.Workflow.{Registry, Store}
+  alias OmScheduler.Workflow
+  alias OmScheduler.Workflow.{Registry, Store}
 
   @refresh_interval 5_000
 

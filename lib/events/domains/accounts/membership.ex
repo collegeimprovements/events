@@ -8,7 +8,7 @@ defmodule Events.Domains.Accounts.Membership do
 
   @derive {FnTypes.Protocols.Identifiable, type: :membership}
 
-  use Events.Core.Schema
+  use OmSchema
 
   @types [:owner, :member, :guest]
   @subtypes [:invited, :requested, :direct]

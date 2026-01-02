@@ -33,29 +33,29 @@ defmodule Events.Infra.KillSwitch.S3 do
       config :events, Events.Infra.KillSwitch, s3: false
   """
 
-  alias Events.Infra.KillSwitch
+  alias OmKillSwitch
 
   @service :s3
 
   @doc "Check if S3 service is enabled"
   @spec enabled?() :: boolean()
-  def enabled?, do: KillSwitch.enabled?(@service)
+  def enabled?, do: OmKillSwitch.enabled?(@service)
 
   @doc "Check S3 service status"
   @spec check() :: :enabled | {:disabled, String.t()}
-  def check, do: KillSwitch.check(@service)
+  def check, do: OmKillSwitch.check(@service)
 
   @doc "Get detailed S3 service status"
-  @spec status() :: KillSwitch.status()
-  def status, do: KillSwitch.status(@service)
+  @spec status() :: OmKillSwitch.status()
+  def status, do: OmKillSwitch.status(@service)
 
   @doc "Disable S3 service"
   @spec disable(keyword()) :: :ok
-  def disable(opts \\ []), do: KillSwitch.disable(@service, opts)
+  def disable(opts \\ []), do: OmKillSwitch.disable(@service, opts)
 
   @doc "Enable S3 service"
   @spec enable() :: :ok
-  def enable, do: KillSwitch.enable(@service)
+  def enable, do: OmKillSwitch.enable(@service)
 
   ## Service Operations with Kill Switch
 
@@ -272,10 +272,10 @@ defmodule Events.Infra.KillSwitch.S3 do
   end
 
   defp execute_with_fallback(func, nil) do
-    KillSwitch.execute(@service, func)
+    OmKillSwitch.execute(@service, func)
   end
 
   defp execute_with_fallback(func, fallback) when is_function(fallback, 0) do
-    KillSwitch.with_service(@service, func, fallback: fallback)
+    OmKillSwitch.with_service(@service, func, fallback: fallback)
   end
 end

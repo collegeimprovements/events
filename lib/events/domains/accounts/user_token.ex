@@ -8,7 +8,7 @@ defmodule Events.Domains.Accounts.UserToken do
 
   @derive {FnTypes.Protocols.Identifiable, type: :user_token}
 
-  use Events.Core.Schema
+  use OmSchema
   import Ecto.Query
 
   @hash_algorithm :sha256

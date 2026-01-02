@@ -1897,30 +1897,6 @@ defmodule OmSchema do
 
       @doc "Returns has_many FK expectations for validation."
       def has_many_expectations, do: __has_many_expectations__()
-
-      # =====================================================================
-      # Backward Compatibility (deprecated)
-      # =====================================================================
-
-      @doc false
-      @deprecated "Use cast_fields/0 instead"
-      def __cast_fields__, do: cast_fields()
-
-      @doc false
-      @deprecated "Use required_fields/0 instead"
-      def __required_fields__, do: required_fields()
-
-      @doc false
-      @deprecated "Use field_validations/0 instead"
-      def __field_validations__, do: field_validations()
-
-      @doc false
-      @deprecated "Use apply_validations/1 instead"
-      def __apply_field_validations__(changeset), do: apply_validations(changeset)
-
-      @doc false
-      @deprecated "Use base_changeset/2,3 instead"
-      def __base_changeset__(struct, attrs, opts \\ []), do: base_changeset(struct, attrs, opts)
     end
   end
 end

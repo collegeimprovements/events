@@ -1,29 +1,31 @@
-defmodule Events.Support.Credo.Checks.UseEventsSchema do
+defmodule Events.Support.Credo.Checks.UseOmSchema do
   @moduledoc """
-  Checks that all schemas in the lib/ directory use `Events.Core.Schema` instead of raw `Ecto.Schema`.
+  Checks that all schemas in the lib/ directory use `OmSchema` instead of raw `Ecto.Schema`.
 
   This ensures consistency across the codebase and leverages our enhanced schema features.
 
   ## Why This Matters
 
-  `Events.Core.Schema` provides:
+  `OmSchema` provides:
   - UUIDv7 primary keys
   - Enhanced field validation
   - Field group macros (type_fields, status_fields, etc.)
   - Automatic changeset helpers
+
+  Events defaults are configured in config/config.exs.
 
   ## Examples
 
   Incorrect:
 
       defmodule MyApp.User do
-        use Ecto.Schema  # Bad - use Events.Core.Schema instead
+        use Ecto.Schema  # Bad - use OmSchema instead
       end
 
   Correct:
 
       defmodule MyApp.User do
-        use Events.Core.Schema
+        use OmSchema
       end
   """
 
@@ -32,10 +34,10 @@ defmodule Events.Support.Credo.Checks.UseEventsSchema do
     category: :consistency,
     explanations: [
       check: """
-      Always use `Events.Core.Schema` instead of `Ecto.Schema` in lib/ files.
+      Always use `OmSchema` instead of `Ecto.Schema` in lib/ files.
 
-      Events.Core.Schema wraps Ecto.Schema and provides additional features like
-      UUIDv7 primary keys, field validation, and field group macros.
+      OmSchema provides additional features like UUIDv7 primary keys, field validation,
+      and field group macros. Events defaults are configured in config/config.exs.
       """
     ]
 
@@ -81,7 +83,7 @@ defmodule Events.Support.Credo.Checks.UseEventsSchema do
   defp issue_for(issue_meta, line_no, trigger) do
     format_issue(
       issue_meta,
-      message: "Use `Events.Core.Schema` instead of `Ecto.Schema` for consistency.",
+      message: "Use `OmSchema` instead of `Ecto.Schema`.",
       trigger: trigger,
       line_no: line_no
     )

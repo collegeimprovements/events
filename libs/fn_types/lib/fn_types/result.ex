@@ -743,27 +743,6 @@ defmodule FnTypes.Result do
     end
   end
 
-  @doc """
-  Maps both the ok and error values simultaneously (positional arguments).
-
-  Prefer `bimap/2` with keyword options for better readability.
-
-  ## Examples
-
-      iex> Result.bimap({:ok, 5}, &(&1 * 2), &String.upcase/1)
-      {:ok, 10}
-  """
-  @deprecated "Use bimap/2 with keyword options: bimap(result, on_ok: ok_fun, on_error: error_fun)"
-  @spec bimap(t(a, e1), (a -> b), (e1 -> e2)) :: t(b, e2)
-        when a: term(), b: term(), e1: term(), e2: term()
-  def bimap({:ok, value}, ok_fun, _error_fun) when is_function(ok_fun, 1) do
-    {:ok, ok_fun.(value)}
-  end
-
-  def bimap({:error, reason}, _ok_fun, error_fun) when is_function(error_fun, 1) do
-    {:error, error_fun.(reason)}
-  end
-
   ## Function Lifting
 
   @doc """

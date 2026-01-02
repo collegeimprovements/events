@@ -288,19 +288,6 @@ defmodule OmSchema.FieldMacros do
     quote bind_quoted: [opts: opts] do
       alias OmFieldNames
 
-      # Handle deprecated option name
-      opts =
-        if Keyword.has_key?(opts, :track_role_mapping) do
-          IO.warn(
-            "track_role_mapping is deprecated, use track_urm instead",
-            Macro.Env.stacktrace(__ENV__)
-          )
-
-          Keyword.put(opts, :track_urm, Keyword.get(opts, :track_role_mapping))
-        else
-          opts
-        end
-
       # Always add deleted_at
       field FieldNames.deleted_at(), :utc_datetime_usec
 

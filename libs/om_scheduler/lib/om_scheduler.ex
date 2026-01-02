@@ -352,10 +352,6 @@ defmodule OmScheduler do
     Config.get()[:peer] |> Config.leader?()
   end
 
-  @doc false
-  @deprecated "Use leader?/0 instead"
-  def is_leader?, do: leader?()
-
   @doc """
   Returns the current leader node.
   """

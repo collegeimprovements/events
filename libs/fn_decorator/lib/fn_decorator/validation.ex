@@ -405,16 +405,7 @@ defmodule FnDecorator.Validation do
   """
   def contract(opts, body, context) do
     validated_opts = NimbleOptions.validate!(opts, @contract_schema)
-
-    # Handle deprecated on_violation option
-    on_error =
-      if validated_opts[:on_violation] do
-        IO.warn("on_violation is deprecated, use on_error instead")
-        validated_opts[:on_violation]
-      else
-        validated_opts[:on_error]
-      end
-
+    on_error = validated_opts[:on_error]
     pre = List.wrap(validated_opts[:pre] || [])
     post = List.wrap(validated_opts[:post] || [])
     invariant = validated_opts[:invariant]

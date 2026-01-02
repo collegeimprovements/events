@@ -571,10 +571,6 @@ defmodule FnTypes.Maybe do
     |> Enum.map(&unwrap!/1)
   end
 
-  @doc false
-  @deprecated "Use cat_somes/1 instead"
-  def cat_maybes(maybes), do: cat_somes(maybes)
-
   @doc """
   Applies a maybe-returning function to each element.
 

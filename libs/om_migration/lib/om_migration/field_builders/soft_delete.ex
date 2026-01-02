@@ -64,14 +64,7 @@ defmodule OmMigration.FieldBuilders.SoftDelete do
   # Private Helpers
   # ============================================
 
-  defp handle_deprecated_options(config) do
-    if Map.has_key?(config, :track_role_mapping) do
-      IO.warn("track_role_mapping is deprecated, use track_urm instead")
-      Map.put(config, :track_urm, Map.get(config, :track_role_mapping))
-    else
-      config
-    end
-  end
+  defp handle_deprecated_options(config), do: config
 
   defp add_deleted_at(token) do
     Token.add_field(token, OmFieldNames.deleted_at(), :utc_datetime_usec,

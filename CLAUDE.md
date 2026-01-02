@@ -53,17 +53,14 @@ libs/
 
 ```
 lib/events/
-├── core/            # Events.Core.* - Database layer wrappers
-│   ├── schema/      #   Events.Core.Schema (wraps OmSchema with defaults)
-│   ├── migration/   #   Events.Core.Migration (wraps OmMigration)
+├── core/            # Events.Core.* - Database layer
 │   ├── repo/        #   Events.Core.Repo (Ecto repo)
-│   └── cache/       #   Events.Core.Cache
+│   ├── cache/       #   Events.Core.Cache
+│   └── migration/   #   Events.Core.Migration (combined imports)
 ├── errors/          # Events.Errors.* - Events-specific errors
 ├── infra/           # Events.Infra.* - Infrastructure
 │   ├── decorator/   #   Events-specific decorators (scheduler, workflow)
-│   ├── scheduler/   #   Cron scheduler + workflow system
-│   │   └── workflow/    #   DAG-based workflow orchestration
-│   └── kill_switch/ #   Events.Infra.KillSwitch (wraps OmKillSwitch)
+│   └── kill_switch/ #   Service-specific kill switch helpers (S3, Cache)
 ├── api/             # Events.Api.* - External APIs
 │   ├── client/      #   Events.Api.Client (wraps OmApiClient)
 │   └── clients/     #   Specific clients (Google, Stripe)
@@ -83,23 +80,25 @@ alias FnTypes.{Result, Maybe, Pipeline, AsyncResult, Validation, Guards, Error, 
 # Protocols (from libs/fn_types)
 alias FnTypes.Protocols.{Normalizable, Recoverable, Identifiable}
 
-# CRUD (from libs/om_crud) - USE DIRECTLY
+# CRUD (from libs/om_crud)
 alias OmCrud
 alias OmCrud.{Multi, Merge, ChangesetBuilder, Options, Context}
 
-# Query (from libs/om_query) - USE DIRECTLY
+# Query (from libs/om_query)
 alias OmQuery
 alias OmQuery.{Token, Result, DSL, Fragment}
 
-# Schema (Events wrapper - provides defaults)
-alias Events.Core.Schema
-alias Events.Core.Migration
+# Schema (from libs/om_schema) - Events defaults via config
+# use OmSchema in schema modules
 
-# Infrastructure
-alias Events.Infra.{KillSwitch, SystemHealth, Idempotency}
-alias Events.Infra.Scheduler.Workflow
+# Scheduler & Workflow (from libs/om_scheduler)
+alias OmScheduler
+alias OmScheduler.Workflow
 
-# Decorators (from libs/fn_decorator) - USE DIRECTLY
+# Kill Switch (from libs/om_kill_switch)
+alias OmKillSwitch
+
+# Decorators (from libs/fn_decorator)
 # use FnDecorator for standard decorators
 # use Events.Infra.Decorator for Events-specific (scheduler, workflow)
 
@@ -113,6 +112,31 @@ alias Events.Core.{Repo, Cache}
 # Domains (business logic)
 alias Events.Domains.Accounts
 ```
+
+### Direct Lib Usage
+
+All libs are configured with Events defaults in `config/config.exs`:
+
+| Lib | Config Key | Events Defaults |
+|-----|------------|-----------------|
+| `OmSchema` | `:om_schema` | `default_repo: Events.Core.Repo` |
+| `OmQuery` | `:om_query` | `default_repo: Events.Core.Repo` |
+| `OmCrud` | `:om_crud` | `default_repo: Events.Core.Repo` |
+| `OmScheduler` | `:events, OmScheduler` | `repo: Events.Core.Repo` |
+| `OmKillSwitch` | `:om_kill_switch` | `services: [:s3, :cache, :database, :email]` |
+| `FnTypes.Retry` | `:fn_types, FnTypes.Retry` | `default_repo: Events.Core.Repo` |
+| `FnDecorator` | `:fn_decorator` | `telemetry_prefix: [:events]` |
+
+**Events-specific modules (still needed):**
+
+| Module | Why |
+|--------|-----|
+| `Events.Core.Repo` | Ecto Repo with Events database |
+| `Events.Core.Cache` | Events cache configuration |
+| `Events.Core.Migration` | Combined Ecto + OmMigration imports |
+| `Events.Infra.Decorator` | Events-specific decorators (scheduler, workflow) |
+| `Events.Infra.KillSwitch.S3` | S3-specific kill switch helpers |
+| `Events.Infra.KillSwitch.Cache` | Cache-specific kill switch helpers |
 
 ---
 
@@ -142,14 +166,14 @@ def create_user(attrs) do
 end
 ```
 
-### 3. Use Events.Core.Schema and Events.Core.Migration
+### 3. Use OmSchema and OmMigration
 
 ```elixir
-# CORRECT
-use Events.Core.Schema
-use Events.Core.Migration
+# CORRECT - Use libs directly
+use OmSchema
+use OmMigration  # or Events.Core.Migration for combined imports
 
-# WRONG
+# WRONG - Raw Ecto without enhancements
 use Ecto.Schema
 use Ecto.Migration
 ```

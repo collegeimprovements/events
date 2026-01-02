@@ -2,23 +2,33 @@ defprotocol FnTypes.Protocols.Normalizable do
   @fallback_to_any true
 
   @moduledoc """
-  Backwards-compatibility alias for `FnTypes.Normalizable`.
+  Protocol for normalizing errors into a standard `FnTypes.Error` struct.
 
-  > **Deprecated**: Use `FnTypes.Normalizable` instead.
-  > This module exists for backwards compatibility and delegates to the new location.
+  Implement this protocol for your error types to enable consistent
+  error handling across the application.
 
-  See `FnTypes.Normalizable` for full documentation.
+  ## Example
+
+      defimpl FnTypes.Protocols.Normalizable, for: MyApp.CustomError do
+        def normalize(error, opts) do
+          %FnTypes.Error{
+            type: :custom_error,
+            message: error.message,
+            details: %{code: error.code},
+            context: Keyword.get(opts, :context, %{})
+          }
+        end
+      end
   """
 
   @doc """
   Normalize the error into a standard `FnTypes.Error` struct.
 
-  **Deprecated**: Use `FnTypes.Normalizable.normalize/2` instead.
+  ## Options
+
+  - `:context` - Additional context to include in the error
+  - `:include_stacktrace` - Whether to include stacktrace (default: false)
   """
   @spec normalize(t(), keyword()) :: FnTypes.Error.t()
   def normalize(error, opts \\ [])
 end
-
-# Note: Protocol implementations remain in lib/events/protocols/impls/normalizable/
-# They implement FnTypes.Protocols.Normalizable which is still the canonical protocol
-# used throughout the codebase during the transition period.

@@ -32,7 +32,7 @@ defmodule Events.Infra.ConfigValidator do
 
   alias FnTypes.Config, as: Cfg
   alias FnTypes.Config.Validator
-  alias Events.Infra.KillSwitch
+  alias OmKillSwitch
 
   @app_name Application.compile_env(:events, [__MODULE__, :app_name], :events)
 
@@ -131,7 +131,7 @@ defmodule Events.Infra.ConfigValidator do
   """
   @spec validate_s3() :: Validator.validation_result()
   def validate_s3 do
-    if not KillSwitch.enabled?(:s3) do
+    if not OmKillSwitch.enabled?(:s3) do
       {:disabled, "Service disabled via KillSwitch"}
     else
       validate_s3_config()

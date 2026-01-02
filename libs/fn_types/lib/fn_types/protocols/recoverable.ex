@@ -2,12 +2,26 @@ defprotocol FnTypes.Protocols.Recoverable do
   @fallback_to_any true
 
   @moduledoc """
-  Backwards-compatibility alias for `FnTypes.Recoverable`.
+  Protocol for determining error recoverability and retry strategies.
 
-  > **Deprecated**: Use `FnTypes.Recoverable` instead.
-  > This module exists for backwards compatibility and delegates to the new location.
+  Implement this protocol for your error types to enable intelligent
+  retry behavior in `FnTypes.Retry` and related modules.
 
-  See `FnTypes.Recoverable` for full documentation.
+  ## Strategies
+
+  - `:retry` - Simple retry without delay
+  - `:retry_with_backoff` - Retry with exponential backoff
+  - `:wait_until` - Wait for a specific condition
+  - `:circuit_break` - Trip the circuit breaker
+  - `:fail_fast` - Don't retry, fail immediately
+  - `:fallback` - Use a fallback value
+
+  ## Severity Levels
+
+  - `:transient` - Temporary issue, likely to succeed on retry
+  - `:degraded` - Partial failure, may need special handling
+  - `:critical` - Serious error, requires attention
+  - `:permanent` - Won't recover, don't retry
   """
 
   @type strategy ::
@@ -20,35 +34,31 @@ defprotocol FnTypes.Protocols.Recoverable do
 
   @type severity :: :transient | :degraded | :critical | :permanent
 
-  @doc "**Deprecated**: Use `FnTypes.Recoverable.recoverable?/1` instead."
+  @doc "Returns whether the error is recoverable."
   @spec recoverable?(t) :: boolean()
   def recoverable?(error)
 
-  @doc "**Deprecated**: Use `FnTypes.Recoverable.strategy/1` instead."
+  @doc "Returns the recommended recovery strategy."
   @spec strategy(t) :: strategy()
   def strategy(error)
 
-  @doc "**Deprecated**: Use `FnTypes.Recoverable.retry_delay/2` instead."
+  @doc "Returns the retry delay in milliseconds for the given attempt."
   @spec retry_delay(t, attempt :: pos_integer()) :: non_neg_integer()
   def retry_delay(error, attempt)
 
-  @doc "**Deprecated**: Use `FnTypes.Recoverable.max_attempts/1` instead."
+  @doc "Returns the maximum number of retry attempts."
   @spec max_attempts(t) :: pos_integer()
   def max_attempts(error)
 
-  @doc "**Deprecated**: Use `FnTypes.Recoverable.trips_circuit?/1` instead."
+  @doc "Returns whether this error should trip a circuit breaker."
   @spec trips_circuit?(t) :: boolean()
   def trips_circuit?(error)
 
-  @doc "**Deprecated**: Use `FnTypes.Recoverable.severity/1` instead."
+  @doc "Returns the severity level of the error."
   @spec severity(t) :: severity()
   def severity(error)
 
-  @doc "**Deprecated**: Use `FnTypes.Recoverable.fallback/1` instead."
+  @doc "Returns a fallback value if available."
   @spec fallback(t) :: {:ok, term()} | nil
   def fallback(error)
 end
-
-# Note: Protocol implementations remain in lib/events/protocols/impls/recoverable/
-# They implement FnTypes.Protocols.Recoverable which is still the canonical protocol
-# used throughout the codebase during the transition period.

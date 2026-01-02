@@ -147,16 +147,7 @@ defmodule FnDecorator.Security do
   """
   def role_required(opts, body, _context) do
     validated_opts = NimbleOptions.validate!(opts, @role_required_schema)
-
-    # Handle deprecated on_unauthorized option
-    on_error =
-      if validated_opts[:on_unauthorized] do
-        IO.warn("on_unauthorized is deprecated, use on_error instead")
-        validated_opts[:on_unauthorized]
-      else
-        validated_opts[:on_error]
-      end
-
+    on_error = validated_opts[:on_error]
     roles = validated_opts[:roles]
     check_fn = validated_opts[:check_fn]
 
@@ -234,16 +225,7 @@ defmodule FnDecorator.Security do
   """
   def rate_limit(opts, body, context) do
     validated_opts = NimbleOptions.validate!(opts, @rate_limit_schema)
-
-    # Handle deprecated on_limit option
-    on_error =
-      if validated_opts[:on_limit] do
-        IO.warn("on_limit is deprecated, use on_error instead")
-        validated_opts[:on_limit]
-      else
-        validated_opts[:on_error]
-      end
-
+    on_error = validated_opts[:on_error]
     max = validated_opts[:max]
     window = validated_opts[:window]
     by = validated_opts[:by]

@@ -2,132 +2,18 @@ defmodule OmCrudIntegrationTest do
   use ExUnit.Case, async: true
 
   # Testing OmCrud integration in Events
-  alias OmCrud.{Op, Multi, Merge}
+  alias OmCrud.{Multi, Merge}
 
-  # ─────────────────────────────────────────────────────────────
-  # Op Module Tests
-  # ─────────────────────────────────────────────────────────────
+  # Test schema for Multi/Merge tests
+  defmodule TestSchema do
+    use Ecto.Schema
 
-  describe "Op.resolve_changeset/3" do
-    defmodule TestSchema do
-      use Ecto.Schema
-
-      schema "test" do
-        field(:name, :string)
-      end
-
-      def changeset(struct, attrs), do: Ecto.Changeset.change(struct, attrs)
-      def custom_changeset(struct, attrs), do: Ecto.Changeset.change(struct, attrs)
+    schema "test" do
+      field(:name, :string)
     end
 
-    defmodule SchemaWithAttribute do
-      use Ecto.Schema
-
-      # The @crud_changeset attribute is registered for Op.resolve_changeset
-      Module.register_attribute(__MODULE__, :crud_changeset, persist: true)
-      @crud_changeset :special_changeset
-
-      schema "test2" do
-        field(:name, :string)
-      end
-
-      def special_changeset(struct, attrs), do: Ecto.Changeset.change(struct, attrs)
-    end
-
-    defmodule SchemaWithCallback do
-      use Ecto.Schema
-
-      schema "test3" do
-        field(:name, :string)
-      end
-
-      def changeset_for(:create, _opts), do: :create_changeset
-      def changeset_for(:update, _opts), do: :update_changeset
-      def changeset_for(_action, _opts), do: :changeset
-
-      def create_changeset(struct, attrs), do: Ecto.Changeset.change(struct, attrs)
-      def update_changeset(struct, attrs), do: Ecto.Changeset.change(struct, attrs)
-      def changeset(struct, attrs), do: Ecto.Changeset.change(struct, attrs)
-    end
-
-    test "returns explicit :changeset option first" do
-      assert Op.resolve_changeset(TestSchema, :create, changeset: :custom_changeset) ==
-               :custom_changeset
-    end
-
-    test "returns action-specific option second" do
-      assert Op.resolve_changeset(TestSchema, :create, create_changeset: :custom_changeset) ==
-               :custom_changeset
-
-      assert Op.resolve_changeset(TestSchema, :update, update_changeset: :custom_changeset) ==
-               :custom_changeset
-    end
-
-    test "returns default :changeset when no options" do
-      assert Op.resolve_changeset(TestSchema, :create, []) == :changeset
-    end
-
-    test "uses changeset_for callback when defined" do
-      assert Op.resolve_changeset(SchemaWithCallback, :create, []) == :create_changeset
-      assert Op.resolve_changeset(SchemaWithCallback, :update, []) == :update_changeset
-    end
-  end
-
-  describe "Op.insert_opts/1" do
-    test "extracts valid insert options" do
-      opts = Op.insert_opts(returning: true, prefix: "tenant_1", other: :ignored)
-      assert opts[:returning] == true
-      assert opts[:prefix] == "tenant_1"
-      refute Keyword.has_key?(opts, :other)
-    end
-
-    test "rejects nil values" do
-      opts = Op.insert_opts(returning: nil, prefix: "tenant")
-      refute Keyword.has_key?(opts, :returning)
-      assert opts[:prefix] == "tenant"
-    end
-  end
-
-  describe "Op.upsert_opts/1" do
-    test "builds upsert options with conflict target" do
-      opts = Op.upsert_opts(conflict_target: :email, on_conflict: :replace_all)
-      assert opts[:conflict_target] == [:email]
-      assert opts[:on_conflict] == :replace_all
-    end
-
-    test "normalizes single atom conflict target to list" do
-      opts = Op.upsert_opts(conflict_target: :email, on_conflict: :nothing)
-      assert opts[:conflict_target] == [:email]
-    end
-
-    test "keeps list conflict target as is" do
-      opts = Op.upsert_opts(conflict_target: [:org_id, :email], on_conflict: :nothing)
-      assert opts[:conflict_target] == [:org_id, :email]
-    end
-
-    test "supports replace specific fields" do
-      opts = Op.upsert_opts(conflict_target: :email, on_conflict: {:replace, [:name, :updated_at]})
-      assert opts[:on_conflict] == {:replace, [:name, :updated_at]}
-    end
-  end
-
-  describe "Op.query_opts/1" do
-    test "extracts query options" do
-      opts = Op.query_opts(prefix: "tenant", timeout: 15_000, other: :ignored)
-      assert opts[:prefix] == "tenant"
-      assert opts[:timeout] == 15_000
-      refute Keyword.has_key?(opts, :other)
-    end
-  end
-
-  describe "Op.preloads/1" do
-    test "returns preload list" do
-      assert Op.preloads(preload: [:account, :memberships]) == [:account, :memberships]
-    end
-
-    test "returns empty list when no preload" do
-      assert Op.preloads([]) == []
-    end
+    def changeset(struct, attrs), do: Ecto.Changeset.change(struct, attrs)
+    def custom_changeset(struct, attrs), do: Ecto.Changeset.change(struct, attrs)
   end
 
   # ─────────────────────────────────────────────────────────────

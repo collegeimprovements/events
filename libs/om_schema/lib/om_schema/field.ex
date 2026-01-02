@@ -1,29 +1,12 @@
 defmodule OmSchema.Field do
   @moduledoc """
-  Enhanced field macro that extends Ecto.Schema.field with validation metadata.
+  Field option utilities for OmSchema.
 
-  This module provides a drop-in replacement for Ecto's field macro that:
-  - Stores validation rules as module attributes
-  - Supports cast: true/false (default: true)
-  - Supports required: true/false (default: false)
-  - Supports comprehensive validation options per type
-  - Generates helper functions for changesets
+  Provides internal helpers for splitting field options between
+  validation options and Ecto schema options.
+
+  Use `use OmSchema` to get the enhanced field macro.
   """
-
-  @doc """
-  Backwards-compatible `field/3` macro that now delegates to `OmSchema.field/3`.
-
-  Prefer `use OmSchema` and its imported macro directly. This definition
-  remains so older modules that `import OmSchema.Field` continue to work,
-  but the implementation lives in `OmSchema` to avoid divergence.
-  """
-  @deprecated "Import OmSchema.field/3 via `use OmSchema` instead"
-  defmacro field(name, type \\ :string, opts \\ []) do
-    quote do
-      require OmSchema
-      OmSchema.field(unquote(name), unquote(type), unquote(opts))
-    end
-  end
 
   @app_name Application.compile_env(:om_schema, :app_name, :om_schema)
 

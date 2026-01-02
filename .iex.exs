@@ -1,21 +1,26 @@
 # IEx configuration file
 
-# Core & Database
-alias Events.Core.{Repo, Cache, Query, Schema, Migration}
+# Core & Database (use libs directly)
+alias Events.Core.{Repo, Cache, Migration}
 
-# CRUD (from libs/om_crud)
+# Libs - use directly with Events defaults from config
+alias OmSchema
+alias OmQuery
 alias OmCrud
 alias OmCrud.{Multi, Merge, ChangesetBuilder, Options}
+alias OmScheduler
+alias OmScheduler.Workflow
+alias OmKillSwitch
 
 # Functional Types
-alias FnTypes.{Result, Maybe, Pipeline, AsyncResult, Guards, Validation}
+alias FnTypes.{Result, Maybe, Pipeline, AsyncResult, Guards, Validation, Retry}
 
 # Infrastructure
-alias Events.Infra.{Decorator, KillSwitch, SystemHealth, Idempotency}
-alias Events.Infra.Scheduler.Workflow
+alias Events.Infra.{Decorator, SystemHealth, Idempotency}
 
 # API & Services
 alias Events.Api.Client
+alias OmApiClient
 alias OmS3
 
 # Web

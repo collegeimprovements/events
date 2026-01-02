@@ -79,7 +79,7 @@ defmodule EventsWeb.HealthController do
   end
 
   defp check_cache do
-    case Events.Infra.KillSwitch.check(:cache) do
+    case OmKillSwitch.check(:cache) do
       :enabled ->
         # Try a simple cache operation
         test_key = {:health_check, System.unique_integer()}

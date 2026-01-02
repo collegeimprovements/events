@@ -44,6 +44,10 @@ config :om_crud,
 config :fn_types,
   telemetry_prefix: [:events]
 
+config :fn_types, FnTypes.Retry,
+  default_repo: Events.Core.Repo,
+  telemetry_prefix: [:events, :retry]
+
 # ─────────────────────────────────────────────────────────────
 # FnDecorator library configuration
 # ─────────────────────────────────────────────────────────────
@@ -54,10 +58,16 @@ config :fn_decorator, FnDecorator.Telemetry,
 # ─────────────────────────────────────────────────────────────
 # OmScheduler library configuration
 # ─────────────────────────────────────────────────────────────
+# app_name: :events tells OmScheduler to read config from :events namespace
 config :om_scheduler,
-  app_name: :events,
-  repo: Events.Core.Repo,
-  telemetry_prefix: [:events, :scheduler]
+  app_name: :events
+
+# ─────────────────────────────────────────────────────────────
+# OmKillSwitch library configuration
+# ─────────────────────────────────────────────────────────────
+config :om_kill_switch,
+  services: [:s3, :cache, :database, :email],
+  telemetry_prefix: [:events, :kill_switch]
 
 # Phoenix endpoint configuration
 config :events, EventsWeb.Endpoint,
@@ -121,13 +131,23 @@ if config_env() == :dev do
 end
 
 # Scheduler configuration (defaults for development)
+# OmScheduler reads from :events namespace because app_name: :events is set above
 # Production settings should be configured in runtime.exs
-config :events, Events.Infra.Scheduler,
+config :events, OmScheduler,
   enabled: true,
+  repo: Events.Core.Repo,
   store: :memory,
-  peer: Events.Infra.Scheduler.Peer.Global,
+  peer: OmScheduler.Peer.Global,
   queues: [default: 5],
   plugins: []
+
+# OmScheduler telemetry config (each module has its own config)
+config :om_scheduler, OmScheduler.Telemetry, telemetry_prefix: [:events, :scheduler]
+
+config :om_scheduler, OmScheduler.Workflow.Telemetry,
+  telemetry_prefix: [:events, :scheduler, :workflow]
+
+config :om_scheduler, OmScheduler.Peer.Global, telemetry_prefix: [:events, :scheduler, :peer]
 
 # NOTE: runtime.exs is automatically loaded at application startup
 # Do NOT use import_config "runtime.exs" - that would run it at compile time
