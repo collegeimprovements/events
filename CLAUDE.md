@@ -45,6 +45,16 @@ libs/
 ├── om_api_client/   # OmApiClient.* - HTTP API client
 ├── om_idempotency/  # OmIdempotency.* - Idempotency support
 ├── om_kill_switch/  # OmKillSwitch.* - Service kill switches
+│   └── Services: S3, Cache
+├── om_s3/           # OmS3.* - S3 operations
+├── om_stripe/       # OmStripe.* - Stripe API client
+├── om_google/       # OmGoogle.* - Google APIs
+│   ├── ServiceAccount (JWT auth, TokenServer)
+│   └── FCM (Firebase Cloud Messaging)
+├── om_typst/        # OmTypst.* - Typst document compilation
+├── om_ttyd/         # OmTtyd.* - Web terminal sharing
+│   ├── Server, Session, SessionManager
+│   └── Per-session terminal instances
 ├── dag/             # Dag.* - Directed acyclic graph
 └── effect/          # Effect.* - Effect system
 ```
@@ -60,12 +70,13 @@ lib/events/
 ├── errors/          # Events.Errors.* - Events-specific errors
 ├── infra/           # Events.Infra.* - Infrastructure
 │   ├── decorator/   #   Events-specific decorators (scheduler, workflow)
-│   └── kill_switch/ #   Service-specific kill switch helpers (S3, Cache)
-├── api/             # Events.Api.* - External APIs
-│   ├── client/      #   Events.Api.Client (wraps OmApiClient)
-│   └── clients/     #   Specific clients (Google, Stripe)
-├── services/        # Events.Services.* - External services
-│   └── s3/          #   S3/AWS integration
+│   └── kill_switch/ #   Thin wrappers → OmKillSwitch.S3, OmKillSwitch.Cache
+├── api/             # Events.Api.* - External APIs (thin wrappers)
+│   ├── client/      #   Events.Api.Client → OmApiClient
+│   └── clients/     #   Google → OmGoogle, Stripe → OmStripe
+├── services/        # Events.Services.* - External services (thin wrappers)
+│   ├── typst/       #   Events.Services.Typst → OmTypst
+│   └── ttyd/        #   Events.Services.Ttyd → OmTtyd
 ├── support/         # Events.Support.* - Dev utilities
 └── domains/         # Events.Domains.* - Business logic
     └── accounts/    #   User accounts, auth, memberships
@@ -97,6 +108,24 @@ alias OmScheduler.Workflow
 
 # Kill Switch (from libs/om_kill_switch)
 alias OmKillSwitch
+alias OmKillSwitch.{S3, Cache}
+
+# S3 (from libs/om_s3)
+alias OmS3
+
+# Stripe (from libs/om_stripe)
+alias OmStripe
+alias OmStripe.Config, as: StripeConfig
+
+# Google APIs (from libs/om_google)
+alias OmGoogle.{ServiceAccount, FCM}
+
+# Document compilation (from libs/om_typst)
+alias OmTypst
+
+# Web terminal (from libs/om_ttyd)
+alias OmTtyd
+alias OmTtyd.{Server, Session, SessionManager}
 
 # Decorators (from libs/fn_decorator)
 # use FnDecorator for standard decorators
@@ -124,6 +153,11 @@ All libs are configured with Events defaults in `config/config.exs`:
 | `OmCrud` | `:om_crud` | `default_repo: Events.Core.Repo` |
 | `OmScheduler` | `:events, OmScheduler` | `repo: Events.Core.Repo` |
 | `OmKillSwitch` | `:om_kill_switch` | `services: [:s3, :cache, :database, :email]` |
+| `OmS3` | `:om_s3` | `bucket: System.get_env("S3_BUCKET")` |
+| `OmStripe` | `:om_stripe` | `api_key: System.get_env("STRIPE_API_KEY")` |
+| `OmGoogle` | `:om_google` | `credentials_path: ...` |
+| `OmTypst` | `:om_typst` | Uses system typst binary |
+| `OmTtyd` | `:om_ttyd` | Uses system ttyd binary |
 | `FnTypes.Retry` | `:fn_types, FnTypes.Retry` | `default_repo: Events.Core.Repo` |
 | `FnDecorator` | `:fn_decorator` | `telemetry_prefix: [:events]` |
 
@@ -135,8 +169,18 @@ All libs are configured with Events defaults in `config/config.exs`:
 | `Events.Core.Cache` | Events cache configuration |
 | `Events.Core.Migration` | Combined Ecto + OmMigration imports |
 | `Events.Infra.Decorator` | Events-specific decorators (scheduler, workflow) |
-| `Events.Infra.KillSwitch.S3` | S3-specific kill switch helpers |
-| `Events.Infra.KillSwitch.Cache` | Cache-specific kill switch helpers |
+
+**Thin wrapper modules** (delegate to libs, kept for backwards compatibility):
+
+| Module | Delegates To |
+|--------|--------------|
+| `Events.Infra.KillSwitch.S3` | `OmKillSwitch.S3` |
+| `Events.Infra.KillSwitch.Cache` | `OmKillSwitch.Cache` |
+| `Events.Api.Clients.Stripe` | `OmStripe` |
+| `Events.Api.Clients.Google.FCM` | `OmGoogle.FCM` |
+| `Events.Api.Clients.Google.ServiceAccount` | `OmGoogle.ServiceAccount` |
+| `Events.Services.Typst` | `OmTypst` |
+| `Events.Services.Ttyd` | `OmTtyd` |
 
 ---
 
