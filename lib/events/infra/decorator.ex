@@ -191,8 +191,8 @@ defmodule Events.Infra.Decorator do
       use Events.Infra.Decorator.Define
 
       # Make utilities available for advanced use cases
-      alias Events.Support.AST
-      alias Events.Support.Context
+      alias FnDecorator.Support.AST
+      alias FnDecorator.Support.Context
     end
   end
 end

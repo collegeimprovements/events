@@ -90,6 +90,8 @@ defmodule Events.MixProject do
       {:om_google, path: "libs/om_google"},
       {:om_typst, path: "libs/om_typst"},
       {:om_ttyd, path: "libs/om_ttyd"},
+      {:om_middleware, path: "libs/om_middleware"},
+      {:om_behaviours, path: "libs/om_behaviours"},
 
       # ============================================
       # Phoenix & Web

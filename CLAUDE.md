@@ -31,12 +31,15 @@ libs/
 ├── fn_types/        # FnTypes.* - Functional types
 │   ├── Result, Maybe, Pipeline, AsyncResult, Validation
 │   ├── Guards, Error, Lens, NonEmptyList, Timing, Retry
-│   └── Protocols: Normalizable, Recoverable, Identifiable
+│   ├── Protocols: Normalizable, Recoverable, Identifiable
+│   └── Protocols.Registry (protocol introspection)
 ├── fn_decorator/    # FnDecorator.* - Decorator system
 │   ├── Caching, Telemetry, Debugging, Tracing
 │   ├── Purity, Testing, Pipeline, Types
-│   └── Security, Validation
+│   ├── Security, Validation
+│   └── Telemetry.Helpers (span, emit, timed)
 ├── om_schema/       # OmSchema.* - Schema & validation
+│   └── FieldNames (configurable field naming conventions)
 ├── om_migration/    # OmMigration.* - Migration DSL
 ├── om_query/        # OmQuery.* - Query builder
 ├── om_crud/         # OmCrud.* - CRUD operations
@@ -46,6 +49,12 @@ libs/
 ├── om_idempotency/  # OmIdempotency.* - Idempotency support
 ├── om_kill_switch/  # OmKillSwitch.* - Service kill switches
 │   └── Services: S3, Cache
+├── om_middleware/   # OmMiddleware.* - Middleware chains
+│   └── Composable processing pipelines with lifecycle hooks
+├── om_behaviours/   # OmBehaviours.* - Common behaviour patterns
+│   ├── Adapter (service adapter pattern)
+│   ├── Service (supervised service pattern)
+│   └── Builder (fluent builder pattern)
 ├── om_s3/           # OmS3.* - S3 operations
 ├── om_stripe/       # OmStripe.* - Stripe API client
 ├── om_google/       # OmGoogle.* - Google APIs
@@ -127,6 +136,21 @@ alias OmTypst
 alias OmTtyd
 alias OmTtyd.{Server, Session, SessionManager}
 
+# Middleware (from libs/om_middleware)
+alias OmMiddleware
+
+# Behaviours (from libs/om_behaviours)
+alias OmBehaviours.{Adapter, Service, Builder}
+
+# Telemetry helpers (from libs/fn_decorator)
+alias FnDecorator.Telemetry.Helpers, as: TelemetryHelpers
+
+# Protocol registry (from libs/fn_types)
+alias FnTypes.Protocols.Registry, as: ProtocolRegistry
+
+# Field names (from libs/om_schema)
+alias OmSchema.FieldNames
+
 # Decorators (from libs/fn_decorator)
 # use FnDecorator for standard decorators
 # use Events.Infra.Decorator for Events-specific (scheduler, workflow)
@@ -181,6 +205,11 @@ All libs are configured with Events defaults in `config/config.exs`:
 | `Events.Api.Clients.Google.ServiceAccount` | `OmGoogle.ServiceAccount` |
 | `Events.Services.Typst` | `OmTypst` |
 | `Events.Services.Ttyd` | `OmTtyd` |
+| `Events.Support.Middleware` | `OmMiddleware` |
+| `Events.Support.Behaviours.*` | `OmBehaviours.*` |
+| `Events.Support.Telemetry` | `FnDecorator.Telemetry.Helpers` |
+| `Events.Support.ProtocolRegistry` | `FnTypes.Protocols.Registry` |
+| `Events.Support.FieldNames` | `OmSchema.FieldNames` |
 
 ---
 
