@@ -32,12 +32,12 @@ defprotocol Events.Api.Client.Auth do
 end
 ```
 
-### Events.Core.Query.Queryable
+### OmQuery.Queryable
 Query source conversion - enables uniform query building from atoms, strings, Ecto queries.
 
 ```elixir
-defprotocol Events.Core.Query.Queryable do
-  @spec to_token(t()) :: Events.Core.Query.Token.t()
+defprotocol OmQuery.Queryable do
+  @spec to_token(t()) :: OmQuery.Token.t()
   def to_token(source)
 end
 ```

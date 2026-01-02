@@ -1,4 +1,4 @@
-defmodule Events.Errors.StripeError do
+defmodule FnTypes.Errors.StripeError do
   @moduledoc """
   Wrapper struct for Stripe API error responses.
 
@@ -223,7 +223,7 @@ defmodule Events.Errors.StripeError do
   defp extract_message(_), do: nil
 end
 
-defimpl FnTypes.Protocols.Normalizable, for: Events.Errors.StripeError do
+defimpl FnTypes.Protocols.Normalizable, for: FnTypes.Errors.StripeError do
   @moduledoc """
   Normalizable implementation for Stripe errors.
 
@@ -231,7 +231,7 @@ defimpl FnTypes.Protocols.Normalizable, for: Events.Errors.StripeError do
   """
 
   alias FnTypes.Error
-  alias Events.Errors.StripeError
+  alias FnTypes.Errors.StripeError
 
   def normalize(%StripeError{} = stripe_error, opts) do
     {type, code, message, recoverable} = map_error(stripe_error)
@@ -380,14 +380,14 @@ defimpl FnTypes.Protocols.Normalizable, for: Events.Errors.StripeError do
   end
 end
 
-defimpl FnTypes.Protocols.Recoverable, for: Events.Errors.StripeError do
+defimpl FnTypes.Protocols.Recoverable, for: FnTypes.Errors.StripeError do
   @moduledoc """
   Recoverable implementation for Stripe errors.
 
   Defines retry strategies based on error type and status code.
   """
 
-  alias Events.Errors.StripeError
+  alias FnTypes.Errors.StripeError
 
   @max_attempts_rate_limit 5
   @max_attempts_server_error 3

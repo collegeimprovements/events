@@ -433,5 +433,5 @@ end
 ## See Also
 
 - `DEFAULT_PAGINATION.md` - Default pagination behavior
-- `Events.Core.Query.Builder` - Cursor implementation
-- `Events.Core.Query.Result` - Pagination metadata
+- `OmQuery.Builder` - Cursor implementation
+- `OmQuery.Result` - Pagination metadata

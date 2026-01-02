@@ -55,7 +55,7 @@ test/
 
 ### Migration Steps
 1. Create `libs/om_query/test/om_query/` directory structure
-2. Copy tests, update module aliases (`Events.Core.Query` -> `OmQuery`)
+2. Copy tests, update module aliases (`OmQuery` -> `OmQuery`)
 3. Remove `Events.TestCase` dependency, use plain `ExUnit.Case`
 4. Create inline test schemas (already done in some tests)
 5. Mock or stub Repo for execution tests
@@ -164,9 +164,9 @@ test/
 ### 1. Test Structure
 ```elixir
 # Before (Events)
-defmodule Events.Core.Query.SyntaxTest do
+defmodule OmQuery.SyntaxTest do
   use Events.TestCase, async: true
-  alias Events.Core.Query
+  alias OmQuery
 
   # Uses Events test support
 end

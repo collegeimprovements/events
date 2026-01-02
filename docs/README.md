@@ -26,7 +26,7 @@ Welcome to the Events system documentation. This system provides comprehensive d
 ```elixir
 defmodule MyApp.User do
   use Events.Schema
-  import Events.Core.Schema.FieldHelpers
+  import OmSchema.FieldHelpers
 
   schema "users" do
     # Concise field helpers
@@ -121,7 +121,7 @@ See **[Validation Reference](./VALIDATION_REFERENCE.md)** for:
 ```elixir
 defmodule MyApp.Product do
   use Events.Schema
-  import Events.Core.Schema.FieldHelpers
+  import OmSchema.FieldHelpers
 
   schema "products" do
     title_field :name
@@ -173,7 +173,7 @@ name_field :first_name
 birth_date_field :birth_date
 
 # Using presets
-import Events.Core.Schema.Presets.Strings
+import OmSchema.Presets.Strings
 field :first_name, :string, preset: name()
 
 # Manual validations
@@ -327,7 +327,7 @@ email_field :email
 ### 2. Leverage Presets
 
 ```elixir
-import Events.Core.Schema.Presets.Strings
+import OmSchema.Presets.Strings
 
 field :first_name, :string, preset: name()
 field :last_name, :string, preset: name()

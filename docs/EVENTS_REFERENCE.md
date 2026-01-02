@@ -52,7 +52,7 @@ All major systems follow the **Behavior + Registry** pattern:
 
 ```elixir
 # 1. Define behavior
-defmodule Events.Core.Schema.Behaviours.Validator do
+defmodule OmSchema.Behaviours.Validator do
   @callback validate(changeset, field_name, opts) :: changeset
   @callback field_types() :: [atom()]
   @callback supported_options() :: [atom()]
@@ -60,7 +60,7 @@ end
 
 # 2. Implement behavior
 defmodule MyApp.CustomValidator do
-  @behaviour Events.Core.Schema.Behaviours.Validator
+  @behaviour OmSchema.Behaviours.Validator
 
   @impl true
   def field_types, do: [:money]
@@ -73,7 +73,7 @@ defmodule MyApp.CustomValidator do
 end
 
 # 3. Register implementation
-Events.Core.Schema.ValidatorRegistry.register(:money, MyApp.CustomValidator)
+OmSchema.ValidatorRegistry.register(:money, MyApp.CustomValidator)
 ```
 
 ## Registry Pattern
@@ -84,31 +84,31 @@ Maps field types to validator modules:
 
 ```elixir
 # Get validator for a field type
-Events.Core.Schema.ValidatorRegistry.get(:string)
-# => Events.Core.Schema.Validators.String
+OmSchema.ValidatorRegistry.get(:string)
+# => OmSchema.Validators.String
 
 # Register custom validator
-Events.Core.Schema.ValidatorRegistry.register(:phone, MyApp.PhoneValidator)
+OmSchema.ValidatorRegistry.register(:phone, MyApp.PhoneValidator)
 
 # List all validators
-Events.Core.Schema.ValidatorRegistry.all()
-# => %{string: Events.Core.Schema.Validators.String, integer: Events.Core.Schema.Validators.Number, ...}
+OmSchema.ValidatorRegistry.all()
+# => %{string: OmSchema.Validators.String, integer: OmSchema.Validators.Number, ...}
 ```
 
 ### DecoratorRegistry (Decorator System)
 
-Maps decorator names to modules and functions:
+Maps decorator names to modules and functions (use `FnDecorator.Registry` directly from libs):
 
 ```elixir
 # Get decorator implementation
-Events.Infra.Decorator.Registry.get(:cacheable)
-# => {Events.Infra.Decorator.Caching, :cacheable}
+FnDecorator.Registry.get(:cacheable)
+# => {FnDecorator.Caching, :cacheable}
 
 # Register custom decorator
-Events.Infra.Decorator.Registry.register(:my_decorator, MyModule, :my_decorator)
+FnDecorator.Registry.register(:my_decorator, MyModule, :my_decorator)
 
 # List decorators by category
-Events.Infra.Decorator.Registry.by_category()
+FnDecorator.Registry.by_category()
 # => %{caching: [:cacheable, :cache_put, :cache_evict], ...}
 ```
 
@@ -170,10 +170,10 @@ if TokenValidator.valid?(token), do: execute(token)
 
 ### Decorator Introspection
 
-Query decorator metadata at runtime (requires modules compiled with `use Events.Infra.Decorator`):
+Query decorator metadata at runtime (use `FnDecorator.Introspection` directly from libs):
 
 ```elixir
-alias Events.Infra.Decorator.Introspection
+alias FnDecorator.Introspection
 
 # Get all decorated functions
 Introspection.decorators(MyModule)
@@ -198,7 +198,7 @@ Introspection.functions_with_decorator(MyModule, :cacheable)
 
 ## Getting Started
 
-Replace `use Ecto.Schema` with `use Events.Core.Schema`:
+Replace `use Ecto.Schema` with `use OmSchema`:
 
 ```elixir
 defmodule MyApp.Accounts.User do
@@ -616,7 +616,7 @@ end
 Import presets for common field patterns:
 
 ```elixir
-import Events.Core.Schema.Presets
+import OmSchema.Presets
 ```
 
 ### Available Presets
@@ -740,7 +740,7 @@ field :phone, :string, mappers: [:trim, fn v -> String.replace(v, "-", "") end]
 ### Mapper Functions
 
 ```elixir
-import Events.Core.Schema.Mappers
+import OmSchema.Mappers
 
 # Get mapper functions
 trim = trim()
@@ -2241,7 +2241,7 @@ def expensive_calculation(input), do: complex_math(input)
 ```elixir
 defmodule MyApp.Accounts.User do
   use Events.Schema
-  import Events.Core.Schema.Presets
+  import OmSchema.Presets
 
   @changeset_actions %{
     create: [also_required: [:password]],

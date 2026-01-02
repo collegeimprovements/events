@@ -4,7 +4,7 @@ Complete guide to building queries dynamically with parameter interpolation and 
 
 ## Overview
 
-The `Events.Core.Query.DynamicBuilder` module provides a powerful way to build queries from data structures, enabling:
+The `OmQuery.DynamicBuilder` module provides a powerful way to build queries from data structures, enabling:
 
 ✅ **Consistent 4-tuple format** for all operations
 ✅ **Parameter interpolation** with `{:param, key}` syntax
@@ -130,7 +130,7 @@ Parameters are resolved when building the query, allowing for:
 ### Basic Building
 
 ```elixir
-alias Events.Core.Query.DynamicBuilder
+alias OmQuery.DynamicBuilder
 
 spec = %{
   filters: [
@@ -424,7 +424,7 @@ end
 Convert between pipeline and DSL syntax:
 
 ```elixir
-alias Events.Core.Query.SyntaxConverter
+alias OmQuery.SyntaxConverter
 
 # Token to DSL
 token = User
@@ -594,11 +594,11 @@ end
 
 ## See Also
 
-- `Events.Core.Query` - Core query API
-- `Events.Core.Query.Token` - Token structure
-- `Events.Core.Query.DynamicBuilder` - Dynamic building
-- `Events.Core.Query.SyntaxConverter` - Syntax conversion
-- `Events.Core.Query.SearchExamples` - Comprehensive examples
+- `OmQuery` - Core query API
+- `OmQuery.Token` - Token structure
+- `OmQuery.DynamicBuilder` - Dynamic building
+- `OmQuery.SyntaxConverter` - Syntax conversion
+- `OmQuery.SearchExamples` - Comprehensive examples
 - `LISTING_QUERIES.md` - Filter and order guide
 - `NESTED_QUERIES.md` - Nested preload guide
 - `QUERY_SYSTEM.md` - Complete API reference

@@ -1,7 +1,7 @@
-defmodule Events.Api.Client.ResponseTest do
+defmodule OmApiClient.ResponseTest do
   use ExUnit.Case, async: true
 
-  alias Events.Api.Client.Response
+  alias OmApiClient.Response
 
   describe "new/4" do
     test "creates a response with basic data" do

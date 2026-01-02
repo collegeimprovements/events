@@ -1,6 +1,6 @@
-# Events.Core.Query Syntax Guide
+# OmQuery Syntax Guide
 
-This guide covers all syntax variations for the Events.Core.Query module, including pipeline style, macro DSL, and all available operations.
+This guide covers all syntax variations for the OmQuery module, including pipeline style, macro DSL, and all available operations.
 
 ## Table of Contents
 
@@ -30,7 +30,7 @@ User
 |> Query.execute()
 
 # Macro DSL Style
-import Events.Core.Query.DSL
+import OmQuery.DSL
 
 query User do
   where :status == "active"
@@ -75,10 +75,10 @@ from(u in User, where: u.admin == true)
 
 ### Macro DSL Style
 
-Import `Events.Core.Query.DSL` for a clean, Ecto-like syntax:
+Import `OmQuery.DSL` for a clean, Ecto-like syntax:
 
 ```elixir
-import Events.Core.Query.DSL
+import OmQuery.DSL
 
 token = query User do
   where :status == "active"
@@ -121,7 +121,7 @@ User
 ### DSL Syntax
 
 ```elixir
-import Events.Core.Query.DSL
+import OmQuery.DSL
 
 # Traditional filter syntax
 query User do
@@ -836,7 +836,7 @@ end)
 |> Query.execute()
 
 # DSL Style
-import Events.Core.Query.DSL
+import OmQuery.DSL
 
 query Product do
   # Joins with ON conditions (using convenience macros)
@@ -1025,7 +1025,7 @@ count = Repo.aggregate(query, :count)
 ## Result Structure
 
 ```elixir
-%Events.Core.Query.Result{
+%OmQuery.Result{
   data: [...],
   pagination: %{
     type: :cursor,

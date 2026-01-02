@@ -334,7 +334,7 @@ spec = %{
 ### Cursor Pagination Result
 
 ```elixir
-%Events.Core.Query.Result{
+%OmQuery.Result{
   data: [...],
   pagination: %{
     type: :cursor,
@@ -352,7 +352,7 @@ spec = %{
 ### Offset Pagination Result
 
 ```elixir
-%Events.Core.Query.Result{
+%OmQuery.Result{
   data: [...],
   pagination: %{
     type: :offset,
@@ -458,8 +458,8 @@ The system is designed to give you sensible defaults while remaining fully custo
 
 ## See Also
 
-- `Events.Core.Query` - Core query API
-- `Events.Core.Query.DynamicBuilder` - Dynamic building
-- `Events.Core.Query.Result` - Result structure
+- `OmQuery` - Core query API
+- `OmQuery.DynamicBuilder` - Dynamic building
+- `OmQuery.Result` - Result structure
 - `QUERY_SYSTEM.md` - Complete API reference
 - `DYNAMIC_BUILDER.md` - Dynamic query guide

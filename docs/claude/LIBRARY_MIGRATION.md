@@ -13,7 +13,7 @@ The Events project has extracted reusable functionality into standalone librarie
 | Wrapper Module | Library | Delegation % | Events-Specific Parts | Action |
 |---------------|---------|--------------|----------------------|--------|
 | `Events.Core.Crud` | `OmCrud` | 100% | None | **REMOVE** |
-| `Events.Core.Query` | `OmQuery` | 100% | Protocol implementations for CRUD | **KEEP protocols.ex only** |
+| `OmQuery` | `OmQuery` | 100% | Protocol implementations for CRUD | **KEEP protocols.ex only** |
 | `Events.Infra.Decorator` | `FnDecorator` | 88% | 6 decorators (scheduler, workflow, telemetry) | **SIMPLIFY** |
 | `Events.Api.Client.Telemetry` | `OmApiClient.Telemetry` | 95% | Custom prefix `[:events, :api_client]` | **REMOVE** (configure prefix) |
 
@@ -61,9 +61,9 @@ The Events project has extracted reusable functionality into standalone librarie
 
 ```elixir
 # Enables: User |> Query.new() |> Query.where(...) |> Crud.run()
-defimpl OmCrud.Executable, for: Events.Core.Query.Token
-defimpl OmCrud.Validatable, for: Events.Core.Query.Token
-defimpl OmCrud.Debuggable, for: Events.Core.Query.Token
+defimpl OmCrud.Executable, for: OmQuery.Token
+defimpl OmCrud.Validatable, for: OmQuery.Token
+defimpl OmCrud.Debuggable, for: OmQuery.Token
 ```
 
 **Solution**: Move these implementations to OmQuery, OR keep minimal `lib/events/core/query/protocols.ex`.
@@ -152,16 +152,16 @@ defmodule Events.Infra.Decorator.EventsSpecific do
   # Only Events-specific implementations here
   defdelegate log_query(opts, body, context), to: Events.Infra.Decorator.Telemetry
   defdelegate log_remote(opts, body, context), to: Events.Infra.Decorator.Telemetry
-  defdelegate scheduled(opts, body, context), to: Events.Infra.Scheduler.Decorator.Scheduled
+  defdelegate scheduled(opts, body, context), to: OmScheduler.Decorator.Scheduled
   # ... etc
 end
 ```
 
-### Phase 4: Refactor Events.Core.Query (Complex)
+### Phase 4: Refactor OmQuery (Complex)
 
 **Option A**: Keep minimal wrapper
 - Delete all files in `lib/events/core/query/` EXCEPT `protocols.ex`
-- Change `Events.Core.Query` to just re-export `OmQuery` with protocol registration
+- Change `OmQuery` to just re-export `OmQuery` with protocol registration
 
 **Option B**: Move protocols to OmQuery
 - Add protocol implementations to `libs/om_query/`
@@ -171,7 +171,7 @@ end
 
 ```elixir
 # New minimal lib/events/core/query.ex
-defmodule Events.Core.Query do
+defmodule OmQuery do
   @moduledoc "Re-exports OmQuery with CRUD protocol integration"
 
   # Re-export everything from OmQuery
@@ -211,7 +211,7 @@ alias OmCrud.{Multi, Merge}
 OmCrud.create(User, attrs)
 Multi.new() |> Multi.create(:user, User, attrs) |> OmCrud.run()
 
-# Query - use OmQuery directly (or Events.Core.Query for CRUD integration)
+# Query - use OmQuery directly (or OmQuery for CRUD integration)
 alias OmQuery
 OmQuery.new(User) |> OmQuery.filter(:active, :eq, true) |> OmQuery.execute()
 

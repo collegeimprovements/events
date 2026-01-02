@@ -131,6 +131,24 @@ defmodule OmApiClient.Request do
   end
 
   @doc """
+  Appends a segment to the current path.
+
+  ## Examples
+
+      req
+      |> Request.path("/v1/customers")
+      |> Request.append_path(customer_id)
+      |> Request.append_path("charges")
+      # => "/v1/customers/cus_123/charges"
+  """
+  @spec append_path(t(), String.t()) :: t()
+  def append_path(%__MODULE__{path: current} = req, segment) when is_binary(segment) do
+    current_path = current || ""
+    new_path = String.trim_trailing(current_path, "/") <> "/" <> String.trim_leading(segment, "/")
+    %{req | path: new_path}
+  end
+
+  @doc """
   Adds query parameters.
 
   Can be called multiple times; parameters are merged.

@@ -178,11 +178,11 @@ STRIPE_API_VERSION=2024-10-28.acacia
 
 **Example:**
 ```elixir
-config :events, Events.Infra.Scheduler,
+config :events, OmScheduler,
   enabled: true,
   store: :database,
   repo: Events.Core.Repo,
-  peer: Events.Infra.Scheduler.Peer.Postgres,
+  peer: OmScheduler.Peer.Postgres,
   queues: [
     default: 10,
     realtime: 20

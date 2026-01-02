@@ -513,6 +513,6 @@ The query system is designed to meet you where you are - use the format that mak
 ## See Also
 
 - `DYNAMIC_BUILDER.md` - Dynamic query building guide
-- `Events.Core.Query.DynamicBuilder` - Implementation details
+- `OmQuery.DynamicBuilder` - Implementation details
 - `test/events/query/dynamic_builder_formats_test.exs` - Format equivalence tests
 - `LISTING_QUERIES.md` - List-based API guide

@@ -861,7 +861,7 @@ Schema-level CRUD integration.
 
 ```elixir
 defmodule MyApp.Accounts.User do
-  use Events.Core.Schema
+  use OmSchema
   use Events.Core.Crud.Schema
 
   schema "users" do

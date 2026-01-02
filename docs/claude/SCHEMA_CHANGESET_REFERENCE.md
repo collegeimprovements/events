@@ -20,11 +20,11 @@
 
 ## Getting Started
 
-Always use `Events.Core.Schema` instead of `Ecto.Schema`:
+Always use `OmSchema` instead of `Ecto.Schema`:
 
 ```elixir
 defmodule MyApp.Accounts.User do
-  use Events.Core.Schema
+  use OmSchema
 
   schema "users" do
     field :name, :string, required: true, min_length: 2
@@ -429,7 +429,7 @@ end
 Import presets for common field patterns:
 
 ```elixir
-import Events.Core.Schema.Presets
+import OmSchema.Presets
 ```
 
 ### Available Presets
@@ -552,7 +552,7 @@ field :phone, :string, mappers: [:trim, fn v -> String.replace(v, "-", "") end]
 ### Mapper Functions
 
 ```elixir
-import Events.Core.Schema.Mappers
+import OmSchema.Mappers
 
 # Get mapper functions
 trim = trim()
@@ -820,8 +820,8 @@ end
 
 ```elixir
 defmodule MyApp.Accounts.User do
-  use Events.Core.Schema
-  import Events.Core.Schema.Presets
+  use OmSchema
+  import OmSchema.Presets
 
   @changeset_actions %{
     create: [also_required: [:password]],
@@ -903,7 +903,7 @@ end
 
 ```elixir
 defmodule MyApp.Blog.Post do
-  use Events.Core.Schema
+  use OmSchema
 
   schema "posts" do
     field :title, :string, required: true, min_length: 1, max_length: 200
@@ -929,8 +929,8 @@ end
 
 ```elixir
 defmodule MyApp.Catalog.Product do
-  use Events.Core.Schema
-  import Events.Core.Schema.Presets
+  use OmSchema
+  import OmSchema.Presets
 
   schema "products" do
     field :name, :string, required: true

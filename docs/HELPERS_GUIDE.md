@@ -1,11 +1,11 @@
 # Query Helpers Guide
 
-Comprehensive guide to using `Events.Core.Query.Helpers` for more ergonomic query building.
+Comprehensive guide to using `OmQuery.Helpers` for more ergonomic query building.
 
 ## Setup
 
 ```elixir
-import Events.Core.Query.Helpers
+import OmQuery.Helpers
 ```
 
 ## Date Helpers (return `Date.t()`)
@@ -190,7 +190,7 @@ Here's a realistic API endpoint using all helpers:
 
 ```elixir
 defmodule MyApp.PostController do
-  import Events.Core.Query.Helpers
+  import OmQuery.Helpers
   alias Events.Query
 
   def index(params) do
@@ -374,7 +374,7 @@ The helpers module makes query building more intuitive and maintainable:
 Import once, use everywhere:
 
 ```elixir
-import Events.Core.Query.Helpers
+import OmQuery.Helpers
 ```
 
 Happy querying! 🚀

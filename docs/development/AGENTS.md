@@ -188,7 +188,7 @@ use Ecto.Migration
 ```elixir
 defmodule MyApp.User do
   use Events.Schema
-  import Events.Core.Schema.Presets
+  import OmSchema.Presets
 
   schema "users" do
     field :email, :string, email()
@@ -420,7 +420,7 @@ end
 |-------|--------|
 | `if...else` | `case`, `cond`, pattern matching |
 | `Repo.insert!()` | `Repo.insert()` |
-| `use Ecto.Schema` | `use Events.Core.Schema` |
+| `use Ecto.Schema` | `use OmSchema` |
 | Nested case | `with` statement |
 | Macros for logic | Functions + pattern matching |
 | Raising errors | Return `{:error, reason}` |

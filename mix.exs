@@ -86,6 +86,10 @@ defmodule Events.MixProject do
       {:om_health, path: "libs/om_health"},
       {:om_cache, path: "libs/om_cache"},
       {:om_pubsub, path: "libs/om_pubsub"},
+      {:om_stripe, path: "libs/om_stripe"},
+      {:om_google, path: "libs/om_google"},
+      {:om_typst, path: "libs/om_typst"},
+      {:om_ttyd, path: "libs/om_ttyd"},
 
       # ============================================
       # Phoenix & Web

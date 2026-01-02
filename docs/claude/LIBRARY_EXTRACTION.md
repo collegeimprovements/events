@@ -11,16 +11,16 @@ Make modules 100% extractable to separate libraries while keeping them in the Ev
 | Library | Score | Status |
 |---------|-------|--------|
 | **Events.Types** | 10/10 | Ready - Phase 1 Complete |
-| **Events.Core.Query** | 10/10 | Ready - Phase 2 Complete |
-| **Events.Core.Schema** | 10/10 | Ready - Phase 7 Complete |
+| **OmQuery** | 10/10 | Ready - Phase 2 Complete |
+| **OmSchema** | 10/10 | Ready - Phase 7 Complete |
 | **Events.Core.Migration** | 10/10 | Ready - Phase 7 Complete |
 | **Events.Api** | 10/10 | Ready - Phase 4 Complete |
 | **Events.Infra.Idempotency** | 10/10 | Ready - Phase 6 Complete |
-| **Events.Infra.KillSwitch** | 10/10 | Ready - Phase 4 Complete |
+| **OmKillSwitch** | 10/10 | Ready - Phase 4 Complete |
 | **Events.Infra.Decorator** | 10/10 | Ready - Phase 4 Complete |
 | **Events.Infra.SystemHealth** | 10/10 | Ready - Phase 6 Complete |
 | **Events.Infra.Mailer** | 10/10 | Ready - Phase 4 Complete |
-| **Events.Infra.Scheduler** | 10/10 | Ready - Phase 5 Complete |
+| **OmScheduler** | 10/10 | Ready - Phase 5 Complete |
 
 ---
 
@@ -29,10 +29,10 @@ Make modules 100% extractable to separate libraries while keeping them in the Ev
 ```
 Events.Types ──────────────────────── (pure, no deps) ✅
 
-Events.Core.Query ─── Ecto (external)
+OmQuery ─── Ecto (external)
                   └── Events.Core.Repo (configurable via compile_env) ✅
 
-Events.Core.Schema ─── Ecto (external)
+OmSchema ─── Ecto (external)
                    └── Events.Core.Repo (configurable via compile_env) ✅
                    └── app_name configurable via compile_env ✅
 
@@ -44,12 +44,12 @@ Events.Api.Client ─── req (external)
                   └── implements Idempotency.ResponseBehaviour ✅
 
 Events.Infra.Idempotency ─── Events.Core.Repo (configurable via compile_env) ✅
-                         └── Events.Core.Schema
+                         └── OmSchema
                          └── defines RequestBehaviour (no Api deps) ✅
                          └── defines ResponseBehaviour (no Api deps) ✅
                          └── telemetry prefix configurable ✅
 
-Events.Infra.KillSwitch ─── app_name configurable via compile_env ✅
+OmKillSwitch ─── app_name configurable via compile_env ✅
 
 Events.Infra.Decorator ─── Events.Core.Repo (configurable via compile_env) ✅
 
@@ -57,7 +57,7 @@ Events.Infra.SystemHealth ─── app_name configurable via compile_env ✅
 
 Events.Infra.Mailer ─── otp_app configurable via compile_env ✅
 
-Events.Infra.Scheduler ─── Events.Core.Schema (Job, Execution)
+OmScheduler ─── OmSchema (Job, Execution)
                        └── Events.Core.Repo (configurable via compile_env) ✅
                        └── app_name configurable via compile_env ✅
                        └── telemetry prefix configurable via compile_env ✅
@@ -97,7 +97,7 @@ Events.Infra.Scheduler ─── Events.Core.Schema (Job, Execution)
 
 ---
 
-## Phase 2: Events.Core.Query (COMPLETE)
+## Phase 2: OmQuery (COMPLETE)
 
 **Target:** Make Query builder extractable as standalone `query` library.
 
@@ -113,10 +113,10 @@ Events.Infra.Scheduler ─── Events.Core.Schema (Job, Execution)
 - `lib/events/core/query/token.ex` - Switched to `compile_env` for limit configurations
 - `lib/events/core/query/debug.ex` - Added `@default_repo` module attribute
 - `lib/events/core/query/test_helpers.ex` - Added `@default_repo` module attribute
-- `config/config.exs` - Added default configuration for `Events.Core.Query`
+- `config/config.exs` - Added default configuration for `OmQuery`
 
 **Extraction would require:**
-- Rename `Events.Core.Query.*` → `Query.*` (or chosen library name)
+- Rename `OmQuery.*` → `Query.*` (or chosen library name)
 - Update mix.exs with standalone deps (Ecto)
 - Update config key from `:events` to library name
 - No code logic changes needed
@@ -191,11 +191,11 @@ Api.Client → Idempotency.Middleware → Api.Client.{Request, Response}
 
 ---
 
-## Phase 7: Events.Core.Schema & Migration (COMPLETE)
+## Phase 7: OmSchema & Migration (COMPLETE)
 
 **Target:** Make Schema and Migration modules fully extractable.
 
-### Events.Core.Schema
+### OmSchema
 
 **Files modified:**
 - `lib/events/core/schema.ex` - Added `@app_name` and `@default_repo` for `deletion_impact/2`
@@ -206,7 +206,7 @@ Api.Client → Idempotency.Middleware → Api.Client.{Request, Response}
 - `lib/events/core/schema/field.ex` - Added `@app_name` for warnings config
 
 **Extraction would require:**
-- Rename `Events.Core.Schema.*` → `Schema.*` (or chosen library name)
+- Rename `OmSchema.*` → `Schema.*` (or chosen library name)
 - Update mix.exs with standalone deps (Ecto)
 - Update config key from `:events` to library name
 - No code logic changes needed
@@ -271,14 +271,14 @@ end
 | 2025-12-11 | 1 | Move Recoverable protocol to Types | Complete |
 | 2025-12-11 | 1 | Create backwards-compat aliases | Complete |
 | 2025-12-11 | 1 | Verify extractability (all tests pass) | Complete |
-| 2025-12-11 | 2 | Audit Events.Core.Query dependencies | Complete |
+| 2025-12-11 | 2 | Audit OmQuery dependencies | Complete |
 | 2025-12-11 | 2 | Make Repo configurable in query.ex (6 places) | Complete |
 | 2025-12-11 | 2 | Make Repo configurable in executor.ex | Complete |
 | 2025-12-11 | 2 | Make telemetry prefix configurable in executor.ex | Complete |
 | 2025-12-11 | 2 | Make Repo configurable in debug.ex | Complete |
 | 2025-12-11 | 2 | Make Repo configurable in test_helpers.ex | Complete |
 | 2025-12-11 | 2 | Switch token.ex to compile_env | Complete |
-| 2025-12-11 | 2 | Add Events.Core.Query config to config.exs | Complete |
+| 2025-12-11 | 2 | Add OmQuery config to config.exs | Complete |
 | 2025-12-11 | 2 | Verify extractability (all 2196 tests pass) | Complete |
 | 2025-12-11 | 3 | Analyze Api/Idempotency circular dependency | Complete |
 | 2025-12-11 | 3 | Create Idempotency.RequestBehaviour | Complete |
@@ -313,7 +313,7 @@ end
 | 2025-12-11 | 6 | Make SystemHealth.Infra repo/cache modules configurable | Complete |
 | 2025-12-11 | 6 | Note: Idempotency.Record schema requires simple `use` change | Complete |
 | 2025-12-11 | 6 | Verify extractability (all 2196 tests pass) | Complete |
-| 2025-12-11 | 7 | Audit Events.Core.Schema dependencies | Complete |
+| 2025-12-11 | 7 | Audit OmSchema dependencies | Complete |
 | 2025-12-11 | 7 | Audit Events.Core.Migration dependencies | Complete |
 | 2025-12-11 | 7 | Make Schema.DatabaseValidator repo/app_name configurable | Complete |
 | 2025-12-11 | 7 | Make Schema.ValidationPipeline app_name configurable | Complete |

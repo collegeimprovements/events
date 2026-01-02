@@ -30,7 +30,7 @@ A clean, composable workflow system for orchestrating multi-step job DAGs with d
 
 ```elixir
 defmodule MyApp.UserOnboarding do
-  use Events.Infra.Scheduler.Workflow, name: :user_onboarding
+  use OmScheduler.Workflow, name: :user_onboarding
 
   @decorate step()
   def create_account(ctx) do
@@ -61,7 +61,7 @@ end
 ### Using Builder API
 
 ```elixir
-alias Events.Infra.Scheduler.Workflow
+alias OmScheduler.Workflow
 
 Workflow.new(:user_onboarding)
 |> Workflow.step(:create_account, &create_account/1)
@@ -139,7 +139,7 @@ The Builder API provides a fluent, pipeline-style interface for constructing wor
 ### Basic Workflow
 
 ```elixir
-alias Events.Infra.Scheduler.Workflow
+alias OmScheduler.Workflow
 
 Workflow.new(:data_export)
 |> Workflow.step(:fetch_data, &fetch_data/1)
@@ -283,7 +283,7 @@ The Decorator API provides a declarative, module-based approach that's often cle
 
 ```elixir
 defmodule MyApp.DataPipeline do
-  use Events.Infra.Scheduler.Workflow,
+  use OmScheduler.Workflow,
     name: :data_pipeline,
     timeout: {1, :hour},
     step_timeout: {10, :minutes}
@@ -363,7 +363,7 @@ def my_step(ctx), do: ...
 
 ```elixir
 defmodule MyApp.MultiUpload do
-  use Events.Infra.Scheduler.Workflow, name: :multi_upload
+  use OmScheduler.Workflow, name: :multi_upload
 
   @decorate step()
   def prepare(ctx) do
@@ -402,7 +402,7 @@ end
 
 ```elixir
 defmodule MyApp.OrderFulfillment do
-  use Events.Infra.Scheduler.Workflow, name: :order_fulfillment
+  use OmScheduler.Workflow, name: :order_fulfillment
 
   @decorate step()
   def validate_order(ctx) do
@@ -661,7 +661,7 @@ def non_critical_step(ctx), do: ...
 
 ```elixir
 defmodule MyApp.RobustWorkflow do
-  use Events.Infra.Scheduler.Workflow,
+  use OmScheduler.Workflow,
     name: :robust_workflow,
     on_failure: :handle_failure,
     on_success: :handle_success,
@@ -733,7 +733,7 @@ Rollbacks implement the Saga pattern for distributed transactions. When a workfl
 
 ```elixir
 defmodule MyApp.PaymentWorkflow do
-  use Events.Infra.Scheduler.Workflow, name: :payment_workflow
+  use OmScheduler.Workflow, name: :payment_workflow
 
   @decorate step(rollback: :release_inventory)
   def reserve_inventory(ctx) do
@@ -802,7 +802,7 @@ Workflow.cancel(execution_id, rollback: true)
 
 ```elixir
 defmodule MyApp.ExpenseApproval do
-  use Events.Infra.Scheduler.Workflow, name: :expense_approval
+  use OmScheduler.Workflow, name: :expense_approval
 
   @decorate step()
   def submit_expense(ctx) do
@@ -861,7 +861,7 @@ Grafting allows dynamic expansion of workflows at runtime - useful when you don'
 
 ```elixir
 defmodule MyApp.BatchProcessor do
-  use Events.Infra.Scheduler.Workflow, name: :batch_processor
+  use OmScheduler.Workflow, name: :batch_processor
 
   @decorate step()
   def fetch_batch(ctx) do
@@ -901,7 +901,7 @@ end
 ```elixir
 # Reusable notification workflow
 defmodule MyApp.NotificationWorkflow do
-  use Events.Infra.Scheduler.Workflow, name: :send_notification
+  use OmScheduler.Workflow, name: :send_notification
 
   @decorate step()
   def format_message(ctx) do
@@ -924,7 +924,7 @@ end
 
 # Parent workflow that uses nested workflow
 defmodule MyApp.OrderWorkflow do
-  use Events.Infra.Scheduler.Workflow, name: :order_workflow
+  use OmScheduler.Workflow, name: :order_workflow
 
   @decorate step()
   def create_order(ctx) do
@@ -975,7 +975,7 @@ end
 ### Cron Expressions
 
 ```elixir
-use Events.Infra.Scheduler.Workflow,
+use OmScheduler.Workflow,
   name: :scheduled_workflow,
   schedule: [cron: "0 6 * * *"]  # Daily at 6 AM
 
@@ -1244,7 +1244,7 @@ Workflow.list_all()
 
 ```elixir
 defmodule MyApp.Workflows.OrderProcessing do
-  use Events.Infra.Scheduler.Workflow,
+  use OmScheduler.Workflow,
     name: :order_processing,
     timeout: {30, :minutes},
     on_failure: :handle_order_failure,
@@ -1388,7 +1388,7 @@ end
 
 ```elixir
 defmodule MyApp.Workflows.DailyDataPipeline do
-  use Events.Infra.Scheduler.Workflow,
+  use OmScheduler.Workflow,
     name: :daily_data_pipeline,
     timeout: {2, :hours},
     schedule: [cron: "0 2 * * *"],  # Run at 2 AM daily
@@ -1498,7 +1498,7 @@ end
 
 ```elixir
 defmodule MyApp.Workflows.UserOnboarding do
-  use Events.Infra.Scheduler.Workflow,
+  use OmScheduler.Workflow,
     name: :user_onboarding,
     timeout: {7, :days},  # Long timeout for human interactions
     on_failure: :cleanup_failed_signup
@@ -1626,7 +1626,7 @@ end
 
 ```elixir
 defmodule MyApp.Workflows.ImageProcessing do
-  use Events.Infra.Scheduler.Workflow,
+  use OmScheduler.Workflow,
     name: :batch_image_processing,
     timeout: {1, :hour},
     step_concurrency: 10  # Process 10 images at a time
@@ -1693,7 +1693,7 @@ end
 
 ```elixir
 defmodule MyApp.Workflows.TenantMigration do
-  use Events.Infra.Scheduler.Workflow,
+  use OmScheduler.Workflow,
     name: :tenant_migration,
     timeout: {4, :hours},
     on_failure: :rollback_migration

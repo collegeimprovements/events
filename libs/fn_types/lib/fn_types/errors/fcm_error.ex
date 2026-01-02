@@ -1,4 +1,4 @@
-defmodule Events.Errors.FCMError do
+defmodule FnTypes.Errors.FcmError do
   @moduledoc """
   Wrapper struct for Firebase Cloud Messaging (FCM) error responses.
 
@@ -21,7 +21,7 @@ defmodule Events.Errors.FCMError do
   ## Usage
 
       # Create from FCM response
-      error = FCMError.new("UNREGISTERED",
+      error = FcmError.new("UNREGISTERED",
         message: "Token not registered",
         status: "NOT_FOUND",
         device_token: "abc123..."
@@ -34,14 +34,14 @@ defmodule Events.Errors.FCMError do
       FnTypes.Protocols.Recoverable.recoverable?(error)  #=> false (permanent)
 
       FnTypes.Protocols.Recoverable.recoverable?(
-        FCMError.new("QUOTA_EXCEEDED")
+        FcmError.new("QUOTA_EXCEEDED")
       )  #=> true (transient)
 
   ## Integration with FCM Client
 
       case FCM.push(config, message_opts) do
         {:ok, response} -> {:ok, response}
-        {:error, %FCMError{code: "UNREGISTERED"} = error} ->
+        {:error, %FcmError{code: "UNREGISTERED"} = error} ->
           # Remove invalid token from database
           Tokens.invalidate(error.device_token)
           {:error, Normalizable.normalize(error)}
@@ -78,8 +78,8 @@ defmodule Events.Errors.FCMError do
 
   ## Examples
 
-      FCMError.new("UNREGISTERED", message: "Token not registered")
-      FCMError.new("QUOTA_EXCEEDED", http_status: 429)
+      FcmError.new("UNREGISTERED", message: "Token not registered")
+      FcmError.new("QUOTA_EXCEEDED", http_status: 429)
   """
   @spec new(String.t() | nil, keyword()) :: t()
   def new(code, opts \\ []) do
@@ -127,7 +127,7 @@ defmodule Events.Errors.FCMError do
   def transient?(_), do: false
 end
 
-defimpl FnTypes.Protocols.Normalizable, for: Events.Errors.FCMError do
+defimpl FnTypes.Protocols.Normalizable, for: FnTypes.Errors.FcmError do
   @moduledoc """
   Normalizable implementation for FCM errors.
 
@@ -135,9 +135,9 @@ defimpl FnTypes.Protocols.Normalizable, for: Events.Errors.FCMError do
   """
 
   alias FnTypes.Error
-  alias Events.Errors.FCMError
+  alias FnTypes.Errors.FcmError
 
-  def normalize(%FCMError{} = fcm_error, opts) do
+  def normalize(%FcmError{} = fcm_error, opts) do
     {type, code, message, recoverable} = map_error_code(fcm_error.code)
 
     Error.new(type, code,
@@ -150,7 +150,7 @@ defimpl FnTypes.Protocols.Normalizable, for: Events.Errors.FCMError do
     )
   end
 
-  defp build_details(%FCMError{} = error) do
+  defp build_details(%FcmError{} = error) do
     %{
       fcm_code: error.code,
       fcm_status: error.status,
@@ -195,63 +195,63 @@ defimpl FnTypes.Protocols.Normalizable, for: Events.Errors.FCMError do
     do: {:unknown, :unspecified_error, "Unspecified FCM error", false}
 end
 
-defimpl FnTypes.Protocols.Recoverable, for: Events.Errors.FCMError do
+defimpl FnTypes.Protocols.Recoverable, for: FnTypes.Errors.FcmError do
   @moduledoc """
   Recoverable implementation for FCM errors.
 
   Defines retry strategies based on error type.
   """
 
-  alias Events.Errors.FCMError
+  alias FnTypes.Errors.FcmError
 
   @transient_codes ["QUOTA_EXCEEDED", "UNAVAILABLE", "INTERNAL"]
   @max_attempts_rate_limit 5
   @max_attempts_server_error 3
 
-  def recoverable?(%FCMError{code: code}) when code in @transient_codes, do: true
+  def recoverable?(%FcmError{code: code}) when code in @transient_codes, do: true
   def recoverable?(_), do: false
 
-  def strategy(%FCMError{code: "QUOTA_EXCEEDED"}), do: :retry_with_backoff
-  def strategy(%FCMError{code: "UNAVAILABLE"}), do: :retry_with_backoff
-  def strategy(%FCMError{code: "INTERNAL"}), do: :retry
+  def strategy(%FcmError{code: "QUOTA_EXCEEDED"}), do: :retry_with_backoff
+  def strategy(%FcmError{code: "UNAVAILABLE"}), do: :retry_with_backoff
+  def strategy(%FcmError{code: "INTERNAL"}), do: :retry
   def strategy(_), do: :fail_fast
 
-  def retry_delay(%FCMError{code: "QUOTA_EXCEEDED"}, attempt) do
+  def retry_delay(%FcmError{code: "QUOTA_EXCEEDED"}, attempt) do
     # Exponential backoff with jitter for rate limits
     base_delay = 1000 * :math.pow(2, attempt - 1)
     jitter = :rand.uniform(round(base_delay * 0.1))
     min(round(base_delay + jitter), 60_000)
   end
 
-  def retry_delay(%FCMError{code: "UNAVAILABLE"}, attempt) do
+  def retry_delay(%FcmError{code: "UNAVAILABLE"}, attempt) do
     # Longer delays for service unavailability
     base_delay = 2000 * :math.pow(2, attempt - 1)
     jitter = :rand.uniform(round(base_delay * 0.2))
     min(round(base_delay + jitter), 120_000)
   end
 
-  def retry_delay(%FCMError{}, attempt) do
+  def retry_delay(%FcmError{}, attempt) do
     # Default fixed delay with backoff
     min(1000 * attempt, 10_000)
   end
 
-  def max_attempts(%FCMError{code: "QUOTA_EXCEEDED"}), do: @max_attempts_rate_limit
+  def max_attempts(%FcmError{code: "QUOTA_EXCEEDED"}), do: @max_attempts_rate_limit
 
-  def max_attempts(%FCMError{code: code}) when code in ["UNAVAILABLE", "INTERNAL"] do
+  def max_attempts(%FcmError{code: code}) when code in ["UNAVAILABLE", "INTERNAL"] do
     @max_attempts_server_error
   end
 
   def max_attempts(_), do: 1
 
-  def trips_circuit?(%FCMError{code: "UNAVAILABLE"}), do: true
-  def trips_circuit?(%FCMError{code: "INTERNAL"}), do: true
+  def trips_circuit?(%FcmError{code: "UNAVAILABLE"}), do: true
+  def trips_circuit?(%FcmError{code: "INTERNAL"}), do: true
   def trips_circuit?(_), do: false
 
-  def severity(%FCMError{code: "QUOTA_EXCEEDED"}), do: :degraded
-  def severity(%FCMError{code: "UNAVAILABLE"}), do: :critical
-  def severity(%FCMError{code: "INTERNAL"}), do: :critical
+  def severity(%FcmError{code: "QUOTA_EXCEEDED"}), do: :degraded
+  def severity(%FcmError{code: "UNAVAILABLE"}), do: :critical
+  def severity(%FcmError{code: "INTERNAL"}), do: :critical
 
-  def severity(%FCMError{code: code}) when code in ["UNREGISTERED", "SENDER_ID_MISMATCH"] do
+  def severity(%FcmError{code: code}) when code in ["UNREGISTERED", "SENDER_ID_MISMATCH"] do
     :permanent
   end
 

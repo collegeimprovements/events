@@ -99,7 +99,7 @@ with_timestamps(type: :naive_datetime)  # Use utc_datetime_usec!
 ```elixir
 defmodule MyApp.Product do
   use Events.Schema
-  import Events.Core.Schema.FieldMacros
+  import OmSchema.FieldMacros
 
   schema "products" do
     field :name, :string
@@ -123,7 +123,7 @@ end
 
 ```elixir
 defmodule MyApp.User do
-  use Events.Core.Schema.PipelineMode
+  use OmSchema.PipelineMode
 
   schema "users" do
     field :email, :string
@@ -339,9 +339,9 @@ Events.Core.Migration.help(:fields)
 Events.Core.Migration.help(:indexes)
 
 # Schema help
-Events.Core.Schema.help()
-Events.Core.Schema.help(:validators)
-Events.Core.Schema.help(:pipelines)
+OmSchema.help()
+OmSchema.help(:validators)
+OmSchema.help(:pipelines)
 ```
 
 ## Troubleshooting

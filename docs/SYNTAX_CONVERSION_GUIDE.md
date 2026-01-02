@@ -39,7 +39,7 @@ User
 Clean, declarative block syntax:
 
 ```elixir
-import Events.Core.Query.DSL
+import OmQuery.DSL
 
 query User do
   filter(:status, :eq, "active")
@@ -235,12 +235,12 @@ end
 
 ## Automated Conversion
 
-Use `Events.Core.Query.SyntaxConverter` for automatic conversion:
+Use `OmQuery.SyntaxConverter` for automatic conversion:
 
 ### Token to DSL
 
 ```elixir
-alias Events.Core.Query.SyntaxConverter
+alias OmQuery.SyntaxConverter
 
 token = User
   |> Query.new()
@@ -532,7 +532,7 @@ DynamicBuilder.build(Organization, spec)
 ```elixir
 defmodule MyApp.UserQueries do
   # Use DSL primarily in this module
-  import Events.Core.Query.DSL
+  import OmQuery.DSL
 
   def active_users do
     query User do
@@ -594,7 +594,7 @@ defp apply_status_filter(token, _), do: token
 ```elixir
 defmodule MyApp.Post do
   use Ecto.Schema
-  import Events.Core.Query.DSL
+  import OmQuery.DSL
 
   schema "posts" do
     # fields...
@@ -612,10 +612,10 @@ end
 
 ## See Also
 
-- `Events.Core.Query` - Core API
-- `Events.Core.Query.DSL` - Macro DSL
-- `Events.Core.Query.DynamicBuilder` - Spec building
-- `Events.Core.Query.SyntaxConverter` - Conversion utilities
+- `OmQuery` - Core API
+- `OmQuery.DSL` - Macro DSL
+- `OmQuery.DynamicBuilder` - Spec building
+- `OmQuery.SyntaxConverter` - Conversion utilities
 - `DYNAMIC_BUILDER.md` - Dynamic query guide
 - `LISTING_QUERIES.md` - Filters and orders
 - `NESTED_QUERIES.md` - Nested preloads

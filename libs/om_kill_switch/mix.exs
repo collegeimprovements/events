@@ -33,6 +33,9 @@ defmodule OmKillSwitch.MixProject do
   defp deps do
     [
       {:telemetry, "~> 1.0"},
+      # Optional service integrations
+      {:om_s3, path: "../om_s3", optional: true},
+      {:om_cache, path: "../om_cache", optional: true},
       {:ex_doc, "~> 0.31", only: :dev, runtime: false}
     ]
   end

@@ -1,6 +1,6 @@
 # Schema & Migration Reference
 
-> **Always use `Events.Core.Schema` and `Events.Core.Migration`** instead of raw Ecto.
+> **Always use `OmSchema` and `Events.Core.Migration`** instead of raw Ecto.
 > For complete reference, see `docs/EVENTS_REFERENCE.md`.
 
 ## Schema Rules
@@ -9,7 +9,7 @@
 
 ```elixir
 # CORRECT
-use Events.Core.Schema
+use OmSchema
 
 # WRONG
 use Ecto.Schema
@@ -34,7 +34,7 @@ end
 ### 3. Use Presets for Common Patterns
 
 ```elixir
-import Events.Core.Schema.Presets
+import OmSchema.Presets
 
 field :email, :string, email()
 field :username, :string, username()

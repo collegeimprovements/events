@@ -43,18 +43,13 @@ defmodule Events.Api.Client do
 
   defmacro __using__(opts) do
     # Add Events-specific defaults
-    opts =
-      opts
-      |> Keyword.put_new(:telemetry_prefix, [:events, :api_client])
-      |> Keyword.put_new(:request_module, Events.Api.Client.Request)
-      |> Keyword.put_new(:response_module, Events.Api.Client.Response)
+    opts = Keyword.put_new(opts, :telemetry_prefix, [:events, :api_client])
 
     quote do
       use OmApiClient, unquote(opts)
 
-      # Alias OmApiClient modules
-      alias OmApiClient.{Auth, Telemetry}
-      alias Events.Api.Client.{Request, Response}
+      # Alias OmApiClient modules for convenience
+      alias OmApiClient.{Auth, Request, Response, Telemetry}
     end
   end
 end

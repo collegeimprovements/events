@@ -4,7 +4,7 @@
 
 The Events Scheduler provides cron-based job scheduling with:
 - **Decorator API**: `@decorate scheduled(...)` for simple jobs
-- **Worker API**: `use Events.Infra.Scheduler.Worker` for complex jobs
+- **Worker API**: `use OmScheduler.Worker` for complex jobs
 - **Runtime API**: Dynamic job management
 - **Clustering**: Leader election (only one node runs jobs)
 - **Persistence**: In-memory (dev) or PostgreSQL (prod)
@@ -15,7 +15,7 @@ The Events Scheduler provides cron-based job scheduling with:
 
 ```elixir
 defmodule MyApp.ScheduledJobs do
-  use Events.Infra.Scheduler
+  use OmScheduler
 
   # Interval-based
   @decorate scheduled(every: {5, :minutes})
@@ -72,7 +72,7 @@ For complex jobs with custom logic:
 
 ```elixir
 defmodule MyApp.DataExportWorker do
-  use Events.Infra.Scheduler.Worker
+  use OmScheduler.Worker
 
   @impl true
   def schedule do
@@ -135,7 +135,7 @@ end
 ## Runtime API
 
 ```elixir
-alias Events.Infra.Scheduler
+alias OmScheduler
 
 # ═══════════════════════════════════════════════════════════════
 # CRUD
@@ -239,10 +239,10 @@ Scheduler.leader_node()
 
 ```elixir
 # config/dev.exs
-config :events, Events.Infra.Scheduler,
+config :events, OmScheduler,
   enabled: true,
   store: :memory,
-  peer: Events.Infra.Scheduler.Peer.Global,
+  peer: OmScheduler.Peer.Global,
   queues: [default: 5]
 ```
 
@@ -250,11 +250,11 @@ config :events, Events.Infra.Scheduler,
 
 ```elixir
 # config/prod.exs
-config :events, Events.Infra.Scheduler,
+config :events, OmScheduler,
   enabled: true,
   repo: Events.Core.Repo,
   store: :database,
-  peer: Events.Infra.Scheduler.Peer.Postgres,
+  peer: OmScheduler.Peer.Postgres,
   queues: [
     default: 10,
     realtime: 20,
@@ -262,8 +262,8 @@ config :events, Events.Infra.Scheduler,
     maintenance: 5
   ],
   plugins: [
-    Events.Infra.Scheduler.Plugins.Cron,
-    {Events.Infra.Scheduler.Plugins.Pruner, max_age: {7, :days}}
+    OmScheduler.Plugins.Cron,
+    {OmScheduler.Plugins.Pruner, max_age: {7, :days}}
   ]
 ```
 
@@ -271,7 +271,7 @@ config :events, Events.Infra.Scheduler,
 
 ```elixir
 # For web nodes that shouldn't run jobs
-config :events, Events.Infra.Scheduler,
+config :events, OmScheduler,
   enabled: true,
   peer: false,      # Never become leader
   queues: false     # Don't process jobs
@@ -338,11 +338,11 @@ config :events, Events.Infra.Scheduler,
 
 ```elixir
 # In test config
-config :events, Events.Infra.Scheduler,
+config :events, OmScheduler,
   enabled: false
 
 # In specific tests
-use Events.Infra.Scheduler.Testing
+use OmScheduler.Testing
 
 test "job executes correctly" do
   # Run job synchronously
@@ -409,7 +409,7 @@ def morning_digest, do: ...
 Cancel running jobs at runtime:
 
 ```elixir
-alias Events.Infra.Scheduler
+alias OmScheduler
 
 # Cancel a running job
 Scheduler.cancel_job("data_export")
@@ -448,7 +448,7 @@ Process large datasets in configurable chunks with progress tracking:
 
 ```elixir
 defmodule MyApp.ImportWorker do
-  use Events.Infra.Scheduler.Batch.Worker
+  use OmScheduler.Batch.Worker
 
   @impl true
   def schedule do
@@ -556,7 +556,7 @@ Higher-priority jobs can preempt lower-priority running jobs:
 
 ```elixir
 # config/prod.exs
-config :events, Events.Infra.Scheduler,
+config :events, OmScheduler,
   queues: [default: 10],
   preemption: true  # Enable preemption
 ```
@@ -633,7 +633,7 @@ Detects and rescues stuck jobs via heartbeat monitoring:
 
 ```elixir
 # config/prod.exs
-config :events, Events.Infra.Scheduler,
+config :events, OmScheduler,
   lifeline: [
     enabled: true,
     interval: {1, :minute},       # Check frequency
@@ -651,7 +651,7 @@ config :events, Events.Infra.Scheduler,
 ### Manual Intervention
 
 ```elixir
-alias Events.Infra.Scheduler.Lifeline
+alias OmScheduler.Lifeline
 
 # Manually trigger a rescue check
 Lifeline.check_now()
@@ -675,7 +675,7 @@ Token bucket rate limiting per queue, worker, or globally:
 
 ```elixir
 # config/prod.exs
-config :events, Events.Infra.Scheduler,
+config :events, OmScheduler,
   rate_limits: [
     # Queue-level: 100 jobs per minute
     queues: [
@@ -701,7 +701,7 @@ config :events, Events.Infra.Scheduler,
 ### Runtime API
 
 ```elixir
-alias Events.Infra.Scheduler.RateLimiter
+alias OmScheduler.RateLimiter
 
 # Check if rate limited
 RateLimiter.acquire(:queues, :billing, :default)
@@ -788,11 +788,11 @@ Intercept job lifecycle for cross-cutting concerns:
 
 ```elixir
 # config/prod.exs
-config :events, Events.Infra.Scheduler,
+config :events, OmScheduler,
   middleware: [
-    Events.Infra.Scheduler.Middleware.Logging,
-    Events.Infra.Scheduler.Middleware.Telemetry,
-    {Events.Infra.Scheduler.Middleware.ErrorReporter, reporter: &Sentry.capture/2}
+    OmScheduler.Middleware.Logging,
+    OmScheduler.Middleware.Telemetry,
+    {OmScheduler.Middleware.ErrorReporter, reporter: &Sentry.capture/2}
   ]
 ```
 
@@ -808,7 +808,7 @@ config :events, Events.Infra.Scheduler,
 
 ```elixir
 defmodule MyApp.Middleware.Timing do
-  @behaviour Events.Infra.Scheduler.Middleware
+  @behaviour OmScheduler.Middleware
 
   @impl true
   def before_execute(job, context) do
@@ -892,7 +892,7 @@ Protects against cascading failures by tracking job failures per circuit:
 
 ```elixir
 # config/prod.exs
-config :events, Events.Infra.Scheduler,
+config :events, OmScheduler,
   circuit_breakers: [
     external_api: [
       failure_threshold: 5,
@@ -938,7 +938,7 @@ Closed  ──[failures >= threshold]──>  Open
 ### Runtime API
 
 ```elixir
-alias Events.Infra.Scheduler.CircuitBreaker
+alias OmScheduler.CircuitBreaker
 
 # Check circuit state
 CircuitBreaker.get_state(:external_api)
@@ -974,7 +974,7 @@ CircuitBreaker.register(:new_api, failure_threshold: 3)
 Smart retry decisions based on error type:
 
 ```elixir
-alias Events.Infra.Scheduler.ErrorClassifier
+alias OmScheduler.ErrorClassifier
 
 # Classify an error
 ErrorClassifier.classify(:timeout)
@@ -1040,7 +1040,7 @@ Stores jobs that fail after exhausting retries:
 
 ```elixir
 # config/prod.exs
-config :events, Events.Infra.Scheduler,
+config :events, OmScheduler,
   dead_letter: [
     enabled: true,
     max_age: {30, :days},
@@ -1052,7 +1052,7 @@ config :events, Events.Infra.Scheduler,
 ### Viewing Dead Letters
 
 ```elixir
-alias Events.Infra.Scheduler.DeadLetter
+alias OmScheduler.DeadLetter
 
 # List entries
 DeadLetter.list(limit: 50)
@@ -1131,7 +1131,7 @@ Multi-step DAG workflows with dependencies, conditions, and scheduling.
 ```elixir
 # Decorator API (Recommended)
 defmodule MyApp.Onboarding do
-  use Events.Infra.Scheduler.Workflow, name: :user_onboarding
+  use OmScheduler.Workflow, name: :user_onboarding
 
   @decorate step()
   def create_account(ctx), do: {:ok, %{user_id: Users.create!(ctx.email)}}
@@ -1144,7 +1144,7 @@ defmodule MyApp.Onboarding do
 end
 
 # Builder API
-alias Events.Infra.Scheduler.Workflow
+alias OmScheduler.Workflow
 
 Workflow.new(:data_pipeline)
 |> Workflow.step(:fetch, &fetch/1)
@@ -1158,17 +1158,17 @@ Workflow.new(:data_pipeline)
 
 ```elixir
 # Enable the workflow scheduler plugin
-config :events, Events.Infra.Scheduler,
+config :events, OmScheduler,
   plugins: [
-    Events.Infra.Scheduler.Plugins.Cron,
-    {Events.Infra.Scheduler.Workflow.Scheduler,
+    OmScheduler.Plugins.Cron,
+    {OmScheduler.Workflow.Scheduler,
       interval: {1, :minute},  # Check frequency
       limit: 50}               # Max workflows per tick
   ]
 
 # Define scheduled workflow
 defmodule MyApp.DailyExport do
-  use Events.Infra.Scheduler.Workflow,
+  use OmScheduler.Workflow,
     name: :daily_export,
     schedule: [cron: "0 6 * * *"]  # Daily at 6 AM
 
@@ -1203,7 +1203,7 @@ schedule: [
 ### Runtime API
 
 ```elixir
-alias Events.Infra.Scheduler.Workflow
+alias OmScheduler.Workflow
 
 # Start workflow
 {:ok, exec_id} = Workflow.start(:user_onboarding, %{email: "user@example.com"})

@@ -1,4 +1,4 @@
-# Events.Core.Query - Production-Grade Query System
+# OmQuery - Production-Grade Query System
 
 A comprehensive, composable query builder for Elixir/Ecto applications using token pattern, pipelines, and pattern matching.
 
@@ -7,7 +7,7 @@ A comprehensive, composable query builder for Elixir/Ecto applications using tok
 ### Core Components
 
 ```
-Events.Core.Query (Public API)
+OmQuery (Public API)
     ├── Token (Composable container)
     ├── Builder (Ecto query construction)
     ├── Executor (Query execution with telemetry)
@@ -54,7 +54,7 @@ Events.Core.Query (Public API)
 
 ```elixir
 # Import the DSL
-import Events.Core.Query.DSL
+import OmQuery.DSL
 
 # Simple query
 query User do
@@ -67,10 +67,10 @@ end
 
 # Pipeline style
 User
-|> Events.Core.Query.new()
-|> Events.Core.Query.filter(:status, :eq, "active")
-|> Events.Core.Query.paginate(:offset, limit: 20, offset: 40)
-|> Events.Core.Query.execute()
+|> OmQuery.new()
+|> OmQuery.filter(:status, :eq, "active")
+|> OmQuery.paginate(:offset, limit: 20, offset: 40)
+|> OmQuery.execute()
 ```
 
 ### Filtering
@@ -119,7 +119,7 @@ def list_posts(page \\ 1, per_page \\ 20) do
 end
 
 # Result includes pagination metadata
-%Events.Core.Query.Result{
+%OmQuery.Result{
   data: [...],
   pagination: %{
     type: :offset,
@@ -254,14 +254,14 @@ end
 
 ```elixir
 # Simple transaction
-Events.Core.Query.transaction(fn ->
-  user_result = user_query |> Events.Core.Query.execute()
-  post_result = post_query |> Events.Core.Query.execute()
+OmQuery.transaction(fn ->
+  user_result = user_query |> OmQuery.execute()
+  post_result = post_query |> OmQuery.execute()
   {:ok, {user_result, post_result}}
 end)
 
 # With Ecto.Multi
-alias Events.Core.Query.Multi, as: QM
+alias OmQuery.Multi, as: QM
 
 Ecto.Multi.new()
 |> QM.query(:users, user_query)
@@ -277,7 +277,7 @@ end)
 ```elixir
 # Execute multiple queries in parallel
 [users_result, posts_result, comments_result] =
-  Events.Core.Query.batch([user_query, post_query, comment_query])
+  OmQuery.batch([user_query, post_query, comment_query])
 ```
 
 ### Streaming
@@ -285,9 +285,9 @@ end)
 ```elixir
 # Stream large result sets
 User
-|> Events.Core.Query.new()
-|> Events.Core.Query.filter(:status, :eq, "active")
-|> Events.Core.Query.stream(max_rows: 1000)
+|> OmQuery.new()
+|> OmQuery.filter(:status, :eq, "active")
+|> OmQuery.stream(max_rows: 1000)
 |> Enum.each(fn user ->
   # Process each user
 end)
@@ -298,7 +298,7 @@ end)
 All queries return a structured `Result`:
 
 ```elixir
-%Events.Core.Query.Result{
+%OmQuery.Result{
   data: [...],              # Query results
 
   pagination: %{
@@ -363,19 +363,19 @@ Attach handlers:
 
 ```elixir
 def search_products(filters) do
-  base = Events.Core.Query.new(Product)
+  base = OmQuery.new(Product)
 
   final_token =
     Enum.reduce(filters, base, fn
       {:category, cat}, token ->
-        Events.Core.Query.filter(token, :category, :eq, cat)
+        OmQuery.filter(token, :category, :eq, cat)
       {:min_price, price}, token ->
-        Events.Core.Query.filter(token, :price, :gte, price)
+        OmQuery.filter(token, :price, :gte, price)
       _, token ->
         token
     end)
 
-  Events.Core.Query.execute(final_token)
+  OmQuery.execute(final_token)
 end
 ```
 
@@ -383,10 +383,10 @@ end
 
 ```elixir
 # Get the Ecto.Query
-token = Events.Core.Query.new(User)
-        |> Events.Core.Query.filter(:status, :eq, "active")
+token = OmQuery.new(User)
+        |> OmQuery.filter(:status, :eq, "active")
 
-ecto_query = Events.Core.Query.build(token)
+ecto_query = OmQuery.build(token)
 
 # Inspect or modify
 IO.inspect(ecto_query)
@@ -400,7 +400,7 @@ Events.Core.Repo.all(ecto_query)
 Execute options:
 
 ```elixir
-Events.Core.Query.execute(token,
+OmQuery.execute(token,
   repo: Events.Core.Repo,              # Repo module
   timeout: 30_000,                # Query timeout (ms)
   telemetry: true,                # Enable telemetry
@@ -431,7 +431,7 @@ Events.Core.Query.execute(token,
 
 ## See Also
 
-- `Events.Core.Query.Examples` - Comprehensive examples
-- `Events.Core.Query.Token` - Token structure and operations
-- `Events.Core.Query.Result` - Result structure
-- `Events.Core.Query.Multi` - Transaction helpers
+- `OmQuery.Examples` - Comprehensive examples
+- `OmQuery.Token` - Token structure and operations
+- `OmQuery.Result` - Result structure
+- `OmQuery.Multi` - Transaction helpers

@@ -203,7 +203,7 @@ Query.orders(token, [
 ### Example 1: Separate Calls (Most Common)
 
 ```elixir
-import Events.Core.Query.DSL
+import OmQuery.DSL
 
 query User do
   filter(:status, :eq, "active")
@@ -222,7 +222,7 @@ end
 ### Example 2: List-Based Calls
 
 ```elixir
-import Events.Core.Query.DSL
+import OmQuery.DSL
 
 query User do
   filters([
@@ -477,7 +477,7 @@ end
 
 ## See Also
 
-- `Events.Core.Query.ListingExamples` - 21 comprehensive examples
+- `OmQuery.ListingExamples` - 21 comprehensive examples
 - `QUERY_SYSTEM.md` - Complete API reference
 - `NESTED_QUERIES.md` - Nested preloads guide
-- `Events.Core.Query.Demo` - Working demonstrations
+- `OmQuery.Demo` - Working demonstrations
