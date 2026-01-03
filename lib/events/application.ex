@@ -15,11 +15,11 @@ defmodule Events.Application do
     children =
       [
         EventsWeb.Telemetry,
-        Events.Core.Repo,
-        Events.Core.Cache,
+        Events.Data.Repo,
+        Events.Data.Cache,
         OmKillSwitch,
         {DNSCluster, query: Application.get_env(:events, :dns_cluster_query) || :ignore},
-        Events.Infra.PubSub,
+        Events.Services.PubSub,
         # Task supervisor for async operations (error storage, telemetry, etc.)
         {Task.Supervisor, name: Events.TaskSupervisor},
         # Scheduler for background jobs and workflows (disabled by default in test)
@@ -68,7 +68,7 @@ defmodule Events.Application do
   # ============================================
 
   defp validate_critical_configs do
-    case Events.Infra.ConfigValidator.validate_critical() do
+    case Events.Startup.ConfigValidator.validate_critical() do
       {:ok, _results} ->
         :ok
 
@@ -94,7 +94,7 @@ defmodule Events.Application do
   end
 
   defp validate_all_configs do
-    case Events.Infra.ConfigValidator.validate_all() do
+    case Events.Startup.ConfigValidator.validate_all() do
       %{warnings: warnings, errors: errors} when warnings != [] or errors != [] ->
         require Logger
 
@@ -146,7 +146,7 @@ defmodule Events.Application do
   defp wait_for_repo(0, _interval), do: :timeout
 
   defp wait_for_repo(attempts, interval) do
-    case Ecto.Repo.Registry.lookup(Events.Core.Repo) do
+    case Ecto.Repo.Registry.lookup(Events.Data.Repo) do
       %{pid: pid} when is_pid(pid) -> :ok
       nil -> retry_wait_for_repo(attempts, interval)
     end

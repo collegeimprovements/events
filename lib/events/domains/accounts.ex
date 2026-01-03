@@ -13,10 +13,10 @@ defmodule Events.Domains.Accounts do
   explicitly documented otherwise (e.g., bang variants, boolean predicates).
   """
 
-  use Events.Infra.Decorator
+  use Events.Extensions.Decorator
 
   import Ecto.Query
-  alias Events.Core.Repo
+  alias Events.Data.Repo
 
   alias Events.Domains.Accounts.{
     Account,
@@ -76,7 +76,7 @@ defmodule Events.Domains.Accounts do
   Gets the default account.
   """
   def get_default_account do
-    get_account(Events.Support.Constants.default_account_id())
+    get_account(Events.Constants.default_account_id())
   end
 
   @doc """
@@ -196,7 +196,7 @@ defmodule Events.Domains.Accounts do
   Gets the system user.
   """
   def get_system_user do
-    get_user(Events.Support.Constants.system_user_id())
+    get_user(Events.Constants.system_user_id())
   end
 
   @doc """
@@ -601,7 +601,7 @@ defmodule Events.Domains.Accounts do
   Gets the system role (super_admin).
   """
   def get_system_role do
-    get_role(Events.Support.Constants.system_role_id())
+    get_role(Events.Constants.system_role_id())
   end
 
   @doc """
@@ -727,7 +727,7 @@ defmodule Events.Domains.Accounts do
   Gets the system URM.
   """
   def get_system_urm do
-    get_urm(Events.Support.Constants.system_urm_id())
+    get_urm(Events.Constants.system_urm_id())
   end
 
   @doc """

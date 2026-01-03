@@ -2,12 +2,12 @@ import Config
 
 # General application configuration
 config :events,
-  ecto_repos: [Events.Core.Repo],
+  ecto_repos: [Events.Data.Repo],
   generators: [timestamp_type: :utc_datetime_usec, binary_id: true]
 
 # Repo configuration with UUIDv7 and UTC timestamp defaults
 # PostgreSQL 18+ has native uuidv7() function - no extensions needed
-config :events, Events.Core.Repo,
+config :events, Events.Data.Repo,
   migration_primary_key: [type: :uuid, default: {:fragment, "uuidv7()"}],
   migration_foreign_key: [type: :uuid],
   migration_timestamps: [
@@ -20,7 +20,7 @@ config :events, Events.Core.Repo,
 # OmSchema library configuration
 # ─────────────────────────────────────────────────────────────
 config :om_schema,
-  default_repo: Events.Core.Repo,
+  default_repo: Events.Data.Repo,
   app_name: :events,
   telemetry_prefix: [:events, :schema]
 
@@ -28,14 +28,14 @@ config :om_schema,
 # OmQuery library configuration
 # ─────────────────────────────────────────────────────────────
 config :om_query,
-  default_repo: Events.Core.Repo,
+  default_repo: Events.Data.Repo,
   telemetry_prefix: [:events, :query]
 
 # ─────────────────────────────────────────────────────────────
 # OmCrud library configuration
 # ─────────────────────────────────────────────────────────────
 config :om_crud,
-  default_repo: Events.Core.Repo,
+  default_repo: Events.Data.Repo,
   telemetry_prefix: [:events, :crud]
 
 # ─────────────────────────────────────────────────────────────
@@ -45,14 +45,14 @@ config :fn_types,
   telemetry_prefix: [:events]
 
 config :fn_types, FnTypes.Retry,
-  default_repo: Events.Core.Repo,
+  default_repo: Events.Data.Repo,
   telemetry_prefix: [:events, :retry]
 
 # ─────────────────────────────────────────────────────────────
 # FnDecorator library configuration
 # ─────────────────────────────────────────────────────────────
 config :fn_decorator, FnDecorator.Telemetry,
-  repo: Events.Core.Repo,
+  repo: Events.Data.Repo,
   telemetry_prefix: [:events]
 
 # ─────────────────────────────────────────────────────────────
@@ -68,7 +68,7 @@ config :om_scheduler,
 config :om_kill_switch,
   services: [:s3, :cache, :database, :email],
   telemetry_prefix: [:events, :kill_switch],
-  cache_module: Events.Core.Cache
+  cache_module: Events.Data.Cache
 
 # Phoenix endpoint configuration
 config :events, EventsWeb.Endpoint,
@@ -78,11 +78,11 @@ config :events, EventsWeb.Endpoint,
     formats: [html: EventsWeb.ErrorHTML, json: EventsWeb.ErrorJSON],
     layout: false
   ],
-  pubsub_server: Events.Infra.PubSub.Server,
+  pubsub_server: Events.Services.PubSub.Server,
   live_view: [signing_salt: "bADKq9rD"]
 
 # Mailer configuration
-config :events, Events.Infra.Mailer, adapter: Swoosh.Adapters.Local
+config :events, Events.Services.Mailer, adapter: Swoosh.Adapters.Local
 
 # Configure esbuild
 config :esbuild,
@@ -136,7 +136,7 @@ end
 # Production settings should be configured in runtime.exs
 config :events, OmScheduler,
   enabled: true,
-  repo: Events.Core.Repo,
+  repo: Events.Data.Repo,
   store: :memory,
   peer: OmScheduler.Peer.Global,
   queues: [default: 5],

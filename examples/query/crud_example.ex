@@ -182,7 +182,7 @@ defmodule Events.Domains.Accounts.CrudExample do
     import Ecto.Query
 
     from(m in Membership, where: m.account_id == ^account_id and m.user_id == ^user_id)
-    |> Events.Core.Repo.one()
+    |> Events.Data.Repo.one()
   end
 
   # ─────────────────────────────────────────────────────────────

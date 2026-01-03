@@ -1,7 +1,7 @@
 # IEx configuration file
 
-# Core & Database (use libs directly)
-alias Events.Core.{Repo, Cache, Migration}
+# Data layer
+alias Events.Data.{Repo, Cache}
 
 # Libs - use directly with Events defaults from config
 alias OmSchema
@@ -15,18 +15,23 @@ alias OmKillSwitch
 # Functional Types
 alias FnTypes.{Result, Maybe, Pipeline, AsyncResult, Guards, Validation, Retry}
 
-# Infrastructure
-alias Events.Infra.{Decorator, SystemHealth, Idempotency}
+# Services
+alias Events.Services.{PubSub, Mailer, ApiClient}
 
-# API & Services
-alias Events.Api.Client
+# Extensions
+alias Events.Extensions.Decorator
+
+# Observability
+alias Events.Observability.SystemHealth
+
+# Libs - API & S3
 alias OmApiClient
 alias OmS3
 
 # Web
 alias EventsWeb.{Endpoint, Router}
 
-Events.Support.IExHelpers.on_startup()
+Events.Dev.IExHelpers.on_startup()
 
-import Events.Support.IExHelpers
+import Events.Dev.IExHelpers
 import FnTypes.Guards

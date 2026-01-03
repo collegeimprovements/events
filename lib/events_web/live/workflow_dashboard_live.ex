@@ -20,7 +20,7 @@ defmodule EventsWeb.WorkflowDashboardLive do
   def mount(_params, _session, socket) do
     if connected?(socket) do
       # Subscribe to workflow telemetry updates
-      Phoenix.PubSub.subscribe(Events.Infra.PubSub.Server, "workflow:events")
+      Phoenix.PubSub.subscribe(Events.Services.PubSub.Server, "workflow:events")
 
       # Periodic refresh
       Process.send_after(self(), :refresh, @refresh_interval)

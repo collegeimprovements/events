@@ -66,7 +66,7 @@ defmodule EventsWeb.HealthController do
   end
 
   defp check_database do
-    case Ecto.Adapters.SQL.query(Events.Core.Repo, "SELECT 1", []) do
+    case Ecto.Adapters.SQL.query(Events.Data.Repo, "SELECT 1", []) do
       {:ok, _} ->
         %{status: :ok}
 
@@ -84,7 +84,7 @@ defmodule EventsWeb.HealthController do
         # Try a simple cache operation
         test_key = {:health_check, System.unique_integer()}
 
-        case Events.Core.Cache.put(test_key, "ok", ttl: 1000) do
+        case Events.Data.Cache.put(test_key, "ok", ttl: 1000) do
           :ok -> %{status: :ok, adapter: cache_adapter()}
           _ -> %{status: :error, message: "Cache write failed"}
         end
@@ -100,8 +100,8 @@ defmodule EventsWeb.HealthController do
   defp check_pubsub do
     %{
       status: :ok,
-      adapter: Events.Infra.PubSub.adapter(),
-      server: Events.Infra.PubSub.server() |> Atom.to_string()
+      adapter: Events.Services.PubSub.adapter(),
+      server: Events.Services.PubSub.server() |> Atom.to_string()
     }
   rescue
     e ->
@@ -109,7 +109,7 @@ defmodule EventsWeb.HealthController do
   end
 
   defp cache_adapter do
-    case Application.get_env(:events, Events.Core.Cache)[:adapter] do
+    case Application.get_env(:events, Events.Data.Cache)[:adapter] do
       NebulexRedisAdapter -> :redis
       Nebulex.Adapters.Local -> :local
       Nebulex.Adapters.Nil -> nil

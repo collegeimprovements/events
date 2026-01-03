@@ -44,7 +44,7 @@ defmodule Events.Test.Mocks do
       # External services
       OmS3,
       OmS3.Client,
-      Events.Core.Cache,
+      Events.Data.Cache,
 
       # External libraries
       Redix,
@@ -91,10 +91,10 @@ defmodule Events.Test.Mocks do
     end
 
     # Cache - pass through or return nil
-    if Code.ensure_loaded?(Events.Core.Cache) do
-      Mimic.stub(Events.Core.Cache, :get, fn _key -> nil end)
-      Mimic.stub(Events.Core.Cache, :put, fn _key, value, _opts -> value end)
-      Mimic.stub(Events.Core.Cache, :delete, fn _key -> :ok end)
+    if Code.ensure_loaded?(Events.Data.Cache) do
+      Mimic.stub(Events.Data.Cache, :get, fn _key -> nil end)
+      Mimic.stub(Events.Data.Cache, :put, fn _key, value, _opts -> value end)
+      Mimic.stub(Events.Data.Cache, :delete, fn _key -> :ok end)
     end
 
     :ok

@@ -77,15 +77,53 @@ libs/
 
 ```
 lib/events/
-├── core/            # Events.Core.* - Database layer
-│   ├── repo/        #   Events.Core.Repo (Ecto repo)
-│   └── cache/       #   Events.Core.Cache
-├── errors/          # Events.Errors.* - Events-specific errors
-├── infra/           # Events.Infra.* - Infrastructure
-│   └── decorator/   #   Events-specific decorators (scheduler, workflow)
-├── support/         # Events.Support.* - Dev utilities (constants, iex_helpers)
-└── domains/         # Events.Domains.* - Business logic
-    └── accounts/    #   User accounts, auth, memberships
+├── application.ex              # OTP Application entrypoint
+├── constants.ex                # Events.Constants - System-wide constants
+│
+├── data/                       # Events.Data.* - DATABASE LAYER
+│   ├── repo.ex                 #   Events.Data.Repo (Ecto repo)
+│   ├── cache.ex                #   Events.Data.Cache
+│   └── protocols/              #   Library integration glue
+│       └── crud_query.ex
+│
+├── domains/                    # Events.Domains.* - BUSINESS LOGIC (bounded contexts)
+│   └── accounts/               #   User accounts, auth, memberships
+│
+├── integrations/               # Events.Integrations.* - THIRD-PARTY SERVICES
+│   ├── stripe/                 #   Stripe-specific logic
+│   └── google/                 #   Google APIs (FCM, OAuth, etc.)
+│
+├── adapters/                   # Events.Adapters.* - ADAPTER PATTERN
+│   ├── storage/                #   File storage adapters (S3, local, memory)
+│   └── payment/                #   Payment adapters
+│
+├── builders/                   # Events.Builders.* - BUILDER PATTERN
+│
+├── agents/                     # Events.Agents.* - AGENTIC/AI CODE
+│   ├── tools/                  #   Tool definitions for AI agents
+│   ├── prompts/                #   Prompt templates
+│   └── workflows/              #   AI-driven workflows
+│
+├── workers/                    # Events.Workers.* - BACKGROUND JOBS
+│
+├── services/                   # Events.Services.* - RUNTIME SERVICES
+│   ├── pubsub.ex               #   Events.Services.PubSub
+│   ├── mailer.ex               #   Events.Services.Mailer
+│   └── api_client.ex           #   Events.Services.ApiClient
+│
+├── extensions/                 # Events.Extensions.* - COMPILE-TIME LIB EXTENSIONS
+│   └── decorator/              #   Events-specific decorators (scheduler, workflow)
+│
+├── observability/              # Events.Observability.* - MONITORING & HEALTH
+│   ├── system_health.ex
+│   └── health_checks/
+│
+├── startup/                    # Events.Startup.* - BOOT-TIME CONCERNS
+│   ├── config_validator.ex
+│   └── checker.ex
+│
+└── dev/                        # Events.Dev.* - DEVELOPMENT UTILITIES
+    └── iex_helpers.ex
 ```
 
 ### Key Module Aliases
@@ -150,14 +188,20 @@ alias OmSchema.FieldNames
 
 # Decorators (from libs/fn_decorator)
 # use FnDecorator for standard decorators
-# use Events.Infra.Decorator for Events-specific (scheduler, workflow)
+# use Events.Extensions.Decorator for Events-specific (scheduler, workflow)
 
 # API Client (from libs/om_api_client)
 alias OmApiClient
 alias OmApiClient.Telemetry
 
-# Repository (Events-specific)
-alias Events.Core.{Repo, Cache}
+# Data layer (Events-specific)
+alias Events.Data.{Repo, Cache}
+
+# Services (Events-specific)
+alias Events.Services.{PubSub, Mailer, ApiClient}
+
+# Observability
+alias Events.Observability.SystemHealth
 
 # Domains (business logic)
 alias Events.Domains.Accounts
@@ -169,26 +213,26 @@ All libs are configured with Events defaults in `config/config.exs`:
 
 | Lib | Config Key | Events Defaults |
 |-----|------------|-----------------|
-| `OmSchema` | `:om_schema` | `default_repo: Events.Core.Repo` |
-| `OmQuery` | `:om_query` | `default_repo: Events.Core.Repo` |
-| `OmCrud` | `:om_crud` | `default_repo: Events.Core.Repo` |
-| `OmScheduler` | `:events, OmScheduler` | `repo: Events.Core.Repo` |
+| `OmSchema` | `:om_schema` | `default_repo: Events.Data.Repo` |
+| `OmQuery` | `:om_query` | `default_repo: Events.Data.Repo` |
+| `OmCrud` | `:om_crud` | `default_repo: Events.Data.Repo` |
+| `OmScheduler` | `:events, OmScheduler` | `repo: Events.Data.Repo` |
 | `OmKillSwitch` | `:om_kill_switch` | `services: [:s3, :cache, :database, :email]` |
 | `OmS3` | `:om_s3` | `bucket: System.get_env("S3_BUCKET")` |
 | `OmStripe` | `:om_stripe` | `api_key: System.get_env("STRIPE_API_KEY")` |
 | `OmGoogle` | `:om_google` | `credentials_path: ...` |
 | `OmTypst` | `:om_typst` | Uses system typst binary |
 | `OmTtyd` | `:om_ttyd` | Uses system ttyd binary |
-| `FnTypes.Retry` | `:fn_types, FnTypes.Retry` | `default_repo: Events.Core.Repo` |
+| `FnTypes.Retry` | `:fn_types, FnTypes.Retry` | `default_repo: Events.Data.Repo` |
 | `FnDecorator` | `:fn_decorator` | `telemetry_prefix: [:events]` |
 
 **Events-specific modules (still needed):**
 
 | Module | Why |
 |--------|-----|
-| `Events.Core.Repo` | Ecto Repo with Events database |
-| `Events.Core.Cache` | Events cache configuration |
-| `Events.Infra.Decorator` | Events-specific decorators (scheduler, workflow) |
+| `Events.Data.Repo` | Ecto Repo with Events database |
+| `Events.Data.Cache` | Events cache configuration |
+| `Events.Extensions.Decorator` | Events-specific decorators (scheduler, workflow) |
 
 ---
 
@@ -255,7 +299,7 @@ AsyncResult.parallel([fn -> task1() end, fn -> task2() end])
 use FnDecorator
 
 # For Events-specific decorators (scheduler, workflow)
-use Events.Infra.Decorator
+use Events.Extensions.Decorator
 
 @decorate returns_result(ok: User.t(), error: :atom)
 @decorate telemetry_span([:app, :users, :get])
@@ -309,7 +353,7 @@ def get_user(id), do: ...
 ```elixir
 # Decorator API (recommended)
 defmodule MyApp.OrderWorkflow do
-  use Events.Infra.Scheduler.Workflow, name: :order_processing
+  use Events.Extensions.Decorator, name: :order_processing
 
   @decorate step()
   def validate(ctx), do: {:ok, %{order: Orders.get!(ctx.order_id)}}
@@ -428,7 +472,7 @@ Use `FnDecorator` directly from `libs/fn_decorator` for standard decorators:
 | Purity | `pure`, `deterministic`, `idempotent`, `memoizable` |
 | Testing | `with_fixtures`, `sample_data`, `timeout_test`, `mock` |
 
-**Events-specific decorators** (require `use Events.Infra.Decorator`):
+**Events-specific decorators** (require `use Events.Extensions.Decorator`):
 
 | Category | Decorators |
 |----------|-----------|
@@ -579,7 +623,7 @@ AsyncResult.retry(fn -> api_call() end,
 
 ```elixir
 defmodule MyApp.DailyReport do
-  use Events.Infra.Scheduler.Workflow,
+  use Events.Extensions.Decorator,
     name: :daily_report,
     schedule: [cron: "0 6 * * *"]
 

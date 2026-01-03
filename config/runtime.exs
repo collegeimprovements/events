@@ -91,13 +91,13 @@ repo_config =
     end
   end)
 
-config :events, Events.Core.Repo, repo_config
+config :events, Events.Data.Repo, repo_config
 
 # ==============================================================================
 # CACHE CONFIGURATION
 # ==============================================================================
 
-config :events, Events.Core.Cache, OmCache.Config.build()
+config :events, Events.Data.Cache, OmCache.Config.build()
 
 # ==============================================================================
 # HAMMER RATE LIMITER CONFIGURATION
@@ -216,7 +216,7 @@ case env do
 
   :test ->
     # Test mailer
-    config :events, Events.Infra.Mailer, adapter: Swoosh.Adapters.Test
+    config :events, Events.Services.Mailer, adapter: Swoosh.Adapters.Test
 
     # Disable scheduler in tests (start manually when needed)
     config :events, OmScheduler, enabled: false

@@ -43,7 +43,7 @@ defmodule Events.DataCase do
 
   using do
     quote do
-      alias Events.Core.Repo
+      alias Events.Data.Repo
 
       import Ecto
       import Ecto.Changeset
@@ -73,7 +73,7 @@ defmodule Events.DataCase do
   Sets up the sandbox based on the test tags.
   """
   def setup_sandbox(tags) do
-    pid = Ecto.Adapters.SQL.Sandbox.start_owner!(Events.Core.Repo, shared: not tags[:async])
+    pid = Ecto.Adapters.SQL.Sandbox.start_owner!(Events.Data.Repo, shared: not tags[:async])
     on_exit(fn -> Ecto.Adapters.SQL.Sandbox.stop_owner(pid) end)
   end
 

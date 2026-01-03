@@ -118,8 +118,8 @@ defmodule Events.Domains.Accounts.User do
   defp maybe_validate_unique(changeset, opts) do
     if Keyword.get(opts, :validate_unique, true) do
       changeset
-      |> unsafe_validate_unique(:email, Events.Core.Repo)
-      |> unsafe_validate_unique(:username, Events.Core.Repo)
+      |> unsafe_validate_unique(:email, Events.Data.Repo)
+      |> unsafe_validate_unique(:username, Events.Data.Repo)
       |> unique_constraints([{:email, []}, {:username, []}])
     else
       changeset

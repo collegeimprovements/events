@@ -359,7 +359,7 @@ defmodule OmQuery.Examples do
          post_count: length(posts.data)
        }}
     end)
-    |> Events.Core.Repo.transaction()
+    |> Events.Data.Repo.transaction()
   end
 
   ## 9. Batch Operations
@@ -469,7 +469,7 @@ defmodule OmQuery.Examples do
     IO.inspect(ecto_query)
 
     # Execute manually
-    Events.Core.Repo.all(ecto_query)
+    Events.Data.Repo.all(ecto_query)
   end
 
   @doc "Custom result processing"
