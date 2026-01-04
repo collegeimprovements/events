@@ -64,6 +64,15 @@ libs/
 ├── om_ttyd/         # OmTtyd.* - Web terminal sharing
 │   ├── Server, Session, SessionManager
 │   └── Per-session terminal instances
+├── om_scheduler/    # OmScheduler.* - Job scheduler with workflows
+│   ├── Cron, Job, Registry, Supervisor
+│   └── Workflow (OmScheduler.Workflow.* - NOT a separate lib)
+│       ├── Step, Engine, Execution, StateMachine
+│       ├── Registry, Decorator, Builder
+│       └── DAG-based workflow orchestration
+├── om_cache/        # OmCache.* - Cache wrapper (Nebulex)
+├── om_pubsub/       # OmPubSub.* - Phoenix.PubSub wrapper
+├── om_health/       # OmHealth.* - System health monitoring
 ├── om_credo/        # OmCredo.* - Configurable Credo checks
 │   ├── PreferPatternMatching, NoBangRepoOperations
 │   ├── RequireResultTuples, UseEnhancedSchema
@@ -147,8 +156,9 @@ alias OmQuery.{Token, Result, DSL, Fragment}
 # use OmSchema in schema modules
 
 # Scheduler & Workflow (from libs/om_scheduler)
+# Note: Workflow is a submodule of OmScheduler, not a separate lib
 alias OmScheduler
-alias OmScheduler.Workflow
+alias OmScheduler.Workflow  # Inside om_scheduler, not its own lib
 
 # Kill Switch (from libs/om_kill_switch)
 alias OmKillSwitch
@@ -216,7 +226,7 @@ All libs are configured with Events defaults in `config/config.exs`:
 | `OmSchema` | `:om_schema` | `default_repo: Events.Data.Repo` |
 | `OmQuery` | `:om_query` | `default_repo: Events.Data.Repo` |
 | `OmCrud` | `:om_crud` | `default_repo: Events.Data.Repo` |
-| `OmScheduler` | `:events, OmScheduler` | `repo: Events.Data.Repo` |
+| `OmScheduler` | `:events, OmScheduler` | `repo: Events.Data.Repo` (see note below) |
 | `OmKillSwitch` | `:om_kill_switch` | `services: [:s3, :cache, :database, :email]` |
 | `OmS3` | `:om_s3` | `bucket: System.get_env("S3_BUCKET")` |
 | `OmStripe` | `:om_stripe` | `api_key: System.get_env("STRIPE_API_KEY")` |
@@ -225,6 +235,16 @@ All libs are configured with Events defaults in `config/config.exs`:
 | `OmTtyd` | `:om_ttyd` | Uses system ttyd binary |
 | `FnTypes.Retry` | `:fn_types, FnTypes.Retry` | `default_repo: Events.Data.Repo` |
 | `FnDecorator` | `:fn_decorator` | `telemetry_prefix: [:events]` |
+
+> **OmScheduler dual config**: Unlike other libs, OmScheduler reads from `:events` namespace (not `:om_scheduler`).
+> This allows app-specific config without polluting the lib namespace:
+> ```elixir
+> # Main config (in config/config.exs)
+> config :events, OmScheduler, enabled: true, repo: Events.Data.Repo
+>
+> # Telemetry config (separate namespace)
+> config :om_scheduler, OmScheduler.Telemetry, prefix: [:events, :scheduler]
+> ```
 
 **Events-specific modules (still needed):**
 
@@ -479,6 +499,12 @@ Use `FnDecorator` directly from `libs/fn_decorator` for standard decorators:
 | Telemetry | `log_query`, `log_remote` |
 | Scheduler | `scheduled` |
 | Workflow | `step`, `graft`, `subworkflow` |
+
+> **Which decorator module to use?**
+> - `use FnDecorator` — Standard decorators (caching, telemetry, debugging, security, etc.)
+> - `use Events.Extensions.Decorator` — Adds scheduler/workflow decorators (`@decorate step()`, `@decorate scheduled()`)
+>
+> Using `@decorate step()` with `use FnDecorator` will fail. Workflow decorators require `Events.Extensions.Decorator`.
 
 ### Caching with `@cacheable`
 
