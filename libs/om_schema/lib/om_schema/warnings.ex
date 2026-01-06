@@ -113,8 +113,12 @@ defmodule OmSchema.Warnings do
 
   # Check for best practice violations
   defp check_best_practices(opts, field_name, field_type) do
-    # Password fields should not be trimmed
-    if String.contains?(to_string(field_name), "password") && opts[:trim] != false do
+    # Password fields should not be trimmed (but skip datetime fields like password_changed_at)
+    datetime_types = [:utc_datetime, :utc_datetime_usec, :naive_datetime, :naive_datetime_usec, :date, :time]
+
+    if String.contains?(to_string(field_name), "password") &&
+         field_type not in datetime_types &&
+         opts[:trim] != false do
       warn("""
       Field '#{field_name}' appears to be a password field but doesn't have trim: false.
       Password fields should preserve exact user input.

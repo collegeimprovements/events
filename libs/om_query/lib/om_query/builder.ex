@@ -22,7 +22,7 @@ defmodule OmQuery.Builder do
 
   # Unified filter operator definitions
   # Each operator maps to a function that builds a dynamic expression
-  @filter_operators ~w(eq neq gt gte lt lte in not_in like ilike is_nil not_nil between contains jsonb_contains jsonb_has_key similarity word_similarity strict_word_similarity)a
+  @filter_operators ~w(eq neq gt gte lt lte in not_in like ilike is_nil not_nil between contains jsonb_contains jsonb_has_key jsonb_get jsonb_path_exists jsonb_path_match jsonb_any_key jsonb_all_keys jsonb_array_elem similarity word_similarity strict_word_similarity)a
 
   @doc """
   Build an Ecto query from a token (safe variant).
@@ -321,6 +321,55 @@ defmodule OmQuery.Builder do
   def filter_dynamic(field, :jsonb_has_key, key, opts) do
     binding = opts[:binding] || :root
     dynamic([{^binding, q}], fragment("? \\? ?", field(q, ^field), ^key))
+  end
+
+  # Get nested JSONB value at path and compare
+  # Uses PostgreSQL #>> operator for text extraction at path
+  # Example: {:metadata, :jsonb_get, {["user", "role"], "admin"}, []}
+  def filter_dynamic(field, :jsonb_get, {path, value}, opts) when is_list(path) do
+    binding = opts[:binding] || :root
+    # Convert path list to PostgreSQL text array format
+    path_array = "{#{Enum.join(path, ",")}}"
+    dynamic([{^binding, q}], fragment("? #>> ? = ?", field(q, ^field), ^path_array, ^value))
+  end
+
+  # Check if JSONB path exists using PostgreSQL @? operator
+  # Example: {:metadata, :jsonb_path_exists, ["user", "email"], []}
+  def filter_dynamic(field, :jsonb_path_exists, path, opts) when is_list(path) do
+    binding = opts[:binding] || :root
+    # Convert path list to JSONPath string: $.user.email
+    jsonpath = "$." <> Enum.join(path, ".")
+    dynamic([{^binding, q}], fragment("? @\\? ?::jsonpath", field(q, ^field), ^jsonpath))
+  end
+
+  # JSONPath match using PostgreSQL @@ operator (PostgreSQL 12+)
+  # Example: {:metadata, :jsonb_path_match, "$.users[*].active == true", []}
+  def filter_dynamic(field, :jsonb_path_match, jsonpath, opts) when is_binary(jsonpath) do
+    binding = opts[:binding] || :root
+    dynamic([{^binding, q}], fragment("? @@ ?::jsonpath", field(q, ^field), ^jsonpath))
+  end
+
+  # Any of these keys exist using PostgreSQL ?| operator
+  # Example: {:metadata, :jsonb_any_key, ["admin", "moderator"], []}
+  def filter_dynamic(field, :jsonb_any_key, keys, opts) when is_list(keys) do
+    binding = opts[:binding] || :root
+    dynamic([{^binding, q}], fragment("? \\?| ?", field(q, ^field), ^keys))
+  end
+
+  # All of these keys exist using PostgreSQL ?& operator
+  # Example: {:metadata, :jsonb_all_keys, ["name", "email"], []}
+  def filter_dynamic(field, :jsonb_all_keys, keys, opts) when is_list(keys) do
+    binding = opts[:binding] || :root
+    dynamic([{^binding, q}], fragment("? \\?& ?", field(q, ^field), ^keys))
+  end
+
+  # JSONB array contains element using PostgreSQL @> operator
+  # Encodes value as JSON array for containment check
+  # Example: {:tags, :jsonb_array_elem, "vip", []}
+  def filter_dynamic(field, :jsonb_array_elem, value, opts) do
+    binding = opts[:binding] || :root
+    json_value = JSON.encode!([value])
+    dynamic([{^binding, q}], fragment("? @> ?::jsonb", field(q, ^field), ^json_value))
   end
 
   # Fallback for unsupported operators

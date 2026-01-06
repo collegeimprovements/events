@@ -10,16 +10,16 @@ defmodule OmCrud.Context do
       defmodule MyApp.Accounts do
         use OmCrud.Context
 
-        # Generate all CRUD functions for User
+        # Generate all CRUD functions with defaults
         crud User
 
-        # Generate only specific functions
-        crud Role, only: [:create, :fetch, :update]
+        # Customize with options
+        crud Role,
+          only: [:create, :fetch, :update],
+          default_limit: 50,
+          max_limit: 200
 
-        # Exclude specific functions
-        crud Session, except: [:delete_all]
-
-        # Custom options for all generated functions
+        # With custom preloads
         crud Membership, preload: [:account, :user]
       end
 
@@ -29,194 +29,218 @@ defmodule OmCrud.Context do
 
   ### Read Operations
   - `fetch_<resource>(id, opts)` - Returns `{:ok, record}` or `{:error, :not_found}`
+  - `fetch_<resource>!(id, opts)` - Returns record or raises `Ecto.NoResultsError`
   - `get_<resource>(id, opts)` - Returns record or `nil`
-  - `list_<resources>(opts)` - Returns list of all records
-  - `<resource>_exists?(id)` - Returns boolean
+  - `list_<resources>(opts)` - Returns `{:ok, %OmCrud.Result{}}` with cursor pagination
+  - `filter_<resources>(filters, opts)` - Returns `{:ok, %OmCrud.Result{}}` with filters
+  - `count_<resources>(opts)` - Returns `{:ok, count}`
+  - `first_<resource>(opts)` - Returns `{:ok, record}` or `{:error, :not_found}`
+  - `first_<resource>!(opts)` - Returns record or raises
+  - `last_<resource>(opts)` - Returns `{:ok, record}` or `{:error, :not_found}`
+  - `last_<resource>!(opts)` - Returns record or raises
+  - `<resource>_exists?(id_or_filters)` - Returns boolean
+  - `stream_<resources>(opts)` - Returns `Stream.t()`
 
   ### Write Operations
   - `create_<resource>(attrs, opts)` - Creates a record
+  - `create_<resource>!(attrs, opts)` - Creates or raises `Ecto.InvalidChangesetError`
   - `update_<resource>(record, attrs, opts)` - Updates a record
+  - `update_<resource>!(record, attrs, opts)` - Updates or raises
   - `delete_<resource>(record, opts)` - Deletes a record
+  - `delete_<resource>!(record, opts)` - Deletes or raises
 
   ### Bulk Operations
   - `create_all_<resources>(entries, opts)` - Bulk insert
-  - `update_all_<resources>(updates, opts)` - Bulk update
-  - `delete_all_<resources>(opts)` - Bulk delete
+  - `update_all_<resources>(filters, changes, opts)` - Bulk update with filters
+  - `delete_all_<resources>(filters, opts)` - Bulk delete with filters
 
-  ## Options
+  ## Crud Macro Options
 
-  - `:only` - List of functions to generate (e.g., `[:create, :fetch, :update]`)
+  ### Function Generation
+  - `:only` - List of functions to generate
   - `:except` - List of functions to exclude
-  - `:preload` - Default preloads for read operations
-  - `:changeset` - Default changeset function for write operations
-  - `:as` - Override the resource name (e.g., `as: :member` for Membership)
-  - `:repo` - Default repository for all operations (e.g., `MyApp.ReadOnlyRepo`)
-  - `:timeout` - Default timeout for all database operations in milliseconds
-  - `:prefix` - Default schema prefix for multi-tenant setups
-  - `:log` - Default logging level or `false` to disable
+  - `:as` - Override the resource name
+  - `:bang` - Generate bang variants (default: `true`)
+  - `:filterable` - Generate `filter_*` functions (default: `true`)
+
+  ### Pagination
+  - `:pagination` - `:cursor` (default), `:offset`, or `false`
+  - `:default_limit` - Default page size (default: `20`)
+  - `:max_limit` - Maximum allowed limit (default: `100`)
+
+  ### Query Defaults
+  - `:order_by` - Default ordering (default: `[desc: :inserted_at, asc: :id]`)
+  - `:cursor_fields` - Fields for cursor pagination (default: `[:inserted_at, :id]`)
+  - `:preload` - Default associations to preload
+  - `:batch_size` - Default batch size for streaming (default: `500`)
+
+  ### Execution Options
+  - `:repo` - Default repository module
+  - `:timeout` - Default timeout in milliseconds
+  - `:prefix` - Schema prefix for multi-tenancy
+  - `:log` - Logging level or `false` to disable
+
+  ## Result Format
+
+  List and filter operations return `%OmCrud.Result{}`:
+
+      {:ok, %OmCrud.Result{
+        data: [%User{}, ...],
+        pagination: %OmCrud.Pagination{
+          type: :cursor,
+          has_more: true,
+          has_previous: false,
+          start_cursor: "eyJpZCI6...",
+          end_cursor: "eyJpZCI6...",
+          limit: 20
+        }
+      }}
 
   ## Overriding Generated Functions
 
-  All generated functions are marked as `defoverridable`, so you can define
-  custom implementations that replace the generated ones:
-
-      defmodule MyApp.Accounts do
-        use OmCrud.Context
-
-        crud Role
-
-        # Override the generated create_role/2 with custom logic
-        def create_role(attrs, opts \\\\ []) do
-          attrs
-          |> Map.put(:created_by, opts[:current_user_id])
-          |> then(&OmCrud.create(Role, &1, opts))
-        end
-
-        # You can call super() to use the generated implementation
-        def fetch_role(id, opts \\\\ []) do
-          case super(id, opts) do
-            {:ok, role} -> {:ok, enrich_role(role)}
-            error -> error
-          end
-        end
-      end
-  """
-
-  @doc """
-  Use this module in a context to enable CRUD generation.
-
-  ## Examples
+  All generated functions are marked as `defoverridable`:
 
       defmodule MyApp.Accounts do
         use OmCrud.Context
 
         crud User
-        crud Role, only: [:create, :fetch]
+
+        # Override with custom logic
+        def create_user(attrs, opts \\\\ []) do
+          attrs
+          |> Map.put(:created_by, opts[:current_user_id])
+          |> then(&OmCrud.create(User, &1, opts))
+        end
       end
   """
+
+  # Aliases used in generated code - referenced with full module name
+  # OmCrud.Result, OmCrud.Pagination, OmCrud.Telemetry
+
+  @doc false
   defmacro __using__(_opts) do
     quote do
       import OmCrud.Context, only: [crud: 1, crud: 2]
+
+      # Shared helper functions for all crud macros
+      @doc false
+      def __apply_crud_filters__(query, []), do: query
+
+      def __apply_crud_filters__(query, filters) do
+        Enum.reduce(filters, query, fn
+          {field, op, value, filter_opts}, q ->
+            OmQuery.filter(q, field, op, value, filter_opts)
+
+          {field, op, value}, q ->
+            OmQuery.filter(q, field, op, value)
+        end)
+      end
+
+      @doc false
+      def __apply_crud_query_opts__(query, opts) do
+        query
+        |> then(fn q ->
+          case opts[:select] do
+            nil -> q
+            fields -> OmQuery.select(q, fields)
+          end
+        end)
+        |> then(fn q ->
+          case opts[:distinct] do
+            nil -> q
+            value -> OmQuery.distinct(q, value)
+          end
+        end)
+        |> then(fn q ->
+          case opts[:lock] do
+            nil -> q
+            mode -> OmQuery.lock(q, mode)
+          end
+        end)
+      end
+
+      @doc false
+      def __preload_crud_records__(records, [], _opts), do: records
+
+      def __preload_crud_records__(records, preloads, opts) do
+        repo = OmCrud.Options.repo(opts)
+        repo.preload(records, preloads)
+      end
+
+      @doc false
+      def __reverse_crud_order__(order_by) do
+        Enum.map(order_by, fn
+          {:asc, field} -> {:desc, field}
+          {:desc, field} -> {:asc, field}
+          {field, :asc} -> {field, :desc}
+          {field, :desc} -> {field, :asc}
+        end)
+      end
     end
   end
 
   @doc """
   Generate CRUD functions for a schema.
 
-  ## Options
-
-  ### Function Selection
-  - `:only` - Generate only these functions
-  - `:except` - Exclude these functions
-  - `:as` - Override resource name derivation
-
-  ### Operation Defaults
-  - `:preload` - Default preloads for read operations
-  - `:changeset` - Default changeset function for write operations
-
-  ### Crud-level Defaults (passed to all generated functions)
-  - `:repo` - Default repository module (e.g., `MyApp.ReadOnlyRepo`)
-  - `:timeout` - Default timeout in milliseconds
-  - `:prefix` - Default schema prefix for multi-tenant setups
-  - `:log` - Default logging level (`:debug`, `:info`, etc.) or `false`
-
-  ## Examples
-
-      crud User
-      crud Role, only: [:create, :fetch]
-      crud Membership, as: :member, preload: [:user]
-
-      # With crud-level defaults
-      crud AuditLog, repo: MyApp.ReadOnlyRepo, timeout: 60_000
-      crud TenantUser, prefix: "tenant_123", log: false
+  See module documentation for full list of options.
   """
-  # Options that are passed to generated functions as defaults
-  @crud_level_opts [:repo, :timeout, :prefix, :log]
-
   defmacro crud(schema, opts \\ []) do
-    schema = Macro.expand(schema, __CALLER__)
-    resource = resource_name(schema, opts)
+    schema_mod = Macro.expand(schema, __CALLER__)
+    resource = resource_name(schema_mod, opts)
     resources = pluralize(resource)
 
+    # Extract all configuration
     functions = determine_functions(opts)
     default_preload = Keyword.get(opts, :preload, [])
     default_changeset = Keyword.get(opts, :changeset)
+    generate_bang = Keyword.get(opts, :bang, true)
+    filterable = Keyword.get(opts, :filterable, true)
 
-    # Extract crud-level defaults that get merged into every function call
+    # Pagination options
+    default_limit = Keyword.get(opts, :default_limit, 20)
+    max_limit = Keyword.get(opts, :max_limit, 100)
+    order_by = Keyword.get(opts, :order_by, [desc: :inserted_at, asc: :id])
+    cursor_fields = Keyword.get(opts, :cursor_fields, [:inserted_at, :id])
+    batch_size = Keyword.get(opts, :batch_size, 500)
+
+    # Crud-level defaults for repo operations
     default_opts =
       opts
-      |> Keyword.take(@crud_level_opts)
+      |> Keyword.take([:repo, :timeout, :prefix, :log])
       |> Enum.reject(fn {_k, v} -> is_nil(v) end)
 
-    # Generate the function definitions
+    # Build config map for generated functions
+    config = %{
+      schema: schema_mod,
+      default_preload: default_preload,
+      default_changeset: default_changeset,
+      default_opts: default_opts,
+      default_limit: default_limit,
+      max_limit: max_limit,
+      order_by: order_by,
+      cursor_fields: cursor_fields,
+      batch_size: batch_size
+    }
+
+    # Generate function definitions
     function_defs =
       functions
       |> Enum.flat_map(fn fun ->
-        generate_function(
-          fun,
-          schema,
-          resource,
-          resources,
-          default_preload,
-          default_changeset,
-          default_opts
-        )
+        generate_function(fun, schema_mod, resource, resources, config, generate_bang, filterable)
       end)
 
-    # Build overridable declarations for all generated functions
-    overridable_fns = build_overridable_list(functions, resource, resources)
+    # Build overridable declarations
+    overridable_fns = build_overridable_list(functions, resource, resources, generate_bang, filterable)
 
-    # Return function definitions followed by defoverridable
-    function_defs ++
-      [
-        quote do
-          defoverridable unquote(overridable_fns)
-        end
-      ]
+    quote do
+      unquote_splicing(function_defs)
+      defoverridable unquote(overridable_fns)
+    end
   end
 
-  # Build list of {function_name, arity} tuples for defoverridable
-  defp build_overridable_list(functions, resource, resources) do
-    Enum.flat_map(functions, fn
-      :fetch ->
-        [{:"fetch_#{resource}", 1}, {:"fetch_#{resource}", 2}]
-
-      :get ->
-        [{:"get_#{resource}", 1}, {:"get_#{resource}", 2}]
-
-      :list ->
-        [{:"list_#{resources}", 0}, {:"list_#{resources}", 1}]
-
-      :exists? ->
-        [{:"#{resource}_exists?", 1}, {:"#{resource}_exists?", 2}]
-
-      :create ->
-        [{:"create_#{resource}", 1}, {:"create_#{resource}", 2}]
-
-      :update ->
-        [{:"update_#{resource}", 2}, {:"update_#{resource}", 3}]
-
-      :delete ->
-        [{:"delete_#{resource}", 1}, {:"delete_#{resource}", 2}]
-
-      :create_all ->
-        [{:"create_all_#{resources}", 1}, {:"create_all_#{resources}", 2}]
-
-      :update_all ->
-        [
-          {:"update_all_#{resources}", 1},
-          {:"update_all_#{resources}", 2},
-          {:"update_all_#{resources}", 3}
-        ]
-
-      :delete_all ->
-        [
-          {:"delete_all_#{resources}", 0},
-          {:"delete_all_#{resources}", 1},
-          {:"delete_all_#{resources}", 2}
-        ]
-    end)
-  end
+  # ─────────────────────────────────────────────────────────────
+  # Helpers
+  # ─────────────────────────────────────────────────────────────
 
   defp resource_name(schema, opts) do
     case Keyword.get(opts, :as) do
@@ -233,30 +257,33 @@ defmodule OmCrud.Context do
   end
 
   defp pluralize(name) when is_atom(name) do
-    name
-    |> Atom.to_string()
-    |> pluralize_string()
-    |> String.to_atom()
-  end
+    str = Atom.to_string(name)
 
-  defp pluralize_string(str) do
-    cond do
-      String.ends_with?(str, "y") and not String.ends_with?(str, ["ay", "ey", "iy", "oy", "uy"]) ->
-        String.slice(str, 0..-2//1) <> "ies"
+    pluralized =
+      cond do
+        String.ends_with?(str, "y") and not String.ends_with?(str, ["ay", "ey", "iy", "oy", "uy"]) ->
+          String.slice(str, 0..-2//1) <> "ies"
 
-      String.ends_with?(str, ["s", "x", "z", "ch", "sh"]) ->
-        str <> "es"
+        String.ends_with?(str, ["s", "x", "z", "ch", "sh"]) ->
+          str <> "es"
 
-      true ->
-        str <> "s"
-    end
+        true ->
+          str <> "s"
+      end
+
+    String.to_atom(pluralized)
   end
 
   @all_functions [
     :fetch,
     :get,
     :list,
+    :filter,
+    :count,
+    :first,
+    :last,
     :exists?,
+    :stream,
     :create,
     :update,
     :delete,
@@ -274,268 +301,817 @@ defmodule OmCrud.Context do
     end
   end
 
-  defp generate_function(
-         :fetch,
-         schema,
-         resource,
-         _resources,
-         default_preload,
-         _changeset,
-         default_opts
-       ) do
+  defp build_overridable_list(functions, resource, resources, generate_bang, filterable) do
+    Enum.flat_map(functions, fn
+      :fetch ->
+        fns = [{:"fetch_#{resource}", 1}, {:"fetch_#{resource}", 2}]
+        if generate_bang, do: fns ++ [{:"fetch_#{resource}!", 1}, {:"fetch_#{resource}!", 2}], else: fns
+
+      :get ->
+        [{:"get_#{resource}", 1}, {:"get_#{resource}", 2}]
+
+      :list ->
+        [{:"list_#{resources}", 0}, {:"list_#{resources}", 1}]
+
+      :filter when filterable ->
+        [{:"filter_#{resources}", 1}, {:"filter_#{resources}", 2}]
+
+      :filter ->
+        []
+
+      :count ->
+        [{:"count_#{resources}", 0}, {:"count_#{resources}", 1}]
+
+      :first ->
+        fns = [{:"first_#{resource}", 0}, {:"first_#{resource}", 1}]
+        if generate_bang, do: fns ++ [{:"first_#{resource}!", 0}, {:"first_#{resource}!", 1}], else: fns
+
+      :last ->
+        fns = [{:"last_#{resource}", 0}, {:"last_#{resource}", 1}]
+        if generate_bang, do: fns ++ [{:"last_#{resource}!", 0}, {:"last_#{resource}!", 1}], else: fns
+
+      :exists? ->
+        [{:"#{resource}_exists?", 1}, {:"#{resource}_exists?", 2}]
+
+      :stream ->
+        [{:"stream_#{resources}", 0}, {:"stream_#{resources}", 1}]
+
+      :create ->
+        fns = [{:"create_#{resource}", 1}, {:"create_#{resource}", 2}]
+        if generate_bang, do: fns ++ [{:"create_#{resource}!", 1}, {:"create_#{resource}!", 2}], else: fns
+
+      :update ->
+        fns = [{:"update_#{resource}", 2}, {:"update_#{resource}", 3}]
+        if generate_bang, do: fns ++ [{:"update_#{resource}!", 2}, {:"update_#{resource}!", 3}], else: fns
+
+      :delete ->
+        fns = [{:"delete_#{resource}", 1}, {:"delete_#{resource}", 2}]
+        if generate_bang, do: fns ++ [{:"delete_#{resource}!", 1}, {:"delete_#{resource}!", 2}], else: fns
+
+      :create_all ->
+        [{:"create_all_#{resources}", 1}, {:"create_all_#{resources}", 2}]
+
+      :update_all ->
+        [{:"update_all_#{resources}", 2}, {:"update_all_#{resources}", 3}]
+
+      :delete_all ->
+        [{:"delete_all_#{resources}", 1}, {:"delete_all_#{resources}", 2}]
+    end)
+    |> Enum.uniq()
+  end
+
+  # ─────────────────────────────────────────────────────────────
+  # Function Generators
+  # ─────────────────────────────────────────────────────────────
+
+  defp generate_function(:fetch, schema, resource, _resources, config, generate_bang, _filterable) do
     fn_name = :"fetch_#{resource}"
+    bang_name = :"fetch_#{resource}!"
+    default_opts = Macro.escape(config.default_opts)
+    default_preload = Macro.escape(config.default_preload)
 
-    quote do
-      @doc """
-      Fetch a #{unquote(resource)} by ID.
+    base = [
+      quote do
+        @doc "Fetch a #{unquote(resource)} by ID. Returns `{:ok, record}` or `{:error, :not_found}`."
+        @spec unquote(fn_name)(binary(), keyword()) :: {:ok, struct()} | {:error, :not_found}
+        def unquote(fn_name)(id, opts \\ []) do
+          opts = Keyword.merge(unquote(default_opts), opts)
+          opts = Keyword.put_new(opts, :preload, unquote(default_preload))
 
-      Returns `{:ok, record}` or `{:error, :not_found}`.
-      """
-      @spec unquote(fn_name)(binary(), keyword()) :: {:ok, struct()} | {:error, :not_found}
-      def unquote(fn_name)(id, opts \\ []) do
-        opts =
-          unquote(default_opts)
-          |> Keyword.merge(opts)
-          |> Keyword.put_new(:preload, unquote(default_preload))
-
-        OmCrud.fetch(unquote(schema), id, opts)
+          OmCrud.Telemetry.span(:fetch, %{schema: unquote(schema), id: id}, fn ->
+            OmCrud.fetch(unquote(schema), id, opts)
+          end)
+        end
       end
-    end
-    |> List.wrap()
+    ]
+
+    bang =
+      if generate_bang do
+        [
+          quote do
+            @doc "Fetch a #{unquote(resource)} by ID. Returns record or raises `Ecto.NoResultsError`."
+            @spec unquote(bang_name)(binary(), keyword()) :: struct()
+            def unquote(bang_name)(id, opts \\ []) do
+              case unquote(fn_name)(id, opts) do
+                {:ok, record} -> record
+                {:error, :not_found} -> raise Ecto.NoResultsError, queryable: unquote(schema)
+              end
+            end
+          end
+        ]
+      else
+        []
+      end
+
+    base ++ bang
   end
 
-  defp generate_function(
-         :get,
-         schema,
-         resource,
-         _resources,
-         default_preload,
-         _changeset,
-         default_opts
-       ) do
+  defp generate_function(:get, schema, resource, _resources, config, _generate_bang, _filterable) do
     fn_name = :"get_#{resource}"
+    default_opts = Macro.escape(config.default_opts)
+    default_preload = Macro.escape(config.default_preload)
 
-    quote do
-      @doc """
-      Get a #{unquote(resource)} by ID.
+    [
+      quote do
+        @doc "Get a #{unquote(resource)} by ID. Returns the record or `nil`."
+        @spec unquote(fn_name)(binary(), keyword()) :: struct() | nil
+        def unquote(fn_name)(id, opts \\ []) do
+          opts = Keyword.merge(unquote(default_opts), opts)
+          opts = Keyword.put_new(opts, :preload, unquote(default_preload))
 
-      Returns the record or `nil`.
-      """
-      @spec unquote(fn_name)(binary(), keyword()) :: struct() | nil
-      def unquote(fn_name)(id, opts \\ []) do
-        opts =
-          unquote(default_opts)
-          |> Keyword.merge(opts)
-          |> Keyword.put_new(:preload, unquote(default_preload))
-
-        OmCrud.get(unquote(schema), id, opts)
+          OmCrud.Telemetry.span(:get, %{schema: unquote(schema), id: id}, fn ->
+            OmCrud.get(unquote(schema), id, opts)
+          end)
+        end
       end
-    end
-    |> List.wrap()
+    ]
   end
 
-  defp generate_function(
-         :list,
-         schema,
-         _resource,
-         resources,
-         default_preload,
-         _changeset,
-         default_opts
-       ) do
+  defp generate_function(:list, schema, _resource, resources, config, _generate_bang, _filterable) do
     fn_name = :"list_#{resources}"
+    default_opts = Macro.escape(config.default_opts)
+    default_preload = Macro.escape(config.default_preload)
+    default_limit = config.default_limit
+    max_limit = config.max_limit
+    order_by = Macro.escape(config.order_by)
+    cursor_fields = Macro.escape(config.cursor_fields)
 
-    quote do
-      @doc """
-      List all #{unquote(resources)}.
+    [
+      quote do
+        @doc """
+        List #{unquote(resources)} with cursor pagination.
 
-      Returns a list of records.
-      """
-      @spec unquote(fn_name)(keyword()) :: [struct()]
-      def unquote(fn_name)(opts \\ []) do
-        opts =
-          unquote(default_opts)
-          |> Keyword.merge(opts)
-          |> Keyword.put_new(:preload, unquote(default_preload))
+        Returns `{:ok, %OmCrud.Result{}}` with data and pagination metadata.
 
-        OmCrud.fetch_all(unquote(schema), opts)
+        ## Options
+
+        - `:limit` - Page size (default: #{unquote(default_limit)}, max: #{unquote(max_limit)})
+        - `:limit` as `:all` - Return all records (no pagination)
+        - `:after` - Cursor for next page
+        - `:before` - Cursor for previous page
+        - `:filters` - List of filter tuples `[{field, op, value}]`
+        - `:preload` - Associations to preload
+        - `:order_by` - Custom ordering (overrides default)
+        - `:select` - Fields to select
+        - `:distinct` - Enable distinct
+        - `:lock` - Row locking mode (`:for_update`, `:for_share`)
+        """
+        @spec unquote(fn_name)(keyword()) :: {:ok, OmCrud.Result.t()}
+        def unquote(fn_name)(opts \\ []) do
+          opts = Keyword.merge(unquote(default_opts), opts)
+
+          filters = Keyword.get(opts, :filters, [])
+          preload = Keyword.get(opts, :preload, unquote(default_preload))
+          order_by = Keyword.get(opts, :order_by, unquote(order_by))
+          cursor_fields = Keyword.get(opts, :cursor_fields, unquote(cursor_fields))
+
+          limit =
+            case Keyword.get(opts, :limit, unquote(default_limit)) do
+              :all -> :all
+              n when is_integer(n) -> min(n, unquote(max_limit))
+            end
+
+          OmCrud.Telemetry.span(:list, %{schema: unquote(schema), filters: filters, limit: limit}, fn ->
+            query =
+              unquote(schema)
+              |> OmQuery.new()
+              |> __apply_crud_filters__(filters)
+              |> __apply_crud_query_opts__(opts)
+
+            case limit do
+              :all ->
+                query = OmQuery.orders(query, order_by)
+                records = OmQuery.all(query, opts)
+                records = __preload_crud_records__(records, preload, opts)
+                {:ok, OmCrud.Result.all(records)}
+
+              limit when is_integer(limit) ->
+                query =
+                  query
+                  |> OmQuery.paginate(:cursor,
+                    cursor_fields: cursor_fields,
+                    limit: limit + 1,
+                    after: opts[:after],
+                    before: opts[:before]
+                  )
+                  |> OmQuery.orders(order_by)
+
+                records = OmQuery.all(query, opts)
+                records = __preload_crud_records__(records, preload, opts)
+
+                pagination =
+                  OmCrud.Pagination.from_records(records, cursor_fields, limit,
+                    fetched_extra: true,
+                    has_previous: opts[:after] != nil
+                  )
+
+                records = Enum.take(records, limit)
+                {:ok, OmCrud.Result.new(records, pagination)}
+            end
+          end)
+        end
       end
-    end
-    |> List.wrap()
+    ]
   end
 
-  defp generate_function(:exists?, schema, resource, _resources, _preload, _changeset, default_opts) do
+  defp generate_function(:filter, _schema, _resource, resources, _config, _generate_bang, true = _filterable) do
+    fn_name = :"filter_#{resources}"
+    list_fn = :"list_#{resources}"
+
+    [
+      quote do
+        @doc """
+        Filter #{unquote(resources)} with cursor pagination.
+
+        Convenience wrapper around `#{unquote(list_fn)}/1` with filters.
+
+        ## Examples
+
+            #{unquote(fn_name)}([{:status, :eq, :active}])
+            #{unquote(fn_name)}([{:email, :ilike, "%@corp.com"}], preload: [:account])
+        """
+        @spec unquote(fn_name)([tuple()], keyword()) :: {:ok, OmCrud.Result.t()}
+        def unquote(fn_name)(filters, opts \\ []) when is_list(filters) do
+          unquote(list_fn)(Keyword.put(opts, :filters, filters))
+        end
+      end
+    ]
+  end
+
+  defp generate_function(:filter, _schema, _resource, _resources, _config, _generate_bang, false) do
+    []
+  end
+
+  defp generate_function(:count, schema, _resource, resources, config, _generate_bang, _filterable) do
+    fn_name = :"count_#{resources}"
+    default_opts = Macro.escape(config.default_opts)
+
+    [
+      quote do
+        @doc """
+        Count #{unquote(resources)}.
+
+        ## Options
+
+        - `:filters` - List of filter tuples
+        """
+        @spec unquote(fn_name)(keyword()) :: {:ok, non_neg_integer()}
+        def unquote(fn_name)(opts \\ []) do
+          opts = Keyword.merge(unquote(default_opts), opts)
+          filters = Keyword.get(opts, :filters, [])
+
+          OmCrud.Telemetry.span(:count, %{schema: unquote(schema), filters: filters}, fn ->
+            count =
+              unquote(schema)
+              |> OmQuery.new()
+              |> __apply_crud_filters__(filters)
+              |> OmQuery.count(opts)
+
+            {:ok, count}
+          end)
+        end
+      end
+    ]
+  end
+
+  defp generate_function(:first, schema, resource, _resources, config, generate_bang, _filterable) do
+    fn_name = :"first_#{resource}"
+    bang_name = :"first_#{resource}!"
+    default_opts = Macro.escape(config.default_opts)
+    default_preload = Macro.escape(config.default_preload)
+    order_by = Macro.escape(config.order_by)
+
+    base = [
+      quote do
+        @doc "Get the first #{unquote(resource)} by default ordering. Returns `{:ok, record}` or `{:error, :not_found}`."
+        @spec unquote(fn_name)(keyword()) :: {:ok, struct()} | {:error, :not_found}
+        def unquote(fn_name)(opts \\ []) do
+          opts = Keyword.merge(unquote(default_opts), opts)
+          filters = Keyword.get(opts, :filters, [])
+          preload = Keyword.get(opts, :preload, unquote(default_preload))
+          order_by = Keyword.get(opts, :order_by, unquote(order_by))
+
+          OmCrud.Telemetry.span(:first, %{schema: unquote(schema), filters: filters}, fn ->
+            result =
+              unquote(schema)
+              |> OmQuery.new()
+              |> __apply_crud_filters__(filters)
+              |> OmQuery.orders(order_by)
+              |> OmQuery.first(opts)
+
+            case result do
+              nil ->
+                {:error, :not_found}
+
+              record ->
+                record = __preload_crud_records__([record], preload, opts) |> List.first()
+                {:ok, record}
+            end
+          end)
+        end
+      end
+    ]
+
+    bang =
+      if generate_bang do
+        [
+          quote do
+            @doc "Get the first #{unquote(resource)} or raise."
+            @spec unquote(bang_name)(keyword()) :: struct()
+            def unquote(bang_name)(opts \\ []) do
+              case unquote(fn_name)(opts) do
+                {:ok, record} -> record
+                {:error, :not_found} -> raise Ecto.NoResultsError, queryable: unquote(schema)
+              end
+            end
+          end
+        ]
+      else
+        []
+      end
+
+    base ++ bang
+  end
+
+  defp generate_function(:last, schema, resource, _resources, config, generate_bang, _filterable) do
+    fn_name = :"last_#{resource}"
+    bang_name = :"last_#{resource}!"
+    default_opts = Macro.escape(config.default_opts)
+    default_preload = Macro.escape(config.default_preload)
+    order_by = Macro.escape(config.order_by)
+
+    base = [
+      quote do
+        @doc "Get the last #{unquote(resource)} by default ordering. Returns `{:ok, record}` or `{:error, :not_found}`."
+        @spec unquote(fn_name)(keyword()) :: {:ok, struct()} | {:error, :not_found}
+        def unquote(fn_name)(opts \\ []) do
+          opts = Keyword.merge(unquote(default_opts), opts)
+          filters = Keyword.get(opts, :filters, [])
+          preload = Keyword.get(opts, :preload, unquote(default_preload))
+          order_by = Keyword.get(opts, :order_by, unquote(order_by)) |> __reverse_crud_order__()
+
+          OmCrud.Telemetry.span(:last, %{schema: unquote(schema), filters: filters}, fn ->
+            result =
+              unquote(schema)
+              |> OmQuery.new()
+              |> __apply_crud_filters__(filters)
+              |> OmQuery.orders(order_by)
+              |> OmQuery.first(opts)
+
+            case result do
+              nil ->
+                {:error, :not_found}
+
+              record ->
+                record = __preload_crud_records__([record], preload, opts) |> List.first()
+                {:ok, record}
+            end
+          end)
+        end
+      end
+    ]
+
+    bang =
+      if generate_bang do
+        [
+          quote do
+            @doc "Get the last #{unquote(resource)} or raise."
+            @spec unquote(bang_name)(keyword()) :: struct()
+            def unquote(bang_name)(opts \\ []) do
+              case unquote(fn_name)(opts) do
+                {:ok, record} -> record
+                {:error, :not_found} -> raise Ecto.NoResultsError, queryable: unquote(schema)
+              end
+            end
+          end
+        ]
+      else
+        []
+      end
+
+    base ++ bang
+  end
+
+  defp generate_function(:exists?, schema, resource, _resources, config, _generate_bang, _filterable) do
     fn_name = :"#{resource}_exists?"
+    default_opts = Macro.escape(config.default_opts)
 
-    quote do
-      @doc """
-      Check if a #{unquote(resource)} exists.
+    [
+      quote do
+        @doc """
+        Check if a #{unquote(resource)} exists.
 
-      Returns `true` or `false`.
-      """
-      @spec unquote(fn_name)(binary(), keyword()) :: boolean()
-      def unquote(fn_name)(id, opts \\ []) do
-        opts = Keyword.merge(unquote(default_opts), opts)
-        OmCrud.exists?(unquote(schema), id, opts)
+        Accepts either an ID or a list of filters.
+
+        ## Examples
+
+            #{unquote(fn_name)}("uuid")
+            #{unquote(fn_name)}([{:email, :eq, "test@example.com"}])
+        """
+        @spec unquote(fn_name)(binary() | list(), keyword()) :: boolean()
+        def unquote(fn_name)(id_or_filters, opts \\ [])
+
+        def unquote(fn_name)(id, opts) when is_binary(id) do
+          opts = Keyword.merge(unquote(default_opts), opts)
+
+          OmCrud.Telemetry.span(:exists, %{schema: unquote(schema), id: id}, fn ->
+            OmCrud.exists?(unquote(schema), id, opts)
+          end)
+        end
+
+        def unquote(fn_name)(filters, opts) when is_list(filters) do
+          opts = Keyword.merge(unquote(default_opts), opts)
+
+          OmCrud.Telemetry.span(:exists, %{schema: unquote(schema), filters: filters}, fn ->
+            unquote(schema)
+            |> OmQuery.new()
+            |> __apply_crud_filters__(filters)
+            |> OmQuery.exists?(opts)
+          end)
+        end
       end
-    end
-    |> List.wrap()
+    ]
   end
 
-  defp generate_function(:create, schema, resource, _resources, _preload, changeset, default_opts) do
+  defp generate_function(:stream, schema, _resource, resources, config, _generate_bang, _filterable) do
+    fn_name = :"stream_#{resources}"
+    default_opts = Macro.escape(config.default_opts)
+    batch_size = config.batch_size
+    order_by = Macro.escape(config.order_by)
+
+    [
+      quote do
+        @doc """
+        Stream #{unquote(resources)} for memory-efficient iteration.
+
+        ## Options
+
+        - `:batch_size` - Records per batch (default: #{unquote(batch_size)})
+        - `:filters` - List of filter tuples
+        - `:order_by` - Custom ordering
+        """
+        @spec unquote(fn_name)(keyword()) :: Enumerable.t()
+        def unquote(fn_name)(opts \\ []) do
+          opts = Keyword.merge(unquote(default_opts), opts)
+          filters = Keyword.get(opts, :filters, [])
+          order_by = Keyword.get(opts, :order_by, unquote(order_by))
+          batch_size = Keyword.get(opts, :batch_size, unquote(batch_size))
+
+          start_time = OmCrud.Telemetry.start(:stream, %{schema: unquote(schema), filters: filters})
+
+          stream =
+            unquote(schema)
+            |> OmQuery.new()
+            |> __apply_crud_filters__(filters)
+            |> OmQuery.orders(order_by)
+            |> OmQuery.stream(Keyword.put(opts, :max_rows, batch_size))
+
+          Stream.concat([stream, []])
+          |> Stream.transform(0, fn
+            [], count ->
+              OmCrud.Telemetry.stop(:stream, start_time, %{schema: unquote(schema), count: count})
+              {:halt, count}
+
+            item, count ->
+              {[item], count + 1}
+          end)
+        end
+      end
+    ]
+  end
+
+  defp generate_function(:create, schema, resource, _resources, config, generate_bang, _filterable) do
     fn_name = :"create_#{resource}"
+    bang_name = :"create_#{resource}!"
+    default_opts = Macro.escape(config.default_opts)
+    default_changeset = config.default_changeset
+    default_preload = Macro.escape(config.default_preload)
 
-    quote do
-      @doc """
-      Create a new #{unquote(resource)}.
+    base = [
+      quote do
+        @doc """
+        Create a new #{unquote(resource)}.
 
-      Returns `{:ok, record}` or `{:error, changeset}`.
-      """
-      @spec unquote(fn_name)(map(), keyword()) :: {:ok, struct()} | {:error, Ecto.Changeset.t()}
-      def unquote(fn_name)(attrs, opts \\ []) do
-        opts =
-          unquote(default_opts)
-          |> Keyword.merge(opts)
-          |> then(fn o ->
-            if unquote(changeset) do
-              Keyword.put_new(o, :changeset, unquote(changeset))
+        Returns `{:ok, record}` or `{:error, changeset}`.
+
+        ## Options
+
+        - `:changeset` - Custom changeset function name
+        - `:reload` - Preloads to apply after creation
+        """
+        @spec unquote(fn_name)(map(), keyword()) :: {:ok, struct()} | {:error, Ecto.Changeset.t()}
+        def unquote(fn_name)(attrs, opts \\ []) do
+          opts = Keyword.merge(unquote(default_opts), opts)
+
+          opts =
+            if unquote(default_changeset) do
+              Keyword.put_new(opts, :changeset, unquote(default_changeset))
             else
-              o
+              opts
+            end
+
+          OmCrud.Telemetry.span(:create, %{schema: unquote(schema)}, fn ->
+            result = OmCrud.create(unquote(schema), attrs, opts)
+
+            case {result, opts[:reload]} do
+              {{:ok, record}, preloads} when is_list(preloads) and preloads != [] ->
+                repo = OmCrud.Options.repo(opts)
+                {:ok, repo.preload(record, preloads)}
+
+              {{:ok, record}, true} ->
+                repo = OmCrud.Options.repo(opts)
+                {:ok, repo.preload(record, unquote(default_preload))}
+
+              _ ->
+                result
             end
           end)
-
-        OmCrud.create(unquote(schema), attrs, opts)
+        end
       end
-    end
-    |> List.wrap()
+    ]
+
+    bang =
+      if generate_bang do
+        [
+          quote do
+            @doc "Create a new #{unquote(resource)} or raise."
+            @spec unquote(bang_name)(map(), keyword()) :: struct()
+            def unquote(bang_name)(attrs, opts \\ []) do
+              case unquote(fn_name)(attrs, opts) do
+                {:ok, record} ->
+                  record
+
+                {:error, %Ecto.Changeset{} = changeset} ->
+                  raise Ecto.InvalidChangesetError, action: :insert, changeset: changeset
+              end
+            end
+          end
+        ]
+      else
+        []
+      end
+
+    base ++ bang
   end
 
-  defp generate_function(:update, _schema, resource, _resources, _preload, changeset, default_opts) do
+  defp generate_function(:update, schema, resource, _resources, config, generate_bang, _filterable) do
     fn_name = :"update_#{resource}"
+    bang_name = :"update_#{resource}!"
+    default_opts = Macro.escape(config.default_opts)
+    default_changeset = config.default_changeset
+    default_preload = Macro.escape(config.default_preload)
 
-    quote do
-      @doc """
-      Update a #{unquote(resource)}.
+    base = [
+      quote do
+        @doc """
+        Update a #{unquote(resource)}.
 
-      Accepts a struct or `{schema, id}` tuple.
-      Returns `{:ok, record}` or `{:error, changeset}`.
-      """
-      @spec unquote(fn_name)(struct(), map(), keyword()) ::
-              {:ok, struct()} | {:error, Ecto.Changeset.t()}
-      def unquote(fn_name)(record, attrs, opts \\ []) do
-        opts =
-          unquote(default_opts)
-          |> Keyword.merge(opts)
-          |> then(fn o ->
-            if unquote(changeset) do
-              Keyword.put_new(o, :changeset, unquote(changeset))
+        Returns `{:ok, record}` or `{:error, changeset}`.
+
+        ## Options
+
+        - `:changeset` - Custom changeset function name
+        - `:reload` - Preloads to apply after update
+        - `:force` - Fields to mark as changed
+        """
+        @spec unquote(fn_name)(struct(), map(), keyword()) ::
+                {:ok, struct()} | {:error, Ecto.Changeset.t()}
+        def unquote(fn_name)(record, attrs, opts \\ []) do
+          opts = Keyword.merge(unquote(default_opts), opts)
+
+          opts =
+            if unquote(default_changeset) do
+              Keyword.put_new(opts, :changeset, unquote(default_changeset))
             else
-              o
+              opts
+            end
+
+          OmCrud.Telemetry.span(:update, %{schema: unquote(schema), id: record.id}, fn ->
+            result = OmCrud.update(record, attrs, opts)
+
+            case {result, opts[:reload]} do
+              {{:ok, record}, preloads} when is_list(preloads) and preloads != [] ->
+                repo = OmCrud.Options.repo(opts)
+                {:ok, repo.preload(record, preloads)}
+
+              {{:ok, record}, true} ->
+                repo = OmCrud.Options.repo(opts)
+                {:ok, repo.preload(record, unquote(default_preload))}
+
+              _ ->
+                result
             end
           end)
-
-        OmCrud.update(record, attrs, opts)
+        end
       end
-    end
-    |> List.wrap()
+    ]
+
+    bang =
+      if generate_bang do
+        [
+          quote do
+            @doc "Update a #{unquote(resource)} or raise."
+            @spec unquote(bang_name)(struct(), map(), keyword()) :: struct()
+            def unquote(bang_name)(record, attrs, opts \\ []) do
+              case unquote(fn_name)(record, attrs, opts) do
+                {:ok, record} ->
+                  record
+
+                {:error, %Ecto.Changeset{} = changeset} ->
+                  raise Ecto.InvalidChangesetError, action: :update, changeset: changeset
+              end
+            end
+          end
+        ]
+      else
+        []
+      end
+
+    base ++ bang
   end
 
-  defp generate_function(:delete, _schema, resource, _resources, _preload, _changeset, default_opts) do
+  defp generate_function(:delete, schema, resource, _resources, config, generate_bang, _filterable) do
     fn_name = :"delete_#{resource}"
+    bang_name = :"delete_#{resource}!"
+    default_opts = Macro.escape(config.default_opts)
 
-    quote do
-      @doc """
-      Delete a #{unquote(resource)}.
+    base = [
+      quote do
+        @doc "Delete a #{unquote(resource)}. Returns `{:ok, record}` or `{:error, changeset}`."
+        @spec unquote(fn_name)(struct(), keyword()) :: {:ok, struct()} | {:error, Ecto.Changeset.t()}
+        def unquote(fn_name)(record, opts \\ []) do
+          opts = Keyword.merge(unquote(default_opts), opts)
 
-      Returns `{:ok, record}` or `{:error, changeset}`.
-      """
-      @spec unquote(fn_name)(struct(), keyword()) :: {:ok, struct()} | {:error, Ecto.Changeset.t()}
-      def unquote(fn_name)(record, opts \\ []) do
-        opts = Keyword.merge(unquote(default_opts), opts)
-        OmCrud.delete(record, opts)
+          OmCrud.Telemetry.span(:delete, %{schema: unquote(schema), id: record.id}, fn ->
+            OmCrud.delete(record, opts)
+          end)
+        end
       end
-    end
-    |> List.wrap()
+    ]
+
+    bang =
+      if generate_bang do
+        [
+          quote do
+            @doc "Delete a #{unquote(resource)} or raise."
+            @spec unquote(bang_name)(struct(), keyword()) :: struct()
+            def unquote(bang_name)(record, opts \\ []) do
+              case unquote(fn_name)(record, opts) do
+                {:ok, record} ->
+                  record
+
+                {:error, %Ecto.Changeset{} = changeset} ->
+                  raise Ecto.InvalidChangesetError, action: :delete, changeset: changeset
+              end
+            end
+          end
+        ]
+      else
+        []
+      end
+
+    base ++ bang
   end
 
-  defp generate_function(
-         :create_all,
-         schema,
-         _resource,
-         resources,
-         _preload,
-         _changeset,
-         default_opts
-       ) do
+  defp generate_function(:create_all, schema, _resource, resources, config, _generate_bang, _filterable) do
     fn_name = :"create_all_#{resources}"
+    default_opts = Macro.escape(config.default_opts)
 
-    quote do
-      @doc """
-      Bulk insert #{unquote(resources)}.
+    [
+      quote do
+        @doc """
+        Bulk insert #{unquote(resources)}.
 
-      Returns `{count, records}` where records is a list if `:returning` is set.
-      """
-      @spec unquote(fn_name)([map()], keyword()) :: {non_neg_integer(), [struct()] | nil}
-      def unquote(fn_name)(entries, opts \\ []) do
-        opts = Keyword.merge(unquote(default_opts), opts)
-        OmCrud.create_all(unquote(schema), entries, opts)
+        Returns `{count, records}` where records is a list if `:returning` is set.
+
+        ## Options
+
+        - `:returning` - Fields to return or `true` for all
+        - `:placeholders` - Map of reusable values
+        - `:conflict_target` - Column(s) for conflict detection
+        - `:on_conflict` - Action on conflict
+        """
+        @spec unquote(fn_name)([map()], keyword()) :: {non_neg_integer(), [struct()] | nil}
+        def unquote(fn_name)(entries, opts \\ []) do
+          opts = Keyword.merge(unquote(default_opts), opts)
+
+          OmCrud.Telemetry.span(:create_all, %{schema: unquote(schema), count: length(entries)}, fn ->
+            OmCrud.create_all(unquote(schema), entries, opts)
+          end)
+        end
       end
-    end
-    |> List.wrap()
+    ]
   end
 
-  defp generate_function(
-         :update_all,
-         schema,
-         _resource,
-         resources,
-         _preload,
-         _changeset,
-         default_opts
-       ) do
+  defp generate_function(:update_all, schema, _resource, resources, config, _generate_bang, _filterable) do
     fn_name = :"update_all_#{resources}"
+    default_opts = Macro.escape(config.default_opts)
 
-    quote do
-      @doc """
-      Bulk update #{unquote(resources)}.
+    [
+      quote do
+        @doc """
+        Bulk update #{unquote(resources)} matching filters.
 
-      The query should be an Ecto.Query or Query.Token.
-      Returns `{count, records}`.
-      """
-      @spec unquote(fn_name)(Ecto.Queryable.t(), keyword(), keyword()) ::
-              {non_neg_integer(), [struct()] | nil}
-      def unquote(fn_name)(query \\ unquote(schema), updates, opts \\ []) do
-        opts = Keyword.merge(unquote(default_opts), opts)
-        OmCrud.update_all(query, updates, opts)
+        Returns `{:ok, count}` or `{:ok, {count, records}}` with `:returning`.
+
+        ## Arguments
+
+        - `filters` - List of filter tuples `[{field, op, value}]`
+        - `changes` - Keyword list of changes `[field: value]`
+
+        ## Options
+
+        - `:returning` - Fields to return or `true` for all
+        """
+        @spec unquote(fn_name)([tuple()], keyword(), keyword()) ::
+                {:ok, non_neg_integer()} | {:ok, {non_neg_integer(), [struct()]}}
+        def unquote(fn_name)(filters, changes, opts \\ [])
+            when is_list(filters) and is_list(changes) do
+          opts = Keyword.merge(unquote(default_opts), opts)
+
+          OmCrud.Telemetry.span(:update_all, %{schema: unquote(schema), filters: filters}, fn ->
+            query =
+              unquote(schema)
+              |> OmQuery.new()
+              |> __apply_crud_filters__(filters)
+
+            repo = OmCrud.Options.repo(opts)
+            ecto_query = OmQuery.build!(query)
+
+            case opts[:returning] do
+              nil ->
+                {count, _} = repo.update_all(ecto_query, [set: changes], opts)
+                {:ok, count}
+
+              true ->
+                {count, records} =
+                  repo.update_all(ecto_query, [set: changes], Keyword.put(opts, :returning, true))
+
+                {:ok, {count, records}}
+
+              fields when is_list(fields) ->
+                {count, records} =
+                  repo.update_all(ecto_query, [set: changes], Keyword.put(opts, :returning, fields))
+
+                {:ok, {count, records}}
+            end
+          end)
+        end
       end
-    end
-    |> List.wrap()
+    ]
   end
 
-  defp generate_function(
-         :delete_all,
-         schema,
-         _resource,
-         resources,
-         _preload,
-         _changeset,
-         default_opts
-       ) do
+  defp generate_function(:delete_all, schema, _resource, resources, config, _generate_bang, _filterable) do
     fn_name = :"delete_all_#{resources}"
+    default_opts = Macro.escape(config.default_opts)
 
-    quote do
-      @doc """
-      Bulk delete #{unquote(resources)}.
+    [
+      quote do
+        @doc """
+        Bulk delete #{unquote(resources)} matching filters.
 
-      The query should be an Ecto.Query or Query.Token.
-      Returns `{count, records}`.
-      """
-      @spec unquote(fn_name)(Ecto.Queryable.t(), keyword()) :: {non_neg_integer(), [struct()] | nil}
-      def unquote(fn_name)(query \\ unquote(schema), opts \\ []) do
-        opts = Keyword.merge(unquote(default_opts), opts)
-        OmCrud.delete_all(query, opts)
+        Returns `{:ok, count}` or `{:ok, {count, records}}` with `:returning`.
+
+        ## Arguments
+
+        - `filters` - List of filter tuples `[{field, op, value}]`
+
+        ## Options
+
+        - `:returning` - Fields to return or `true` for all
+        """
+        @spec unquote(fn_name)([tuple()], keyword()) ::
+                {:ok, non_neg_integer()} | {:ok, {non_neg_integer(), [struct()]}}
+        def unquote(fn_name)(filters, opts \\ []) when is_list(filters) do
+          opts = Keyword.merge(unquote(default_opts), opts)
+
+          OmCrud.Telemetry.span(:delete_all, %{schema: unquote(schema), filters: filters}, fn ->
+            query =
+              unquote(schema)
+              |> OmQuery.new()
+              |> __apply_crud_filters__(filters)
+
+            repo = OmCrud.Options.repo(opts)
+            ecto_query = OmQuery.build!(query)
+
+            case opts[:returning] do
+              nil ->
+                {count, _} = repo.delete_all(ecto_query, opts)
+                {:ok, count}
+
+              true ->
+                {count, records} = repo.delete_all(ecto_query, Keyword.put(opts, :returning, true))
+                {:ok, {count, records}}
+
+              fields when is_list(fields) ->
+                {count, records} =
+                  repo.delete_all(ecto_query, Keyword.put(opts, :returning, fields))
+
+                {:ok, {count, records}}
+            end
+          end)
+        end
       end
-    end
-    |> List.wrap()
+    ]
   end
 end

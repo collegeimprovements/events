@@ -130,7 +130,7 @@ defmodule OmCredo.Checks.PreferTimingModule do
             {{:., _dot_meta, [{:__aliases__, _aliases_meta, [:System]}, :monotonic_time]}, _, []}
           ]} = ast,
          acc,
-         issue_meta
+         _issue_meta
        )
        when is_atom(var_name) do
     # Found a variable assignment from System.monotonic_time()

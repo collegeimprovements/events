@@ -330,8 +330,16 @@ defmodule OmQuery.Token do
     :not_nil,
     :between,
     :contains,
+    # JSONB operators
     :jsonb_contains,
     :jsonb_has_key,
+    # NEW: JSON path operators
+    :jsonb_get,
+    :jsonb_path_exists,
+    :jsonb_path_match,
+    :jsonb_any_key,
+    :jsonb_all_keys,
+    :jsonb_array_elem,
     # Text search operators
     :similarity,
     :word_similarity,

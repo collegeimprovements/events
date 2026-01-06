@@ -69,15 +69,59 @@ defmodule OmCrud.ContextTest do
     end
 
     test "generates update_all function" do
-      assert function_exported?(ContextWithAllFunctions, :update_all_tests, 1)
+      # update_all(filters, changes, opts \\ [])
       assert function_exported?(ContextWithAllFunctions, :update_all_tests, 2)
       assert function_exported?(ContextWithAllFunctions, :update_all_tests, 3)
     end
 
     test "generates delete_all function" do
-      assert function_exported?(ContextWithAllFunctions, :delete_all_tests, 0)
+      # delete_all(filters, opts \\ [])
       assert function_exported?(ContextWithAllFunctions, :delete_all_tests, 1)
       assert function_exported?(ContextWithAllFunctions, :delete_all_tests, 2)
+    end
+
+    test "generates filter function" do
+      assert function_exported?(ContextWithAllFunctions, :filter_tests, 1)
+      assert function_exported?(ContextWithAllFunctions, :filter_tests, 2)
+    end
+
+    test "generates count function" do
+      assert function_exported?(ContextWithAllFunctions, :count_tests, 0)
+      assert function_exported?(ContextWithAllFunctions, :count_tests, 1)
+    end
+
+    test "generates first/last functions" do
+      assert function_exported?(ContextWithAllFunctions, :first_test, 0)
+      assert function_exported?(ContextWithAllFunctions, :first_test, 1)
+      assert function_exported?(ContextWithAllFunctions, :last_test, 0)
+      assert function_exported?(ContextWithAllFunctions, :last_test, 1)
+    end
+
+    test "generates stream function" do
+      assert function_exported?(ContextWithAllFunctions, :stream_tests, 0)
+      assert function_exported?(ContextWithAllFunctions, :stream_tests, 1)
+    end
+
+    test "generates bang variants" do
+      assert function_exported?(ContextWithAllFunctions, :fetch_test!, 1)
+      assert function_exported?(ContextWithAllFunctions, :fetch_test!, 2)
+      assert function_exported?(ContextWithAllFunctions, :first_test!, 0)
+      assert function_exported?(ContextWithAllFunctions, :first_test!, 1)
+      assert function_exported?(ContextWithAllFunctions, :last_test!, 0)
+      assert function_exported?(ContextWithAllFunctions, :last_test!, 1)
+      assert function_exported?(ContextWithAllFunctions, :create_test!, 1)
+      assert function_exported?(ContextWithAllFunctions, :create_test!, 2)
+      assert function_exported?(ContextWithAllFunctions, :update_test!, 2)
+      assert function_exported?(ContextWithAllFunctions, :update_test!, 3)
+      assert function_exported?(ContextWithAllFunctions, :delete_test!, 1)
+      assert function_exported?(ContextWithAllFunctions, :delete_test!, 2)
+    end
+
+    test "generates shared helper functions" do
+      assert function_exported?(ContextWithAllFunctions, :__apply_crud_filters__, 2)
+      assert function_exported?(ContextWithAllFunctions, :__apply_crud_query_opts__, 2)
+      assert function_exported?(ContextWithAllFunctions, :__preload_crud_records__, 3)
+      assert function_exported?(ContextWithAllFunctions, :__reverse_crud_order__, 1)
     end
   end
 
@@ -131,7 +175,7 @@ defmodule OmCrud.ContextTest do
 
     test "does not generate excepted functions" do
       refute function_exported?(ContextWithExceptOption, :delete_item, 1)
-      refute function_exported?(ContextWithExceptOption, :delete_all_items, 0)
+      refute function_exported?(ContextWithExceptOption, :delete_all_items, 1)
     end
   end
 end
