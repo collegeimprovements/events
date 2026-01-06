@@ -2,18 +2,31 @@ defmodule OmScheduler.TestingTest do
   use ExUnit.Case
 
   alias OmScheduler.Testing
-  alias OmScheduler.Store.Memory
+
+  @tables [:scheduler_jobs_memory, :scheduler_executions_memory, :scheduler_locks_memory, :scheduler_workflows_memory]
 
   setup do
-    # Ensure memory store is started
-    case Memory.start_link(name: TestingTestStore) do
-      {:ok, _pid} -> :ok
-      {:error, {:already_started, _pid}} -> :ok
-    end
+    # Ensure ETS tables exist (same pattern as memory_test.exs)
+    ensure_tables_exist()
 
     # Clear test data
     Testing.drain_jobs()
     :ok
+  end
+
+  defp ensure_tables_exist do
+    @tables
+    |> Enum.each(fn table ->
+      if :ets.whereis(table) == :undefined do
+        :ets.new(table, [
+          :set,
+          :public,
+          :named_table,
+          read_concurrency: true,
+          write_concurrency: true
+        ])
+      end
+    end)
   end
 
   describe "sandbox mode" do

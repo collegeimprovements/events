@@ -32,11 +32,11 @@ defmodule Events.Domains.Accounts do
   # stream_*, *_exists?, create_*, update_*, delete_*, create_all_*, update_all_*,
   # delete_all_* (plus bang variants)
 
-  crud Account, order_by: [asc: :name]
-  crud User, order_by: [desc: :inserted_at, asc: :id]
-  crud Membership, order_by: [desc: :joined_at]
-  crud Role, order_by: [asc: :name]
-  crud UserRoleMapping, as: :urm, order_by: [desc: :inserted_at]
+  crud(Account, order_by: [asc: :name])
+  crud(User, order_by: [desc: :inserted_at, asc: :id])
+  crud(Membership, order_by: [desc: :joined_at])
+  crud(Role, order_by: [asc: :name])
+  crud(UserRoleMapping, as: :urm, order_by: [desc: :inserted_at])
 
   # ===========================================================================
   # Accounts

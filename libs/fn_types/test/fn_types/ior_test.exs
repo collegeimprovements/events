@@ -24,22 +24,22 @@ defmodule FnTypes.IorTest do
   end
 
   describe "type checking" do
-    test "right?/1 detects right values" do
-      assert Ior.right?(Ior.success(42))
-      refute Ior.right?(Ior.partial(:warn, 42))
-      refute Ior.right?(Ior.failure(:error))
+    test "success?/1 detects success values" do
+      assert Ior.success?(Ior.success(42))
+      refute Ior.success?(Ior.partial(:warn, 42))
+      refute Ior.success?(Ior.failure(:error))
     end
 
-    test "left?/1 detects left values" do
-      assert Ior.left?(Ior.failure(:error))
-      refute Ior.left?(Ior.success(42))
-      refute Ior.left?(Ior.partial(:warn, 42))
+    test "failure?/1 detects failure values" do
+      assert Ior.failure?(Ior.failure(:error))
+      refute Ior.failure?(Ior.success(42))
+      refute Ior.failure?(Ior.partial(:warn, 42))
     end
 
-    test "both?/1 detects both values" do
-      assert Ior.both?(Ior.partial(:warn, 42))
-      refute Ior.both?(Ior.success(42))
-      refute Ior.both?(Ior.failure(:error))
+    test "partial?/1 detects partial values" do
+      assert Ior.partial?(Ior.partial(:warn, 42))
+      refute Ior.partial?(Ior.success(42))
+      refute Ior.partial?(Ior.failure(:error))
     end
 
     test "has_value?/1 detects presence of value" do

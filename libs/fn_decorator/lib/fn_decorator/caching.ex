@@ -64,7 +64,6 @@ defmodule FnDecorator.Caching do
   - `FnDecorator.Caching.Validation` - Schema documentation
   """
 
-  import FnDecorator.Shared, only: [eval_match: 2, merge_opts: 2]
   alias FnDecorator.Caching.Validation
 
   # ============================================
@@ -301,31 +300,41 @@ defmodule FnDecorator.Caching do
 
     cache = resolve_cache_simple(validated_opts)
     keys = validated_opts[:keys]
-    match = eval_match(validated_opts, quote(do: result))
     ttl_opt = if validated_opts[:ttl], do: [ttl: validated_opts[:ttl]], else: []
 
-    quote do
-      cache = unquote(cache)
-      result = unquote(body)
+    # Generate different code based on whether match is provided
+    if validated_opts[:match] do
+      # With match function - need conditional caching
+      match_fn = validated_opts[:match]
 
-      case unquote(match) do
-        {true, value} ->
-          for key <- unquote(keys) do
-            cache.put(key, value, unquote(ttl_opt))
-          end
+      quote do
+        cache = unquote(cache)
+        result = unquote(body)
 
-        {true, value, runtime_opts} ->
-          opts = unquote(merge_opts(ttl_opt, quote(do: runtime_opts)))
+        # Normalize match result using helper to avoid type checker warnings
+        # about unreachable branches (different match functions return different shapes)
+        FnDecorator.Caching.Helpers.put_if_matched(
+          unquote(match_fn).(result),
+          result,
+          cache,
+          unquote(keys),
+          unquote(ttl_opt)
+        )
 
-          for key <- unquote(keys) do
-            cache.put(key, value, opts)
-          end
-
-        false ->
-          :ok
+        result
       end
+    else
+      # No match function - always cache the result
+      quote do
+        cache = unquote(cache)
+        result = unquote(body)
 
-      result
+        for key <- unquote(keys) do
+          cache.put(key, result, unquote(ttl_opt))
+        end
+
+        result
+      end
     end
   end
 
