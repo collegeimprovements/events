@@ -60,6 +60,54 @@ defmodule OmCredo.Checks.UseEnhancedSchema do
       ]
     ]
 
+  @doc """
+  Runs the check to ensure schemas use the enhanced schema module instead of raw Ecto.Schema.
+
+  Scans for `use Ecto.Schema` statements and suggests replacing them with the
+  configured enhanced schema module (typically `OmSchema`) which provides additional
+  features like UUIDv7 primary keys, field groups, and enhanced validation.
+
+  ## Parameters
+
+  - `source_file` - The `Credo.SourceFile` struct to check
+  - `params` - Configuration parameters:
+    - `:enhanced_module` - The enhanced schema module to use (default: `OmSchema`)
+    - `:raw_module` - The raw module to detect (default: `Ecto.Schema`)
+    - `:included_paths` - Paths to check (default: `["/lib/"]`)
+    - `:excluded_paths` - Paths to exclude (default: `[]`)
+
+  ## Returns
+
+  A list of `Credo.Issue` structs for each `use Ecto.Schema` found in non-excluded paths.
+
+  ## Examples
+
+      # Schema using raw Ecto.Schema
+      source_file = %Credo.SourceFile{
+        filename: "/lib/my_app/schemas/user.ex",
+        ast: {:defmodule, ..., [{:use, ..., [{:__aliases__, ..., [:Ecto, :Schema]}]}]}
+      }
+
+      issues = UseEnhancedSchema.run(source_file, enhanced_module: OmSchema)
+      #=> [%Credo.Issue{message: "Use `OmSchema` instead of `Ecto.Schema`", ...}]
+
+      # Schema using enhanced module (no issue)
+      source_file = %Credo.SourceFile{
+        ast: {:use, ..., [{:__aliases__, ..., [:OmSchema]}]}
+      }
+
+      issues = UseEnhancedSchema.run(source_file, [])
+      #=> []
+
+      # Schema in excluded path
+      source_file = %Credo.SourceFile{
+        filename: "/lib/om_schema/schema.ex",
+        ast: {:use, ..., [{:__aliases__, ..., [:Ecto, :Schema]}]}
+      }
+
+      issues = UseEnhancedSchema.run(source_file, excluded_paths: ["/lib/om_schema/"])
+      #=> []
+  """
   @impl Credo.Check
   def run(%SourceFile{} = source_file, params) do
     included = Params.get(params, :included_paths, __MODULE__)

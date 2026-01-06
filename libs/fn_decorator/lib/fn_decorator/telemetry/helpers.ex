@@ -159,12 +159,19 @@ defmodule FnDecorator.Telemetry.Helpers do
         duration = System.monotonic_time() - start_time
         duration_ms = System.convert_time_unit(duration, :native, :millisecond)
 
+        # Classify result and enrich metadata
+        result_classification = FnDecorator.Telemetry.Helpers.classify_result(result)
+
         stop_meta =
-          if Keyword.get(unquote(opts), :include_result, false) do
-            Map.put(start_meta, :result, result)
-          else
-            start_meta
-          end
+          start_meta
+          |> Map.merge(result_classification)
+          |> then(fn meta ->
+            if Keyword.get(unquote(opts), :include_result, false) do
+              Map.put(meta, :result, result)
+            else
+              meta
+            end
+          end)
 
         :telemetry.execute(
           unquote(event) ++ [:stop],
@@ -419,4 +426,47 @@ defmodule FnDecorator.Telemetry.Helpers do
 
     Logger.log(level, message, metadata)
   end
+
+  @doc """
+  Classifies function results into metadata for telemetry.
+
+  Detects Result tuples, Maybe types, and other patterns to enrich
+  telemetry metadata with result information.
+
+  ## Examples
+
+      iex> classify_result({:ok, %User{}})
+      %{result: :ok}
+
+      iex> classify_result({:error, :not_found})
+      %{result: :error, error_type: :not_found}
+
+      iex> classify_result({:error, %Ecto.Changeset{}})
+      %{result: :error, error_type: Ecto.Changeset}
+
+      iex> classify_result(:ok)
+      %{result: :ok}
+
+      iex> classify_result(nil)
+      %{}
+  """
+  @spec classify_result(term()) :: map()
+  def classify_result({:ok, _}), do: %{result: :ok}
+
+  def classify_result({:error, reason}) when is_atom(reason) do
+    %{result: :error, error_type: reason}
+  end
+
+  def classify_result({:error, %{__struct__: struct}}) do
+    %{result: :error, error_type: struct}
+  end
+
+  def classify_result({:error, _reason}) do
+    %{result: :error, error_type: :unknown}
+  end
+
+  def classify_result(:ok), do: %{result: :ok}
+  def classify_result(:error), do: %{result: :error}
+
+  def classify_result(_), do: %{}
 end

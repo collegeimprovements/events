@@ -758,66 +758,12 @@ defmodule OmCrud do
 
   defp emit_telemetry(metadata, fun) when is_function(fun, 0) do
     telemetry_event = OmCrud.Config.telemetry_prefix()
-    start_time = System.monotonic_time()
 
-    :telemetry.execute(
-      telemetry_event ++ [:start],
-      %{system_time: System.system_time()},
-      metadata
-    )
-
-    try do
+    :telemetry.span(telemetry_event, metadata, fn ->
       result = fun.()
-
-      duration = System.monotonic_time() - start_time
-      duration_ms = System.convert_time_unit(duration, :native, :millisecond)
-
-      stop_meta = Map.put(metadata, :result, result_type(result))
-
-      :telemetry.execute(
-        telemetry_event ++ [:stop],
-        %{duration: duration, duration_ms: duration_ms},
-        stop_meta
-      )
-
-      result
-    rescue
-      e ->
-        duration = System.monotonic_time() - start_time
-        duration_ms = System.convert_time_unit(duration, :native, :millisecond)
-
-        exception_meta =
-          metadata
-          |> Map.put(:kind, :error)
-          |> Map.put(:reason, e)
-          |> Map.put(:stacktrace, __STACKTRACE__)
-
-        :telemetry.execute(
-          telemetry_event ++ [:exception],
-          %{duration: duration, duration_ms: duration_ms},
-          exception_meta
-        )
-
-        reraise e, __STACKTRACE__
-    catch
-      kind, reason ->
-        duration = System.monotonic_time() - start_time
-        duration_ms = System.convert_time_unit(duration, :native, :millisecond)
-
-        exception_meta =
-          metadata
-          |> Map.put(:kind, kind)
-          |> Map.put(:reason, reason)
-          |> Map.put(:stacktrace, __STACKTRACE__)
-
-        :telemetry.execute(
-          telemetry_event ++ [:exception],
-          %{duration: duration, duration_ms: duration_ms},
-          exception_meta
-        )
-
-        :erlang.raise(kind, reason, __STACKTRACE__)
-    end
+      enriched_meta = Map.put(metadata, :result, result_type(result))
+      {result, enriched_meta}
+    end)
   end
 
   # Classify result for telemetry metadata

@@ -81,6 +81,148 @@ end
 
 ---
 
+## Which Decorator Module Should I Use?
+
+FnDecorator provides **standard decorators** that work in any Elixir project. However, your application may define **application-specific decorators** (like workflow steps, schedulers, or custom patterns).
+
+### Standard Decorators (FnDecorator)
+
+Use `use FnDecorator` when you only need the standard library decorators:
+
+```elixir
+defmodule MyApp.Users do
+  use FnDecorator  # ← Standard decorators only
+  alias FnDecorator.Caching.Presets
+
+  @decorate cacheable(Presets.database(store: [cache: MyCache, key: {User, id}]))
+  @decorate telemetry_span([:myapp, :users, :get])
+  @decorate returns_result(ok: User.t(), error: :atom)
+  def get_user(id), do: Repo.get(User, id)
+end
+```
+
+**Available decorators:**
+- **Caching:** `@cacheable`, `@cache_put`, `@cache_evict`
+- **Telemetry:** `@telemetry_span`, `@otel_span`, `@log_call`, `@log_if_slow`, `@benchmark`, `@measure`
+- **Types:** `@returns_result`, `@returns_maybe`, `@returns_bang`, `@normalize_result`
+- **Security:** `@role_required`, `@rate_limit`, `@audit_log`
+- **Debugging:** `@debug`, `@inspect`, `@pry`, `@trace_vars`
+- **Purity:** `@pure`, `@deterministic`, `@idempotent`, `@memoizable`
+- **Testing:** `@with_fixtures`, `@sample_data`, `@timeout_test`, `@mock`
+
+See [Decorator Categories](#decorator-categories) below for details on each.
+
+### Application-Specific Decorators
+
+If your application defines custom decorators (e.g., workflow steps, scheduled jobs, custom patterns), it should provide its own decorator module that **re-exports FnDecorator** and adds application-specific decorators.
+
+**Example:** The Events project provides `Events.Extensions.Decorator`:
+
+```elixir
+defmodule MyApp.OrderWorkflow do
+  use Events.Extensions.Decorator  # ← Application decorators + FnDecorator
+
+  # Standard decorators (from FnDecorator, re-exported)
+  @decorate cacheable(...)
+  @decorate telemetry_span(...)
+
+  # Application-specific decorators (from Events.Extensions.Decorator)
+  @decorate step()  # Workflow step
+  def validate_order(ctx), do: {:ok, %{order: Orders.get!(ctx.order_id)}}
+
+  @decorate step(after: :validate_order, rollback: :release_inventory)
+  def reserve_inventory(ctx), do: {:ok, %{reservation: Inventory.reserve(ctx.order)}}
+end
+```
+
+**Why this pattern?**
+- ✅ Application decorators have access to all standard decorators (re-exported)
+- ✅ No need to `use FnDecorator` in addition to `use MyApp.Extensions.Decorator`
+- ✅ Clear separation: library decorators vs application decorators
+- ✅ Type safety: application decorators can reference application types
+
+### Common Mistake: Using the Wrong Module
+
+```elixir
+defmodule MyApp.OrderWorkflow do
+  use FnDecorator  # ❌ WRONG - @step decorator not available here!
+
+  @decorate step()  # ❌ ERROR: undefined decorator step
+  def validate_order(ctx), do: ...
+end
+```
+
+**Fix:** Use your application's decorator module:
+
+```elixir
+defmodule MyApp.OrderWorkflow do
+  use Events.Extensions.Decorator  # ✅ CORRECT - includes @step
+
+  @decorate step()  # ✅ Works!
+  def validate_order(ctx), do: ...
+end
+```
+
+### Decision Tree
+
+```
+Do you need application-specific decorators?
+│
+├─ No  → use FnDecorator
+│        (Only standard decorators like @cacheable, @telemetry_span)
+│
+└─ Yes → use YourApp.Extensions.Decorator
+         (Application decorators like @step, @scheduled)
+         (Also includes all FnDecorator decorators via re-export)
+```
+
+### Creating Application Decorators
+
+If you're building a library or application with custom decorators:
+
+```elixir
+# lib/my_app/extensions/decorator.ex
+defmodule MyApp.Extensions.Decorator do
+  use FnDecorator  # Re-export all standard decorators
+
+  # Add your custom decorators
+  defmacro __using__(_opts) do
+    quote do
+      use FnDecorator  # User gets all standard decorators
+
+      import MyApp.Extensions.Decorator  # Plus custom decorators
+    end
+  end
+
+  # Example: @scheduled decorator for cron jobs
+  defdecorator scheduled(opts \\ []) do
+    # Implementation...
+  end
+
+  # Example: @step decorator for workflow steps
+  defdecorator step(opts \\ []) do
+    # Implementation...
+  end
+end
+```
+
+Now users can:
+
+```elixir
+defmodule MyApp.DailyReport do
+  use MyApp.Extensions.Decorator
+
+  @decorate scheduled(cron: "0 6 * * *")  # Custom decorator
+  @decorate telemetry_span([...])          # Standard decorator (re-exported)
+  @decorate log_if_slow(threshold: 5000)   # Standard decorator (re-exported)
+  def generate_report do
+    # ...
+  end
+end
+```
+
+---
+
 ## Decorator Categories
 
 ### Caching

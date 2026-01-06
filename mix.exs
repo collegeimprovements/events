@@ -137,7 +137,8 @@ defmodule Events.MixProject do
       # Benchmarking
       {:benchee, "~> 1.3", only: :dev},
       # Static analysis
-      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+      # Credo available at compile time for om_credo custom checks
+      {:credo, "~> 1.7", runtime: false},
 
       # External process execution with backpressure
       {:ex_cmd, "~> 0.18"},

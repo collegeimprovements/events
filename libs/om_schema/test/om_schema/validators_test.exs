@@ -166,7 +166,7 @@ defmodule OmSchema.ValidatorsTest do
     end
 
     test "passes valid phone" do
-      cs = changeset(%{phone: "+1-555-123-4567"}) |> Validators.apply(:phone, :phone)
+      cs = changeset(%{phone: "+14155552671"}) |> Validators.apply(:phone, :phone)
 
       assert cs.errors[:phone] == nil
     end

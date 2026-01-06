@@ -71,53 +71,11 @@ defmodule OmScheduler.Telemetry do
   end
 
   def span(suffix, meta, fun) when is_list(suffix) and is_function(fun, 0) do
-    start_time = System.monotonic_time()
-    start_meta = Map.put(meta, :system_time, System.system_time())
-
-    execute(suffix ++ [:start], %{system_time: System.system_time()}, start_meta)
-
-    try do
+    :telemetry.span(@prefix ++ suffix, meta, fn ->
       result = fun.()
-      duration = System.monotonic_time() - start_time
-
-      execute(
-        suffix ++ [:stop],
-        %{duration: duration, monotonic_time: System.monotonic_time()},
-        Map.put(meta, :result, result)
-      )
-
-      result
-    rescue
-      exception ->
-        duration = System.monotonic_time() - start_time
-
-        execute(
-          suffix ++ [:exception],
-          %{duration: duration, monotonic_time: System.monotonic_time()},
-          Map.merge(meta, %{
-            kind: :error,
-            reason: exception,
-            stacktrace: __STACKTRACE__
-          })
-        )
-
-        reraise exception, __STACKTRACE__
-    catch
-      kind, reason ->
-        duration = System.monotonic_time() - start_time
-
-        execute(
-          suffix ++ [:exception],
-          %{duration: duration, monotonic_time: System.monotonic_time()},
-          Map.merge(meta, %{
-            kind: kind,
-            reason: reason,
-            stacktrace: __STACKTRACE__
-          })
-        )
-
-        :erlang.raise(kind, reason, __STACKTRACE__)
-    end
+      enriched_meta = Map.put(meta, :result, result)
+      {result, enriched_meta}
+    end)
   end
 
   @doc """

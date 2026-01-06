@@ -67,7 +67,7 @@ defmodule FnTypes.Retry do
 
   require Logger
 
-  alias FnTypes.Protocols.Recoverable
+  alias FnTypes.{Backoff, Protocols.Recoverable}
 
   # ============================================
   # Types
@@ -251,6 +251,8 @@ defmodule FnTypes.Retry do
   @doc """
   Calculates the delay for a given attempt using the specified strategy.
 
+  Delegates to `FnTypes.Backoff` for backoff calculations.
+
   ## Examples
 
       Retry.calculate_delay(1, :exponential, base: 1000)
@@ -263,75 +265,33 @@ defmodule FnTypes.Retry do
       #=> 2000
   """
   @spec calculate_delay(pos_integer(), backoff_strategy(), keyword()) :: non_neg_integer()
-  def calculate_delay(attempt, strategy, opts \\ [])
+  def calculate_delay(attempt, strategy, opts \\ []) do
+    backoff = build_backoff_config(strategy, opts)
 
-  def calculate_delay(attempt, :exponential, opts) do
-    base = Keyword.get(opts, :base, @default_initial_delay)
-    max = Keyword.get(opts, :max, @default_max_delay)
-    jitter = Keyword.get(opts, :jitter, @default_jitter)
+    # Only pass previous_delay if it's provided (don't pass nil)
+    backoff_opts =
+      case Keyword.get(opts, :previous_delay) do
+        nil -> [attempt: attempt]
+        previous -> [attempt: attempt, previous_delay: previous]
+      end
 
-    delay = base * :math.pow(2, attempt - 1)
-    delay_with_jitter = apply_jitter(delay, jitter)
-    min(round(delay_with_jitter), max)
-  end
-
-  def calculate_delay(attempt, :linear, opts) do
-    base = Keyword.get(opts, :base, @default_initial_delay)
-    max = Keyword.get(opts, :max, @default_max_delay)
-    min(base * attempt, max)
-  end
-
-  def calculate_delay(_attempt, :fixed, opts) do
-    Keyword.get(opts, :delay, Keyword.get(opts, :base, @default_initial_delay))
-  end
-
-  def calculate_delay(attempt, :decorrelated, opts) do
-    base = Keyword.get(opts, :base, @default_initial_delay)
-    max = Keyword.get(opts, :max, @default_max_delay)
-
-    upper = base * :math.pow(3, attempt - 1)
-    delay = base + :rand.uniform() * (upper - base)
-    min(round(delay), max)
-  end
-
-  def calculate_delay(attempt, :full_jitter, opts) do
-    base = Keyword.get(opts, :base, @default_initial_delay)
-    max = Keyword.get(opts, :max, @default_max_delay)
-
-    upper = base * :math.pow(2, attempt)
-    delay = :rand.uniform() * upper
-    min(round(delay), max)
-  end
-
-  def calculate_delay(attempt, :equal_jitter, opts) do
-    base = Keyword.get(opts, :base, @default_initial_delay)
-    max = Keyword.get(opts, :max, @default_max_delay)
-
-    exp_delay = base * :math.pow(2, attempt - 1)
-    half = exp_delay / 2
-    delay = half + :rand.uniform() * half
-    min(round(delay), max)
-  end
-
-  def calculate_delay(attempt, custom_fn, opts) when is_function(custom_fn, 2) do
-    custom_fn.(attempt, opts)
+    {:ok, delay} = Backoff.delay(backoff, backoff_opts)
+    delay
   end
 
   @doc """
   Applies jitter to a delay value.
 
+  Delegates to `FnTypes.Backoff.apply_jitter/2`.
+
   ## Examples
 
       Retry.apply_jitter(1000, 0.25)  #=> 750-1250
-      Retry.apply_jitter(1000, 0.0)   #=> 1000
+      Retry.apply_jitter(1000, +0.0)  #=> 1000.0
   """
   @spec apply_jitter(number(), float()) :: float()
-  def apply_jitter(delay, jitter) when jitter == 0.0, do: delay
-
-  def apply_jitter(delay, jitter) when jitter > 0 and jitter <= 1 do
-    jitter_range = delay * jitter
-    offset = :rand.uniform() * 2 * jitter_range - jitter_range
-    max(0, delay + offset)
+  def apply_jitter(delay, jitter) do
+    Backoff.apply_jitter(delay, jitter)
   end
 
   @doc """
@@ -370,16 +330,49 @@ defmodule FnTypes.Retry do
   defp build_config(opts) do
     # Support both :initial_delay and deprecated :base_delay
     initial_delay = Keyword.get(opts, :initial_delay, Keyword.get(opts, :base_delay, @default_initial_delay))
+    max_delay = Keyword.get(opts, :max_delay, @default_max_delay)
+    jitter = Keyword.get(opts, :jitter, @default_jitter)
+
+    # Build Backoff struct or use provided one
+    backoff =
+      case Keyword.get(opts, :backoff, @default_backoff) do
+        %Backoff{} = backoff -> backoff
+        strategy -> build_backoff_config(strategy, initial: initial_delay, max: max_delay, jitter: jitter)
+      end
 
     %{
       max_attempts: Keyword.get(opts, :max_attempts, @default_max_attempts),
-      initial_delay: initial_delay,
-      max_delay: Keyword.get(opts, :max_delay, @default_max_delay),
-      jitter: Keyword.get(opts, :jitter, @default_jitter),
-      backoff: Keyword.get(opts, :backoff, @default_backoff),
+      backoff: backoff,
       when: Keyword.get(opts, :when),
       on_retry: Keyword.get(opts, :on_retry),
       telemetry_prefix: Keyword.get(opts, :telemetry_prefix, @default_telemetry_prefix)
+    }
+  end
+
+  defp build_backoff_config(strategy, opts) when is_atom(strategy) do
+    initial = Keyword.get(opts, :initial, Keyword.get(opts, :base, @default_initial_delay))
+    max = Keyword.get(opts, :max, @default_max_delay)
+    jitter = Keyword.get(opts, :jitter, @default_jitter)
+
+    case strategy do
+      :exponential -> Backoff.exponential(initial: initial, max: max, jitter: jitter)
+      :linear -> Backoff.linear(initial: initial, max: max)
+      :fixed -> Backoff.constant(Keyword.get(opts, :delay, initial))
+      :decorrelated -> Backoff.decorrelated(base: initial, max: max)
+      :full_jitter -> Backoff.full_jitter(base: initial, max: max)
+      :equal_jitter -> Backoff.equal_jitter(base: initial, max: max)
+      _ -> Backoff.exponential(initial: initial, max: max, jitter: jitter)
+    end
+  end
+
+  defp build_backoff_config(custom_fn, opts) when is_function(custom_fn, 2) do
+    initial = Keyword.get(opts, :initial, Keyword.get(opts, :base, @default_initial_delay))
+    max = Keyword.get(opts, :max, @default_max_delay)
+
+    %Backoff{
+      strategy: custom_fn,
+      initial_delay: initial,
+      max_delay: max
     }
   end
 
@@ -447,21 +440,12 @@ defmodule FnTypes.Retry do
     # Try protocol-defined delay first
     protocol_delay = Recoverable.retry_delay(error, attempt)
 
-    delay =
-      if protocol_delay > 0 do
-        protocol_delay
-      else
-        backoff_opts = [
-          base: config.initial_delay,
-          max: config.max_delay,
-          jitter: config.jitter,
-          delay: config.initial_delay
-        ]
-
-        calculate_delay(attempt, config.backoff, backoff_opts)
-      end
-
-    min(delay, config.max_delay)
+    if protocol_delay > 0 do
+      protocol_delay
+    else
+      {:ok, delay} = Backoff.delay(config.backoff, attempt: attempt)
+      delay
+    end
   end
 
   defp maybe_call_on_retry(nil, _error, _attempt, _delay), do: :ok

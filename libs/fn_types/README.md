@@ -738,6 +738,145 @@ P99: #{stats.p99.ms}ms
 """)
 ```
 
+### Common Use Cases
+
+#### 1. Database Query Timing
+
+```elixir
+# Manual (DON'T DO THIS)
+start = System.monotonic_time()
+result = Repo.all(User)
+duration = System.monotonic_time() - start
+Logger.info("Query took #{duration}ns")  # Raw units, unclear
+
+# With Timing (RECOMMENDED)
+{result, duration} = Timing.measure(fn -> Repo.all(User) end)
+Logger.info("Query took #{duration.ms}ms")  # Clear units
+```
+
+#### 2. API Request with Telemetry
+
+```elixir
+# Measure and emit telemetry automatically
+{response, duration} = Timing.measure(fn ->
+  HTTPClient.get("/users")
+end)
+
+:telemetry.execute(
+  [:myapp, :api, :request],
+  %{duration: duration.native},  # Use native units for telemetry
+  %{endpoint: "/users", status: response.status}
+)
+```
+
+#### 3. Log Slow Operations
+
+```elixir
+# Only log if operation is slow
+result = Timing.timed_if_slow(
+  fn -> complex_calculation(data) end,
+  100,  # threshold in ms
+  fn duration ->
+    Logger.warning("Slow calculation: #{Timing.format(duration)}")
+  end
+)
+```
+
+#### 4. Middleware Timing
+
+```elixir
+# Instead of manual timing in middleware
+defmodule MyApp.TimingMiddleware do
+  alias FnTypes.Timing
+
+  def call(conn, _opts) do
+    {conn, duration} = Timing.measure(fn ->
+      # Process request
+      process_request(conn)
+    end)
+
+    # Add timing header
+    Plug.Conn.put_resp_header(conn, "x-response-time", "#{duration.ms}ms")
+  end
+end
+```
+
+#### 5. Exception-Safe Timing
+
+```elixir
+# Measure duration even when function raises
+case Timing.measure_safe(fn -> risky_operation() end) do
+  {:ok, result, duration} ->
+    Logger.info("Success in #{duration.ms}ms")
+    {:ok, result}
+
+  {:error, kind, reason, stacktrace, duration} ->
+    Logger.error("Failed after #{duration.ms}ms: #{inspect(reason)}")
+    :telemetry.execute([:app, :error], %{duration: duration.native}, %{kind: kind})
+    reraise(reason, stacktrace)
+end
+```
+
+#### 6. Performance Testing
+
+```elixir
+# Collect statistics across multiple runs
+durations = for _ <- 1..100 do
+  {_result, duration} = Timing.measure(fn -> operation() end)
+  duration
+end
+
+stats = Timing.stats(durations)
+IO.puts("P99: #{stats.p99.ms}ms, Mean: #{stats.mean.ms}ms")
+```
+
+#### 7. SLA Monitoring
+
+```elixir
+{result, duration} = Timing.measure(fn -> api_call() end)
+
+if Timing.slow?(duration, 200) do
+  Logger.warning("API call exceeded 200ms SLA: #{duration.ms}ms")
+  Metrics.increment("sla_violations")
+end
+```
+
+### Anti-Patterns
+
+```elixir
+# ❌ BAD: Manual timing with unclear units
+start = System.monotonic_time()
+result = operation()
+elapsed = System.monotonic_time() - start
+Logger.info("Took #{elapsed}ns")  # User has to know it's nanoseconds
+
+# ✅ GOOD: Use Timing for clarity
+{result, duration} = Timing.measure(fn -> operation() end)
+Logger.info("Took #{duration.ms}ms")  # Units are clear
+
+# ❌ BAD: Manual conversion
+start = System.monotonic_time()
+result = operation()
+ms = System.convert_time_unit(System.monotonic_time() - start, :native, :millisecond)
+
+# ✅ GOOD: Timing provides all units
+{result, duration} = Timing.measure(fn -> operation() end)
+duration.ms   # milliseconds
+duration.us   # microseconds
+duration.seconds  # seconds (float)
+
+# ❌ BAD: Lost duration when exception occurs
+start = System.monotonic_time()
+result = risky_operation()  # If this raises, duration is lost
+duration = System.monotonic_time() - start
+
+# ✅ GOOD: Capture duration even on exception
+case Timing.measure_safe(fn -> risky_operation() end) do
+  {:ok, result, duration} -> # Got duration
+  {:error, _kind, _reason, _trace, duration} -> # Still got duration
+end
+```
+
 ---
 
 ## Retry

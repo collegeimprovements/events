@@ -2,11 +2,13 @@ defmodule Effect.Retry do
   @moduledoc """
   Retry logic for Effect steps with configurable backoff strategies.
 
+  Delegates backoff calculations to `FnTypes.Backoff` for consistency across the codebase.
+
   ## Backoff Strategies
 
   - `:fixed` - Constant delay between attempts
   - `:linear` - `delay * attempt`
-  - `:exponential` - `delay * 2^(attempt-1)`
+  - `:exponential` - `delay * 2^(attempt-1)` (default)
   - `:decorrelated_jitter` - AWS-style decorrelated jitter
 
   ## Configuration
@@ -39,6 +41,8 @@ defmodule Effect.Retry do
         _ -> false
       end]
   """
+
+  alias FnTypes.Backoff
 
   @type backoff_strategy :: :fixed | :linear | :exponential | :decorrelated_jitter
 
@@ -77,6 +81,8 @@ defmodule Effect.Retry do
   @doc """
   Calculates the delay for a given attempt using the specified strategy.
 
+  Delegates to `FnTypes.Backoff` for consistency across the codebase.
+
   ## Examples
 
       iex> Effect.Retry.calculate_delay(1, :fixed, delay: 100)
@@ -91,36 +97,18 @@ defmodule Effect.Retry do
       true
   """
   @spec calculate_delay(pos_integer(), backoff_strategy(), keyword()) :: non_neg_integer()
-  def calculate_delay(attempt, strategy, opts \\ [])
+  def calculate_delay(attempt, strategy, opts \\ []) do
+    backoff = build_backoff_config(strategy, opts)
 
-  def calculate_delay(_attempt, :fixed, opts) do
-    Keyword.get(opts, :delay, @default_delay)
-  end
+    # Only pass previous_delay if provided (don't pass nil)
+    backoff_opts =
+      case Keyword.get(opts, :previous_delay) do
+        nil -> [attempt: attempt]
+        previous -> [attempt: attempt, previous_delay: previous]
+      end
 
-  def calculate_delay(attempt, :linear, opts) do
-    delay = Keyword.get(opts, :delay, @default_delay)
-    max_delay = Keyword.get(opts, :max_delay, @default_max_delay)
-    min(delay * attempt, max_delay)
-  end
-
-  def calculate_delay(attempt, :exponential, opts) do
-    delay = Keyword.get(opts, :delay, @default_delay)
-    max_delay = Keyword.get(opts, :max_delay, @default_max_delay)
-    jitter = Keyword.get(opts, :jitter, @default_jitter)
-
-    base_delay = delay * :math.pow(2, attempt - 1)
-    delay_with_jitter = apply_jitter(base_delay, jitter)
-    min(round(delay_with_jitter), max_delay)
-  end
-
-  def calculate_delay(attempt, :decorrelated_jitter, opts) do
-    delay = Keyword.get(opts, :delay, @default_delay)
-    max_delay = Keyword.get(opts, :max_delay, @default_max_delay)
-
-    # AWS-style decorrelated jitter
-    upper = delay * :math.pow(3, attempt - 1)
-    calculated = delay + :rand.uniform() * (upper - delay)
-    min(round(calculated), max_delay)
+    {:ok, delay} = Backoff.delay(backoff, backoff_opts)
+    delay
   end
 
   @doc """
@@ -140,10 +128,12 @@ defmodule Effect.Retry do
   @doc """
   Applies jitter to a delay value.
 
+  Delegates to `FnTypes.Backoff.apply_jitter/2`.
+
   ## Examples
 
-      iex> delay = Effect.Retry.apply_jitter(1000, 0.0)
-      iex> delay == 1000
+      iex> delay = Effect.Retry.apply_jitter(1000, +0.0)
+      iex> delay == 1000.0
       true
 
       iex> delay = Effect.Retry.apply_jitter(1000, 0.25)
@@ -151,15 +141,24 @@ defmodule Effect.Retry do
       true
   """
   @spec apply_jitter(number(), float()) :: float()
-  def apply_jitter(delay, jitter) when jitter == 0.0, do: delay
-
-  def apply_jitter(delay, jitter) when jitter > 0 and jitter <= 1 do
-    jitter_range = delay * jitter
-    offset = :rand.uniform() * 2 * jitter_range - jitter_range
-    max(0, delay + offset)
+  def apply_jitter(delay, jitter) do
+    Backoff.apply_jitter(delay, jitter)
   end
 
   # Private implementation
+
+  defp build_backoff_config(strategy, opts) do
+    delay = Keyword.get(opts, :delay, @default_delay)
+    max_delay = Keyword.get(opts, :max_delay, @default_max_delay)
+    jitter = Keyword.get(opts, :jitter, @default_jitter)
+
+    case strategy do
+      :fixed -> Backoff.constant(delay)
+      :linear -> Backoff.linear(initial: delay, max: max_delay)
+      :exponential -> Backoff.exponential(initial: delay, max: max_delay, jitter: jitter)
+      :decorrelated_jitter -> Backoff.decorrelated(base: delay, max: max_delay)
+    end
+  end
 
   defp do_execute(_fun, _opts, attempt, max_attempts) when attempt > max_attempts do
     # This shouldn't happen, but handle it gracefully
@@ -176,7 +175,8 @@ defmodule Effect.Retry do
 
       {:error, reason} ->
         if attempt < max_attempts and retryable?(reason, opts) do
-          delay = calculate_delay(attempt, get_backoff(opts), opts)
+          strategy = get_backoff(opts)
+          delay = calculate_delay(attempt, strategy, opts)
           Process.sleep(delay)
           do_execute(fun, opts, attempt + 1, max_attempts)
         else

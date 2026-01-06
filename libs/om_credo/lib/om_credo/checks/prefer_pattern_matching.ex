@@ -65,6 +65,46 @@ defmodule OmCredo.Checks.PreferPatternMatching do
       ]
     ]
 
+  @doc """
+  Runs the check on a source file to detect if/else that should use pattern matching.
+
+  Scans for if/else statements that check tuple structure using `elem/2` or have
+  nested conditionals that would be clearer as pattern matching.
+
+  ## Parameters
+
+  - `source_file` - The `Credo.SourceFile` struct to check
+  - `params` - Configuration parameters:
+    - `:paths` - List of path patterns to check (default: `["/lib/"]`)
+
+  ## Returns
+
+  A list of `Credo.Issue` structs for each problematic if/else found.
+
+  ## Examples
+
+      # File using elem() in if condition
+      source_file = %Credo.SourceFile{
+        filename: "/lib/my_app/parser.ex",
+        ast: {:if, ..., [{:==, [], [{:elem, ..., [:result, 0]}, :ok]}, ...]}
+      }
+
+      issues = PreferPatternMatching.run(source_file, [])
+      #=> [%Credo.Issue{message: "Consider using `case` or pattern matching...", ...}]
+
+      # File with simple boolean if (no issue)
+      source_file = %Credo.SourceFile{
+        ast: {:if, ..., [:enabled?, {:do, ...}, {:else, ...}]}
+      }
+
+      issues = PreferPatternMatching.run(source_file, [])
+      #=> []
+
+      # File outside checked paths
+      source_file = %Credo.SourceFile{filename: "/test/parser_test.exs", ...}
+      issues = PreferPatternMatching.run(source_file, paths: ["/lib/"])
+      #=> []
+  """
   @impl Credo.Check
   def run(%SourceFile{} = source_file, params) do
     paths = Params.get(params, :paths, __MODULE__)

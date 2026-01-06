@@ -19,7 +19,8 @@ defmodule OmCredo.MixProject do
 
   defp deps do
     [
-      {:credo, "~> 1.7", only: [:dev, :test], runtime: false}
+      # Credo must be available at compile time for `use Credo.Check`
+      {:credo, "~> 1.7", runtime: false}
     ]
   end
 end

@@ -809,6 +809,7 @@ config :events, OmScheduler,
 ```elixir
 defmodule MyApp.Middleware.Timing do
   @behaviour OmScheduler.Middleware
+  alias FnTypes.Timing
 
   @impl true
   def before_execute(job, context) do
@@ -817,8 +818,8 @@ defmodule MyApp.Middleware.Timing do
 
   @impl true
   def after_execute(job, result, context) do
-    duration = System.monotonic_time() - context.started_at
-    Logger.info("Job #{job.name} took #{duration}ns")
+    duration = Timing.duration_since(context.started_at)
+    Logger.info("Job #{job.name} took #{duration.ms}ms")  # Clear units
     {:ok, result}
   end
 

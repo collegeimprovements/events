@@ -16,6 +16,7 @@ end
 # Define middleware
 defmodule TimingMiddleware do
   use OmMiddleware
+  alias FnTypes.Timing
 
   @impl true
   def before_execute(context) do
@@ -24,8 +25,8 @@ defmodule TimingMiddleware do
 
   @impl true
   def after_execute(result, context) do
-    elapsed = System.monotonic_time() - context.started_at
-    IO.puts("Took #{System.convert_time_unit(elapsed, :native, :millisecond)}ms")
+    duration = Timing.duration_since(context.started_at)
+    IO.puts("Took #{duration.ms}ms")  # Clear units, multiple formats available
     {:ok, result}
   end
 end

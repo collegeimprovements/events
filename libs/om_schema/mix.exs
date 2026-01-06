@@ -31,6 +31,7 @@ defmodule OmSchema.MixProject do
     [
       {:ecto, "~> 3.11"},
       {:telemetry, "~> 1.0"},
+      {:fn_types, path: "../fn_types"},
       # Optional - for database validation
       {:ecto_sql, "~> 3.11", optional: true},
       {:postgrex, ">= 0.0.0", optional: true},

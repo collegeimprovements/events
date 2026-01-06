@@ -9,6 +9,7 @@ defmodule OmCredo do
   - Using enhanced Schema modules
   - Using enhanced Migration modules
   - Using decorator systems
+  - Using FnTypes.Timing instead of manual timing
 
   ## Configuration
 
@@ -32,6 +33,10 @@ defmodule OmCredo do
               {OmCredo.Checks.UseDecorator, [
                 decorator_module: MyApp.Decorator,
                 paths: ["/lib/myapp/contexts/", "/lib/myapp/services/"]
+              ]},
+              {OmCredo.Checks.PreferTimingModule, [
+                exclude_patterns: ["telemetry.ex", "timing.ex"],
+                exclude_paths: ["/test/"]
               ]}
             ]
           }
@@ -48,5 +53,6 @@ defmodule OmCredo do
   | `UseEnhancedSchema` | Ensure enhanced Schema module usage |
   | `UseEnhancedMigration` | Ensure enhanced Migration module usage |
   | `UseDecorator` | Encourage decorator usage in service modules |
+  | `PreferTimingModule` | Suggest FnTypes.Timing over manual System.monotonic_time() |
   """
 end

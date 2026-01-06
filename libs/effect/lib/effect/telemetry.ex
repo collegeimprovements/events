@@ -61,32 +61,11 @@ defmodule Effect.Telemetry do
   """
   @spec span(list(), map(), (() -> result)) :: result when result: term()
   def span(event_prefix, metadata, fun) when is_function(fun, 0) do
-    start_time = System.monotonic_time()
-    emit(event_prefix ++ [:start], %{monotonic_time: start_time}, metadata)
-
-    try do
+    :telemetry.span(event_prefix, metadata, fn ->
       result = fun.()
-      duration = System.monotonic_time() - start_time
-
-      emit(
-        event_prefix ++ [:stop],
-        %{duration: duration, monotonic_time: System.monotonic_time()},
-        Map.put(metadata, :result, result_status(result))
-      )
-
-      result
-    rescue
-      exception ->
-        duration = System.monotonic_time() - start_time
-
-        emit(
-          event_prefix ++ [:exception],
-          %{duration: duration, monotonic_time: System.monotonic_time()},
-          Map.merge(metadata, %{exception: exception, stacktrace: __STACKTRACE__})
-        )
-
-        reraise exception, __STACKTRACE__
-    end
+      enriched_metadata = Map.put(metadata, :result, result_status(result))
+      {result, enriched_metadata}
+    end)
   end
 
   @doc """

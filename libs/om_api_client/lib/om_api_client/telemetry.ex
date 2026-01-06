@@ -203,32 +203,22 @@ defmodule OmApiClient.Telemetry do
   @spec span(atom(), (-> result), map(), [atom()]) :: result when result: term()
   def span(client, fun, metadata \\ %{}, prefix \\ @default_prefix) when is_function(fun, 0) do
     request_id = generate_request_id()
-    metadata = Map.put(metadata, :request_id, request_id)
-    start_time = emit_start(client, metadata, prefix)
+    base_metadata = Map.merge(metadata, %{request_id: request_id, client: client})
 
-    try do
+    :telemetry.span(prefix ++ [:request], base_metadata, fn ->
       result = fun.()
 
-      stop_metadata =
+      enriched_metadata =
         case result do
-          {:ok, %{status: status}} -> Map.put(metadata, :status, status)
-          {:ok, _} -> metadata
-          {:error, %{status: status}} -> Map.put(metadata, :status, status)
-          {:error, _} -> metadata
-          _ -> metadata
+          {:ok, %{status: status}} -> Map.put(base_metadata, :status, status)
+          {:ok, _} -> base_metadata
+          {:error, %{status: status}} -> Map.put(base_metadata, :status, status)
+          {:error, _} -> base_metadata
+          _ -> base_metadata
         end
 
-      emit_stop(start_time, client, stop_metadata, prefix)
-      result
-    rescue
-      e ->
-        emit_exception(start_time, client, :error, e, __STACKTRACE__, metadata, prefix)
-        reraise e, __STACKTRACE__
-    catch
-      kind, reason ->
-        emit_exception(start_time, client, kind, reason, __STACKTRACE__, metadata, prefix)
-        :erlang.raise(kind, reason, __STACKTRACE__)
-    end
+      {result, enriched_metadata}
+    end)
   end
 
   # ============================================

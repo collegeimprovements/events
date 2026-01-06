@@ -399,6 +399,151 @@ defmodule Events.Domains.Accounts do
   end
 
   # ===========================================================================
+  # Security & Login Tracking
+  # ===========================================================================
+
+  @doc """
+  Authenticates a user with lockout protection.
+
+  Checks if user is locked, verifies password, and records success/failure.
+  Returns `{:ok, user}` on success with updated login tracking fields.
+
+  ## Options
+
+  - `:ip_address` - IP address of the login attempt (stored on success)
+
+  ## Return Values
+
+  - `{:ok, user}` - Successful login, user returned with updated tracking
+  - `{:error, :account_locked}` - Account is locked due to failed attempts
+  - `{:error, :invalid_credentials}` - Email not found or password incorrect
+  """
+  @spec authenticate_user(String.t(), String.t(), keyword()) ::
+          {:ok, User.t()} | {:error, :account_locked | :invalid_credentials}
+  def authenticate_user(email, password, opts \\ []) when is_binary(email) and is_binary(password) do
+    ip_address = Keyword.get(opts, :ip_address)
+
+    case get_user_by_email(email) do
+      nil ->
+        # Prevent timing attacks
+        Bcrypt.no_user_verify()
+        {:error, :invalid_credentials}
+
+      %User{} = user ->
+        do_authenticate_user(user, password, ip_address)
+    end
+  end
+
+  defp do_authenticate_user(user, password, ip_address) do
+    cond do
+      User.locked?(user) ->
+        {:error, :account_locked}
+
+      User.valid_password?(user, password) ->
+        record_login_success(user, ip_address)
+
+      true ->
+        record_login_failure(user)
+        {:error, :invalid_credentials}
+    end
+  end
+
+  @doc """
+  Records a successful login attempt.
+
+  Updates login tracking fields and clears any lockout state.
+  """
+  @spec record_login_success(User.t(), String.t() | nil) ::
+          {:ok, User.t()} | {:error, Ecto.Changeset.t()}
+  def record_login_success(user, ip_address \\ nil) do
+    user
+    |> User.login_success_changeset(ip_address)
+    |> Repo.update()
+  end
+
+  @doc """
+  Records a failed login attempt.
+
+  Increments failed attempts counter and may lock the account.
+  """
+  @spec record_login_failure(User.t()) :: {:ok, User.t()} | {:error, Ecto.Changeset.t()}
+  def record_login_failure(user) do
+    user
+    |> User.login_failure_changeset()
+    |> Repo.update()
+  end
+
+  @doc """
+  Manually unlocks a user account.
+  """
+  @spec unlock_user(User.t()) :: {:ok, User.t()} | {:error, Ecto.Changeset.t()}
+  def unlock_user(user) do
+    user
+    |> User.unlock_changeset()
+    |> Repo.update()
+  end
+
+  @doc """
+  Checks if a user account is currently locked.
+  """
+  @spec user_locked?(User.t()) :: boolean()
+  def user_locked?(user), do: User.locked?(user)
+
+  # ===========================================================================
+  # User Defaults
+  # ===========================================================================
+
+  @doc """
+  Sets the user's default account and role.
+
+  ## Examples
+
+      set_user_defaults(user, account_id, role_id)
+      set_user_defaults(user, account_id, nil)  # Only set account
+  """
+  @spec set_user_defaults(User.t(), binary() | nil, binary() | nil) ::
+          {:ok, User.t()} | {:error, Ecto.Changeset.t()}
+  def set_user_defaults(user, account_id, role_id) do
+    user
+    |> User.defaults_changeset(%{default_account_id: account_id, default_role_id: role_id})
+    |> Repo.update()
+  end
+
+  @doc """
+  Gets the user's default account and role with preloads.
+
+  Returns a map with `:account` and `:role` keys, each may be `nil`.
+  """
+  @spec get_user_defaults(User.t()) :: %{account: Account.t() | nil, role: Role.t() | nil}
+  def get_user_defaults(user) do
+    user = Repo.preload(user, [:default_account, :default_role])
+    %{account: user.default_account, role: user.default_role}
+  end
+
+  @doc """
+  Gets a user with their defaults preloaded.
+  """
+  @spec get_user_with_defaults(binary()) :: User.t() | nil
+  def get_user_with_defaults(id) do
+    User
+    |> Repo.get(id)
+    |> Repo.preload([:default_account, :default_role])
+  end
+
+  @doc """
+  Fetches a user with their defaults preloaded.
+
+  Returns `{:ok, user}` if found, `{:error, :not_found}` otherwise.
+  """
+  @spec fetch_user_with_defaults(binary()) :: {:ok, User.t()} | {:error, :not_found}
+  def fetch_user_with_defaults(id) do
+    case get_user_with_defaults(id) do
+      %User{} = user -> {:ok, user}
+      nil -> {:error, :not_found}
+    end
+  end
+
+  # ===========================================================================
   # Memberships
   # ===========================================================================
 

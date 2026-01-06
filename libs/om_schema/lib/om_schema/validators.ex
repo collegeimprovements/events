@@ -7,6 +7,7 @@ defmodule OmSchema.Validators do
   """
 
   import Ecto.Changeset
+  alias FnTypes.Formats
   alias OmSchema.Utils.Comparison
 
   # ============================================
@@ -35,35 +36,49 @@ defmodule OmSchema.Validators do
   end
 
   def apply(changeset, field, :email, _opts) do
-    validate_format(changeset, field, ~r/^[^\s]+@[^\s]+$/, message: "must be a valid email")
+    validate_format(changeset, field, Formats.regex(:email), message: "must be a valid email")
   end
 
   def apply(changeset, field, :url, _opts) do
-    validate_format(changeset, field, ~r/^https?:\/\//, message: "must be a valid URL")
+    validate_format(changeset, field, Formats.regex(:url), message: "must be a valid URL")
   end
 
   def apply(changeset, field, :uuid, _opts) do
-    validate_format(
-      changeset,
-      field,
-      ~r/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
-      message: "must be a valid UUID"
-    )
+    validate_format(changeset, field, Formats.regex(:uuid), message: "must be a valid UUID")
+  end
+
+  def apply(changeset, field, :uuid_v4, _opts) do
+    validate_format(changeset, field, Formats.regex(:uuid_v4), message: "must be a valid UUID v4")
+  end
+
+  def apply(changeset, field, :uuid_v7, _opts) do
+    validate_format(changeset, field, Formats.regex(:uuid_v7), message: "must be a valid UUID v7")
   end
 
   def apply(changeset, field, :slug, _opts) do
-    validate_format(changeset, field, ~r/^[a-z0-9]+(?:-[a-z0-9]+)*$/,
+    validate_format(changeset, field, Formats.regex(:slug),
       message: "must be a valid slug (lowercase letters, numbers, and hyphens)"
     )
   end
 
-  def apply(changeset, field, :phone, _opts) do
-    validate_format(
-      changeset,
-      field,
-      ~r/^[\+]?[(]?[0-9]{1,4}[)]?[-\s\.]?[(]?[0-9]{1,4}[)]?[-\s\.]?[0-9]{1,5}[-\s\.]?[0-9]{1,5}$/,
-      message: "must be a valid phone number"
+  def apply(changeset, field, :username, _opts) do
+    validate_format(changeset, field, Formats.regex(:username),
+      message: "must be a valid username (3-30 alphanumeric characters or underscores)"
     )
+  end
+
+  def apply(changeset, field, :phone, _opts) do
+    validate_format(changeset, field, Formats.regex(:phone),
+      message: "must be a valid phone number (E.164 format)"
+    )
+  end
+
+  def apply(changeset, field, :ipv4, _opts) do
+    validate_format(changeset, field, Formats.regex(:ipv4), message: "must be a valid IPv4 address")
+  end
+
+  def apply(changeset, field, :ipv6, _opts) do
+    validate_format(changeset, field, Formats.regex(:ipv6), message: "must be a valid IPv6 address")
   end
 
   # Number validations

@@ -2,10 +2,13 @@ defmodule OmApiClient.Middleware.Retry do
   @moduledoc """
   Retry middleware with exponential backoff and jitter.
 
+  Delegates backoff calculations to `FnTypes.Backoff` for consistency across the codebase,
+  while maintaining HTTP-specific functionality like Retry-After header support.
+
   Provides intelligent retry logic for transient failures, including:
-  - Exponential backoff with configurable base delay
+  - Exponential backoff with configurable base delay (via FnTypes.Backoff)
   - Jitter to prevent thundering herd
-  - Retry-After header awareness
+  - Retry-After header awareness (HTTP-specific)
   - Configurable retry conditions
 
   ## Usage as Req Plugin
@@ -43,6 +46,8 @@ defmodule OmApiClient.Middleware.Retry do
   """
 
   require Logger
+
+  alias FnTypes.Backoff
 
   @default_max_attempts 3
   @default_initial_delay 1_000
@@ -109,7 +114,7 @@ defmodule OmApiClient.Middleware.Retry do
   @doc """
   Calculates the delay for a given attempt number.
 
-  Uses exponential backoff with jitter.
+  Uses exponential backoff with jitter (delegates to `FnTypes.Backoff`).
 
   ## Examples
 
@@ -124,7 +129,9 @@ defmodule OmApiClient.Middleware.Retry do
     max_delay = Keyword.get(opts, :max_delay, @default_max_delay)
     jitter = Keyword.get(opts, :jitter, @default_jitter)
 
-    calculate_delay_with_jitter(attempt, initial_delay, max_delay, jitter)
+    backoff = Backoff.exponential(initial: initial_delay, max: max_delay, jitter: jitter)
+    {:ok, delay} = Backoff.delay(backoff, attempt: attempt)
+    delay
   end
 
   @doc """
@@ -208,27 +215,15 @@ defmodule OmApiClient.Middleware.Retry do
 
   defp build_delay_fn(base_delay, max_delay, jitter) do
     fn attempt, response ->
-      # Check for Retry-After header first
+      # Check for Retry-After header first (HTTP-specific)
       case extract_retry_after(response) do
         nil ->
-          calculate_delay_with_jitter(attempt, base_delay, max_delay, jitter)
+          calculate_delay(attempt, initial_delay: base_delay, max_delay: max_delay, jitter: jitter)
 
         retry_after_ms ->
           min(retry_after_ms, max_delay)
       end
     end
-  end
-
-  defp calculate_delay_with_jitter(attempt, base_delay, max_delay, jitter) do
-    # Exponential backoff: base * 2^(attempt-1)
-    exponential = base_delay * :math.pow(2, attempt - 1)
-
-    # Apply jitter (random factor between 1-jitter and 1+jitter)
-    jitter_factor = 1 + jitter * (2 * :rand.uniform() - 1)
-    delay = exponential * jitter_factor
-
-    # Cap at max delay
-    round(min(delay, max_delay))
   end
 
   defp parse_retry_after(value) when is_binary(value) do

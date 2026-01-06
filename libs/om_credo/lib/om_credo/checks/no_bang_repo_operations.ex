@@ -64,6 +64,50 @@ defmodule OmCredo.Checks.NoBangRepoOperations do
 
   @bang_operations ~w(insert! update! delete! get! get_by! one! all!)
 
+  @doc """
+  Runs the check on a source file to detect bang Repo operations.
+
+  Traverses the AST looking for Repo function calls ending in `!` and creates
+  issues for each occurrence, unless the file is excluded or is a bang function itself.
+
+  ## Parameters
+
+  - `source_file` - The `Credo.SourceFile` struct containing the file to check
+  - `params` - Configuration parameters for the check:
+    - `:repo_modules` - List of Repo module aliases to check (default: `[[:Repo]]`)
+    - `:excluded_paths` - Paths to exclude from checking (default: tests, seeds, migrations)
+    - `:included_paths` - Paths to include in checking (default: `["/lib/"]`)
+
+  ## Returns
+
+  A list of `Credo.Issue` structs for each bang operation found, or an empty list
+  if no issues or file should be excluded.
+
+  ## Examples
+
+      # File with bang operation
+      source_file = %Credo.SourceFile{
+        filename: "/lib/my_app/users.ex",
+        ast: {:defmodule, ..., [do: {:def, ..., [{:insert!, ...}]}]}
+      }
+      params = [repo_modules: [[:Repo]]]
+
+      issues = NoBangRepoOperations.run(source_file, params)
+      #=> [%Credo.Issue{message: "Use `Repo.insert` instead of `Repo.insert!`...", ...}]
+
+      # Test file (excluded)
+      source_file = %Credo.SourceFile{filename: "/test/users_test.exs", ...}
+      issues = NoBangRepoOperations.run(source_file, params)
+      #=> []
+
+      # File with non-bang operations (no issues)
+      source_file = %Credo.SourceFile{
+        filename: "/lib/my_app/users.ex",
+        ast: {:defmodule, ..., [do: {:def, ..., [{:insert, ...}]}]}
+      }
+      issues = NoBangRepoOperations.run(source_file, params)
+      #=> []
+  """
   @impl Credo.Check
   def run(%SourceFile{} = source_file, params) do
     excluded = Params.get(params, :excluded_paths, __MODULE__)

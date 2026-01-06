@@ -107,18 +107,53 @@ defmodule OmBehaviours.Builder do
   @doc """
   Helper macro to define a fluent method on a builder.
 
-  ## Example
+  This macro simplifies defining chainable builder methods by automatically
+  wrapping the method body in a function definition.
 
-      use OmBehaviours.Builder
+  ## Parameters
 
-      defcompose validate_email(builder, field) do
-        compose(builder, {:validate, :email, field})
+  - `call` - The function signature (name and parameters)
+  - `block` - The function body (should call `compose/2`)
+
+  ## Examples
+
+      defmodule MyApp.QueryBuilder do
+        use OmBehaviours.Builder
+
+        # Using defcompose for fluent methods
+        defcompose where(builder, field, value) do
+          compose(builder, {:where, field, value})
+        end
+
+        defcompose order_by(builder, field, direction \\ :asc) do
+          compose(builder, {:order_by, field, direction})
+        end
+
+        defcompose limit(builder, count) do
+          compose(builder, {:limit, count})
+        end
+
+        # Expands to regular function definitions:
+        # def where(builder, field, value) do
+        #   compose(builder, {:where, field, value})
+        # end
       end
 
-      # Expands to:
-      def validate_email(builder, field) do
-        compose(builder, {:validate, :email, field})
+      # Usage - creates fluent API
+      MyApp.QueryBuilder.new(User)
+      |> MyApp.QueryBuilder.where(:status, :active)
+      |> MyApp.QueryBuilder.order_by(:name, :asc)
+      |> MyApp.QueryBuilder.limit(10)
+      |> MyApp.QueryBuilder.build()
+
+  ## Alternative Without defcompose
+
+      # Without defcompose, you'd write:
+      def where(builder, field, value) do
+        compose(builder, {:where, field, value})
       end
+
+      # defcompose just reduces boilerplate
   """
   defmacro defcompose(call, do: block) do
     quote do
@@ -130,6 +165,56 @@ defmodule OmBehaviours.Builder do
 
   @doc """
   Helper to check if a module implements the Builder behaviour.
+
+  ## Parameters
+
+  - `module` - The module to check
+
+  ## Returns
+
+  `true` if the module implements `OmBehaviours.Builder`, `false` otherwise.
+
+  ## Examples
+
+      defmodule MyApp.ValidationBuilder do
+        use OmBehaviours.Builder
+
+        defstruct [:data, :rules]
+
+        @impl true
+        def new(data, _opts), do: %__MODULE__{data: data, rules: []}
+
+        @impl true
+        def compose(builder, rule), do: %{builder | rules: [rule | builder.rules]}
+
+        @impl true
+        def build(builder), do: validate(builder.data, builder.rules)
+      end
+
+      iex> OmBehaviours.Builder.implements?(MyApp.ValidationBuilder)
+      true
+
+      iex> OmBehaviours.Builder.implements?(SomeOtherModule)
+      false
+
+  ## Real-World Usage
+
+      # Validate builder contract at runtime
+      defmodule MyApp.BuilderRegistry do
+        @builders [
+          MyApp.QueryBuilder,
+          MyApp.ValidationBuilder,
+          MyApp.PipelineBuilder
+        ]
+
+        def validate_all_builders do
+          Enum.each(@builders, fn builder ->
+            unless OmBehaviours.Builder.implements?(builder) do
+              raise "Builder \#{inspect(builder)} must implement OmBehaviours.Builder"
+            end
+          end)
+        end
+      end
   """
   @spec implements?(module()) :: boolean()
   def implements?(module) do
