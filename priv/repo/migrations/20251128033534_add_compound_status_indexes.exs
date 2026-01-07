@@ -9,7 +9,7 @@ defmodule Events.Repo.Migrations.AddCompoundStatusIndexes do
 
   See lib/events/accounts.ex for the queries these support.
   """
-  use Events.Migration
+  use OmMigration
 
   def change do
     # Memberships: Common queries filter by (account_id, status) or (user_id, status)

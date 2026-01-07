@@ -85,7 +85,7 @@ defmodule OmMigration.Help do
         |> with_identity([:name, :email])
         |> with_authentication()
         |> with_timestamps()
-        |> execute()
+        |> run()
 
     ### DSL Style
 
@@ -179,7 +179,7 @@ defmodule OmMigration.Help do
         |> with_audit(track_user: true)
         |> maybe(&with_soft_delete/1, opts[:soft_delete])
         |> with_timestamps()
-        |> execute()
+        |> run()
     """)
   end
 
@@ -465,7 +465,7 @@ defmodule OmMigration.Help do
             |> with_audit()
             |> with_soft_delete()
             |> with_timestamps()
-            |> execute()
+            |> run()
           end
         end
 
@@ -524,7 +524,7 @@ defmodule OmMigration.Help do
             |> Token.add_index(:orders_number_unique, [:order_number], unique: true)
             |> Token.add_index(:orders_customer_idx, [:customer_id])
             |> Token.add_index(:orders_status_idx, [:status])
-            |> execute()
+            |> run()
           end
         end
 

@@ -1,5 +1,5 @@
 defmodule Events.Repo.Migrations.CreateUsersTokensTable do
-  use Events.Migration
+  use OmMigration
 
   def change do
     create table(:users_tokens, primary_key: false) do

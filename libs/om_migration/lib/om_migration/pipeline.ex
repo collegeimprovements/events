@@ -439,7 +439,7 @@ defmodule OmMigration.Pipeline do
       create_table(:users)
       |> with_fields(...)
       |> validate!()
-      |> execute()
+      |> run()
   """
   def validate!(%Token{} = token) do
     case Token.validate(token) do

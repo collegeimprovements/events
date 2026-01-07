@@ -1,5 +1,5 @@
 defmodule Events.Repo.Migrations.EnablePostgresExtensions do
-  use Events.Migration
+  use OmMigration
 
   def up do
     # Enable CITEXT extension for case-insensitive text

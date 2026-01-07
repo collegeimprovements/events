@@ -1,13 +1,13 @@
 defmodule Events.Repo.Migrations.CreateErrorsTable do
-  use Events.Migration
+  use OmMigration
 
-  import Events.Repo.MigrationMacros,
+  import OmMigration.DSLEnhanced,
     only: [
       type_fields: 0,
       metadata_field: 0,
       audit_fields: 1,
-      type_indexes: 1,
-      audit_indexes: 1,
+      type_field_indexes: 1,
+      audit_field_indexes: 1,
       timestamp_indexes: 2,
       metadata_index: 1
     ]
@@ -74,8 +74,8 @@ defmodule Events.Repo.Migrations.CreateErrorsTable do
     metadata_index(:errors)
 
     # Standard indexes from migration macros
-    type_indexes(:errors)
-    audit_indexes(:errors)
-    timestamp_indexes(:errors, only: :inserted_at)
+    type_field_indexes(:errors)
+    audit_field_indexes(:errors)
+    timestamp_indexes(:errors, only: [:inserted_at])
   end
 end

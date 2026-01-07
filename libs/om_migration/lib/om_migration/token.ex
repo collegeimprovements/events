@@ -21,7 +21,7 @@ defmodule OmMigration.Token do
       |> with_uuid_primary_key()
       |> with_timestamps()
       |> with_soft_delete()
-      |> execute()
+      |> run()
 
   ## Validation
 

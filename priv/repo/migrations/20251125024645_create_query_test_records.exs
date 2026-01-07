@@ -1,5 +1,5 @@
 defmodule Events.Repo.Migrations.CreateQueryTestRecords do
-  use Events.Migration
+  use OmMigration
 
   @doc """
   Creates a simple test table for Query execution tests.

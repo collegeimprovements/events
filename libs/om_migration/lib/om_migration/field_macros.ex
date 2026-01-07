@@ -11,14 +11,14 @@ defmodule OmMigration.FieldMacros do
       create_table(:products)
       |> with_type_fields()
       |> with_timestamps()
-      |> execute()
+      |> run()
 
       # Customize fields
       create_table(:orders)
       |> with_type_fields(only: [:type])
       |> with_status_fields(only: [:status], type: :string)
       |> with_timestamps(only: [:inserted_at])
-      |> execute()
+      |> run()
 
   ## Note
 

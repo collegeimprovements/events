@@ -20,7 +20,7 @@ defmodule OmMigration do
           |> with_audit()
           |> with_soft_delete()
           |> with_timestamps()
-          |> execute()
+          |> run()
         end
       end
 
@@ -61,7 +61,7 @@ defmodule OmMigration do
       create_table(:users)
       |> with_uuid_primary_key()
       |> with_fields(...)
-      |> execute()
+      |> run()
   """
   def create_table(name, opts \\ []) do
     Token.new(:table, name, opts)
@@ -75,7 +75,7 @@ defmodule OmMigration do
       create_index(:users, [:email])
       |> unique()
       |> where("deleted_at IS NULL")
-      |> execute()
+      |> run()
   """
   def create_index(table, columns, opts \\ []) do
     Token.new(:index, table, Keyword.put(opts, :columns, columns))
@@ -83,6 +83,8 @@ defmodule OmMigration do
 
   @doc """
   Executes the migration token pipeline.
+
+  Named `run/1` to avoid conflict with `Ecto.Migration.execute/1`.
   """
-  defdelegate execute(token), to: Executor
+  defdelegate run(token), to: Executor, as: :execute
 end

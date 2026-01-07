@@ -1,5 +1,5 @@
 defmodule Events.Repo.Migrations.CreateUsersTable do
-  use Events.Migration
+  use OmMigration
 
   alias Events.Core.Repo.MigrationConstants, as: C
 
