@@ -380,6 +380,18 @@ defmodule OmCrud.Options do
   # Operation-Specific Extractors (for backward compatibility)
   # ─────────────────────────────────────────────────────────────
 
+  # Keys for each operation type
+  @insert_keys [:returning, :prefix, :timeout, :log, :on_conflict, :conflict_target,
+                :stale_error_field, :stale_error_message, :allow_stale]
+  @update_keys [:returning, :prefix, :timeout, :log, :force,
+                :stale_error_field, :stale_error_message, :allow_stale]
+  @delete_keys [:returning, :prefix, :timeout, :log,
+                :stale_error_field, :stale_error_message, :allow_stale]
+  @query_keys [:prefix, :timeout, :log]
+  @insert_all_keys [:returning, :prefix, :timeout, :log, :on_conflict, :conflict_target, :placeholders]
+  @bulk_update_delete_keys [:prefix, :timeout, :log, :returning]
+  @merge_keys [:prefix, :timeout, :log]
+
   @doc """
   Extract options for insert operations.
 
@@ -390,19 +402,7 @@ defmodule OmCrud.Options do
   """
   @spec insert_opts(keyword()) :: keyword()
   def insert_opts(opts \\ []) do
-    opts
-    |> Keyword.take([
-      :returning,
-      :prefix,
-      :timeout,
-      :log,
-      :on_conflict,
-      :conflict_target,
-      :stale_error_field,
-      :stale_error_message,
-      :allow_stale
-    ])
-    |> reject_nil_values()
+    take_and_clean(opts, @insert_keys)
   end
 
   @doc """
@@ -441,18 +441,7 @@ defmodule OmCrud.Options do
   """
   @spec update_opts(keyword()) :: keyword()
   def update_opts(opts \\ []) do
-    opts
-    |> Keyword.take([
-      :returning,
-      :prefix,
-      :timeout,
-      :log,
-      :force,
-      :stale_error_field,
-      :stale_error_message,
-      :allow_stale
-    ])
-    |> reject_nil_values()
+    take_and_clean(opts, @update_keys)
   end
 
   @doc """
@@ -465,17 +454,7 @@ defmodule OmCrud.Options do
   """
   @spec delete_opts(keyword()) :: keyword()
   def delete_opts(opts \\ []) do
-    opts
-    |> Keyword.take([
-      :returning,
-      :prefix,
-      :timeout,
-      :log,
-      :stale_error_field,
-      :stale_error_message,
-      :allow_stale
-    ])
-    |> reject_nil_values()
+    take_and_clean(opts, @delete_keys)
   end
 
   @doc """
@@ -488,9 +467,7 @@ defmodule OmCrud.Options do
   """
   @spec query_opts(keyword()) :: keyword()
   def query_opts(opts \\ []) do
-    opts
-    |> Keyword.take([:prefix, :timeout, :log])
-    |> reject_nil_values()
+    take_and_clean(opts, @query_keys)
   end
 
   @doc """
@@ -503,20 +480,11 @@ defmodule OmCrud.Options do
   """
   @spec insert_all_opts(keyword()) :: keyword()
   def insert_all_opts(opts \\ []) do
-    result =
-      opts
-      |> Keyword.take([
-        :returning,
-        :prefix,
-        :timeout,
-        :log,
-        :on_conflict,
-        :conflict_target,
-        :placeholders
-      ])
-      |> reject_nil_values()
+    result = take_and_clean(opts, @insert_all_keys)
+    normalize_conflict_opts(result, opts)
+  end
 
-    # Normalize conflict options if present
+  defp normalize_conflict_opts(result, opts) do
     case Keyword.get(opts, :conflict_target) do
       nil ->
         result
@@ -524,7 +492,7 @@ defmodule OmCrud.Options do
       target ->
         result
         |> Keyword.put(:conflict_target, normalize_conflict_target_value(target))
-        |> Keyword.update(:on_conflict, :nothing, & &1)
+        |> Keyword.put_new(:on_conflict, :nothing)
     end
   end
 
@@ -538,9 +506,7 @@ defmodule OmCrud.Options do
   """
   @spec update_all_opts(keyword()) :: keyword()
   def update_all_opts(opts \\ []) do
-    opts
-    |> Keyword.take([:prefix, :timeout, :log, :returning])
-    |> reject_nil_values()
+    take_and_clean(opts, @bulk_update_delete_keys)
   end
 
   @doc """
@@ -553,9 +519,7 @@ defmodule OmCrud.Options do
   """
   @spec delete_all_opts(keyword()) :: keyword()
   def delete_all_opts(opts \\ []) do
-    opts
-    |> Keyword.take([:prefix, :timeout, :log, :returning])
-    |> reject_nil_values()
+    take_and_clean(opts, @bulk_update_delete_keys)
   end
 
   # ─────────────────────────────────────────────────────────────
@@ -574,14 +538,18 @@ defmodule OmCrud.Options do
   """
   @spec merge_opts(keyword()) :: keyword()
   def merge_opts(opts \\ []) do
-    opts
-    |> Keyword.take([:prefix, :timeout, :log])
-    |> reject_nil_values()
+    take_and_clean(opts, @merge_keys)
   end
 
   # ─────────────────────────────────────────────────────────────
   # Private Helpers
   # ─────────────────────────────────────────────────────────────
+
+  defp take_and_clean(opts, keys) do
+    opts
+    |> Keyword.take(keys)
+    |> reject_nil_values()
+  end
 
   defp reject_nil_values(opts) do
     Enum.reject(opts, fn {_k, v} -> is_nil(v) end)

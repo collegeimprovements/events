@@ -139,13 +139,8 @@ defmodule OmCrud.Pagination do
     has_previous = Keyword.get(opts, :has_previous, false)
     cursor_format = Keyword.get(opts, :cursor_format, @default_cursor_format)
 
-    # If we fetched an extra record to check has_more, trim it
-    {records, has_more} =
-      if fetched_extra and length(records) > limit do
-        {Enum.take(records, limit), true}
-      else
-        {records, length(records) >= limit}
-      end
+    record_count = length(records)
+    {records, has_more} = trim_records(records, record_count, limit, fetched_extra)
 
     first_record = List.first(records)
     last_record = List.last(records)
@@ -158,6 +153,14 @@ defmodule OmCrud.Pagination do
       end_cursor: encode_cursor(last_record, cursor_fields, cursor_format),
       limit: limit
     }
+  end
+
+  defp trim_records(records, count, limit, true) when count > limit do
+    {Enum.take(records, limit), true}
+  end
+
+  defp trim_records(records, count, limit, _fetched_extra) do
+    {records, count >= limit}
   end
 
   @doc """

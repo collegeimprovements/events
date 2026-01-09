@@ -221,6 +221,8 @@ defmodule OmCrud.Telemetry do
     :ok
   end
 
+  @metadata_keys [:limit, :filters, :id, :count]
+
   @doc """
   Build metadata map for a CRUD operation.
 
@@ -231,22 +233,18 @@ defmodule OmCrud.Telemetry do
   """
   @spec build_metadata(module(), module() | nil, keyword()) :: metadata()
   def build_metadata(schema, context \\ nil, opts \\ []) do
-    base = %{schema: schema}
+    base = build_base_metadata(schema, context)
+    merge_allowed_opts(base, opts)
+  end
 
-    base =
-      if context do
-        Map.put(base, :context, context)
-      else
-        base
-      end
+  defp build_base_metadata(schema, nil), do: %{schema: schema}
+  defp build_base_metadata(schema, context), do: %{schema: schema, context: context}
 
-    Enum.reduce(opts, base, fn
-      {:limit, limit}, acc -> Map.put(acc, :limit, limit)
-      {:filters, filters}, acc -> Map.put(acc, :filters, filters)
-      {:id, id}, acc -> Map.put(acc, :id, id)
-      {:count, count}, acc -> Map.put(acc, :count, count)
-      _, acc -> acc
-    end)
+  defp merge_allowed_opts(base, opts) do
+    opts
+    |> Keyword.take(@metadata_keys)
+    |> Map.new()
+    |> Map.merge(base)
   end
 
   @doc """
@@ -292,8 +290,7 @@ defmodule OmCrud.Telemetry do
   """
   @spec stop_events() :: [[atom()]]
   def stop_events do
-    events()
-    |> Enum.filter(fn [_, _, suffix] -> suffix == :stop end)
+    for [_, _, :stop] = event <- events(), do: event
   end
 
   # Private helpers

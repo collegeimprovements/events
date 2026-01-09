@@ -460,7 +460,7 @@ defmodule OmCrud.Multi do
   """
   @spec names(t()) :: [name()]
   def names(%__MODULE__{operations: ops}) do
-    Enum.map(ops, fn {name, _} -> name end)
+    Enum.map(ops, &elem(&1, 0))
   end
 
   @doc """
@@ -667,14 +667,19 @@ end
 defimpl Inspect, for: OmCrud.Multi do
   alias OmCrud.Multi
 
-  def inspect(%Multi{} = multi, _opts) do
-    names = Multi.names(multi)
+  def inspect(%Multi{operations: ops}, _opts) do
+    format_multi(ops)
+  end
 
-    if length(names) <= 5 do
-      "#OmCrud.Multi<#{Enum.join(names, ", ")}>"
-    else
-      shown = Enum.take(names, 3)
-      "#OmCrud.Multi<#{Enum.join(shown, ", ")}, ... (#{length(names)} total)>"
-    end
+  defp format_multi([]), do: "#OmCrud.Multi<>"
+  defp format_multi([{n1, _}]), do: "#OmCrud.Multi<#{n1}>"
+  defp format_multi([{n1, _}, {n2, _}]), do: "#OmCrud.Multi<#{n1}, #{n2}>"
+  defp format_multi([{n1, _}, {n2, _}, {n3, _}]), do: "#OmCrud.Multi<#{n1}, #{n2}, #{n3}>"
+  defp format_multi([{n1, _}, {n2, _}, {n3, _}, {n4, _}]), do: "#OmCrud.Multi<#{n1}, #{n2}, #{n3}, #{n4}>"
+  defp format_multi([{n1, _}, {n2, _}, {n3, _}, {n4, _}, {n5, _}]), do: "#OmCrud.Multi<#{n1}, #{n2}, #{n3}, #{n4}, #{n5}>"
+
+  defp format_multi(ops) do
+    [{n1, _}, {n2, _}, {n3, _} | _rest] = ops
+    "#OmCrud.Multi<#{n1}, #{n2}, #{n3}, ... (#{length(ops)} total)>"
   end
 end

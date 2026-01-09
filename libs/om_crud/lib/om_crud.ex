@@ -104,14 +104,8 @@ defmodule OmCrud do
     execute_merge(merge, opts)
   end
 
-  # For Query.Token - will be implemented when Query integration is added
   def run(token, opts) when is_struct(token) do
-    # Check if the token implements Executable protocol
-    if function_exported?(OmCrud.Executable, :execute, 2) do
-      OmCrud.Executable.execute(token, opts)
-    else
-      {:error, {:not_executable, token}}
-    end
+    OmCrud.Executable.execute(token, opts)
   end
 
   @doc """
@@ -242,14 +236,15 @@ defmodule OmCrud do
 
   defp source_count(nil), do: 0
   defp source_count(source) when is_map(source), do: 1
-  defp source_count(source) when is_list(source), do: length(source)
+  defp source_count([_ | _] = source), do: length(source)
+  defp source_count([]), do: 0
   defp source_count(_), do: 0
 
   defp rows_to_structs(schema, columns, rows) do
     fields = Enum.map(columns, &String.to_existing_atom/1)
 
     Enum.map(rows, fn row ->
-      attrs = Enum.zip(fields, row) |> Map.new()
+      attrs = Map.new(Enum.zip(fields, row))
       struct(schema, attrs)
     end)
   end
@@ -570,18 +565,7 @@ defmodule OmCrud do
     Multi.new()
     |> Multi.create_all(:records, schema, list_of_attrs, opts)
     |> transaction(opts)
-    |> case do
-      {:ok, %{records: {_count, records}}} ->
-        records = records || []
-        repo = Options.repo(opts)
-        {:ok, maybe_preload_list(records, Options.preloads(opts), repo)}
-
-      {:error, :records, reason, _} ->
-        {:error, reason}
-
-      error ->
-        error
-    end
+    |> unwrap_bulk_result(:records, opts)
   end
 
   @doc """
@@ -618,18 +602,7 @@ defmodule OmCrud do
     Multi.new()
     |> Multi.upsert_all(:records, schema, list_of_attrs, opts)
     |> transaction(opts)
-    |> case do
-      {:ok, %{records: {_count, records}}} ->
-        records = records || []
-        repo = Options.repo(opts)
-        {:ok, maybe_preload_list(records, Options.preloads(opts), repo)}
-
-      {:error, :records, reason, _} ->
-        {:error, reason}
-
-      error ->
-        error
-    end
+    |> unwrap_bulk_result(:records, opts)
   end
 
   @doc """
@@ -650,11 +623,7 @@ defmodule OmCrud do
     Multi.new()
     |> Multi.update_all(:update, query_to_ecto(query_token), updates, opts)
     |> transaction(opts)
-    |> case do
-      {:ok, %{update: {count, _}}} -> {:ok, count}
-      {:error, :update, reason, _} -> {:error, reason}
-      error -> error
-    end
+    |> unwrap_count_result(:update)
   end
 
   @doc """
@@ -675,11 +644,7 @@ defmodule OmCrud do
     Multi.new()
     |> Multi.delete_all(:delete, query_to_ecto(query_token), opts)
     |> transaction(opts)
-    |> case do
-      {:ok, %{delete: {count, _}}} -> {:ok, count}
-      {:error, :delete, reason, _} -> {:error, reason}
-      error -> error
-    end
+    |> unwrap_count_result(:delete)
   end
 
   # ─────────────────────────────────────────────────────────────
@@ -717,13 +682,41 @@ defmodule OmCrud do
   defp maybe_preload_list(records, [], _repo), do: records
   defp maybe_preload_list(records, preloads, repo), do: repo.preload(records, preloads)
 
+  defp unwrap_bulk_result({:ok, %{records: {_count, records}}}, _name, opts) do
+    records = records || []
+    repo = Options.repo(opts)
+    {:ok, maybe_preload_list(records, Options.preloads(opts), repo)}
+  end
+
+  defp unwrap_bulk_result({:error, :records, reason, _}, _name, _opts) do
+    {:error, reason}
+  end
+
+  defp unwrap_bulk_result({:error, name, reason, _}, name, _opts) do
+    {:error, reason}
+  end
+
+  defp unwrap_bulk_result(error, _name, _opts), do: error
+
+  defp unwrap_count_result({:ok, results}, name) do
+    case Map.get(results, name) do
+      {count, _} -> {:ok, count}
+      _ -> {:ok, 0}
+    end
+  end
+
+  defp unwrap_count_result({:error, name, reason, _}, name), do: {:error, reason}
+  defp unwrap_count_result(error, _name), do: error
+
   # Convert Query token to Ecto.Query
   # This will be properly implemented with Query integration
   defp query_to_ecto(query_token) when is_struct(query_token) do
-    if function_exported?(query_token.__struct__, :to_query, 1) do
-      query_token.__struct__.to_query(query_token)
-    else
-      raise ArgumentError, "Token #{inspect(query_token.__struct__)} does not implement to_query/1"
+    case function_exported?(query_token.__struct__, :to_query, 1) do
+      true ->
+        query_token.__struct__.to_query(query_token)
+
+      false ->
+        raise ArgumentError, "Token #{inspect(query_token.__struct__)} does not implement to_query/1"
     end
   end
 

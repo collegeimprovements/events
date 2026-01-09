@@ -93,26 +93,22 @@ defmodule OmCrud.ChangesetBuilder do
   """
   @spec resolve(module(), action(), keyword()) :: atom()
   def resolve(schema, action, opts) do
-    cond do
-      # Explicit :changeset option
-      changeset_fn = Keyword.get(opts, :changeset) ->
-        changeset_fn
+    resolve_from_opts(opts, action)
+    || resolve_from_schema(schema, action, opts)
+    || :changeset
+  end
 
-      # Action-specific option
-      changeset_fn = Keyword.get(opts, action_changeset_key(action)) ->
-        changeset_fn
+  defp resolve_from_opts(opts, action) do
+    Keyword.get(opts, :changeset) || Keyword.get(opts, action_changeset_key(action))
+  end
 
-      # Schema attribute @crud_changeset
-      changeset_fn = get_schema_crud_changeset(schema) ->
-        changeset_fn
+  defp resolve_from_schema(schema, action, opts) do
+    get_schema_crud_changeset(schema) || resolve_from_callback(schema, action, opts)
+  end
 
-      # Schema callback changeset_for/2
-      function_exported?(schema, :changeset_for, 2) ->
-        apply(schema, :changeset_for, [action, opts])
-
-      # Default
-      true ->
-        :changeset
+  defp resolve_from_callback(schema, action, opts) do
+    if function_exported?(schema, :changeset_for, 2) do
+      apply(schema, :changeset_for, [action, opts])
     end
   end
 
