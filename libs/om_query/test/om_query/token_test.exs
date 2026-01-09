@@ -418,6 +418,27 @@ defmodule OmQuery.TokenTest do
       token = Token.new(MyApp.User)
       assert {:ok, _} = Token.add_operation_safe(token, {:raw_where, {"status = ?", ["active"]}})
     end
+
+    test "validates raw_where with 6 parameters" do
+      token = Token.new(MyApp.User)
+      sql = "a = ? AND b = ? AND c = ? AND d = ? AND e = ? AND f = ?"
+      params = ["a", "b", "c", "d", "e", "f"]
+      assert {:ok, _} = Token.add_operation_safe(token, {:raw_where, {sql, params, []}})
+    end
+
+    test "validates raw_where with 10 parameters" do
+      token = Token.new(MyApp.User)
+      placeholders = Enum.map(1..10, fn i -> "col#{i} = ?" end) |> Enum.join(" AND ")
+      params = Enum.map(1..10, fn i -> "val#{i}" end)
+      assert {:ok, _} = Token.add_operation_safe(token, {:raw_where, {placeholders, params, []}})
+    end
+
+    test "validates raw_where with 20 parameters (max supported)" do
+      token = Token.new(MyApp.User)
+      placeholders = Enum.map(1..20, fn i -> "col#{i} = ?" end) |> Enum.join(" AND ")
+      params = Enum.map(1..20, fn i -> "val#{i}" end)
+      assert {:ok, _} = Token.add_operation_safe(token, {:raw_where, {placeholders, params, []}})
+    end
   end
 
   # ============================================
@@ -562,6 +583,61 @@ defmodule OmQuery.TokenTest do
     test "max_limit returns configured value" do
       assert is_integer(Token.max_limit())
       assert Token.max_limit() > Token.default_limit()
+    end
+  end
+
+  # ============================================
+  # Set Operations (union, intersect, except)
+  # ============================================
+
+  describe "combination operations" do
+    test "validates union with Token" do
+      token = Token.new(MyApp.User)
+      other = Token.new(MyApp.User)
+      assert {:ok, _} = Token.add_operation_safe(token, {:combination, {:union, other}})
+    end
+
+    test "validates union_all with Token" do
+      token = Token.new(MyApp.User)
+      other = Token.new(MyApp.User)
+      assert {:ok, _} = Token.add_operation_safe(token, {:combination, {:union_all, other}})
+    end
+
+    test "validates intersect with Token" do
+      token = Token.new(MyApp.User)
+      other = Token.new(MyApp.User)
+      assert {:ok, _} = Token.add_operation_safe(token, {:combination, {:intersect, other}})
+    end
+
+    test "validates intersect_all with Token" do
+      token = Token.new(MyApp.User)
+      other = Token.new(MyApp.User)
+      assert {:ok, _} = Token.add_operation_safe(token, {:combination, {:intersect_all, other}})
+    end
+
+    test "validates except with Token" do
+      token = Token.new(MyApp.User)
+      other = Token.new(MyApp.User)
+      assert {:ok, _} = Token.add_operation_safe(token, {:combination, {:except, other}})
+    end
+
+    test "validates except_all with Token" do
+      token = Token.new(MyApp.User)
+      other = Token.new(MyApp.User)
+      assert {:ok, _} = Token.add_operation_safe(token, {:combination, {:except_all, other}})
+    end
+
+    test "validates combination with Ecto.Query" do
+      import Ecto.Query
+      token = Token.new(MyApp.User)
+      ecto_query = from(u in "users")
+      assert {:ok, _} = Token.add_operation_safe(token, {:combination, {:union, ecto_query}})
+    end
+
+    test "returns error for invalid combination type" do
+      token = Token.new(MyApp.User)
+      other = Token.new(MyApp.User)
+      assert {:error, _} = Token.add_operation_safe(token, {:combination, {:invalid_type, other}})
     end
   end
 end

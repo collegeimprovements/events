@@ -23,6 +23,8 @@ defmodule OmQuery.Token do
 
   @type filter_spec :: {atom(), atom(), term(), keyword()}
 
+  @type combination_type :: :union | :union_all | :intersect | :intersect_all | :except | :except_all
+
   @type operation ::
           {:filter, filter_spec()}
           | {:filter_group, {:or | :and, [filter_spec()]}}
@@ -45,6 +47,7 @@ defmodule OmQuery.Token do
           | {:search_rank, {list(), String.t()}}
           | {:search_rank_limited, {list(), String.t()}}
           | {:field_compare, {atom(), atom(), atom(), keyword()}}
+          | {:combination, {combination_type(), Token.t() | Ecto.Query.t()}}
 
   @type t :: %__MODULE__{
           source: module() | Ecto.Query.t() | :nested,
@@ -259,6 +262,23 @@ defmodule OmQuery.Token do
       {:error,
        "Invalid field comparison operator: #{inspect(op)}. Valid: #{inspect(@field_compare_ops)}"}
     end
+  end
+
+  # Set operations (union, intersect, except)
+  @combination_types [:union, :union_all, :intersect, :intersect_all, :except, :except_all]
+
+  defp validate_operation({:combination, {type, other}})
+       when type in @combination_types and
+              (is_struct(other, Token) or is_struct(other, Ecto.Query)) do
+    :ok
+  end
+
+  defp validate_operation({:combination, {type, _other}}) when type in @combination_types do
+    {:error, "Combination query must be a Token or Ecto.Query"}
+  end
+
+  defp validate_operation({:combination, {type, _other}}) do
+    {:error, "Invalid combination type: #{inspect(type)}. Valid: #{inspect(@combination_types)}"}
   end
 
   defp validate_operation(op), do: {:error, "Unknown operation: #{inspect(op)}"}

@@ -116,13 +116,9 @@ defmodule OmQuery.Search do
         {field, similarity_mode, term, merged_opts}
 
       unknown ->
-        raise ArgumentError, """
-        Unknown search mode: #{inspect(unknown)} for field #{inspect(field)}
-
-        Supported modes:
-          :ilike, :like, :exact, :starts_with, :ends_with, :contains,
-          :similarity, :word_similarity, :strict_word_similarity
-        """
+        raise OmQuery.SearchModeError,
+          mode: unknown,
+          field: field
     end
   end
 

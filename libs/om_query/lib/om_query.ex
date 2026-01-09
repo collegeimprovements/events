@@ -674,52 +674,6 @@ defmodule OmQuery do
   end
 
   @doc """
-  Return the EXPLAIN output for a query.
-
-  ## Options
-
-  - `:analyze` - Run EXPLAIN ANALYZE (actually executes query, default: false)
-  - `:format` - Output format: :text, :json, :yaml (default: :text)
-  - `:verbose` - Include verbose output (default: false)
-  - `:buffers` - Include buffer usage (requires :analyze, default: false)
-
-  ## Examples
-
-      # Basic explain
-      User
-      |> OmQuery.filter(:status, "active")
-      |> OmQuery.explain()
-
-      # With analyze (actually runs the query)
-      User
-      |> OmQuery.filter(:status, "active")
-      |> OmQuery.explain(analyze: true)
-
-      # JSON format for programmatic parsing
-      User
-      |> OmQuery.filter(:status, "active")
-      |> OmQuery.explain(format: :json, analyze: true)
-  """
-  @spec explain(Token.t(), keyword()) :: String.t() | list()
-  def explain(%Token{} = token, opts \\ []) do
-    repo = get_repo(opts)
-    query = Builder.build(token)
-
-    analyze = opts[:analyze] || false
-    format = opts[:format] || :text
-    verbose = opts[:verbose] || false
-    buffers = opts[:buffers] || false
-
-    explain_opts = []
-    explain_opts = if analyze, do: [{:analyze, true} | explain_opts], else: explain_opts
-    explain_opts = if verbose, do: [{:verbose, true} | explain_opts], else: explain_opts
-    explain_opts = if buffers, do: [{:buffers, true} | explain_opts], else: explain_opts
-    explain_opts = [{:format, format} | explain_opts]
-
-    repo.explain(:all, query, explain_opts)
-  end
-
-  @doc """
   Add multiple where conditions at once (Ecto-style naming).
 
   Alias: `filters/2` - Semantic alternative name for the same operation.
@@ -1432,6 +1386,25 @@ defmodule OmQuery do
   """
   @spec where_not_nil(Token.t(), atom(), keyword()) :: Token.t()
   def where_not_nil(token, field, opts \\ []) do
+    filter(token, field, :not_nil, true, opts)
+  end
+
+  @doc """
+  Filter where field IS NOT NULL.
+
+  Alias for `where_not_nil/3` - provides naming consistency with the `:not_nil` operator.
+
+  ## Examples
+
+      OmQuery.is_not_nil(token, :email)
+      OmQuery.is_not_nil(token, :verified_at)
+
+  ## SQL Equivalent
+
+      WHERE email IS NOT NULL
+  """
+  @spec is_not_nil(Token.t(), atom(), keyword()) :: Token.t()
+  def is_not_nil(token, field, opts \\ []) do
     filter(token, field, :not_nil, true, opts)
   end
 
@@ -2492,16 +2465,149 @@ defmodule OmQuery do
     end
   end
 
-  @doc """
-  Add raw SQL fragment.
+  # ============================================================================
+  # Set Operations (union, intersect, except)
+  # ============================================================================
 
-  Supports named placeholders:
+  @doc """
+  Combine results with another query using UNION (removes duplicates).
+
+  Both queries must have the same columns in the same order with compatible types.
+
+  ## Examples
+
+      # Combine active and VIP users (distinct)
+      active_users = User |> OmQuery.filter(:status, :eq, "active")
+      vip_users = User |> OmQuery.filter(:vip, :eq, true)
+
+      active_users
+      |> OmQuery.union(vip_users)
+      |> OmQuery.execute()
+
+      # With select to ensure matching columns
+      cities_from_customers =
+        Customer
+        |> OmQuery.new()
+        |> OmQuery.select([:city])
+
+      cities_from_suppliers =
+        Supplier
+        |> OmQuery.new()
+        |> OmQuery.select([:city])
+
+      cities_from_customers
+      |> OmQuery.union(cities_from_suppliers)
+      |> OmQuery.execute()
+  """
+  @spec union(Token.t(), Token.t() | Ecto.Query.t()) :: Token.t()
+  def union(token, other) do
+    Token.add_operation(token, {:combination, {:union, other}})
+  end
+
+  @doc """
+  Combine results with another query using UNION ALL (keeps duplicates).
+
+  More efficient than `union/2` when you don't need duplicate removal.
+
+  ## Examples
+
+      # Combine all orders from two time periods
+      q1 = Order |> OmQuery.filter(:year, :eq, 2023)
+      q2 = Order |> OmQuery.filter(:year, :eq, 2024)
+
+      q1
+      |> OmQuery.union_all(q2)
+      |> OmQuery.order(:created_at, :desc)
+      |> OmQuery.execute()
+  """
+  @spec union_all(Token.t(), Token.t() | Ecto.Query.t()) :: Token.t()
+  def union_all(token, other) do
+    Token.add_operation(token, {:combination, {:union_all, other}})
+  end
+
+  @doc """
+  Return only rows that appear in both queries using INTERSECT.
+
+  ## Examples
+
+      # Find users who are both customers AND suppliers
+      customers = User |> OmQuery.filter(:role, :eq, "customer") |> OmQuery.select([:id])
+      suppliers = User |> OmQuery.filter(:role, :eq, "supplier") |> OmQuery.select([:id])
+
+      customers
+      |> OmQuery.intersect(suppliers)
+      |> OmQuery.execute()
+  """
+  @spec intersect(Token.t(), Token.t() | Ecto.Query.t()) :: Token.t()
+  def intersect(token, other) do
+    Token.add_operation(token, {:combination, {:intersect, other}})
+  end
+
+  @doc """
+  Return rows that appear in both queries using INTERSECT ALL (with duplicates).
+
+  ## Examples
+
+      q1 |> OmQuery.intersect_all(q2)
+  """
+  @spec intersect_all(Token.t(), Token.t() | Ecto.Query.t()) :: Token.t()
+  def intersect_all(token, other) do
+    Token.add_operation(token, {:combination, {:intersect_all, other}})
+  end
+
+  @doc """
+  Return rows from the first query that don't appear in the second using EXCEPT.
+
+  ## Examples
+
+      # Find users who are customers but NOT suppliers
+      customers = User |> OmQuery.filter(:role, :eq, "customer") |> OmQuery.select([:id])
+      suppliers = User |> OmQuery.filter(:role, :eq, "supplier") |> OmQuery.select([:id])
+
+      customers
+      |> OmQuery.except(suppliers)
+      |> OmQuery.execute()
+  """
+  @spec except(Token.t(), Token.t() | Ecto.Query.t()) :: Token.t()
+  def except(token, other) do
+    Token.add_operation(token, {:combination, {:except, other}})
+  end
+
+  @doc """
+  Return rows from the first query that don't appear in the second using EXCEPT ALL.
+
+  ## Examples
+
+      q1 |> OmQuery.except_all(q2)
+  """
+  @spec except_all(Token.t(), Token.t() | Ecto.Query.t()) :: Token.t()
+  def except_all(token, other) do
+    Token.add_operation(token, {:combination, {:except_all, other}})
+  end
+
+  @doc """
+  Add raw SQL fragment with named placeholders.
+
+  **Deprecated:** Use `raw/4` instead, which supports both positional and named
+  parameters, accepts any queryable, and supports options like `:binding`.
+
+  ## Migration
+
+      # Old (deprecated)
+      token |> OmQuery.raw_where("age > :min", %{min: 18})
+
+      # New (preferred) - with named params
+      User |> OmQuery.raw("age > :min", %{min: 18})
+
+      # New (preferred) - with positional params
+      User |> OmQuery.raw("age > ?", [18])
 
   ## Example
 
       OmQuery.new(User)
       |> OmQuery.raw_where("age BETWEEN :min_age AND :max_age", %{min_age: 18, max_age: 65})
   """
+  @deprecated "Use raw/4 instead for more features and consistency"
   @spec raw_where(Token.t(), String.t(), map()) :: Token.t()
   def raw_where(token, sql, params \\ %{}) do
     Token.add_operation(token, {:raw_where, {sql, params}})
@@ -2687,6 +2793,188 @@ defmodule OmQuery do
   @doc "Execute and return stream"
   @spec stream(Token.t(), keyword()) :: Enumerable.t()
   defdelegate stream(token, opts \\ []), to: Executor
+
+  # ============================================================================
+  # Batch Operations
+  # ============================================================================
+
+  @doc """
+  Execute a batch update on all records matching the query filters.
+
+  Returns `{:ok, {count, returning}}` on success or `{:error, reason}` on failure.
+
+  ## Update Operations
+
+  Supports Ecto's update operations:
+  - `:set` - Set field(s) to value(s)
+  - `:inc` - Increment numeric field(s) by value(s)
+  - `:push` - Append value(s) to array field(s)
+  - `:pull` - Remove value(s) from array field(s)
+
+  ## Options
+
+  - `:repo` - Ecto repo to use (default: configured)
+  - `:timeout` - Query timeout in ms (default: 15000)
+  - `:returning` - Fields to return (e.g., `[:id, :status]` or `true` for all)
+  - `:prefix` - Database schema prefix for multi-tenant apps
+
+  ## Examples
+
+      # Set status to archived for inactive users
+      User
+      |> OmQuery.filter(:status, :eq, "inactive")
+      |> OmQuery.filter(:last_login, :lt, one_year_ago)
+      |> OmQuery.update_all(set: [status: "archived"])
+      #=> {:ok, {42, nil}}
+
+      # Increment retry count
+      Job
+      |> OmQuery.filter(:status, :eq, "failed")
+      |> OmQuery.update_all(inc: [retry_count: 1])
+
+      # With returning
+      User
+      |> OmQuery.filter(:id, :in, user_ids)
+      |> OmQuery.update_all([set: [verified: true]], returning: [:id, :email])
+      #=> {:ok, {3, [%{id: 1, email: "a@b.com"}, ...]}}
+
+      # Multiple operations
+      Product
+      |> OmQuery.filter(:category, :eq, "electronics")
+      |> OmQuery.update_all(set: [on_sale: true], inc: [view_count: 1])
+  """
+  @spec update_all(Token.t(), keyword(), keyword()) ::
+          {:ok, {non_neg_integer(), nil | [map()]}} | {:error, term()}
+  defdelegate update_all(token, updates, opts \\ []), to: Executor
+
+  @doc """
+  Execute a batch update. Raises on failure.
+
+  See `update_all/3` for documentation.
+  """
+  @spec update_all!(Token.t(), keyword(), keyword()) :: {non_neg_integer(), nil | [map()]}
+  defdelegate update_all!(token, updates, opts \\ []), to: Executor
+
+  @doc """
+  Execute a batch delete on all records matching the query filters.
+
+  Returns `{:ok, {count, returning}}` on success or `{:error, reason}` on failure.
+
+  ## Options
+
+  - `:repo` - Ecto repo to use (default: configured)
+  - `:timeout` - Query timeout in ms (default: 15000)
+  - `:returning` - Fields to return (e.g., `[:id]` or `true` for all)
+  - `:prefix` - Database schema prefix for multi-tenant apps
+
+  ## Examples
+
+      # Delete old soft-deleted records
+      User
+      |> OmQuery.filter(:deleted_at, :not_nil, true)
+      |> OmQuery.filter(:deleted_at, :lt, one_year_ago)
+      |> OmQuery.delete_all()
+      #=> {:ok, {15, nil}}
+
+      # Delete with returning
+      Session
+      |> OmQuery.filter(:expires_at, :lt, DateTime.utc_now())
+      |> OmQuery.delete_all(returning: [:id, :user_id])
+      #=> {:ok, {100, [%{id: 1, user_id: 5}, ...]}}
+
+      # Delete from joined query
+      Post
+      |> OmQuery.join(:inner, :user, on: [id: :user_id])
+      |> OmQuery.filter(:status, :eq, "banned", binding: :user)
+      |> OmQuery.delete_all()
+  """
+  @spec delete_all(Token.t(), keyword()) ::
+          {:ok, {non_neg_integer(), nil | [map()]}} | {:error, term()}
+  defdelegate delete_all(token, opts \\ []), to: Executor
+
+  @doc """
+  Execute a batch delete. Raises on failure.
+
+  See `delete_all/2` for documentation.
+  """
+  @spec delete_all!(Token.t(), keyword()) :: {non_neg_integer(), nil | [map()]}
+  defdelegate delete_all!(token, opts \\ []), to: Executor
+
+  # ============================================================================
+  # Query Plan Analysis (EXPLAIN)
+  # ============================================================================
+
+  @doc """
+  Get the execution plan for a query without running it.
+
+  Returns `{:ok, plan}` on success or `{:error, reason}` on failure.
+
+  ## PostgreSQL Options
+
+  | Option | Type | Description |
+  |--------|------|-------------|
+  | `:analyze` | boolean | Execute query and show actual times (default: false) |
+  | `:verbose` | boolean | Show additional details |
+  | `:costs` | boolean | Show estimated costs (default: true) |
+  | `:buffers` | boolean | Show buffer usage (requires analyze) |
+  | `:timing` | boolean | Show timing info (requires analyze) |
+  | `:summary` | boolean | Show summary statistics |
+  | `:format` | atom | Output format: `:text`, `:yaml`, or `:map` |
+
+  ## Examples
+
+      # Basic plan
+      User
+      |> OmQuery.filter(:status, :eq, "active")
+      |> OmQuery.explain()
+      #=> {:ok, "Seq Scan on users  (cost=0.00..12.00 rows=1 width=100)\\n  Filter: (status = 'active')"}
+
+      # With analyze (executes the query)
+      User
+      |> OmQuery.filter(:status, :eq, "active")
+      |> OmQuery.explain(analyze: true)
+
+      # As structured map
+      User
+      |> OmQuery.filter(:status, :eq, "active")
+      |> OmQuery.explain(format: :map)
+      #=> {:ok, [%{"Plan" => %{"Node Type" => "Seq Scan", ...}}]}
+
+      # Full analysis with buffers
+      User
+      |> OmQuery.filter(:status, :eq, "active")
+      |> OmQuery.explain(analyze: true, buffers: true, timing: true)
+
+  ## Safety Note
+
+  When `analyze: true`, the query is actually executed (in a rolled-back transaction).
+  Use with caution on production databases with expensive queries.
+  """
+  @spec explain(Token.t(), keyword()) :: {:ok, String.t() | list(map())} | {:error, term()}
+  def explain(token, opts \\ []), do: Executor.explain(token, opts)
+
+  @doc """
+  Get the execution plan for a query. Raises on failure.
+
+  See `explain/2` for documentation.
+  """
+  @spec explain!(Token.t(), keyword()) :: String.t() | list(map())
+  def explain!(token, opts \\ []), do: Executor.explain!(token, opts)
+
+  @doc """
+  Print the execution plan to stdout and return the token unchanged.
+
+  Useful for debugging in pipelines without breaking the chain.
+
+  ## Examples
+
+      User
+      |> OmQuery.filter(:status, :eq, "active")
+      |> OmQuery.explain_to_stdout(analyze: true)
+      |> OmQuery.execute()
+  """
+  @spec explain_to_stdout(Token.t(), keyword()) :: Token.t()
+  def explain_to_stdout(token, opts \\ []), do: Executor.explain_to_stdout(token, opts)
 
   ## Cursor Utilities
 

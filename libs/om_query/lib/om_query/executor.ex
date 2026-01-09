@@ -441,4 +441,301 @@ defmodule OmQuery.Executor do
     opts[:repo] || @default_repo ||
       raise "No repo configured. Pass :repo option or configure default_repo: config :om_query, default_repo: MyApp.Repo"
   end
+
+  # ============================================================================
+  # Batch Operations (update_all, delete_all)
+  # ============================================================================
+
+  @doc """
+  Execute a batch update on all records matching the query filters.
+
+  Returns `{:ok, {count, returning}}` on success or `{:error, reason}` on failure.
+
+  ## Update Operations
+
+  Supports Ecto's update operations:
+  - `:set` - Set field(s) to value(s)
+  - `:inc` - Increment numeric field(s) by value(s)
+  - `:push` - Append value(s) to array field(s)
+  - `:pull` - Remove value(s) from array field(s)
+
+  ## Options
+
+  - `:repo` - Ecto repo to use (default: configured)
+  - `:timeout` - Query timeout in ms (default: 15000)
+  - `:returning` - Fields to return (e.g., `[:id, :status]` or `true` for all)
+  - `:prefix` - Database schema prefix for multi-tenant apps
+
+  ## Examples
+
+      # Set status to archived for inactive users
+      User
+      |> OmQuery.filter(:status, :eq, "inactive")
+      |> OmQuery.filter(:last_login, :lt, one_year_ago)
+      |> OmQuery.update_all(set: [status: "archived"])
+      #=> {:ok, {42, nil}}
+
+      # Increment retry count
+      Job
+      |> OmQuery.filter(:status, :eq, "failed")
+      |> OmQuery.update_all(inc: [retry_count: 1])
+
+      # With returning
+      User
+      |> OmQuery.filter(:id, :in, user_ids)
+      |> OmQuery.update_all([set: [verified: true]], returning: [:id, :email])
+      #=> {:ok, {3, [%{id: 1, email: "a@b.com"}, ...]}}
+
+      # Multiple operations
+      Product
+      |> OmQuery.filter(:category, :eq, "electronics")
+      |> OmQuery.update_all(set: [on_sale: true], inc: [view_count: 1])
+  """
+  @spec update_all(Token.t(), keyword(), keyword()) ::
+          {:ok, {non_neg_integer(), nil | [map()]}} | {:error, term()}
+  def update_all(%Token{} = token, updates, opts \\ []) when is_list(updates) do
+    {:ok, update_all!(token, updates, opts)}
+  rescue
+    e -> {:error, e}
+  end
+
+  @doc """
+  Execute a batch update. Raises on failure.
+
+  See `update_all/3` for documentation.
+  """
+  @spec update_all!(Token.t(), keyword(), keyword()) :: {non_neg_integer(), nil | [map()]}
+  def update_all!(%Token{} = token, updates, opts \\ []) when is_list(updates) do
+    repo = get_repo(opts)
+    timeout = opts[:timeout] || @default_timeout
+
+    # Build the base query from token (filters, joins only - no select, order, pagination)
+    query = build_update_query(token)
+
+    # Build repo options
+    repo_opts =
+      opts
+      |> Keyword.take([:returning, :prefix])
+      |> Keyword.put(:timeout, timeout)
+
+    # Execute update_all
+    repo.update_all(query, updates, repo_opts)
+  end
+
+  @doc """
+  Execute a batch delete on all records matching the query filters.
+
+  Returns `{:ok, {count, returning}}` on success or `{:error, reason}` on failure.
+
+  ## Options
+
+  - `:repo` - Ecto repo to use (default: configured)
+  - `:timeout` - Query timeout in ms (default: 15000)
+  - `:returning` - Fields to return (e.g., `[:id]` or `true` for all)
+  - `:prefix` - Database schema prefix for multi-tenant apps
+
+  ## Examples
+
+      # Delete old soft-deleted records
+      User
+      |> OmQuery.filter(:deleted_at, :not_nil, true)
+      |> OmQuery.filter(:deleted_at, :lt, one_year_ago)
+      |> OmQuery.delete_all()
+      #=> {:ok, {15, nil}}
+
+      # Delete with returning
+      Session
+      |> OmQuery.filter(:expires_at, :lt, DateTime.utc_now())
+      |> OmQuery.delete_all(returning: [:id, :user_id])
+      #=> {:ok, {100, [%{id: 1, user_id: 5}, ...]}}
+
+      # Delete from joined query
+      Post
+      |> OmQuery.join(:inner, :user, on: [id: :user_id])
+      |> OmQuery.filter(:status, :eq, "banned", binding: :user)
+      |> OmQuery.delete_all()
+  """
+  @spec delete_all(Token.t(), keyword()) ::
+          {:ok, {non_neg_integer(), nil | [map()]}} | {:error, term()}
+  def delete_all(%Token{} = token, opts \\ []) do
+    {:ok, delete_all!(token, opts)}
+  rescue
+    e -> {:error, e}
+  end
+
+  @doc """
+  Execute a batch delete. Raises on failure.
+
+  See `delete_all/2` for documentation.
+  """
+  @spec delete_all!(Token.t(), keyword()) :: {non_neg_integer(), nil | [map()]}
+  def delete_all!(%Token{} = token, opts \\ []) do
+    repo = get_repo(opts)
+    timeout = opts[:timeout] || @default_timeout
+
+    # Build the base query from token (filters, joins only)
+    query = build_delete_query(token)
+
+    # Build repo options
+    repo_opts =
+      opts
+      |> Keyword.take([:returning, :prefix])
+      |> Keyword.put(:timeout, timeout)
+
+    # Execute delete_all
+    repo.delete_all(query, repo_opts)
+  end
+
+  # Build a query suitable for update_all (only where/join clauses)
+  defp build_update_query(%Token{} = token) do
+    # Remove operations not supported by update_all
+    cleaned_token = clean_token_for_bulk(token)
+    Builder.build(cleaned_token)
+  end
+
+  # Build a query suitable for delete_all (only where/join clauses)
+  defp build_delete_query(%Token{} = token) do
+    # Remove operations not supported by delete_all
+    cleaned_token = clean_token_for_bulk(token)
+    Builder.build(cleaned_token)
+  end
+
+  # Remove operations not allowed in update_all/delete_all
+  # Ecto only allows where and join expressions for bulk operations
+  defp clean_token_for_bulk(%Token{} = token) do
+    allowed_ops = [:filter, :filter_group, :join, :raw_where, :field_compare]
+
+    cleaned_ops =
+      Enum.filter(token.operations, fn {op, _} ->
+        op in allowed_ops
+      end)
+
+    %{token | operations: cleaned_ops}
+  end
+
+  # ============================================================================
+  # Query Plan Analysis (EXPLAIN)
+  # ============================================================================
+
+  @doc """
+  Get the execution plan for a query without running it.
+
+  Returns `{:ok, plan}` on success or `{:error, reason}` on failure.
+
+  ## PostgreSQL Options
+
+  | Option | Type | Description |
+  |--------|------|-------------|
+  | `:analyze` | boolean | Execute query and show actual times (default: false) |
+  | `:verbose` | boolean | Show additional details |
+  | `:costs` | boolean | Show estimated costs (default: true) |
+  | `:buffers` | boolean | Show buffer usage (requires analyze) |
+  | `:timing` | boolean | Show timing info (requires analyze) |
+  | `:summary` | boolean | Show summary statistics |
+  | `:format` | atom | Output format: `:text`, `:yaml`, or `:map` |
+
+  ## Examples
+
+      # Basic plan
+      User
+      |> OmQuery.filter(:status, :eq, "active")
+      |> OmQuery.explain()
+      #=> {:ok, "Seq Scan on users  (cost=0.00..12.00 rows=1 width=100)\\n  Filter: (status = 'active')"}
+
+      # With analyze (executes the query)
+      User
+      |> OmQuery.filter(:status, :eq, "active")
+      |> OmQuery.explain(analyze: true)
+      #=> {:ok, "Seq Scan on users  (cost=0.00..12.00 rows=1 width=100) (actual time=0.01..0.01 rows=0 loops=1)"}
+
+      # As structured map
+      User
+      |> OmQuery.filter(:status, :eq, "active")
+      |> OmQuery.explain(format: :map)
+      #=> {:ok, [%{"Plan" => %{"Node Type" => "Seq Scan", ...}}]}
+
+      # Full analysis with buffers
+      User
+      |> OmQuery.filter(:status, :eq, "active")
+      |> OmQuery.explain(analyze: true, buffers: true, timing: true)
+
+  ## Safety Note
+
+  When `analyze: true`, the query is actually executed (in a rolled-back transaction).
+  Use with caution on production databases with expensive queries.
+  """
+  @spec explain(Token.t(), keyword()) :: {:ok, String.t() | list(map())} | {:error, term()}
+  def explain(%Token{} = token, opts) do
+    {:ok, explain!(token, opts)}
+  rescue
+    e -> {:error, e}
+  end
+
+  @doc """
+  Get the execution plan for a query. Raises on failure.
+
+  See `explain/2` for documentation.
+  """
+  @spec explain!(Token.t(), keyword()) :: String.t() | list(map())
+  def explain!(%Token{} = token, opts) do
+    repo = get_repo(opts)
+
+    # Build query from token
+    query = Builder.build(token)
+
+    # Split our options from explain options
+    {our_opts, explain_opts} = Keyword.split(opts, [:repo, :timeout])
+    timeout = our_opts[:timeout] || @default_timeout
+
+    # Add timeout to explain options
+    explain_opts = Keyword.put(explain_opts, :timeout, timeout)
+
+    # Call repo.explain
+    repo.explain(:all, query, explain_opts)
+  end
+
+  @doc """
+  Print the execution plan to stdout and return the token unchanged.
+
+  Useful for debugging in pipelines without breaking the chain.
+
+  ## Examples
+
+      User
+      |> OmQuery.filter(:status, :eq, "active")
+      |> OmQuery.explain_to_stdout(analyze: true)
+      |> OmQuery.execute()
+
+      # Prints:
+      # ┌─────────────────────────────────────────────────────────┐
+      # │ EXPLAIN ANALYZE                                         │
+      # ├─────────────────────────────────────────────────────────┤
+      # │ Seq Scan on users  (cost=0.00..12.00 rows=1 width=100) │
+      # │   Filter: (status = 'active')                          │
+      # └─────────────────────────────────────────────────────────┘
+  """
+  @spec explain_to_stdout(Token.t(), keyword()) :: Token.t()
+  def explain_to_stdout(%Token{} = token, opts) do
+    case explain(token, opts) do
+      {:ok, plan} ->
+        header = if opts[:analyze], do: "EXPLAIN ANALYZE", else: "EXPLAIN"
+        IO.puts("")
+        IO.puts("┌─ #{header} " <> String.duplicate("─", 50))
+        IO.puts("│")
+
+        plan
+        |> to_string()
+        |> String.split("\n")
+        |> Enum.each(fn line -> IO.puts("│ #{line}") end)
+
+        IO.puts("│")
+        IO.puts("└" <> String.duplicate("─", 55))
+        IO.puts("")
+
+      {:error, error} ->
+        IO.puts("EXPLAIN ERROR: #{inspect(error)}")
+    end
+
+    token
+  end
 end

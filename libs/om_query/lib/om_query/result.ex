@@ -1,9 +1,83 @@
 defmodule OmQuery.Result do
-  @moduledoc false
-  # Internal module - use OmQuery public API instead.
-  #
-  # Structured result format for all query executions.
-  # Provides consistent interface with data, pagination, and metadata.
+  @moduledoc """
+  Structured result format for query executions.
+
+  This module provides a consistent interface for query results, including:
+  - The fetched data
+  - Pagination information (offset or cursor-based)
+  - Query metadata (timing, caching, SQL)
+
+  ## Usage
+
+  Query results are automatically wrapped in this struct when using
+  `OmQuery.execute/2` with structured result format:
+
+      {:ok, result} = User
+        |> OmQuery.filter(:status, :eq, "active")
+        |> OmQuery.paginate(:offset, limit: 20)
+        |> OmQuery.execute(format: :result)
+
+      # Access data
+      users = result.data
+
+      # Check pagination
+      if result.pagination.has_more do
+        # Fetch next page
+        next_offset = result.pagination.next_offset
+      end
+
+      # Inspect query metadata
+      IO.puts("Query took \#{result.metadata.query_time_μs}μs")
+
+  ## Pagination Types
+
+  ### Offset Pagination
+
+      result.pagination.type          # :offset
+      result.pagination.limit         # 20
+      result.pagination.offset        # 0
+      result.pagination.current_page  # 1
+      result.pagination.total_pages   # 5 (if total_count provided)
+      result.pagination.has_more      # true
+      result.pagination.has_previous  # false
+      result.pagination.next_offset   # 20
+      result.pagination.prev_offset   # nil
+
+  ### Cursor Pagination
+
+      result.pagination.type          # :cursor
+      result.pagination.limit         # 20
+      result.pagination.has_more      # true
+      result.pagination.start_cursor  # "eyJpZCI6..." (first item)
+      result.pagination.end_cursor    # "eyJpZCI6..." (last item)
+      result.pagination.cursor_fields # [:created_at, :id]
+
+  ## Metadata
+
+  The metadata field contains query execution information:
+
+      result.metadata.query_time_μs        # Database query time in microseconds
+      result.metadata.total_time_μs        # Total execution time including processing
+      result.metadata.cached               # Whether result came from cache
+      result.metadata.cache_key            # Cache key if applicable
+      result.metadata.sql                  # Generated SQL (if debug enabled)
+      result.metadata.operation_count      # Number of operations in the query
+      result.metadata.optimizations_applied # List of optimizations applied
+
+  ## Creating Results
+
+  While results are typically created automatically, you can create them
+  manually for testing or custom scenarios:
+
+      result = OmQuery.Result.success(
+        users,
+        limit: 20,
+        offset: 0,
+        pagination_type: :offset,
+        has_more: true,
+        query_time_μs: 1500
+      )
+  """
 
   @type pagination :: %{
           type: :offset | :cursor | nil,

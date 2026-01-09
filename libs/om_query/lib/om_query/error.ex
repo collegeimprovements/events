@@ -2,8 +2,47 @@ defmodule OmQuery.Error do
   @moduledoc """
   Structured error types for query operations.
 
-  Provides domain-specific errors with detailed context for better
-  error handling and debugging.
+  OmQuery provides domain-specific exception types with detailed context,
+  suggestions for fixes, and structured data for programmatic handling.
+
+  ## Available Error Types
+
+  | Exception | When Raised |
+  |-----------|-------------|
+  | `OmQuery.Error` | Generic structured error with type, message, details |
+  | `OmQuery.ValidationError` | Invalid query operation (field, value, etc.) |
+  | `OmQuery.LimitExceededError` | Query limit exceeds configured maximum |
+  | `OmQuery.PaginationError` | Invalid pagination configuration |
+  | `OmQuery.CursorError` | Invalid or expired cursor |
+  | `OmQuery.FilterGroupError` | Invalid OR/AND filter group |
+  | `OmQuery.OperatorError` | Unknown filter operator |
+  | `OmQuery.CastError` | Value casting failure |
+  | `OmQuery.WindowFunctionError` | Unsupported dynamic window function |
+  | `OmQuery.ParameterLimitError` | Raw SQL exceeds parameter limit |
+  | `OmQuery.SearchModeError` | Unknown search mode |
+
+  ## Usage
+
+  All errors can be caught and inspected programmatically:
+
+      try do
+        OmQuery.filter(token, :status, :invalid_operator, "value")
+      rescue
+        e in OmQuery.OperatorError ->
+          Logger.warning("Invalid operator: \#{e.operator}")
+          # Access structured data
+          supported = e.supported
+      end
+
+  ## Error Messages
+
+  Each error type generates helpful messages with suggestions:
+
+      ** (OmQuery.OperatorError) Unknown filter operator: :fuzzy
+
+      Supported operators: :eq, :neq, :gt, :gte, :lt, :lte, :in, :not_in, ...
+
+      Suggestion: For fuzzy matching, use :ilike or search modes.
   """
 
   defexception [:type, :message, :details]
@@ -274,5 +313,207 @@ defmodule OmQuery.FilterGroupError do
     else
       base
     end
+  end
+end
+
+defmodule OmQuery.OperatorError do
+  @moduledoc """
+  Error raised when an unknown or invalid operator is used.
+  """
+
+  defexception [:operator, :context, :supported, :suggestion]
+
+  @type t :: %__MODULE__{
+          operator: atom(),
+          context: :filter | :negate | :compare,
+          supported: [atom()],
+          suggestion: String.t() | nil
+        }
+
+  @impl Exception
+  def message(%__MODULE__{} = error) do
+    supported_str = error.supported |> Enum.map(&inspect/1) |> Enum.join(", ")
+
+    base = """
+    Unknown #{error.context} operator: #{inspect(error.operator)}
+
+    Supported operators: #{supported_str}
+    """
+
+    if error.suggestion do
+      """
+      #{base}
+      Suggestion: #{error.suggestion}
+      """
+      |> String.trim()
+    else
+      String.trim(base)
+    end
+  end
+end
+
+defmodule OmQuery.CastError do
+  @moduledoc """
+  Error raised when a value cannot be cast to the expected type.
+  """
+
+  defexception [:value, :target_type, :suggestion]
+
+  @type t :: %__MODULE__{
+          value: term(),
+          target_type: atom(),
+          suggestion: String.t() | nil
+        }
+
+  @impl Exception
+  def message(%__MODULE__{} = error) do
+    suggestion =
+      error.suggestion ||
+        case error.target_type do
+          :integer -> "Ensure the value is a valid integer or string representation (e.g., \"42\")"
+          :float -> "Ensure the value is a valid number or string representation (e.g., \"3.14\")"
+          :uuid -> "Ensure the value is a valid UUID string (e.g., \"550e8400-e29b-41d4-a716-446655440000\")"
+          :boolean -> "Ensure the value is true, false, \"true\", \"false\", 0, or 1"
+          _ -> nil
+        end
+
+    base = "Cannot cast #{inspect(error.value)} to #{error.target_type}"
+
+    if suggestion do
+      """
+      #{base}
+
+      #{suggestion}
+      """
+      |> String.trim()
+    else
+      base
+    end
+  end
+end
+
+defmodule OmQuery.WindowFunctionError do
+  @moduledoc """
+  Error raised when window functions are used in an unsupported way.
+
+  Window functions in Ecto require compile-time macros, so dynamic
+  construction is limited.
+  """
+
+  defexception [:function, :context, :suggestion]
+
+  @type t :: %__MODULE__{
+          function: atom() | String.t(),
+          context: :select | :order_by | :dynamic,
+          suggestion: String.t() | nil
+        }
+
+  @impl Exception
+  def message(%__MODULE__{} = error) do
+    default_suggestion = """
+    Alternatives:
+    1. Use raw SQL with OmQuery.raw/4:
+       |> OmQuery.raw("row_number() OVER (PARTITION BY ? ORDER BY ?)", [category, date])
+
+    2. Build the query directly with Ecto.Query macros:
+       from(r in query, select: %{row_num: over(row_number(), :my_window)})
+
+    3. Use a database view for complex window functions
+    """
+
+    suggestion = error.suggestion || default_suggestion
+
+    """
+    Window function #{inspect(error.function)} cannot be used dynamically in #{error.context}.
+
+    Ecto's window functions require compile-time macro expansion.
+
+    #{suggestion}
+    """
+    |> String.trim()
+  end
+end
+
+defmodule OmQuery.ParameterLimitError do
+  @moduledoc """
+  Error raised when a raw SQL fragment exceeds the parameter limit.
+  """
+
+  defexception [:count, :max_allowed, :sql_preview, :suggestion]
+
+  @type t :: %__MODULE__{
+          count: pos_integer(),
+          max_allowed: pos_integer(),
+          sql_preview: String.t() | nil,
+          suggestion: String.t() | nil
+        }
+
+  @impl Exception
+  def message(%__MODULE__{} = error) do
+    default_suggestion = """
+    Alternatives:
+    1. Split into multiple raw/4 calls combined with AND/OR
+    2. Use standard filter/4 operations where possible
+    3. Use OmQuery.execute_raw/3 for complex raw SQL
+    """
+
+    suggestion = error.suggestion || default_suggestion
+
+    sql_info =
+      if error.sql_preview do
+        "\nSQL fragment: #{String.slice(error.sql_preview, 0, 100)}#{if byte_size(error.sql_preview) > 100, do: "...", else: ""}"
+      else
+        ""
+      end
+
+    """
+    Raw SQL fragment exceeds maximum #{error.max_allowed} parameters (got #{error.count}).
+    #{sql_info}
+    #{suggestion}
+    """
+    |> String.trim()
+  end
+end
+
+defmodule OmQuery.SearchModeError do
+  @moduledoc """
+  Error raised when an unknown search mode is used.
+  """
+
+  defexception [:mode, :field, :supported]
+
+  @supported_modes [
+    :ilike,
+    :like,
+    :exact,
+    :starts_with,
+    :ends_with,
+    :contains,
+    :similarity,
+    :word_similarity,
+    :strict_word_similarity
+  ]
+
+  @type t :: %__MODULE__{
+          mode: atom(),
+          field: atom(),
+          supported: [atom()]
+        }
+
+  @impl Exception
+  def message(%__MODULE__{} = error) do
+    supported = error.supported || @supported_modes
+    supported_str = supported |> Enum.map(&inspect/1) |> Enum.join(", ")
+
+    """
+    Unknown search mode #{inspect(error.mode)} for field #{inspect(error.field)}
+
+    Supported modes: #{supported_str}
+
+    Example usage:
+        OmQuery.search(token, :name, "query", mode: :ilike)
+        OmQuery.search(token, :title, "query", mode: :similarity)
+    """
+    |> String.trim()
   end
 end

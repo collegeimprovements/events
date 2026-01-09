@@ -107,6 +107,7 @@ defmodule OmQuery.Builder do
     do: apply_search_rank_limited(query, spec)
 
   defp apply_operation({:field_compare, spec}, query), do: apply_field_compare(query, spec)
+  defp apply_operation({:combination, spec}, query), do: apply_combination(query, spec)
 
   ## Filter Operations - Unified Dynamic Builder
   ##
@@ -1303,6 +1304,43 @@ defmodule OmQuery.Builder do
     query |> with_cte(^name, as: fragment(^sql))
   end
 
+  ## Set Operations (union, intersect, except)
+
+  # Apply a set combination operation to the query
+  # Supports: union, union_all, intersect, intersect_all, except, except_all
+  defp apply_combination(query, {type, %Token{} = other_token}) do
+    other_query = build(other_token)
+    apply_combination_query(query, type, other_query)
+  end
+
+  defp apply_combination(query, {type, %Ecto.Query{} = other_query}) do
+    apply_combination_query(query, type, other_query)
+  end
+
+  defp apply_combination_query(query, :union, other_query) do
+    union(query, ^other_query)
+  end
+
+  defp apply_combination_query(query, :union_all, other_query) do
+    union_all(query, ^other_query)
+  end
+
+  defp apply_combination_query(query, :intersect, other_query) do
+    intersect(query, ^other_query)
+  end
+
+  defp apply_combination_query(query, :intersect_all, other_query) do
+    intersect_all(query, ^other_query)
+  end
+
+  defp apply_combination_query(query, :except, other_query) do
+    except(query, ^other_query)
+  end
+
+  defp apply_combination_query(query, :except_all, other_query) do
+    except_all(query, ^other_query)
+  end
+
   ## Window Functions
 
   # Apply a named window definition to the query
@@ -1504,7 +1542,19 @@ defmodule OmQuery.Builder do
     from(q in query, where: ^fragment_expr)
   end
 
-  # Legacy format with named params map
+  # New format with opts (named params map)
+  defp apply_raw_where(query, {sql, params, _opts}) when is_binary(sql) and is_map(params) do
+    # Convert named parameters to positional
+    {positional_sql, positional_params} = convert_named_params_to_positional(sql, params)
+
+    # Build fragment with positional parameters
+    fragment_expr = build_fragment(positional_sql, positional_params)
+
+    # Apply the where clause
+    from(q in query, where: ^fragment_expr)
+  end
+
+  # Legacy format with named params map (from raw_where/3)
   defp apply_raw_where(query, {sql, params}) when is_binary(sql) and is_map(params) do
     # Convert named parameters to positional
     {positional_sql, positional_params} = convert_named_params_to_positional(sql, params)
@@ -1538,55 +1588,59 @@ defmodule OmQuery.Builder do
     {positional_sql, positional_params}
   end
 
-  # Build a fragment dynamically with list of parameters
-  # Note: SQL string must be passed as literal for security.
-  # We use Code.eval_quoted to build the fragment at runtime
-  defp build_fragment(sql, params) do
-    # Build the fragment AST with the literal SQL and parameter list
-    # Since fragment/1 is a macro, we need to construct the call properly
-    param_asts = Enum.map(params, fn param -> quote do: ^unquote(Macro.escape(param)) end)
+  # Maximum number of parameters supported in raw_where/raw
+  # This is a reasonable limit - queries with more params should use multiple raw calls
+  @max_fragment_params 20
 
-    fragment_ast =
-      case param_asts do
-        [] ->
-          quote do: fragment(unquote(sql))
+  # Build a fragment dynamically with list of parameters.
+  #
+  # Uses runtime code evaluation because Ecto's fragment macro requires
+  # compile-time literal SQL strings for SQL injection prevention.
+  # This is safe because:
+  # 1. The SQL string comes from developer code, not user input
+  # 2. Parameters are always properly escaped by Ecto
+  defp build_fragment(sql, params) when is_binary(sql) and is_list(params) do
+    count = length(params)
 
-        [p1] ->
-          quote do: fragment(unquote(sql), unquote(p1))
+    if count > @max_fragment_params do
+      raise OmQuery.ParameterLimitError,
+        count: count,
+        max_allowed: @max_fragment_params,
+        sql_preview: sql
+    end
 
-        [p1, p2] ->
-          quote do: fragment(unquote(sql), unquote(p1), unquote(p2))
+    # Build the fragment AST dynamically
+    # Creates: dynamic([], fragment(sql, ^p1, ^p2, ...))
+    fragment_ast = build_fragment_ast(sql, params)
 
-        [p1, p2, p3] ->
-          quote do: fragment(unquote(sql), unquote(p1), unquote(p2), unquote(p3))
-
-        [p1, p2, p3, p4] ->
-          quote do: fragment(unquote(sql), unquote(p1), unquote(p2), unquote(p3), unquote(p4))
-
-        [p1, p2, p3, p4, p5] ->
-          quote do:
-                  fragment(
-                    unquote(sql),
-                    unquote(p1),
-                    unquote(p2),
-                    unquote(p3),
-                    unquote(p4),
-                    unquote(p5)
-                  )
-
-        _ ->
-          raise ArgumentError,
-                "raw_where supports maximum 5 parameters, got #{length(params)}. " <>
-                  "Consider using multiple where clauses or a custom fragment."
-      end
-
-    # Evaluate the AST to get the actual dynamic expression
     quoted =
       quote do
         Ecto.Query.dynamic([], unquote(fragment_ast))
       end
 
-    {result, _} = Code.eval_quoted(quoted, [], __ENV__)
+    # Evaluate with params bound
+    bindings = params |> Enum.with_index(1) |> Enum.map(fn {val, i} -> {:"p#{i}", val} end)
+    {result, _} = Code.eval_quoted(quoted, bindings, __ENV__)
     result
+  end
+
+  # Build the fragment AST for the given SQL and params
+  # Returns AST like: fragment("sql", ^p1, ^p2, ...)
+  defp build_fragment_ast(sql, []) do
+    quote do: fragment(unquote(sql))
+  end
+
+  defp build_fragment_ast(sql, params) do
+    # Create pinned variable references: ^p1, ^p2, ...
+    pinned_vars =
+      params
+      |> Enum.with_index(1)
+      |> Enum.map(fn {_val, i} ->
+        var = {:"p#{i}", [], nil}
+        {:^, [], [var]}
+      end)
+
+    # Build: fragment(sql, ^p1, ^p2, ...)
+    {:fragment, [], [sql | pinned_vars]}
   end
 end

@@ -1,9 +1,42 @@
 defmodule OmQuery.Cast do
-  @moduledoc false
-  # Internal module - use OmQuery public API instead.
-  #
-  # Value casting for query filters.
-  # Converts string values from params to appropriate Elixir types.
+  @moduledoc """
+  Value casting for query filters.
+
+  This module converts values (typically strings from HTTP params) to
+  appropriate Elixir types for database queries. It's used internally
+  by OmQuery when processing filter values with type hints.
+
+  ## Supported Types
+
+  | Type | Casts From | Example |
+  |------|------------|---------|
+  | `:integer` | String, Integer | `"42"` → `42` |
+  | `:float` | String, Float, Integer | `"3.14"` → `3.14` |
+  | `:decimal` | String, Decimal, Integer, Float | `"99.99"` → `Decimal` |
+  | `:boolean` | `"true"`, `"false"`, `"1"`, `"0"` | `"true"` → `true` |
+  | `:date` | ISO8601 string, Date | `"2024-01-15"` → `~D[2024-01-15]` |
+  | `:datetime` | ISO8601 string, DateTime | `"2024-01-15T10:30:00Z"` → `DateTime` |
+  | `:uuid` | UUID string | Validates and normalizes UUIDs |
+  | `:atom` | String (must be existing atom) | `"ok"` → `:ok` |
+
+  ## Usage
+
+  Casting is typically used via `OmQuery.filter/5` with the `:cast` option:
+
+      # Cast string value to integer
+      OmQuery.filter(token, :age, :gte, params["age"], cast: :integer)
+
+      # Cast multiple values for :in operator
+      OmQuery.filter(token, :status_id, :in, params["ids"], cast: :integer)
+
+  ## Errors
+
+  Invalid casts raise `OmQuery.CastError` with helpful messages:
+
+      ** (OmQuery.CastError) Cannot cast "abc" to integer
+
+      Ensure the value is a valid integer or string representation (e.g., "42")
+  """
 
   @doc """
   Cast a value to the specified type.
@@ -40,7 +73,7 @@ defmodule OmQuery.Cast do
   def cast(value, :integer) when is_binary(value) do
     case Integer.parse(value) do
       {int, ""} -> int
-      _ -> raise ArgumentError, "Cannot cast #{inspect(value)} to integer"
+      _ -> raise OmQuery.CastError, value: value, target_type: :integer
     end
   end
 
@@ -50,7 +83,7 @@ defmodule OmQuery.Cast do
   def cast(value, :float) when is_binary(value) do
     case Float.parse(value) do
       {float, ""} -> float
-      _ -> raise ArgumentError, "Cannot cast #{inspect(value)} to float"
+      _ -> raise OmQuery.CastError, value: value, target_type: :float
     end
   end
 
@@ -89,7 +122,7 @@ defmodule OmQuery.Cast do
   def cast(value, :uuid) when is_binary(value) do
     case Ecto.UUID.cast(value) do
       {:ok, uuid} -> uuid
-      :error -> raise ArgumentError, "Cannot cast #{inspect(value)} to UUID"
+      :error -> raise OmQuery.CastError, value: value, target_type: :uuid
     end
   end
 
@@ -99,6 +132,9 @@ defmodule OmQuery.Cast do
 
   # Unknown type
   def cast(value, type) do
-    raise ArgumentError, "Unknown cast type #{inspect(type)} for value #{inspect(value)}"
+    raise OmQuery.CastError,
+      value: value,
+      target_type: type,
+      suggestion: "Unknown cast type. Supported types: :integer, :float, :decimal, :boolean, :date, :datetime, :uuid, :atom"
   end
 end
