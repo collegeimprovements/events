@@ -53,17 +53,7 @@ defmodule Dag.Visualization do
     styles = Keyword.get(opts, :styles, %{})
     title = Keyword.get(opts, :title)
 
-    lines = []
-
-    # Add title if provided
-    lines =
-      if title do
-        ["---", "title: #{title}", "---" | lines]
-      else
-        lines
-      end
-
-    lines = lines ++ ["graph #{direction}"]
+    lines = build_title_lines(title) ++ ["graph #{direction}"]
 
     # Add nodes
     nodes = generate_mermaid_nodes(dag, node_label_fn, node_style_fn)
@@ -73,61 +63,57 @@ defmodule Dag.Visualization do
     edges = generate_mermaid_edges(dag)
     lines = lines ++ edges
 
-    # Add subgraphs for groups
-    lines =
-      if show_groups and map_size(dag.groups) > 0 do
-        lines ++ generate_mermaid_subgraphs(dag)
-      else
-        lines
-      end
-
-    # Add style definitions
-    lines =
-      if map_size(styles) > 0 do
-        style_defs =
-          Enum.map(styles, fn {class, style} ->
-            "  classDef #{class} #{style}"
-          end)
-
-        lines ++ style_defs
-      else
-        lines
-      end
+    lines = lines ++ build_subgraph_lines(dag, show_groups)
+    lines = lines ++ build_style_lines(styles)
 
     Enum.join(lines, "\n")
   end
 
+  defp build_title_lines(nil), do: []
+  defp build_title_lines(title), do: ["---", "title: #{title}", "---"]
+
+  defp build_subgraph_lines(%Dag{groups: groups}, true) when map_size(groups) > 0 do
+    generate_mermaid_subgraphs(%Dag{groups: groups})
+  end
+
+  defp build_subgraph_lines(_dag, _show_groups), do: []
+
+  defp build_style_lines(styles) when map_size(styles) > 0 do
+    Enum.map(styles, fn {class, style} -> "  classDef #{class} #{style}" end)
+  end
+
+  defp build_style_lines(_styles), do: []
+
   defp generate_mermaid_nodes(dag, label_fn, style_fn) do
-    dag.nodes
-    |> Enum.map(fn {id, data} ->
+    Enum.map(dag.nodes, fn {id, data} ->
       label = label_fn.(id, data)
       node_str = "  #{id}[#{escape_mermaid(label)}]"
-
-      if style_fn do
-        case style_fn.(id, data) do
-          nil -> node_str
-          style -> "#{node_str}:::#{style}"
-        end
-      else
-        node_str
-      end
+      apply_node_style(node_str, id, data, style_fn)
     end)
+  end
+
+  defp apply_node_style(node_str, _id, _data, nil), do: node_str
+
+  defp apply_node_style(node_str, id, data, style_fn) do
+    case style_fn.(id, data) do
+      nil -> node_str
+      style -> "#{node_str}:::#{style}"
+    end
   end
 
   defp generate_mermaid_edges(dag) do
-    dag.edges
-    |> Enum.flat_map(fn {from, targets} ->
+    Enum.flat_map(dag.edges, fn {from, targets} ->
       Enum.map(targets, fn {to, edge_data} ->
-        label = Map.get(edge_data, :label)
-
-        if label do
-          "  #{from} -->|#{escape_mermaid(label)}| #{to}"
-        else
-          "  #{from} --> #{to}"
-        end
+        format_mermaid_edge(from, to, Map.get(edge_data, :label))
       end)
     end)
   end
+
+  defp format_mermaid_edge(from, to, nil), do: "  #{from} --> #{to}"
+  defp format_mermaid_edge(from, to, label), do: "  #{from} -->|#{escape_mermaid(label)}| #{to}"
+
+  defp build_defaults_line(_type, nil), do: []
+  defp build_defaults_line(type, defaults), do: ["  #{type} [#{defaults}];"]
 
   defp generate_mermaid_subgraphs(dag) do
     Enum.flat_map(dag.groups, fn {group_name, members} ->
@@ -193,34 +179,16 @@ defmodule Dag.Visualization do
     node_defaults = Keyword.get(opts, :node_defaults, "shape=box, style=rounded")
     edge_defaults = Keyword.get(opts, :edge_defaults)
 
-    lines = ["digraph #{name} {"]
-
-    # Graph attributes
-    lines = lines ++ ["  rankdir=#{rankdir};"]
+    graph_attr_lines = Enum.map(graph_attrs, fn {key, value} ->
+      "  #{key}=#{escape_dot_value(value)};"
+    end)
 
     lines =
-      lines ++
-        Enum.map(graph_attrs, fn {key, value} ->
-          "  #{key}=#{escape_dot_value(value)};"
-        end)
-
-    # Node defaults
-    lines =
-      if node_defaults do
-        lines ++ ["  node [#{node_defaults}];"]
-      else
-        lines
-      end
-
-    # Edge defaults
-    lines =
-      if edge_defaults do
-        lines ++ ["  edge [#{edge_defaults}];"]
-      else
-        lines
-      end
-
-    lines = lines ++ [""]
+      ["digraph #{name} {", "  rankdir=#{rankdir};"] ++
+        graph_attr_lines ++
+        build_defaults_line("node", node_defaults) ++
+        build_defaults_line("edge", edge_defaults) ++
+        [""]
 
     # Nodes
     nodes = generate_dot_nodes(dag, node_label_fn, node_attrs_fn)
@@ -240,57 +208,55 @@ defmodule Dag.Visualization do
   end
 
   defp generate_dot_nodes(dag, label_fn, attrs_fn) do
-    dag.nodes
-    |> Enum.map(fn {id, data} ->
+    Enum.map(dag.nodes, fn {id, data} ->
       label = label_fn.(id, data)
-      attrs = ["label=#{escape_dot_value(label)}"]
-
-      attrs =
-        if attrs_fn do
-          case attrs_fn.(id, data) do
-            nil -> attrs
-            "" -> attrs
-            extra -> attrs ++ [extra]
-          end
-        else
-          attrs
-        end
+      base_attrs = ["label=#{escape_dot_value(label)}"]
+      attrs = base_attrs ++ collect_extra_attrs(attrs_fn, id, data)
 
       "  #{id} [#{Enum.join(attrs, ", ")}];"
     end)
   end
 
+  defp collect_extra_attrs(nil, _id, _data), do: []
+
+  defp collect_extra_attrs(attrs_fn, id, data) do
+    case attrs_fn.(id, data) do
+      nil -> []
+      "" -> []
+      extra -> [extra]
+    end
+  end
+
   defp generate_dot_edges(dag, attrs_fn) do
-    dag.edges
-    |> Enum.flat_map(fn {from, targets} ->
+    Enum.flat_map(dag.edges, fn {from, targets} ->
       Enum.map(targets, fn {to, edge_data} ->
-        base = "  #{from} -> #{to}"
-
-        attrs = []
-
-        attrs =
-          case Map.get(edge_data, :label) do
-            nil -> attrs
-            label -> ["label=#{escape_dot_value(label)}" | attrs]
-          end
-
-        attrs =
-          if attrs_fn do
-            case attrs_fn.(from, to, edge_data) do
-              nil -> attrs
-              "" -> attrs
-              extra -> [extra | attrs]
-            end
-          else
-            attrs
-          end
-
-        case attrs do
-          [] -> "#{base};"
-          _ -> "#{base} [#{Enum.join(attrs, ", ")}];"
-        end
+        format_dot_edge(from, to, edge_data, attrs_fn)
       end)
     end)
+  end
+
+  defp format_dot_edge(from, to, edge_data, attrs_fn) do
+    label_attrs = build_label_attr(Map.get(edge_data, :label))
+    extra_attrs = collect_edge_extra_attrs(attrs_fn, from, to, edge_data)
+    attrs = label_attrs ++ extra_attrs
+
+    case attrs do
+      [] -> "  #{from} -> #{to};"
+      _ -> "  #{from} -> #{to} [#{Enum.join(attrs, ", ")}];"
+    end
+  end
+
+  defp build_label_attr(nil), do: []
+  defp build_label_attr(label), do: ["label=#{escape_dot_value(label)}"]
+
+  defp collect_edge_extra_attrs(nil, _from, _to, _edge_data), do: []
+
+  defp collect_edge_extra_attrs(attrs_fn, from, to, edge_data) do
+    case attrs_fn.(from, to, edge_data) do
+      nil -> []
+      "" -> []
+      extra -> [extra]
+    end
   end
 
   defp generate_dot_clusters(dag) do
@@ -405,17 +371,11 @@ defmodule Dag.Visualization do
     {:ok, data} = Dag.get_node(dag, id)
     label = label_fn.(id, data)
 
-    connector = if is_last, do: "└── ", else: "├── "
+    connector = tree_connector(is_last)
     line = "#{prefix}#{connector}#{label}"
 
     successors = Dag.successors(dag, id)
-
-    child_prefix =
-      if is_last do
-        prefix <> indent
-      else
-        prefix <> "│" <> String.slice(indent, 1..-1//1)
-      end
+    child_prefix = build_child_prefix(prefix, indent, is_last)
 
     child_lines =
       successors
@@ -426,12 +386,17 @@ defmodule Dag.Visualization do
       end)
       |> Enum.join("\n")
 
-    if child_lines == "" do
-      line
-    else
-      "#{line}\n#{child_lines}"
-    end
+    join_tree_lines(line, child_lines)
   end
+
+  defp tree_connector(true), do: "└── "
+  defp tree_connector(false), do: "├── "
+
+  defp build_child_prefix(prefix, indent, true), do: prefix <> indent
+  defp build_child_prefix(prefix, indent, false), do: prefix <> "│" <> String.slice(indent, 1..-1//1)
+
+  defp join_tree_lines(line, ""), do: line
+  defp join_tree_lines(line, child_lines), do: "#{line}\n#{child_lines}"
 
   # ============================================
   # Helpers

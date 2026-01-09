@@ -230,45 +230,51 @@ defmodule Dag.DSL do
     {condition, opts} = Keyword.pop(opts, :when)
     {group, opts} = Keyword.pop(opts, :group)
 
-    # Convert single atom to list
     after_nodes = List.wrap(after_nodes)
-
-    # Build node data from remaining opts
     node_data = Map.new(opts)
 
-    # Register node
     Module.put_attribute(module, :dag_nodes, {id, node_data})
 
-    # Register edges from dependencies
-    edge_data = if condition, do: Map.put(edge_data, :when, condition), else: edge_data
+    edge_data = add_condition_to_edge(edge_data, condition)
 
     for dep <- after_nodes do
       Module.put_attribute(module, :dag_edges, {dep, id, edge_data})
     end
 
-    # Check if we're in a parallel block
+    handle_parallel_context(module, id, after_nodes, edge_data)
+    register_group_membership(module, group, id)
+
+    :ok
+  end
+
+  defp add_condition_to_edge(edge_data, nil), do: edge_data
+  defp add_condition_to_edge(edge_data, condition), do: Map.put(edge_data, :when, condition)
+
+  defp handle_parallel_context(module, id, after_nodes, edge_data) do
     case Module.get_attribute(module, :current_parallel) do
       nil ->
         :ok
 
       {parallel_group, parallel_after} ->
-        # Add to parallel group
         Module.put_attribute(module, :dag_groups, {parallel_group, id})
-
-        # Add edges from parallel_after if no explicit after
-        if after_nodes == [] do
-          for dep <- List.wrap(parallel_after) do
-            Module.put_attribute(module, :dag_edges, {dep, id, edge_data})
-          end
-        end
+        register_parallel_edges(module, id, after_nodes, parallel_after, edge_data)
     end
+  end
 
-    # Add to explicit group if specified
-    if group do
-      Module.put_attribute(module, :dag_groups, {group, id})
+  defp register_parallel_edges(_module, _id, after_nodes, _parallel_after, _edge_data)
+       when after_nodes != [],
+       do: :ok
+
+  defp register_parallel_edges(module, id, [], parallel_after, edge_data) do
+    for dep <- List.wrap(parallel_after) do
+      Module.put_attribute(module, :dag_edges, {dep, id, edge_data})
     end
+  end
 
-    :ok
+  defp register_group_membership(_module, nil, _id), do: :ok
+
+  defp register_group_membership(module, group, id) do
+    Module.put_attribute(module, :dag_groups, {group, id})
   end
 
   @doc false
@@ -393,56 +399,62 @@ defmodule Dag.DSL.Inline do
 
     after_nodes = List.wrap(after_nodes)
     node_data = Map.new(opts)
-
-    edge_data = if condition, do: Map.put(edge_data, :when, condition), else: edge_data
+    edge_data = add_condition(edge_data, condition)
 
     Agent.update(agent, fn state ->
-      # Add node
-      state = %{state | nodes: [{id, node_data} | state.nodes]}
-
-      # Add edges
-      edges =
-        Enum.reduce(after_nodes, state.edges, fn dep, acc ->
-          [{dep, id, edge_data} | acc]
-        end)
-
-      state = %{state | edges: edges}
-
-      # Add to group
-      groups =
-        if group do
-          [{group, id} | state.groups]
-        else
-          state.groups
-        end
-
-      # Check parallel context
-      groups =
-        case Process.get(:dag_dsl_parallel) do
-          nil ->
-            groups
-
-          {parallel_group, parallel_after} ->
-            # Add to parallel group
-            groups = [{parallel_group, id} | groups]
-
-            # Add edges from parallel_after if no explicit after
-            if after_nodes == [] do
-              edges =
-                Enum.reduce(List.wrap(parallel_after), state.edges, fn dep, acc ->
-                  [{dep, id, edge_data} | acc]
-                end)
-
-              Agent.update(agent, fn s -> %{s | edges: edges} end)
-            end
-
-            groups
-        end
+      state = add_node_to_state(state, id, node_data)
+      state = add_edges_to_state(state, id, after_nodes, edge_data)
+      groups = add_to_group(state.groups, group, id)
+      groups = handle_inline_parallel(groups, id, after_nodes, edge_data, agent, state)
 
       %{state | groups: groups}
     end)
 
     :ok
+  end
+
+  defp add_condition(edge_data, nil), do: edge_data
+  defp add_condition(edge_data, condition), do: Map.put(edge_data, :when, condition)
+
+  defp add_node_to_state(state, id, node_data) do
+    %{state | nodes: [{id, node_data} | state.nodes]}
+  end
+
+  defp add_edges_to_state(state, id, after_nodes, edge_data) do
+    edges =
+      Enum.reduce(after_nodes, state.edges, fn dep, acc ->
+        [{dep, id, edge_data} | acc]
+      end)
+
+    %{state | edges: edges}
+  end
+
+  defp add_to_group(groups, nil, _id), do: groups
+  defp add_to_group(groups, group, id), do: [{group, id} | groups]
+
+  defp handle_inline_parallel(groups, id, after_nodes, edge_data, agent, state) do
+    case Process.get(:dag_dsl_parallel) do
+      nil ->
+        groups
+
+      {parallel_group, parallel_after} ->
+        groups = [{parallel_group, id} | groups]
+        add_parallel_edges(after_nodes, parallel_after, edge_data, id, agent, state)
+        groups
+    end
+  end
+
+  defp add_parallel_edges(after_nodes, _parallel_after, _edge_data, _id, _agent, _state)
+       when after_nodes != [],
+       do: :ok
+
+  defp add_parallel_edges([], parallel_after, edge_data, id, agent, state) do
+    edges =
+      Enum.reduce(List.wrap(parallel_after), state.edges, fn dep, acc ->
+        [{dep, id, edge_data} | acc]
+      end)
+
+    Agent.update(agent, fn s -> %{s | edges: edges} end)
   end
 
   def edge(from, to, data \\ %{}) do

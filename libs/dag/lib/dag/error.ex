@@ -179,16 +179,16 @@ defmodule Dag.Error do
 
       message =
         Keyword.get_lazy(opts, :message, fn ->
-          base = "Invalid DAG definition: #{reason}"
-
-          if details do
-            "#{base} - #{inspect(details)}"
-          else
-            base
-          end
+          build_invalid_definition_message(reason, details)
         end)
 
       %__MODULE__{reason: reason, details: details, message: message}
+    end
+
+    defp build_invalid_definition_message(reason, nil), do: "Invalid DAG definition: #{reason}"
+
+    defp build_invalid_definition_message(reason, details) do
+      "Invalid DAG definition: #{reason} - #{inspect(details)}"
     end
   end
 

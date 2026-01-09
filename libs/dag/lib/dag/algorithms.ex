@@ -52,19 +52,15 @@ defmodule Dag.Algorithms do
   end
 
   defp do_topological_sort([node | rest], dag, in_degree, result) do
-    # Get all nodes that depend on this node
     dependents = Dag.successors(dag, node)
 
-    # Decrease in-degree for each dependent
     {new_queue, new_in_degree} =
       Enum.reduce(dependents, {rest, in_degree}, fn dep, {q, deg} ->
         new_deg = Map.update!(deg, dep, &(&1 - 1))
 
-        # If in-degree becomes 0, add to queue
-        if new_deg[dep] == 0 do
-          {[dep | q], new_deg}
-        else
-          {q, new_deg}
+        case new_deg[dep] do
+          0 -> {[dep | q], new_deg}
+          _ -> {q, new_deg}
         end
       end)
 
@@ -223,12 +219,14 @@ defmodule Dag.Algorithms do
     neighbors = get_neighbors.(dag, id)
 
     Enum.reduce(neighbors, visited, fn neighbor, acc ->
-      if MapSet.member?(acc, neighbor) do
-        acc
-      else
-        acc
-        |> MapSet.put(neighbor)
-        |> then(&do_traverse(dag, neighbor, get_neighbors, &1))
+      case MapSet.member?(acc, neighbor) do
+        true ->
+          acc
+
+        false ->
+          acc
+          |> MapSet.put(neighbor)
+          |> then(&do_traverse(dag, neighbor, get_neighbors, &1))
       end
     end)
   end
@@ -338,13 +336,8 @@ defmodule Dag.Algorithms do
       {:error, :no_path} = Dag.shortest_path(dag, :c, :a)
   """
   @spec shortest_path(Dag.t(), node_id(), node_id()) :: {:ok, [node_id()]} | {:error, :no_path}
-  def shortest_path(%Dag{} = dag, from, to) do
-    if from == to do
-      {:ok, [from]}
-    else
-      bfs_shortest_path(dag, from, to)
-    end
-  end
+  def shortest_path(%Dag{}, from, from), do: {:ok, [from]}
+  def shortest_path(%Dag{} = dag, from, to), do: bfs_shortest_path(dag, from, to)
 
   defp bfs_shortest_path(dag, from, to) do
     # BFS to find shortest path
@@ -363,22 +356,20 @@ defmodule Dag.Algorithms do
       {{:value, {current, path}}, rest_queue} ->
         successors = Dag.successors(dag, current)
 
-        case Enum.find(successors, &(&1 == target)) do
-          nil ->
-            # Target not in immediate successors, continue BFS
+        case target in successors do
+          true ->
+            {:ok, path ++ [target]}
+
+          false ->
             {new_queue, new_visited} =
               Enum.reduce(successors, {rest_queue, visited}, fn succ, {q, v} ->
-                if MapSet.member?(v, succ) do
-                  {q, v}
-                else
-                  {:queue.in({succ, path ++ [succ]}, q), MapSet.put(v, succ)}
+                case MapSet.member?(v, succ) do
+                  true -> {q, v}
+                  false -> {:queue.in({succ, path ++ [succ]}, q), MapSet.put(v, succ)}
                 end
               end)
 
             do_bfs_shortest_path(dag, target, new_queue, new_visited)
-
-          _found ->
-            {:ok, path ++ [target]}
         end
     end
   end
@@ -395,30 +386,22 @@ defmodule Dag.Algorithms do
       #=> [[:a, :b, :d], [:a, :c, :d]]
   """
   @spec all_paths(Dag.t(), node_id(), node_id()) :: [[node_id()]]
-  def all_paths(%Dag{} = dag, from, to) do
-    if from == to do
-      [[from]]
-    else
-      do_all_paths(dag, from, to, [from], MapSet.new([from]))
-    end
-  end
+  def all_paths(%Dag{}, from, from), do: [[from]]
+  def all_paths(%Dag{} = dag, from, to), do: do_all_paths(dag, from, to, [from], MapSet.new([from]))
 
   defp do_all_paths(dag, current, target, path, visited) do
-    successors = Dag.successors(dag, current)
+    dag
+    |> Dag.successors(current)
+    |> Enum.flat_map(&find_paths_through(&1, dag, target, path, visited))
+  end
 
-    Enum.flat_map(successors, fn succ ->
-      cond do
-        succ == target ->
-          [path ++ [target]]
+  defp find_paths_through(target, _dag, target, path, _visited), do: [path ++ [target]]
 
-        MapSet.member?(visited, succ) ->
-          # Already in current path (would be cycle, but shouldn't happen in DAG)
-          []
-
-        true ->
-          do_all_paths(dag, succ, target, path ++ [succ], MapSet.put(visited, succ))
-      end
-    end)
+  defp find_paths_through(succ, dag, target, path, visited) do
+    case MapSet.member?(visited, succ) do
+      true -> []
+      false -> do_all_paths(dag, succ, target, path ++ [succ], MapSet.put(visited, succ))
+    end
   end
 
   @doc """
@@ -870,10 +853,9 @@ defmodule Dag.Algorithms do
                     edge_weight = weight_fn.(edge_data)
                     new_dist = pred_dist + edge_weight
 
-                    if new_dist > best_dist do
-                      {new_dist, pred}
-                    else
-                      {best_dist, best_p}
+                    case new_dist > best_dist do
+                      true -> {new_dist, pred}
+                      false -> {best_dist, best_p}
                     end
                   end)
 
@@ -911,12 +893,10 @@ defmodule Dag.Algorithms do
   """
   @spec shortest_weighted_path(Dag.t(), node_id(), node_id(), (map() -> number())) ::
           {:ok, {number(), [node_id()]}} | {:error, :no_path}
+  def shortest_weighted_path(%Dag{}, from, from, _weight_fn), do: {:ok, {0, [from]}}
+
   def shortest_weighted_path(%Dag{} = dag, from, to, weight_fn) when is_function(weight_fn, 1) do
-    if from == to do
-      {:ok, {0, [from]}}
-    else
-      dijkstra(dag, from, to, weight_fn)
-    end
+    dijkstra(dag, from, to, weight_fn)
   end
 
   defp dijkstra(dag, from, to, weight_fn) do
@@ -936,15 +916,15 @@ defmodule Dag.Algorithms do
   end
 
   defp do_dijkstra(dag, to, weight_fn, [{current_dist, current} | rest], distances, visited) do
-    cond do
-      current == to ->
+    case {current == to, MapSet.member?(visited, current)} do
+      {true, _} ->
         path = reconstruct_path(distances, to, [])
         {:ok, {current_dist, path}}
 
-      MapSet.member?(visited, current) ->
+      {false, true} ->
         do_dijkstra(dag, to, weight_fn, rest, distances, visited)
 
-      true ->
+      {false, false} ->
         new_visited = MapSet.put(visited, current)
         successors = Dag.successors(dag, current)
 
@@ -953,15 +933,16 @@ defmodule Dag.Algorithms do
             {:ok, edge_data} = get_edge(dag, current, succ)
             edge_weight = weight_fn.(edge_data)
             new_dist = current_dist + edge_weight
+            current_best = d |> Map.get(succ, {Float.max_finite(), nil}) |> elem(0)
 
-            current_best = Map.get(d, succ, {Float.max_finite(), nil}) |> elem(0)
+            case new_dist < current_best do
+              true ->
+                new_d = Map.put(d, succ, {new_dist, current})
+                new_q = insert_sorted(q, {new_dist, succ})
+                {new_q, new_d}
 
-            if new_dist < current_best do
-              new_d = Map.put(d, succ, {new_dist, current})
-              new_q = insert_sorted(q, {new_dist, succ})
-              {new_q, new_d}
-            else
-              {q, d}
+              false ->
+                {q, d}
             end
           end)
 
@@ -971,12 +952,12 @@ defmodule Dag.Algorithms do
 
   defp insert_sorted([], item), do: [item]
 
-  defp insert_sorted([{d, _} = head | tail], {new_d, _} = item) do
-    if new_d <= d do
-      [item, head | tail]
-    else
-      [head | insert_sorted(tail, item)]
-    end
+  defp insert_sorted([{d, _} = head | tail], {new_d, _} = item) when new_d <= d do
+    [item, head | tail]
+  end
+
+  defp insert_sorted([head | tail], item) do
+    [head | insert_sorted(tail, item)]
   end
 
   # ============================================
@@ -992,17 +973,22 @@ defmodule Dag.Algorithms do
   """
   @spec is_tree?(Dag.t()) :: boolean()
   def is_tree?(%Dag{} = dag) do
-    root_nodes = roots(dag)
+    case roots(dag) do
+      [_single_root] -> all_nodes_have_at_most_one_parent?(dag)
+      _ -> false
+    end
+  end
 
-    # Must have exactly one root
-    length(root_nodes) == 1 and
-      # Every non-root node must have exactly one parent
-      dag.nodes
-      |> Map.keys()
-      |> Enum.all?(fn id ->
-        preds = Dag.predecessors(dag, id)
-        length(preds) <= 1
-      end)
+  defp all_nodes_have_at_most_one_parent?(%Dag{nodes: nodes} = dag) do
+    nodes
+    |> Map.keys()
+    |> Enum.all?(fn id ->
+      case Dag.predecessors(dag, id) do
+        [] -> true
+        [_single] -> true
+        _ -> false
+      end
+    end)
   end
 
   @doc """
@@ -1013,15 +999,7 @@ defmodule Dag.Algorithms do
       Dag.is_forest?(dag) #=> true
   """
   @spec is_forest?(Dag.t()) :: boolean()
-  def is_forest?(%Dag{} = dag) do
-    # Every node must have at most one parent
-    dag.nodes
-    |> Map.keys()
-    |> Enum.all?(fn id ->
-      preds = Dag.predecessors(dag, id)
-      length(preds) <= 1
-    end)
-  end
+  def is_forest?(%Dag{} = dag), do: all_nodes_have_at_most_one_parent?(dag)
 
   @doc """
   Returns the weakly connected components of the DAG.
@@ -1036,16 +1014,18 @@ defmodule Dag.Algorithms do
   """
   @spec connected_components(Dag.t()) :: [[node_id()]]
   def connected_components(%Dag{} = dag) do
-    node_ids = Dag.node_ids(dag)
-
     {components, _} =
-      Enum.reduce(node_ids, {[], MapSet.new()}, fn node, {comps, visited} ->
-        if MapSet.member?(visited, node) do
-          {comps, visited}
-        else
-          component = flood_fill_component(dag, node, MapSet.new())
-          new_visited = MapSet.union(visited, component)
-          {[MapSet.to_list(component) | comps], new_visited}
+      dag
+      |> Dag.node_ids()
+      |> Enum.reduce({[], MapSet.new()}, fn node, {comps, visited} ->
+        case MapSet.member?(visited, node) do
+          true ->
+            {comps, visited}
+
+          false ->
+            component = flood_fill_component(dag, node, MapSet.new())
+            new_visited = MapSet.union(visited, component)
+            {[MapSet.to_list(component) | comps], new_visited}
         end
       end)
 
@@ -1053,17 +1033,17 @@ defmodule Dag.Algorithms do
   end
 
   defp flood_fill_component(dag, node, visited) do
-    if MapSet.member?(visited, node) do
-      visited
-    else
-      visited = MapSet.put(visited, node)
+    case MapSet.member?(visited, node) do
+      true ->
+        visited
 
-      # Get all neighbors (both directions for weak connectivity)
-      neighbors = Dag.successors(dag, node) ++ Dag.predecessors(dag, node)
+      false ->
+        visited = MapSet.put(visited, node)
+        neighbors = Dag.successors(dag, node) ++ Dag.predecessors(dag, node)
 
-      Enum.reduce(neighbors, visited, fn neighbor, acc ->
-        flood_fill_component(dag, neighbor, acc)
-      end)
+        Enum.reduce(neighbors, visited, fn neighbor, acc ->
+          flood_fill_component(dag, neighbor, acc)
+        end)
     end
   end
 end

@@ -148,8 +148,7 @@ defmodule Dag do
         {from, to}, acc -> add_edge(acc, from, to)
       end)
 
-    validate(dag)
-    |> case do
+    case validate(dag) do
       :ok -> {:ok, dag}
       error -> error
     end
@@ -1094,11 +1093,10 @@ defmodule Dag do
   # Private Helpers
   # ============================================
 
-  defp ensure_node(%__MODULE__{} = dag, id) do
-    if has_node?(dag, id) do
-      dag
-    else
-      add_node(dag, id)
+  defp ensure_node(%__MODULE__{nodes: nodes} = dag, id) do
+    case Map.has_key?(nodes, id) do
+      true -> dag
+      false -> add_node(dag, id)
     end
   end
 end
@@ -1126,8 +1124,12 @@ defimpl Inspect, for: Dag do
     concat(["#Dag<", to_doc(info, opts), ">"])
   end
 
-  defp truncate_list(list, max) when length(list) <= max, do: list
-  defp truncate_list(list, max), do: Enum.take(list, max) ++ [:"..."]
+  defp truncate_list(list, max) do
+    case Enum.split(list, max) do
+      {taken, []} -> taken
+      {taken, _rest} -> taken ++ [:"..."]
+    end
+  end
 end
 
 defimpl Enumerable, for: Dag do
