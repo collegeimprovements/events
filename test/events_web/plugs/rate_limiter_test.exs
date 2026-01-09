@@ -2,16 +2,17 @@ defmodule EventsWeb.Plugs.RateLimiterTest do
   @moduledoc """
   Tests for EventsWeb.Plugs.RateLimiter.
 
-  Uses Mimic to mock Hammer rate limiting to test the plug behavior
-  without requiring a real Redis backend.
+  Uses Mimic to mock the RateLimiter service to test the plug behavior
+  without requiring a real backend.
   """
 
   use EventsWeb.ConnCase, async: true
 
   alias EventsWeb.Plugs.RateLimiter
+  alias Events.Services.RateLimiter, as: RateLimiterService
 
   setup do
-    Mimic.copy(Hammer)
+    Mimic.copy(RateLimiterService)
     :ok
   end
 
@@ -53,8 +54,8 @@ defmodule EventsWeb.Plugs.RateLimiterTest do
 
   describe "call/2 - allowing requests" do
     test "allows request when under rate limit", %{conn: conn} do
-      Hammer
-      |> expect(:check_rate, fn _bucket_id, _interval, _max ->
+      RateLimiterService
+      |> expect(:check, fn _bucket_id, _interval, _max ->
         {:allow, 1}
       end)
 
@@ -67,11 +68,11 @@ defmodule EventsWeb.Plugs.RateLimiterTest do
 
     test "allows multiple requests until limit reached", %{conn: conn} do
       # Simulate incrementing count
-      Hammer
-      |> expect(:check_rate, fn _bucket_id, _interval, _max ->
+      RateLimiterService
+      |> expect(:check, fn _bucket_id, _interval, _max ->
         {:allow, 5}
       end)
-      |> expect(:check_rate, fn _bucket_id, _interval, _max ->
+      |> expect(:check, fn _bucket_id, _interval, _max ->
         {:allow, 10}
       end)
 
@@ -87,8 +88,8 @@ defmodule EventsWeb.Plugs.RateLimiterTest do
 
   describe "call/2 - denying requests" do
     test "denies request when rate limit exceeded", %{conn: conn} do
-      Hammer
-      |> expect(:check_rate, fn _bucket_id, _interval, _max ->
+      RateLimiterService
+      |> expect(:check, fn _bucket_id, _interval, _max ->
         {:deny, 60}
       end)
 
@@ -100,9 +101,9 @@ defmodule EventsWeb.Plugs.RateLimiterTest do
     end
 
     test "includes rate limit headers when denied", %{conn: conn} do
-      Hammer
-      |> expect(:check_rate, fn _bucket_id, _interval, _max ->
-        {:deny, 60}
+      RateLimiterService
+      |> expect(:check, fn _bucket_id, _interval, _max ->
+        {:deny, 60_000}
       end)
 
       opts = RateLimiter.init(max_requests: 100, interval_ms: 60_000)
@@ -115,9 +116,9 @@ defmodule EventsWeb.Plugs.RateLimiterTest do
     end
 
     test "returns JSON error response when denied", %{conn: conn} do
-      Hammer
-      |> expect(:check_rate, fn _bucket_id, _interval, _max ->
-        {:deny, 60}
+      RateLimiterService
+      |> expect(:check, fn _bucket_id, _interval, _max ->
+        {:deny, 60_000}
       end)
 
       opts = RateLimiter.init([])
@@ -131,9 +132,9 @@ defmodule EventsWeb.Plugs.RateLimiterTest do
     end
 
     test "calculates retry_after based on interval_ms", %{conn: conn} do
-      Hammer
-      |> expect(:check_rate, fn _bucket_id, _interval, _max ->
-        {:deny, 100}
+      RateLimiterService
+      |> expect(:check, fn _bucket_id, _interval, _max ->
+        {:deny, 120_000}
       end)
 
       opts = RateLimiter.init(interval_ms: 120_000)
@@ -147,10 +148,10 @@ defmodule EventsWeb.Plugs.RateLimiterTest do
   end
 
   describe "call/2 - error handling" do
-    test "allows request on Hammer error", %{conn: conn} do
-      Hammer
-      |> expect(:check_rate, fn _bucket_id, _interval, _max ->
-        {:error, :redis_connection_failed}
+    test "allows request on RateLimiter exception", %{conn: conn} do
+      RateLimiterService
+      |> expect(:check, fn _bucket_id, _interval, _max ->
+        raise "Connection refused"
       end)
 
       opts = RateLimiter.init([])
@@ -165,8 +166,8 @@ defmodule EventsWeb.Plugs.RateLimiterTest do
     test "uses default IP-based identifier", %{conn: conn} do
       conn = %{conn | remote_ip: {192, 168, 1, 100}}
 
-      Hammer
-      |> expect(:check_rate, fn bucket_id, _interval, _max ->
+      RateLimiterService
+      |> expect(:check, fn bucket_id, _interval, _max ->
         assert bucket_id == "rl:192.168.1.100"
         {:allow, 1}
       end)
@@ -178,8 +179,8 @@ defmodule EventsWeb.Plugs.RateLimiterTest do
     test "uses custom identifier function", %{conn: conn} do
       conn = Plug.Conn.assign(conn, :user_id, "user_123")
 
-      Hammer
-      |> expect(:check_rate, fn bucket_id, _interval, _max ->
+      RateLimiterService
+      |> expect(:check, fn bucket_id, _interval, _max ->
         assert bucket_id == "api:user_123"
         {:allow, 1}
       end)
@@ -198,8 +199,8 @@ defmodule EventsWeb.Plugs.RateLimiterTest do
         conn
         |> put_req_header("x-forwarded-for", "10.0.0.1")
 
-      Hammer
-      |> expect(:check_rate, fn bucket_id, _interval, _max ->
+      RateLimiterService
+      |> expect(:check, fn bucket_id, _interval, _max ->
         assert bucket_id == "rl:10.0.0.1"
         {:allow, 1}
       end)
@@ -215,8 +216,8 @@ defmodule EventsWeb.Plugs.RateLimiterTest do
         conn
         |> put_req_header("x-forwarded-for", "10.0.0.1, 192.168.1.1")
 
-      Hammer
-      |> expect(:check_rate, fn bucket_id, _interval, _max ->
+      RateLimiterService
+      |> expect(:check, fn bucket_id, _interval, _max ->
         # Current behavior: uses full header value
         assert bucket_id == "rl:10.0.0.1, 192.168.1.1"
         {:allow, 1}
@@ -229,8 +230,8 @@ defmodule EventsWeb.Plugs.RateLimiterTest do
     test "uses id_prefix in bucket ID", %{conn: conn} do
       conn = %{conn | remote_ip: {127, 0, 0, 1}}
 
-      Hammer
-      |> expect(:check_rate, fn bucket_id, _interval, _max ->
+      RateLimiterService
+      |> expect(:check, fn bucket_id, _interval, _max ->
         assert bucket_id =~ "custom_prefix:"
         {:allow, 1}
       end)
@@ -241,9 +242,9 @@ defmodule EventsWeb.Plugs.RateLimiterTest do
   end
 
   describe "call/2 - rate limit parameters" do
-    test "passes correct interval_ms to Hammer", %{conn: conn} do
-      Hammer
-      |> expect(:check_rate, fn _bucket_id, interval, _max ->
+    test "passes correct interval_ms to RateLimiter", %{conn: conn} do
+      RateLimiterService
+      |> expect(:check, fn _bucket_id, interval, _max ->
         assert interval == 30_000
         {:allow, 1}
       end)
@@ -252,9 +253,9 @@ defmodule EventsWeb.Plugs.RateLimiterTest do
       RateLimiter.call(conn, opts)
     end
 
-    test "passes correct max_requests to Hammer", %{conn: conn} do
-      Hammer
-      |> expect(:check_rate, fn _bucket_id, _interval, max ->
+    test "passes correct max_requests to RateLimiter", %{conn: conn} do
+      RateLimiterService
+      |> expect(:check, fn _bucket_id, _interval, max ->
         assert max == 200
         {:allow, 1}
       end)
@@ -266,8 +267,8 @@ defmodule EventsWeb.Plugs.RateLimiterTest do
 
   describe "integration scenarios" do
     test "rate limits by API endpoint", %{conn: conn} do
-      Hammer
-      |> expect(:check_rate, fn bucket_id, _interval, _max ->
+      RateLimiterService
+      |> expect(:check, fn bucket_id, _interval, _max ->
         assert bucket_id =~ "api_users"
         {:allow, 1}
       end)
@@ -283,12 +284,12 @@ defmodule EventsWeb.Plugs.RateLimiterTest do
     end
 
     test "different users have separate rate limits", %{conn: conn} do
-      Hammer
-      |> expect(:check_rate, fn bucket_id, _interval, _max ->
+      RateLimiterService
+      |> expect(:check, fn bucket_id, _interval, _max ->
         send(self(), {:bucket_id, bucket_id})
         {:allow, 1}
       end)
-      |> expect(:check_rate, fn bucket_id, _interval, _max ->
+      |> expect(:check, fn bucket_id, _interval, _max ->
         send(self(), {:bucket_id, bucket_id})
         {:allow, 1}
       end)

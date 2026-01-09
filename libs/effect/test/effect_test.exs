@@ -1,4 +1,30 @@
 defmodule EffectTest do
+  @moduledoc """
+  Tests for Effect - Composable effects with dependencies, rollback, and retry.
+
+  Effect provides a powerful system for building multi-step workflows with
+  error handling, automatic rollback, parallel execution, and checkpointing.
+
+  ## Use Cases
+
+  - **Order processing**: Validate → Reserve Inventory → Charge → Ship (with rollback)
+  - **User onboarding**: Create Account → Send Email → Setup Defaults (with retry)
+  - **Data imports**: Parse → Validate → Transform → Load (with checkpoints)
+  - **API orchestration**: Fetch A || Fetch B → Merge → Process (parallel + sequential)
+
+  ## Pattern: Effect Composition
+
+      Effect.new(:checkout)
+      |> Effect.step(:validate, &validate_order/1)
+      |> Effect.step(:reserve, &reserve_inventory/1, rollback: &release_inventory/1)
+      |> Effect.step(:charge, &charge_payment/1, rollback: &refund_payment/1)
+      |> Effect.step(:ship, &initiate_shipping/1, after: :charge)
+      |> Effect.run(initial_context)
+
+  Effects support: dependencies, rollback, retry, parallel, branch, race, embed,
+  middleware, services, checkpoints, and visualization.
+  """
+
   use ExUnit.Case, async: true
 
   describe "Effect.new/2" do

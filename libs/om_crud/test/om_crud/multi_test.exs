@@ -1,4 +1,28 @@
 defmodule OmCrud.MultiTest do
+  @moduledoc """
+  Tests for OmCrud.Multi - Transactional composition for CRUD operations.
+
+  Multi allows composing multiple database operations into a single atomic
+  transaction. All operations succeed or none do - perfect for complex workflows.
+
+  ## Use Cases
+
+  - **User registration**: Create user + account + settings atomically
+  - **Order processing**: Update inventory + create order + charge payment
+  - **Data migration**: Transform and move data between tables safely
+  - **Cascading updates**: Update parent and all related children together
+
+  ## Pattern: Transaction Composition
+
+      Multi.new()
+      |> Multi.create(:user, User, user_attrs)
+      |> Multi.create(:account, Account, fn %{user: u} -> %{owner_id: u.id} end)
+      |> Multi.update(:settings, fn %{user: u} -> {u.settings, settings_attrs} end)
+      |> OmCrud.run()
+
+  Operations can depend on previous results via function callbacks.
+  """
+
   use ExUnit.Case, async: true
 
   alias OmCrud.Multi

@@ -1,4 +1,32 @@
 defmodule OmSchema.PresetsTest do
+  @moduledoc """
+  Tests for OmSchema.Presets - Pre-configured validation option sets.
+
+  Presets provides ready-to-use validation configurations for common field
+  types like email, URL, phone, password, and many more.
+
+  ## Use Cases
+
+  - **User fields**: email, username, password, phone
+  - **Financial fields**: money, credit_card, iban, currency_code
+  - **Network fields**: ipv4, ipv6, mac_address, domain
+  - **Location fields**: latitude, longitude, country_code, zip_code
+  - **Content fields**: slug, tags, metadata, file_path
+
+  ## Pattern: Preset-Based Fields
+
+      # In schema:
+      field :email, :string, Presets.email()
+      field :price, :decimal, Presets.money()
+      field :avatar_url, :string, Presets.url(required: false)
+
+      # Presets can be customized:
+      Presets.email(max_length: 100)      # Override default
+      Presets.password(min_length: 12)    # Stricter password
+
+  Presets encapsulate best practices for common validation scenarios.
+  """
+
   use ExUnit.Case, async: true
 
   alias OmSchema.Presets

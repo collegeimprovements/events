@@ -20,6 +20,8 @@ defmodule Events.Application do
         OmKillSwitch,
         {DNSCluster, query: Application.get_env(:events, :dns_cluster_query) || :ignore},
         Events.Services.PubSub,
+        # Rate limiter using Hammer v7 (ETS or Redis backend)
+        Events.Services.RateLimiter,
         # Task supervisor for async operations (error storage, telemetry, etc.)
         {Task.Supervisor, name: Events.TaskSupervisor},
         # Scheduler for background jobs and workflows (disabled by default in test)

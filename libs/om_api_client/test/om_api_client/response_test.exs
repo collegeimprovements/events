@@ -1,4 +1,35 @@
 defmodule OmApiClient.ResponseTest do
+  @moduledoc """
+  Tests for OmApiClient.Response - Structured API response handling.
+
+  Response wraps HTTP responses with normalized headers, status predicates,
+  rate limit tracking, and convenient accessors for response data.
+
+  ## Use Cases
+
+  - **Status checks**: success?, client_error?, server_error?, retryable?
+  - **Rate limiting**: Track remaining requests, retry-after handling
+  - **Request tracing**: Extract API request IDs for debugging
+  - **Body access**: Get values from response with path access
+
+  ## Pattern: Response Handling
+
+      response = ApiClient.get("/users/123")
+
+      if Response.success?(response) do
+        user_id = Response.get(response, ["data", "id"])
+        {:ok, user_id}
+      else
+        if Response.retryable?(response) do
+          retry_after = Response.retry_after_ms(response)
+          schedule_retry(retry_after)
+        end
+        {:error, response}
+      end
+
+  Predicates: success?, client_error?, server_error?, redirect?, retryable?, rate_limited?
+  """
+
   use ExUnit.Case, async: true
 
   alias OmApiClient.Response

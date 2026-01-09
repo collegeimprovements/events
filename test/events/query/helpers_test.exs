@@ -1,4 +1,4 @@
-defmodule Events.Core.Query.HelpersTest do
+defmodule Events.Core.OmQuery.HelpersTest do
   use Events.TestCase, async: true
 
   import OmQuery.Helpers
@@ -131,7 +131,7 @@ defmodule Events.Core.Query.HelpersTest do
       params = %{status: "active", min_age: 18}
 
       token =
-        Query.new(User)
+        OmQuery.new(User)
         |> dynamic_filters(params, mapping)
 
       assert length(token.operations) == 2
@@ -149,7 +149,7 @@ defmodule Events.Core.Query.HelpersTest do
       params = %{status: "active", min_age: nil}
 
       token =
-        Query.new(User)
+        OmQuery.new(User)
         |> dynamic_filters(params, mapping)
 
       assert length(token.operations) == 1
@@ -161,7 +161,7 @@ defmodule Events.Core.Query.HelpersTest do
       params = %{}
 
       token =
-        Query.new(User)
+        OmQuery.new(User)
         |> dynamic_filters(params, mapping)
 
       assert token.operations == []
@@ -171,7 +171,7 @@ defmodule Events.Core.Query.HelpersTest do
   describe "ensure_limit/2" do
     test "adds limit if query has none" do
       token =
-        Query.new(User)
+        OmQuery.new(User)
         |> ensure_limit(20)
 
       assert [{:limit, 20}] = token.operations
@@ -179,8 +179,8 @@ defmodule Events.Core.Query.HelpersTest do
 
     test "does not add limit if already present" do
       token =
-        Query.new(User)
-        |> Query.limit(50)
+        OmQuery.new(User)
+        |> OmQuery.limit(50)
         |> ensure_limit(20)
 
       assert [{:limit, 50}] = token.operations
@@ -188,8 +188,8 @@ defmodule Events.Core.Query.HelpersTest do
 
     test "does not add limit if paginate is present" do
       token =
-        Query.new(User)
-        |> Query.paginate(:cursor, limit: 25)
+        OmQuery.new(User)
+        |> OmQuery.paginate(:cursor, limit: 25)
         |> ensure_limit(20)
 
       # Should only have paginate operation, no additional limit
@@ -202,7 +202,7 @@ defmodule Events.Core.Query.HelpersTest do
   describe "sort_by/2" do
     test "handles nil sort string" do
       token =
-        Query.new(User)
+        OmQuery.new(User)
         |> sort_by(nil)
 
       assert token.operations == []
@@ -210,7 +210,7 @@ defmodule Events.Core.Query.HelpersTest do
 
     test "parses single ascending field" do
       token =
-        Query.new(User)
+        OmQuery.new(User)
         |> sort_by("name")
 
       assert [{:order, {:name, :asc, []}}] = token.operations
@@ -218,7 +218,7 @@ defmodule Events.Core.Query.HelpersTest do
 
     test "parses single descending field with minus" do
       token =
-        Query.new(User)
+        OmQuery.new(User)
         |> sort_by("-created_at")
 
       assert [{:order, {:created_at, :desc, []}}] = token.operations
@@ -226,7 +226,7 @@ defmodule Events.Core.Query.HelpersTest do
 
     test "parses single ascending field with plus" do
       token =
-        Query.new(User)
+        OmQuery.new(User)
         |> sort_by("+name")
 
       assert [{:order, {:name, :asc, []}}] = token.operations
@@ -234,7 +234,7 @@ defmodule Events.Core.Query.HelpersTest do
 
     test "parses multiple fields" do
       token =
-        Query.new(User)
+        OmQuery.new(User)
         |> sort_by("name,-created_at,+id")
 
       assert length(token.operations) == 3
@@ -248,7 +248,7 @@ defmodule Events.Core.Query.HelpersTest do
 
     test "handles whitespace" do
       token =
-        Query.new(User)
+        OmQuery.new(User)
         |> sort_by(" name , -created_at , id ")
 
       assert length(token.operations) == 3
@@ -257,7 +257,7 @@ defmodule Events.Core.Query.HelpersTest do
     test "handles invalid atoms gracefully" do
       # Should not raise, just skip invalid fields
       token =
-        Query.new(User)
+        OmQuery.new(User)
         |> sort_by("nonexistent_field_12345")
 
       # Should have no operations since the atom doesn't exist
@@ -267,14 +267,14 @@ defmodule Events.Core.Query.HelpersTest do
 
   describe "safe_sort_by/2" do
     test "returns {:ok, token} for valid fields" do
-      assert {:ok, token} = safe_sort_by(Query.new(User), "name")
+      assert {:ok, token} = safe_sort_by(OmQuery.new(User), "name")
       assert [{:order, {:name, :asc, []}}] = token.operations
     end
 
     test "returns {:ok, token} with empty operations for invalid atoms" do
       # Note: sort_by handles invalid atoms by returning the token unchanged
       # safe_sort_by wraps this in {:ok, token}, but operations will be empty
-      assert {:ok, token} = safe_sort_by(Query.new(User), "nonexistent_field_999")
+      assert {:ok, token} = safe_sort_by(OmQuery.new(User), "nonexistent_field_999")
       assert token.operations == []
     end
   end
@@ -284,7 +284,7 @@ defmodule Events.Core.Query.HelpersTest do
       params = %{"limit" => "25", "cursor" => "abc123"}
 
       token =
-        Query.new(User)
+        OmQuery.new(User)
         |> paginate_from_params(params)
 
       assert [{:paginate, {:cursor, opts}}] = token.operations
@@ -296,7 +296,7 @@ defmodule Events.Core.Query.HelpersTest do
       params = %{"limit" => "50", "offset" => "100"}
 
       token =
-        Query.new(User)
+        OmQuery.new(User)
         |> paginate_from_params(params)
 
       assert [{:paginate, {:offset, opts}}] = token.operations
@@ -308,7 +308,7 @@ defmodule Events.Core.Query.HelpersTest do
       params = %{"limit" => "30"}
 
       token =
-        Query.new(User)
+        OmQuery.new(User)
         |> paginate_from_params(params)
 
       assert [{:paginate, {:cursor, opts}}] = token.operations
@@ -319,7 +319,7 @@ defmodule Events.Core.Query.HelpersTest do
       params = %{}
 
       token =
-        Query.new(User)
+        OmQuery.new(User)
         |> paginate_from_params(params)
 
       assert [{:paginate, {:cursor, opts}}] = token.operations
@@ -331,7 +331,7 @@ defmodule Events.Core.Query.HelpersTest do
       params = %{"limit" => "42", "offset" => "84"}
 
       token =
-        Query.new(User)
+        OmQuery.new(User)
         |> paginate_from_params(params)
 
       assert [{:paginate, {:offset, opts}}] = token.operations
@@ -343,7 +343,7 @@ defmodule Events.Core.Query.HelpersTest do
       params = %{"limit" => "invalid", "offset" => "bad"}
 
       token =
-        Query.new(User)
+        OmQuery.new(User)
         |> paginate_from_params(params)
 
       # When offset is present, uses offset pagination with fallback values

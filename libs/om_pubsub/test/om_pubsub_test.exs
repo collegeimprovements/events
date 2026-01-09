@@ -1,4 +1,33 @@
 defmodule OmPubSubTest do
+  @moduledoc """
+  Tests for OmPubSub - Unified pub/sub wrapper with adapter support.
+
+  OmPubSub provides a consistent interface for publish/subscribe messaging
+  across different backends (Local, Redis, PostgreSQL).
+
+  ## Use Cases
+
+  - **Real-time updates**: Broadcast changes to connected clients
+  - **Inter-process messaging**: Communicate between GenServers/processes
+  - **Event broadcasting**: Publish domain events to subscribers
+  - **Distributed messaging**: Share events across nodes via Redis/PostgreSQL
+
+  ## Pattern: Topic-Based Messaging
+
+      # Start with local adapter (for dev/test)
+      {:ok, _} = OmPubSub.start_link(name: MyApp.PubSub, adapter: :local)
+
+      # Subscribe to a topic
+      OmPubSub.subscribe(MyApp.PubSub, "users:123")
+
+      # Broadcast an event
+      OmPubSub.broadcast(MyApp.PubSub, "users:123", :profile_updated, %{name: "New Name"})
+
+      # Receive: {:profile_updated, %{name: "New Name"}}
+
+  Adapters: :local (in-memory), :redis (distributed), :postgres (persistence).
+  """
+
   use ExUnit.Case, async: false
 
   describe "OmPubSub with local adapter" do

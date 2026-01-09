@@ -1,11 +1,323 @@
 defmodule FnTypes.PipelineTest do
+  @moduledoc """
+  Tests for FnTypes.Pipeline - Multi-step workflow orchestration.
+
+  Pipeline is for complex operations with multiple steps, context passing,
+  rollback support, and conditional branching. Unlike simple Result chaining,
+  Pipeline provides:
+
+  - Named steps for debugging and telemetry
+  - Accumulated context across steps
+  - Automatic rollback on failure
+  - Conditional step execution
+  - Retry with backoff
+  - Timeout support
+
+  ## When to Use Pipeline vs Result
+
+  - Use Result for simple chains of 2-3 operations
+  - Use Pipeline for complex workflows with 4+ steps, rollbacks, or branching
+
+  ## Pattern: Railway-Oriented Programming with State
+
+      Pipeline.new(%{user_id: 123})
+      |> Pipeline.step(:fetch_user, &fetch_user/1)
+      |> Pipeline.step(:validate, &validate_permissions/1)
+      |> Pipeline.step(:execute, &perform_action/1)
+      |> Pipeline.run()
+
+  Each step receives the accumulated context and can add to it.
+  """
+
   use ExUnit.Case, async: true
 
   alias FnTypes.Pipeline
 
-  # ============================================
-  # Creation
-  # ============================================
+  # ============================================================================
+  # USE CASE: User Registration Workflow
+  # ============================================================================
+
+  describe "Use Case: User registration workflow" do
+    # A typical multi-step workflow: validate input, create resources,
+    # send notifications. Each step can fail independently.
+
+    test "successful registration with all steps" do
+      result =
+        Pipeline.new(%{email: "alice@example.com", name: "Alice", plan: :starter})
+        |> Pipeline.validate(:email_format, fn ctx ->
+          if String.contains?(ctx.email, "@"), do: :ok, else: {:error, :invalid_email}
+        end)
+        |> Pipeline.step(:check_availability, fn ctx ->
+          taken = ["admin@example.com"]
+          if ctx.email in taken, do: {:error, :email_taken}, else: {:ok, %{}}
+        end)
+        |> Pipeline.step(:create_user, fn ctx ->
+          {:ok, %{user: %{id: 1, email: ctx.email, name: ctx.name}}}
+        end)
+        |> Pipeline.step(:setup_defaults, fn ctx ->
+          {:ok, %{settings: %{user_id: ctx.user.id, theme: "light", plan: ctx.plan}}}
+        end)
+        |> Pipeline.tap(:log_registration, fn ctx ->
+          # Side effect: log the successful registration
+          _ = "User #{ctx.user.id} registered"
+          :ok
+        end)
+        |> Pipeline.run()
+
+      assert {:ok, ctx} = result
+      assert ctx.user.email == "alice@example.com"
+      assert ctx.settings.user_id == 1
+    end
+
+    test "validation failure stops workflow early" do
+      result =
+        Pipeline.new(%{email: "invalid-email"})
+        |> Pipeline.validate(:email_format, fn ctx ->
+          if String.contains?(ctx.email, "@"), do: :ok, else: {:error, :invalid_email}
+        end)
+        |> Pipeline.step(:never_reached, fn _ctx ->
+          raise "Should not be called"
+        end)
+        |> Pipeline.run()
+
+      assert {:error, {:step_failed, :email_format, :invalid_email}} = result
+    end
+  end
+
+  # ============================================================================
+  # USE CASE: E-commerce Order Processing with Rollback
+  # ============================================================================
+
+  describe "Use Case: Order processing with rollback on payment failure" do
+    # When payment fails after inventory is reserved, we need to release
+    # the inventory. Pipeline.run_with_rollback handles this automatically.
+
+    test "successful order completes all steps" do
+      result =
+        Pipeline.new(%{order_id: "ORD-123", items: ["item1"], amount: 99.99})
+        |> Pipeline.step(:validate_order, fn ctx ->
+          if length(ctx.items) > 0, do: {:ok, %{}}, else: {:error, :empty_order}
+        end)
+        |> Pipeline.step(:reserve_inventory, fn ctx ->
+          {:ok, %{reservation_id: "RES-#{ctx.order_id}"}}
+        end)
+        |> Pipeline.step(:process_payment, fn ctx ->
+          {:ok, %{payment_id: "PAY-#{ctx.order_id}", amount_charged: ctx.amount}}
+        end)
+        |> Pipeline.step(:confirm_order, fn ctx ->
+          {:ok, %{confirmed: true, order_id: ctx.order_id}}
+        end)
+        |> Pipeline.run()
+
+      assert {:ok, ctx} = result
+      assert ctx.confirmed == true
+      assert ctx.payment_id == "PAY-ORD-123"
+    end
+
+    test "payment failure triggers inventory rollback" do
+      inventory_state = Agent.start_link(fn -> %{available: 10, reserved: 0} end) |> elem(1)
+
+      reserve = fn _ctx ->
+        Agent.update(inventory_state, fn s ->
+          %{s | available: s.available - 1, reserved: s.reserved + 1}
+        end)
+
+        {:ok, %{reserved: true}}
+      end
+
+      release = fn _ctx ->
+        Agent.update(inventory_state, fn s ->
+          %{s | available: s.available + 1, reserved: s.reserved - 1}
+        end)
+
+        :ok
+      end
+
+      result =
+        Pipeline.new(%{order_id: "ORD-456"})
+        |> Pipeline.step(:reserve_inventory, reserve, rollback: release)
+        |> Pipeline.step(:process_payment, fn _ctx ->
+          {:error, :insufficient_funds}
+        end)
+        |> Pipeline.run_with_rollback()
+
+      # Pipeline failed
+      assert {:error, _} = result
+
+      # But inventory was restored via rollback
+      state = Agent.get(inventory_state, & &1)
+      assert state.available == 10
+      assert state.reserved == 0
+
+      Agent.stop(inventory_state)
+    end
+  end
+
+  # ============================================================================
+  # USE CASE: Conditional Processing Based on User Type
+  # ============================================================================
+
+  describe "Use Case: Different processing paths based on user type" do
+    # Premium users get different treatment than standard users.
+    # Pipeline.branch and Pipeline.step_if handle conditional logic.
+
+    test "premium user gets discount applied" do
+      result =
+        Pipeline.new(%{user_type: :premium, base_price: 100.0})
+        |> Pipeline.branch(:user_type, %{
+          premium: fn p ->
+            Pipeline.step(p, :apply_discount, fn ctx ->
+              {:ok, %{final_price: ctx.base_price * 0.8, discount: 0.2}}
+            end)
+          end,
+          standard: fn p ->
+            Pipeline.step(p, :no_discount, fn ctx ->
+              {:ok, %{final_price: ctx.base_price, discount: 0.0}}
+            end)
+          end
+        })
+        |> Pipeline.run()
+
+      assert {:ok, ctx} = result
+      assert ctx.final_price == 80.0
+      assert ctx.discount == 0.2
+    end
+
+    test "standard user pays full price" do
+      result =
+        Pipeline.new(%{user_type: :standard, base_price: 100.0})
+        |> Pipeline.branch(:user_type, %{
+          premium: fn p ->
+            Pipeline.step(p, :apply_discount, fn ctx ->
+              {:ok, %{final_price: ctx.base_price * 0.8}}
+            end)
+          end,
+          standard: fn p ->
+            Pipeline.step(p, :no_discount, fn ctx ->
+              {:ok, %{final_price: ctx.base_price}}
+            end)
+          end
+        })
+        |> Pipeline.run()
+
+      assert {:ok, ctx} = result
+      assert ctx.final_price == 100.0
+    end
+
+    test "step_if conditionally adds steps" do
+      result =
+        Pipeline.new(%{is_admin: true, user_id: 123})
+        |> Pipeline.step_if(:setup_admin_features, fn ctx -> ctx.is_admin end, fn _ctx ->
+          {:ok, %{admin_dashboard: true, audit_logging: true}}
+        end)
+        |> Pipeline.run()
+
+      assert {:ok, ctx} = result
+      assert ctx.admin_dashboard == true
+    end
+  end
+
+  # ============================================================================
+  # USE CASE: External API Call with Retry
+  # ============================================================================
+
+  describe "Use Case: Calling external API with retry on transient failures" do
+    # External APIs may have transient failures. Pipeline.step_with_retry
+    # handles automatic retry with configurable backoff.
+
+    test "succeeds after transient failures" do
+      attempt_counter = Agent.start_link(fn -> 0 end) |> elem(1)
+
+      result =
+        Pipeline.new(%{api_endpoint: "/users"})
+        |> Pipeline.step_with_retry(
+          :call_api,
+          fn _ctx ->
+            count = Agent.get_and_update(attempt_counter, fn n -> {n, n + 1} end)
+
+            # Fail first 2 attempts, succeed on 3rd
+            if count < 2 do
+              {:error, :service_unavailable}
+            else
+              {:ok, %{response: %{status: 200, data: "success"}}}
+            end
+          end,
+          max_attempts: 5,
+          delay: 1
+        )
+        |> Pipeline.run()
+
+      assert {:ok, ctx} = result
+      assert ctx.response.status == 200
+      assert Agent.get(attempt_counter, & &1) == 3
+
+      Agent.stop(attempt_counter)
+    end
+
+    test "fails after exhausting all retries" do
+      result =
+        Pipeline.new(%{})
+        |> Pipeline.step_with_retry(
+          :call_api,
+          fn _ctx -> {:error, :always_fails} end,
+          max_attempts: 3,
+          delay: 1
+        )
+        |> Pipeline.run()
+
+      assert {:error, {:step_failed, :call_api, :always_fails}} = result
+    end
+  end
+
+  # ============================================================================
+  # USE CASE: Authorization Guards
+  # ============================================================================
+
+  describe "Use Case: Authorization guards in workflows" do
+    # Guards check conditions and halt the pipeline with an error if not met.
+
+    test "guard passes and workflow continues" do
+      result =
+        Pipeline.new(%{user_role: :admin, resource_id: 123})
+        |> Pipeline.guard(:admin_only, fn ctx -> ctx.user_role == :admin end, :unauthorized)
+        |> Pipeline.step(:delete_resource, fn ctx ->
+          {:ok, %{deleted: ctx.resource_id}}
+        end)
+        |> Pipeline.run()
+
+      assert {:ok, ctx} = result
+      assert ctx.deleted == 123
+    end
+
+    test "guard fails and halts workflow" do
+      result =
+        Pipeline.new(%{user_role: :viewer, resource_id: 123})
+        |> Pipeline.guard(:admin_only, fn ctx -> ctx.user_role == :admin end, :unauthorized)
+        |> Pipeline.step(:delete_resource, fn _ctx ->
+          raise "Should not be called"
+        end)
+        |> Pipeline.run()
+
+      assert {:error, {:step_failed, :admin_only, :unauthorized}} = result
+    end
+
+    test "guard with context-aware error message" do
+      result =
+        Pipeline.new(%{user_id: 456, required_permission: :write})
+        |> Pipeline.guard(
+          :has_permission,
+          fn _ctx -> false end,
+          fn ctx -> {:error, {:missing_permission, ctx.required_permission, ctx.user_id}} end
+        )
+        |> Pipeline.run()
+
+      assert {:error, {:step_failed, :has_permission, {:missing_permission, :write, 456}}} = result
+    end
+  end
+
+  # ============================================================================
+  # Core API Tests
+  # ============================================================================
 
   describe "Pipeline.new/2" do
     test "creates pipeline with initial context" do
@@ -42,10 +354,6 @@ defmodule FnTypes.PipelineTest do
       assert Pipeline.error(pipeline) == :not_found
     end
   end
-
-  # ============================================
-  # Steps
-  # ============================================
 
   describe "Pipeline.step/4" do
     test "adds step and executes successfully" do

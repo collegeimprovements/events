@@ -1,4 +1,38 @@
 defmodule OmMigration.TokenTest do
+  @moduledoc """
+  Tests for OmMigration.Token - Migration building blocks.
+
+  Token represents a pending migration operation (table, index, constraint),
+  enabling functional composition and validation before execution.
+
+  ## Use Cases
+
+  - **Table creation**: Define fields, indexes, constraints before running
+  - **Index creation**: Build complex indexes with conditions and methods
+  - **Alter operations**: Modify existing tables safely
+  - **Validation**: Catch errors before migration runs
+
+  ## Pattern: Token-Based Migrations
+
+      # Build a table token
+      token =
+        Token.new(:table, :users)
+        |> Token.add_field(:email, :string, null: false, unique: true)
+        |> Token.add_field(:name, :string)
+        |> Token.add_index(:users_email_index, [:email], unique: true)
+        |> Token.add_constraint(:email_format, :check, check: "email LIKE '%@%'")
+
+      # Validate before execution
+      {:ok, token} = Token.validate(token)
+
+      # Query the token
+      Token.has_field?(token, :email)         # true
+      Token.unique_fields(token)              # [:email]
+      Token.required_fields(token)            # [:email]
+
+  Tokens enable introspection and composition before committing changes.
+  """
+
   use ExUnit.Case, async: true
 
   alias OmMigration.Token

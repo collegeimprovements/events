@@ -234,15 +234,15 @@ defmodule FnDecorator.Tracing do
 
       @decorate trace_dependencies(type: :external)
       def fetch_and_process_data(url) do
-        HTTPoison.get!(url)
+        Req.get!(url).body
         |> JSON.decode!()
         |> process()
       end
 
       # Output:
       # [DEPENDENCIES] External libraries used:
-      #   - HTTPoison (1 call)
-      #   - Jason (1 call)
+      #   - Req (1 call)
+      #   - JSON (1 call)
 
   ## Use Cases
 

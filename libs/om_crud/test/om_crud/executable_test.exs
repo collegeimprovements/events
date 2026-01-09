@@ -1,4 +1,26 @@
 defmodule OmCrud.ExecutableTest do
+  @moduledoc """
+  Tests for OmCrud protocols - Executable, Validatable, Debuggable.
+
+  These protocols enable polymorphic CRUD operations across different
+  token types (Multi, Merge, Query) through a unified interface.
+
+  ## Use Cases
+
+  - **Executable**: Unified `OmCrud.run/1` for Multi, Merge, and Query tokens
+  - **Validatable**: Pre-execution validation for catching errors early
+  - **Debuggable**: Consistent debug output for troubleshooting
+
+  ## Pattern: Protocol-Based Polymorphism
+
+      # All these use the same OmCrud.run/1:
+      Multi.new() |> Multi.create(...) |> OmCrud.run()
+      Merge.new(...) |> Merge.match_on(...) |> OmCrud.run()
+      Query.new(...) |> Query.where(...) |> OmCrud.run()
+
+  The Executable protocol implementation handles the specifics.
+  """
+
   use ExUnit.Case, async: true
 
   describe "OmCrud.Executable protocol" do

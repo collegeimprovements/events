@@ -6,15 +6,15 @@ defmodule Events.Core.QueryTest do
 
   describe "token creation" do
     test "creates token from schema" do
-      token = Query.new(User)
+      token = OmQuery.new(User)
       assert %Token{source: User, operations: []} = token
     end
 
     test "adds filter operation" do
       token =
         User
-        |> Query.new()
-        |> Query.filter(:status, :eq, "active")
+        |> OmQuery.new()
+        |> OmQuery.filter(:status, :eq, "active")
 
       assert [filter_op] = token.operations
       assert {:filter, {:status, :eq, "active", []}} = filter_op
@@ -23,11 +23,11 @@ defmodule Events.Core.QueryTest do
     test "chains multiple operations" do
       token =
         User
-        |> Query.new()
-        |> Query.filter(:status, :eq, "active")
-        |> Query.filter(:age, :gte, 18)
-        |> Query.order(:name, :asc)
-        |> Query.limit(10)
+        |> OmQuery.new()
+        |> OmQuery.filter(:status, :eq, "active")
+        |> OmQuery.filter(:age, :gte, 18)
+        |> OmQuery.order(:name, :asc)
+        |> OmQuery.limit(10)
 
       assert length(token.operations) == 4
     end
@@ -35,24 +35,24 @@ defmodule Events.Core.QueryTest do
 
   describe "filter operations" do
     test "validates supported operators" do
-      token = Query.new(User)
+      token = OmQuery.new(User)
 
       # Valid operators should work
-      assert %Token{} = Query.filter(token, :status, :eq, "active")
-      assert %Token{} = Query.filter(token, :age, :gt, 18)
-      assert %Token{} = Query.filter(token, :name, :like, "%john%")
+      assert %Token{} = OmQuery.filter(token, :status, :eq, "active")
+      assert %Token{} = OmQuery.filter(token, :age, :gt, 18)
+      assert %Token{} = OmQuery.filter(token, :name, :like, "%john%")
 
       # Invalid operators should raise ValidationError
       assert_raise OmQuery.ValidationError, fn ->
-        Query.filter(token, :status, :invalid_op, "value")
+        OmQuery.filter(token, :status, :invalid_op, "value")
       end
     end
 
     test "supports filter options" do
       token =
         User
-        |> Query.new()
-        |> Query.filter(:name, :eq, "John", case_insensitive: true)
+        |> OmQuery.new()
+        |> OmQuery.filter(:name, :eq, "John", case_insensitive: true)
 
       assert [{:filter, {:name, :eq, "John", opts}}] = token.operations
       assert opts[:case_insensitive] == true
@@ -63,8 +63,8 @@ defmodule Events.Core.QueryTest do
     test "offset pagination" do
       token =
         User
-        |> Query.new()
-        |> Query.paginate(:offset, limit: 20, offset: 40)
+        |> OmQuery.new()
+        |> OmQuery.paginate(:offset, limit: 20, offset: 40)
 
       assert [{:paginate, {:offset, opts}}] = token.operations
       assert opts[:limit] == 20
@@ -74,8 +74,8 @@ defmodule Events.Core.QueryTest do
     test "cursor pagination" do
       token =
         User
-        |> Query.new()
-        |> Query.paginate(:cursor, cursor_fields: [:id, :created_at], limit: 10)
+        |> OmQuery.new()
+        |> OmQuery.paginate(:cursor, cursor_fields: [:id, :created_at], limit: 10)
 
       assert [{:paginate, {:cursor, opts}}] = token.operations
       assert opts[:cursor_fields] == [:id, :created_at]
@@ -85,8 +85,8 @@ defmodule Events.Core.QueryTest do
     test "cursor pagination allows nil cursor_fields (will be inferred)" do
       token =
         User
-        |> Query.new()
-        |> Query.paginate(:cursor, limit: 10)
+        |> OmQuery.new()
+        |> OmQuery.paginate(:cursor, limit: 10)
 
       assert [{:paginate, {:cursor, opts}}] = token.operations
       assert opts[:cursor_fields] == nil
@@ -98,8 +98,8 @@ defmodule Events.Core.QueryTest do
     test "association join" do
       token =
         User
-        |> Query.new()
-        |> Query.join(:posts, :left)
+        |> OmQuery.new()
+        |> OmQuery.join(:posts, :left)
 
       assert [{:join, {:posts, :left, []}}] = token.operations
     end
@@ -107,8 +107,8 @@ defmodule Events.Core.QueryTest do
     test "join with options" do
       token =
         User
-        |> Query.new()
-        |> Query.join(:posts, :inner, as: :user_posts)
+        |> OmQuery.new()
+        |> OmQuery.join(:posts, :inner, as: :user_posts)
 
       assert [{:join, {:posts, :inner, opts}}] = token.operations
       assert opts[:as] == :user_posts
@@ -119,8 +119,8 @@ defmodule Events.Core.QueryTest do
     test "simple preload" do
       token =
         User
-        |> Query.new()
-        |> Query.preload(:posts)
+        |> OmQuery.new()
+        |> OmQuery.preload(:posts)
 
       assert [{:preload, :posts}] = token.operations
     end
@@ -128,8 +128,8 @@ defmodule Events.Core.QueryTest do
     test "multiple preloads" do
       token =
         User
-        |> Query.new()
-        |> Query.preload([:posts, :comments])
+        |> OmQuery.new()
+        |> OmQuery.preload([:posts, :comments])
 
       assert [{:preload, [:posts, :comments]}] = token.operations
     end
@@ -137,11 +137,11 @@ defmodule Events.Core.QueryTest do
     test "nested preload with filters" do
       token =
         User
-        |> Query.new()
-        |> Query.preload(:posts, fn posts_token ->
+        |> OmQuery.new()
+        |> OmQuery.preload(:posts, fn posts_token ->
           posts_token
-          |> Query.filter(:published, :eq, true)
-          |> Query.limit(5)
+          |> OmQuery.filter(:published, :eq, true)
+          |> OmQuery.limit(5)
         end)
 
       assert [{:preload, {:posts, nested_token}}] = token.operations
@@ -154,8 +154,8 @@ defmodule Events.Core.QueryTest do
     test "select fields" do
       token =
         User
-        |> Query.new()
-        |> Query.select([:id, :name, :email])
+        |> OmQuery.new()
+        |> OmQuery.select([:id, :name, :email])
 
       assert [{:select, [:id, :name, :email]}] = token.operations
     end
@@ -163,8 +163,8 @@ defmodule Events.Core.QueryTest do
     test "select with map" do
       token =
         User
-        |> Query.new()
-        |> Query.select(%{user_id: :id, user_name: :name})
+        |> OmQuery.new()
+        |> OmQuery.select(%{user_id: :id, user_name: :name})
 
       assert [{:select, select_map}] = token.operations
       assert is_map(select_map)
@@ -173,9 +173,9 @@ defmodule Events.Core.QueryTest do
     test "group by and having" do
       token =
         Order
-        |> Query.new()
-        |> Query.group_by([:status])
-        |> Query.having(count: {:gte, 5})
+        |> OmQuery.new()
+        |> OmQuery.group_by([:status])
+        |> OmQuery.having(count: {:gte, 5})
 
       assert length(token.operations) == 2
       assert [{:group_by, [:status]}, {:having, [count: {:gte, 5}]}] = token.operations
@@ -186,13 +186,13 @@ defmodule Events.Core.QueryTest do
     test "adds CTE" do
       cte_token =
         User
-        |> Query.new()
-        |> Query.filter(:active, :eq, true)
+        |> OmQuery.new()
+        |> OmQuery.filter(:active, :eq, true)
 
       token =
         Order
-        |> Query.new()
-        |> Query.with_cte(:active_users, cte_token)
+        |> OmQuery.new()
+        |> OmQuery.with_cte(:active_users, cte_token)
 
       assert [{:cte, {:active_users, ^cte_token}}] = token.operations
     end
@@ -205,8 +205,8 @@ defmodule Events.Core.QueryTest do
 
       token =
         Order
-        |> Query.new()
-        |> Query.with_cte(:category_tree, base_query, recursive: true)
+        |> OmQuery.new()
+        |> OmQuery.with_cte(:category_tree, base_query, recursive: true)
 
       assert [{:cte, {:category_tree, %Ecto.Query{}, [recursive: true]}}] = token.operations
     end
@@ -214,8 +214,8 @@ defmodule Events.Core.QueryTest do
     test "adds window definition" do
       token =
         Sale
-        |> Query.new()
-        |> Query.window(:running_total, partition_by: :product_id, order_by: [asc: :date])
+        |> OmQuery.new()
+        |> OmQuery.window(:running_total, partition_by: :product_id, order_by: [asc: :date])
 
       assert [{:window, {:running_total, _opts}}] = token.operations
     end
@@ -223,8 +223,8 @@ defmodule Events.Core.QueryTest do
     test "adds window definition with frame" do
       token =
         Sale
-        |> Query.new()
-        |> Query.window(:moving_avg,
+        |> OmQuery.new()
+        |> OmQuery.window(:moving_avg,
           order_by: [asc: :date],
           frame: {:rows, {:preceding, 1}, {:following, 1}}
         )
@@ -236,8 +236,8 @@ defmodule Events.Core.QueryTest do
     test "adds window definition with unbounded frame" do
       token =
         Sale
-        |> Query.new()
-        |> Query.window(:running_sum,
+        |> OmQuery.new()
+        |> OmQuery.window(:running_sum,
           partition_by: :category_id,
           order_by: [asc: :date],
           frame: {:rows, :unbounded_preceding, :current_row}
@@ -253,8 +253,8 @@ defmodule Events.Core.QueryTest do
     test "raw where clause" do
       token =
         User
-        |> Query.new()
-        |> Query.raw_where("age BETWEEN :min AND :max", %{min: 18, max: 65})
+        |> OmQuery.new()
+        |> OmQuery.raw_where("age BETWEEN :min AND :max", %{min: 18, max: 65})
 
       assert [{:raw_where, {sql, params}}] = token.operations
       assert sql =~ ":min"
@@ -266,10 +266,10 @@ defmodule Events.Core.QueryTest do
     test "get operations by type" do
       token =
         User
-        |> Query.new()
-        |> Query.filter(:status, :eq, "active")
-        |> Query.filter(:age, :gt, 18)
-        |> Query.order(:name, :asc)
+        |> OmQuery.new()
+        |> OmQuery.filter(:status, :eq, "active")
+        |> OmQuery.filter(:age, :gt, 18)
+        |> OmQuery.order(:name, :asc)
 
       filter_ops = Token.get_operations(token, :filter)
       assert length(filter_ops) == 2
@@ -281,10 +281,10 @@ defmodule Events.Core.QueryTest do
     test "remove operations by type" do
       token =
         User
-        |> Query.new()
-        |> Query.filter(:status, :eq, "active")
-        |> Query.order(:name, :asc)
-        |> Query.limit(10)
+        |> OmQuery.new()
+        |> OmQuery.filter(:status, :eq, "active")
+        |> OmQuery.order(:name, :asc)
+        |> OmQuery.limit(10)
 
       token_without_limit = Token.remove_operations(token, :limit)
       assert length(token_without_limit.operations) == 2
@@ -294,7 +294,7 @@ defmodule Events.Core.QueryTest do
     test "update metadata" do
       token =
         User
-        |> Query.new()
+        |> OmQuery.new()
         |> Token.put_metadata(:custom_key, "custom_value")
 
       assert token.metadata[:custom_key] == "custom_value"
@@ -353,8 +353,8 @@ defmodule Events.Core.QueryTest do
       # The automatic limit is applied at execution time, not token building time
       token =
         User
-        |> Query.new()
-        |> Query.where(:status, :eq, "active")
+        |> OmQuery.new()
+        |> OmQuery.where(:status, :eq, "active")
 
       # Token should not have limit operation yet
       assert [{:filter, _}] = token.operations
@@ -364,9 +364,9 @@ defmodule Events.Core.QueryTest do
     test "respects explicit pagination" do
       token =
         User
-        |> Query.new()
-        |> Query.where(:status, :eq, "active")
-        |> Query.paginate(:cursor, limit: 50)
+        |> OmQuery.new()
+        |> OmQuery.where(:status, :eq, "active")
+        |> OmQuery.paginate(:cursor, limit: 50)
 
       # Should have filter and paginate operations
       assert [{:filter, _}, {:paginate, _}] = token.operations
@@ -375,29 +375,29 @@ defmodule Events.Core.QueryTest do
     test "respects explicit limit" do
       token =
         User
-        |> Query.new()
-        |> Query.where(:status, :eq, "active")
-        |> Query.limit(100)
+        |> OmQuery.new()
+        |> OmQuery.where(:status, :eq, "active")
+        |> OmQuery.limit(100)
 
       # Should have filter and limit, no automatic limit needed
       assert [{:filter, _}, {:limit, 100}] = token.operations
     end
 
     test "limit validation enforces max_limit" do
-      token = Query.new(User)
+      token = OmQuery.new(User)
 
       # Should raise LimitExceededError when limit exceeds max
       assert_raise OmQuery.LimitExceededError, fn ->
-        Query.limit(token, 10_000)
+        OmQuery.limit(token, 10_000)
       end
     end
 
     test "pagination validation enforces max_limit" do
-      token = Query.new(User)
+      token = OmQuery.new(User)
 
       # Should raise LimitExceededError when pagination limit exceeds max
       assert_raise OmQuery.LimitExceededError, fn ->
-        Query.paginate(token, :offset, limit: 10_000)
+        OmQuery.paginate(token, :offset, limit: 10_000)
       end
     end
   end
@@ -434,22 +434,22 @@ defmodule Events.Core.QueryTest do
       end
     end
 
-    test "Query.build_safe returns {:ok, query} on success" do
+    test "OmQuery.build_safe returns {:ok, query} on success" do
       # Use an existing Ecto query with the :root binding
       import Ecto.Query
       base_query = from(u in "users", as: :root)
-      token = Query.new(base_query) |> Query.filter(:status, :eq, "active")
+      token = OmQuery.new(base_query) |> OmQuery.filter(:status, :eq, "active")
 
-      assert {:ok, %Ecto.Query{}} = Query.build_safe(token)
+      assert {:ok, %Ecto.Query{}} = OmQuery.build_safe(token)
     end
 
-    test "Query.build! works with valid token" do
+    test "OmQuery.build! works with valid token" do
       # Use an existing Ecto query with the :root binding
       import Ecto.Query
       base_query = from(u in "users", as: :root)
-      token = Query.new(base_query)
+      token = OmQuery.new(base_query)
 
-      assert %Ecto.Query{} = Query.build!(token)
+      assert %Ecto.Query{} = OmQuery.build!(token)
     end
   end
 end

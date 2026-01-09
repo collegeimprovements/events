@@ -1,4 +1,4 @@
-defmodule Events.Core.Query.ExecutionTest do
+defmodule Events.Core.OmQuery.ExecutionTest do
   @moduledoc """
   Integration tests for Query execution methods.
 
@@ -13,7 +13,7 @@ defmodule Events.Core.Query.ExecutionTest do
 
   alias OmQuery, as: Query
   alias OmQuery.Result
-  alias Events.Core.Repo
+  alias Events.Data.Repo
 
   # Test schema - maps to query_test_records table
   defmodule TestRecord do
@@ -61,8 +61,8 @@ defmodule Events.Core.Query.ExecutionTest do
     test "returns {:ok, result} with data" do
       insert_records(3)
 
-      token = Query.new(TestRecord) |> Query.limit(10)
-      assert {:ok, %Result{data: data}} = Query.execute(token)
+      token = OmQuery.new(TestRecord) |> OmQuery.limit(10)
+      assert {:ok, %Result{data: data}} = OmQuery.execute(token)
       assert length(data) == 3
     end
 
@@ -70,18 +70,18 @@ defmodule Events.Core.Query.ExecutionTest do
       insert_records(3)
 
       token =
-        Query.new(TestRecord)
-        |> Query.filter(:status, :eq, "nonexistent")
-        |> Query.limit(10)
+        OmQuery.new(TestRecord)
+        |> OmQuery.filter(:status, :eq, "nonexistent")
+        |> OmQuery.limit(10)
 
-      assert {:ok, %Result{data: []}} = Query.execute(token)
+      assert {:ok, %Result{data: []}} = OmQuery.execute(token)
     end
 
     test "includes timing metadata" do
       insert_records(5)
 
-      token = Query.new(TestRecord) |> Query.limit(10)
-      {:ok, result} = Query.execute(token)
+      token = OmQuery.new(TestRecord) |> OmQuery.limit(10)
+      {:ok, result} = OmQuery.execute(token)
 
       assert result.metadata.query_time_μs > 0
       assert result.metadata.total_time_μs >= result.metadata.query_time_μs
@@ -90,8 +90,8 @@ defmodule Events.Core.Query.ExecutionTest do
     test "includes SQL in metadata" do
       insert_records(1)
 
-      token = Query.new(TestRecord) |> Query.limit(10)
-      {:ok, result} = Query.execute(token)
+      token = OmQuery.new(TestRecord) |> OmQuery.limit(10)
+      {:ok, result} = OmQuery.execute(token)
 
       assert is_binary(result.metadata.sql)
       assert result.metadata.sql =~ "query_test_records"
@@ -101,11 +101,11 @@ defmodule Events.Core.Query.ExecutionTest do
       insert_records(10)
 
       token =
-        Query.new(TestRecord)
-        |> Query.filter(:status, :eq, "active")
-        |> Query.limit(20)
+        OmQuery.new(TestRecord)
+        |> OmQuery.filter(:status, :eq, "active")
+        |> OmQuery.limit(20)
 
-      {:ok, result} = Query.execute(token)
+      {:ok, result} = OmQuery.execute(token)
 
       assert Enum.all?(result.data, &(&1.status == "active"))
     end
@@ -115,8 +115,8 @@ defmodule Events.Core.Query.ExecutionTest do
     test "returns result directly" do
       insert_records(3)
 
-      token = Query.new(TestRecord) |> Query.limit(10)
-      result = Query.execute!(token)
+      token = OmQuery.new(TestRecord) |> OmQuery.limit(10)
+      result = OmQuery.execute!(token)
 
       assert %Result{} = result
       assert length(result.data) == 3
@@ -126,11 +126,11 @@ defmodule Events.Core.Query.ExecutionTest do
       insert_records(5)
 
       token =
-        Query.new(TestRecord)
-        |> Query.order(:priority, :desc)
-        |> Query.limit(10)
+        OmQuery.new(TestRecord)
+        |> OmQuery.order(:priority, :desc)
+        |> OmQuery.limit(10)
 
-      result = Query.execute!(token)
+      result = OmQuery.execute!(token)
       priorities = Enum.map(result.data, & &1.priority)
 
       assert priorities == Enum.sort(priorities, :desc)
@@ -141,12 +141,12 @@ defmodule Events.Core.Query.ExecutionTest do
     test "streams records in batches" do
       insert_records(15)
 
-      token = Query.new(TestRecord) |> Query.limit(15)
+      token = OmQuery.new(TestRecord) |> OmQuery.limit(15)
 
       records =
         Repo.transaction(fn ->
           token
-          |> Query.stream(max_rows: 5)
+          |> OmQuery.stream(max_rows: 5)
           |> Enum.to_list()
         end)
 
@@ -157,13 +157,13 @@ defmodule Events.Core.Query.ExecutionTest do
     test "respects max_rows option" do
       insert_records(10)
 
-      token = Query.new(TestRecord) |> Query.limit(10)
+      token = OmQuery.new(TestRecord) |> OmQuery.limit(10)
 
       # Stream with small batch size
       {:ok, records} =
         Repo.transaction(fn ->
           token
-          |> Query.stream(max_rows: 2)
+          |> OmQuery.stream(max_rows: 2)
           |> Enum.to_list()
         end)
 
@@ -174,14 +174,14 @@ defmodule Events.Core.Query.ExecutionTest do
       insert_records(20)
 
       token =
-        Query.new(TestRecord)
-        |> Query.filter(:status, :eq, "active")
-        |> Query.limit(20)
+        OmQuery.new(TestRecord)
+        |> OmQuery.filter(:status, :eq, "active")
+        |> OmQuery.limit(20)
 
       {:ok, records} =
         Repo.transaction(fn ->
           token
-          |> Query.stream(max_rows: 5)
+          |> OmQuery.stream(max_rows: 5)
           |> Enum.to_list()
         end)
 
@@ -194,12 +194,12 @@ defmodule Events.Core.Query.ExecutionTest do
       insert_records(10)
 
       tokens = [
-        Query.new(TestRecord) |> Query.filter(:status, :eq, "active") |> Query.limit(10),
-        Query.new(TestRecord) |> Query.filter(:status, :eq, "inactive") |> Query.limit(10),
-        Query.new(TestRecord) |> Query.filter(:priority, :eq, 0) |> Query.limit(10)
+        OmQuery.new(TestRecord) |> OmQuery.filter(:status, :eq, "active") |> OmQuery.limit(10),
+        OmQuery.new(TestRecord) |> OmQuery.filter(:status, :eq, "inactive") |> OmQuery.limit(10),
+        OmQuery.new(TestRecord) |> OmQuery.filter(:priority, :eq, 0) |> OmQuery.limit(10)
       ]
 
-      results = Query.batch(tokens)
+      results = OmQuery.batch(tokens)
 
       assert length(results) == 3
       assert Enum.all?(results, &match?({:ok, %Result{}}, &1))
@@ -209,12 +209,12 @@ defmodule Events.Core.Query.ExecutionTest do
       insert_records(5)
 
       tokens = [
-        Query.new(TestRecord) |> Query.filter(:priority, :eq, 0) |> Query.limit(10),
-        Query.new(TestRecord) |> Query.filter(:priority, :eq, 1) |> Query.limit(10),
-        Query.new(TestRecord) |> Query.filter(:priority, :eq, 2) |> Query.limit(10)
+        OmQuery.new(TestRecord) |> OmQuery.filter(:priority, :eq, 0) |> OmQuery.limit(10),
+        OmQuery.new(TestRecord) |> OmQuery.filter(:priority, :eq, 1) |> OmQuery.limit(10),
+        OmQuery.new(TestRecord) |> OmQuery.filter(:priority, :eq, 2) |> OmQuery.limit(10)
       ]
 
-      results = Query.batch(tokens)
+      results = OmQuery.batch(tokens)
 
       # Verify order is preserved
       [{:ok, r0}, {:ok, r1}, {:ok, r2}] = results
@@ -228,10 +228,10 @@ defmodule Events.Core.Query.ExecutionTest do
       insert_records(5)
 
       # Create a valid token and one that will fail (invalid schema)
-      valid_token = Query.new(TestRecord) |> Query.limit(5)
+      valid_token = OmQuery.new(TestRecord) |> OmQuery.limit(5)
 
       # Execute batch with valid token
-      results = Query.batch([valid_token, valid_token])
+      results = OmQuery.batch([valid_token, valid_token])
 
       assert [{:ok, _}, {:ok, _}] = results
     end
@@ -242,10 +242,10 @@ defmodule Events.Core.Query.ExecutionTest do
       insert_records(5)
 
       token =
-        Query.new(TestRecord)
-        |> Query.order(:priority, :asc)
+        OmQuery.new(TestRecord)
+        |> OmQuery.order(:priority, :asc)
 
-      record = Query.first(token)
+      record = OmQuery.first(token)
 
       assert %TestRecord{} = record
       assert record.priority == 0
@@ -255,10 +255,10 @@ defmodule Events.Core.Query.ExecutionTest do
       insert_records(3)
 
       token =
-        Query.new(TestRecord)
-        |> Query.filter(:status, :eq, "nonexistent")
+        OmQuery.new(TestRecord)
+        |> OmQuery.filter(:status, :eq, "nonexistent")
 
-      assert Query.first(token) == nil
+      assert OmQuery.first(token) == nil
     end
   end
 
@@ -266,8 +266,8 @@ defmodule Events.Core.Query.ExecutionTest do
     test "returns first record" do
       insert_records(3)
 
-      token = Query.new(TestRecord) |> Query.order(:name, :asc)
-      record = Query.first!(token)
+      token = OmQuery.new(TestRecord) |> OmQuery.order(:name, :asc)
+      record = OmQuery.first!(token)
 
       assert %TestRecord{} = record
     end
@@ -276,11 +276,11 @@ defmodule Events.Core.Query.ExecutionTest do
       insert_records(3)
 
       token =
-        Query.new(TestRecord)
-        |> Query.filter(:status, :eq, "nonexistent")
+        OmQuery.new(TestRecord)
+        |> OmQuery.filter(:status, :eq, "nonexistent")
 
       assert_raise Ecto.NoResultsError, fn ->
-        Query.first!(token)
+        OmQuery.first!(token)
       end
     end
   end
@@ -290,20 +290,20 @@ defmodule Events.Core.Query.ExecutionTest do
       [record | _] = insert_records(3)
 
       token =
-        Query.new(TestRecord)
-        |> Query.filter(:id, :eq, record.id)
+        OmQuery.new(TestRecord)
+        |> OmQuery.filter(:id, :eq, record.id)
 
-      assert Query.one(token) == record
+      assert OmQuery.one(token) == record
     end
 
     test "returns nil when no records match" do
       insert_records(3)
 
       token =
-        Query.new(TestRecord)
-        |> Query.filter(:status, :eq, "nonexistent")
+        OmQuery.new(TestRecord)
+        |> OmQuery.filter(:status, :eq, "nonexistent")
 
-      assert Query.one(token) == nil
+      assert OmQuery.one(token) == nil
     end
   end
 
@@ -312,21 +312,21 @@ defmodule Events.Core.Query.ExecutionTest do
       [record | _] = insert_records(3)
 
       token =
-        Query.new(TestRecord)
-        |> Query.filter(:id, :eq, record.id)
+        OmQuery.new(TestRecord)
+        |> OmQuery.filter(:id, :eq, record.id)
 
-      assert Query.one!(token) == record
+      assert OmQuery.one!(token) == record
     end
 
     test "raises when multiple records match" do
       insert_records(5)
 
       token =
-        Query.new(TestRecord)
-        |> Query.filter(:status, :eq, "active")
+        OmQuery.new(TestRecord)
+        |> OmQuery.filter(:status, :eq, "active")
 
       assert_raise Ecto.MultipleResultsError, fn ->
-        Query.one!(token)
+        OmQuery.one!(token)
       end
     end
   end
@@ -335,18 +335,18 @@ defmodule Events.Core.Query.ExecutionTest do
     test "returns integer count" do
       insert_records(7)
 
-      token = Query.new(TestRecord)
-      assert Query.count(token) == 7
+      token = OmQuery.new(TestRecord)
+      assert OmQuery.count(token) == 7
     end
 
     test "applies filters to count" do
       insert_records(10)
 
       token =
-        Query.new(TestRecord)
-        |> Query.filter(:status, :eq, "active")
+        OmQuery.new(TestRecord)
+        |> OmQuery.filter(:status, :eq, "active")
 
-      count = Query.count(token)
+      count = OmQuery.count(token)
 
       # Half should be active (even indices)
       assert count == 5
@@ -357,23 +357,23 @@ defmodule Events.Core.Query.ExecutionTest do
     test "returns true when records exist" do
       insert_records(3)
 
-      token = Query.new(TestRecord)
-      assert Query.exists?(token) == true
+      token = OmQuery.new(TestRecord)
+      assert OmQuery.exists?(token) == true
     end
 
     test "returns false when no records match" do
       insert_records(3)
 
       token =
-        Query.new(TestRecord)
-        |> Query.filter(:status, :eq, "nonexistent")
+        OmQuery.new(TestRecord)
+        |> OmQuery.filter(:status, :eq, "nonexistent")
 
-      assert Query.exists?(token) == false
+      assert OmQuery.exists?(token) == false
     end
 
     test "returns false for empty table" do
-      token = Query.new(TestRecord)
-      assert Query.exists?(token) == false
+      token = OmQuery.new(TestRecord)
+      assert OmQuery.exists?(token) == false
     end
   end
 
@@ -381,8 +381,8 @@ defmodule Events.Core.Query.ExecutionTest do
     test "computes sum" do
       insert_records(5)
 
-      token = Query.new(TestRecord)
-      sum = Query.aggregate(token, :sum, :priority)
+      token = OmQuery.new(TestRecord)
+      sum = OmQuery.aggregate(token, :sum, :priority)
 
       # Priorities: 1, 2, 3, 4, 0 -> sum = 10
       assert sum == 10
@@ -391,8 +391,8 @@ defmodule Events.Core.Query.ExecutionTest do
     test "computes avg" do
       insert_records(5)
 
-      token = Query.new(TestRecord)
-      avg = Query.aggregate(token, :avg, :priority)
+      token = OmQuery.new(TestRecord)
+      avg = OmQuery.aggregate(token, :avg, :priority)
 
       # Priorities: 1, 2, 3, 4, 0 -> avg = 2.0
       assert avg == Decimal.new("2.0000000000000000")
@@ -401,8 +401,8 @@ defmodule Events.Core.Query.ExecutionTest do
     test "computes max" do
       insert_records(5)
 
-      token = Query.new(TestRecord)
-      max = Query.aggregate(token, :max, :priority)
+      token = OmQuery.new(TestRecord)
+      max = OmQuery.aggregate(token, :max, :priority)
 
       assert max == 4
     end
@@ -410,8 +410,8 @@ defmodule Events.Core.Query.ExecutionTest do
     test "computes min" do
       insert_records(5)
 
-      token = Query.new(TestRecord)
-      min = Query.aggregate(token, :min, :priority)
+      token = OmQuery.new(TestRecord)
+      min = OmQuery.aggregate(token, :min, :priority)
 
       assert min == 0
     end
@@ -422,10 +422,10 @@ defmodule Events.Core.Query.ExecutionTest do
       insert_records(10)
 
       token =
-        Query.new(TestRecord)
-        |> Query.paginate(:offset, limit: 5, offset: 0)
+        OmQuery.new(TestRecord)
+        |> OmQuery.paginate(:offset, limit: 5, offset: 0)
 
-      {:ok, result} = Query.execute(token)
+      {:ok, result} = OmQuery.execute(token)
 
       assert result.pagination.has_more == true
       assert result.pagination.type == :offset
@@ -435,10 +435,10 @@ defmodule Events.Core.Query.ExecutionTest do
       insert_records(10)
 
       token =
-        Query.new(TestRecord)
-        |> Query.paginate(:offset, limit: 5, offset: 5)
+        OmQuery.new(TestRecord)
+        |> OmQuery.paginate(:offset, limit: 5, offset: 5)
 
-      {:ok, result} = Query.execute(token)
+      {:ok, result} = OmQuery.execute(token)
 
       assert result.pagination.has_previous == true
     end
@@ -447,10 +447,10 @@ defmodule Events.Core.Query.ExecutionTest do
       insert_records(25)
 
       token =
-        Query.new(TestRecord)
-        |> Query.paginate(:offset, limit: 10, offset: 10)
+        OmQuery.new(TestRecord)
+        |> OmQuery.paginate(:offset, limit: 10, offset: 10)
 
-      {:ok, result} = Query.execute(token)
+      {:ok, result} = OmQuery.execute(token)
 
       assert result.pagination.current_page == 2
     end
@@ -459,10 +459,10 @@ defmodule Events.Core.Query.ExecutionTest do
       insert_records(30)
 
       token =
-        Query.new(TestRecord)
-        |> Query.paginate(:offset, limit: 10, offset: 10)
+        OmQuery.new(TestRecord)
+        |> OmQuery.paginate(:offset, limit: 10, offset: 10)
 
-      {:ok, result} = Query.execute(token)
+      {:ok, result} = OmQuery.execute(token)
 
       assert result.pagination.next_offset == 20
       assert result.pagination.prev_offset == 0
@@ -477,12 +477,12 @@ defmodule Events.Core.Query.ExecutionTest do
       insert_records(10)
 
       token =
-        Query.new(TestRecord)
-        |> Query.order(:inserted_at, :asc)
-        |> Query.order(:id, :asc)
-        |> Query.paginate(:cursor, cursor_fields: @cursor_fields, limit: 5)
+        OmQuery.new(TestRecord)
+        |> OmQuery.order(:inserted_at, :asc)
+        |> OmQuery.order(:id, :asc)
+        |> OmQuery.paginate(:cursor, cursor_fields: @cursor_fields, limit: 5)
 
-      {:ok, result} = Query.execute(token)
+      {:ok, result} = OmQuery.execute(token)
 
       assert result.pagination.type == :cursor
       assert is_binary(result.pagination.start_cursor)
@@ -493,12 +493,12 @@ defmodule Events.Core.Query.ExecutionTest do
       # Don't insert any records
 
       token =
-        Query.new(TestRecord)
-        |> Query.order(:inserted_at, :asc)
-        |> Query.order(:id, :asc)
-        |> Query.paginate(:cursor, cursor_fields: @cursor_fields, limit: 5)
+        OmQuery.new(TestRecord)
+        |> OmQuery.order(:inserted_at, :asc)
+        |> OmQuery.order(:id, :asc)
+        |> OmQuery.paginate(:cursor, cursor_fields: @cursor_fields, limit: 5)
 
-      {:ok, result} = Query.execute(token)
+      {:ok, result} = OmQuery.execute(token)
 
       assert result.data == []
       assert result.pagination.start_cursor == nil
@@ -510,25 +510,25 @@ defmodule Events.Core.Query.ExecutionTest do
 
       # Get first page
       token =
-        Query.new(TestRecord)
-        |> Query.order(:inserted_at, :asc)
-        |> Query.order(:id, :asc)
-        |> Query.paginate(:cursor, cursor_fields: @cursor_fields, limit: 5)
+        OmQuery.new(TestRecord)
+        |> OmQuery.order(:inserted_at, :asc)
+        |> OmQuery.order(:id, :asc)
+        |> OmQuery.paginate(:cursor, cursor_fields: @cursor_fields, limit: 5)
 
-      {:ok, page1} = Query.execute(token)
+      {:ok, page1} = OmQuery.execute(token)
 
       # Get second page using end_cursor
       token2 =
-        Query.new(TestRecord)
-        |> Query.order(:inserted_at, :asc)
-        |> Query.order(:id, :asc)
-        |> Query.paginate(:cursor,
+        OmQuery.new(TestRecord)
+        |> OmQuery.order(:inserted_at, :asc)
+        |> OmQuery.order(:id, :asc)
+        |> OmQuery.paginate(:cursor,
           cursor_fields: @cursor_fields,
           limit: 5,
           after: page1.pagination.end_cursor
         )
 
-      {:ok, page2} = Query.execute(token2)
+      {:ok, page2} = OmQuery.execute(token2)
 
       # Verify pages don't overlap
       page1_ids = Enum.map(page1.data, & &1.id)
@@ -541,27 +541,27 @@ defmodule Events.Core.Query.ExecutionTest do
       insert_records(10)
 
       token =
-        Query.new(TestRecord)
-        |> Query.order(:inserted_at, :asc)
-        |> Query.order(:id, :asc)
-        |> Query.paginate(:cursor, cursor_fields: @cursor_fields, limit: 5)
+        OmQuery.new(TestRecord)
+        |> OmQuery.order(:inserted_at, :asc)
+        |> OmQuery.order(:id, :asc)
+        |> OmQuery.paginate(:cursor, cursor_fields: @cursor_fields, limit: 5)
 
-      {:ok, result} = Query.execute(token)
+      {:ok, result} = OmQuery.execute(token)
 
       assert result.pagination.has_more == true
 
       # Get remaining records (should be 5)
       token2 =
-        Query.new(TestRecord)
-        |> Query.order(:inserted_at, :asc)
-        |> Query.order(:id, :asc)
-        |> Query.paginate(:cursor,
+        OmQuery.new(TestRecord)
+        |> OmQuery.order(:inserted_at, :asc)
+        |> OmQuery.order(:id, :asc)
+        |> OmQuery.paginate(:cursor,
           cursor_fields: @cursor_fields,
           limit: 10,
           after: result.pagination.end_cursor
         )
 
-      {:ok, result2} = Query.execute(token2)
+      {:ok, result2} = OmQuery.execute(token2)
 
       # Only 5 remaining, less than limit of 10
       assert length(result2.data) == 5

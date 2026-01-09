@@ -1,7 +1,7 @@
-defmodule Events.Infra.ConfigValidatorTest do
+defmodule Events.Startup.ConfigValidatorTest do
   use ExUnit.Case, async: false
 
-  alias Events.Infra.ConfigValidator
+  alias Events.Startup.ConfigValidator
 
   describe "validate_all/0" do
     test "returns categorized results" do

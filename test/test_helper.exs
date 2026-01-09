@@ -35,7 +35,7 @@ mockable_modules = [
   # External services
   OmS3,
   OmS3.Client,
-  Events.Core.Cache,
+  Events.Data.Cache,
 
   # External libraries (only if loaded)
   Redix,
@@ -101,7 +101,7 @@ ExUnit.start()
 # Database Sandbox
 # ------------------------------------------------------------------------------
 
-Ecto.Adapters.SQL.Sandbox.mode(Events.Core.Repo, :manual)
+Ecto.Adapters.SQL.Sandbox.mode(Events.Data.Repo, :manual)
 
 # ------------------------------------------------------------------------------
 # Global Test Setup

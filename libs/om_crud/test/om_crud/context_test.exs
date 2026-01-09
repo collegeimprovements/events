@@ -1,4 +1,37 @@
 defmodule OmCrud.ContextTest do
+  @moduledoc """
+  Tests for OmCrud.Context - CRUD function generation for Phoenix contexts.
+
+  OmCrud.Context provides a `crud` macro that generates complete CRUD functions
+  for a schema, reducing boilerplate in context modules.
+
+  ## Use Cases
+
+  - **Single-record operations**: fetch_*, get_*, create_*, update_*, delete_*
+  - **Collection operations**: list_*, filter_*, count_*, first_*, last_*
+  - **Bulk operations**: create_all_*, update_all_*, delete_all_*
+  - **Streaming**: stream_* for memory-efficient large dataset processing
+  - **Existence checks**: *_exists? for checking record presence
+
+  ## Pattern: Generated Context Functions
+
+      defmodule MyApp.Accounts do
+        use OmCrud.Context
+
+        crud User                           # Full CRUD for User
+        crud Role, only: [:fetch, :list]    # Limited operations
+      end
+
+      # Generated functions:
+      Accounts.fetch_user(id)           # {:ok, user} | {:error, :not_found}
+      Accounts.get_user(id)             # user | nil
+      Accounts.create_user(attrs)       # {:ok, user} | {:error, changeset}
+      Accounts.list_users(opts)         # [user, ...]
+      Accounts.user_exists?(id)         # true | false
+
+  All generated functions are overridable for customization.
+  """
+
   use ExUnit.Case, async: true
 
   describe "use OmCrud.Context" do

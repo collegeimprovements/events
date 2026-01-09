@@ -1,4 +1,30 @@
 defmodule OmCacheTest do
+  @moduledoc """
+  Tests for OmCache - Unified caching layer built on Nebulex.
+
+  OmCache provides flexible cache configuration supporting multiple backends
+  (Redis, Local, Partitioned, Replicated) with automatic adapter selection.
+
+  ## Use Cases
+
+  - **Production**: Redis adapter for distributed caching
+  - **Development**: Local adapter for single-node caching
+  - **Testing**: Null adapter for no-op caching
+  - **Distributed**: Partitioned/Replicated for cluster-wide caching
+
+  ## Pattern: Environment-Based Configuration
+
+      # config/runtime.exs
+      config :om_cache, :adapter, System.get_env("CACHE_ADAPTER", "redis")
+
+      # Automatic adapter selection:
+      OmCache.Config.build()                          # Uses env or defaults to redis
+      OmCache.Config.build(default_adapter: :local)   # Force local adapter
+      OmCache.Config.build(default_adapter: :null)    # No-op for tests
+
+  KeyGenerator handles cache key generation from function arguments.
+  """
+
   use ExUnit.Case, async: true
 
   describe "OmCache.Config" do

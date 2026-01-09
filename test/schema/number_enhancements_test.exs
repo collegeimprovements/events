@@ -2,7 +2,7 @@ defmodule Events.Core.Schema.NumberEnhancementsTest do
   use Events.TestCase, async: true
 
   defmodule Product do
-    use Events.Core.Schema
+    use OmSchema
 
     schema "products" do
       # Range syntax

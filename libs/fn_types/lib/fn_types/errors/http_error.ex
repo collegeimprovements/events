@@ -52,7 +52,7 @@ defmodule FnTypes.Errors.HttpError do
   end
 
   @doc """
-  Creates an HTTP error from a Req/Tesla/HTTPoison response.
+  Creates an HTTP error from a Req or Tesla response.
   """
   @spec from_response(map()) :: t()
   def from_response(%{status: status} = response) when status >= 400 do

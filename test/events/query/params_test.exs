@@ -1,4 +1,4 @@
-defmodule Events.Core.Query.ParamsTest do
+defmodule Events.Core.OmQuery.ParamsTest do
   use Events.TestCase, async: true
 
   alias OmQuery.Params
@@ -198,9 +198,9 @@ defmodule Events.Core.Query.ParamsTest do
       params = %{"status" => "active", "role" => nil}
 
       token =
-        Query.new(User)
-        |> Query.maybe(:status, Params.get(params, :status))
-        |> Query.maybe(:role, Params.get(params, :role))
+        OmQuery.new(User)
+        |> OmQuery.maybe(:status, Params.get(params, :status))
+        |> OmQuery.maybe(:role, Params.get(params, :role))
 
       # Only status filter added, role is nil
       assert [{:filter, {:status, :eq, "active", []}}] = token.operations
@@ -211,8 +211,8 @@ defmodule Events.Core.Query.ParamsTest do
       opts = Params.pagination_opts(params)
 
       token =
-        Query.new(User)
-        |> Query.paginate(:cursor, opts)
+        OmQuery.new(User)
+        |> OmQuery.paginate(:cursor, opts)
 
       assert [{:paginate, {:cursor, [limit: 25, after: "cursor_token"]}}] = token.operations
     end
@@ -222,8 +222,8 @@ defmodule Events.Core.Query.ParamsTest do
       params = %{"limit" => nil, "after" => nil}
 
       token =
-        Query.new(User)
-        |> Query.paginate(:cursor,
+        OmQuery.new(User)
+        |> OmQuery.paginate(:cursor,
           limit: Params.get(params, :limit),
           after: Params.get(params, :after)
         )

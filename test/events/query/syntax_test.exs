@@ -1,7 +1,7 @@
-defmodule Events.Core.Query.SyntaxTest do
+defmodule Events.Core.OmQuery.SyntaxTest do
   @moduledoc """
   Tests for improved Query syntax features:
-  - Queryable protocol (pipe from schema without Query.new)
+  - Queryable protocol (pipe from schema without OmQuery.new)
   - Shorthand filter syntax
   - Keyword-based filters
   - DSL comparison operators
@@ -52,21 +52,21 @@ defmodule Events.Core.Query.SyntaxTest do
 
   describe "Queryable protocol" do
     test "schema module can be piped directly to filter" do
-      token = User |> Query.filter(:status, :eq, "active")
+      token = User |> OmQuery.filter(:status, :eq, "active")
 
       assert %Token{source: User} = token
       assert length(token.operations) == 1
     end
 
-    test "Query.Token passes through unchanged" do
-      original = Query.new(User)
-      token = Query.filter(original, :status, :eq, "active")
+    test "OmQuery.Token passes through unchanged" do
+      original = OmQuery.new(User)
+      token = OmQuery.filter(original, :status, :eq, "active")
 
       assert %Token{source: User} = token
     end
 
     test "table name string creates schemaless query" do
-      token = "users" |> Query.filter(:status, :eq, "active")
+      token = "users" |> OmQuery.filter(:status, :eq, "active")
 
       assert %Token{} = token
       assert length(token.operations) == 1
@@ -77,7 +77,7 @@ defmodule Events.Core.Query.SyntaxTest do
     test "3-arg filter defaults to :eq operator" do
       token =
         User
-        |> Query.filter(:status, "active")
+        |> OmQuery.filter(:status, "active")
 
       assert {:filter, {:status, :eq, "active", []}} in token.operations
     end
@@ -85,8 +85,8 @@ defmodule Events.Core.Query.SyntaxTest do
     test "shorthand filter works in pipeline" do
       token =
         User
-        |> Query.filter(:status, "active")
-        |> Query.filter(:verified, true)
+        |> OmQuery.filter(:status, "active")
+        |> OmQuery.filter(:verified, true)
 
       assert length(token.operations) == 2
       assert {:filter, {:status, :eq, "active", []}} in token.operations
@@ -96,13 +96,13 @@ defmodule Events.Core.Query.SyntaxTest do
 
   describe "keyword filter syntax" do
     test "single keyword filter" do
-      token = User |> Query.filter(status: "active")
+      token = User |> OmQuery.filter(status: "active")
 
       assert {:filter, {:status, :eq, "active", []}} in token.operations
     end
 
     test "multiple keyword filters in one call" do
-      token = User |> Query.filter(status: "active", verified: true, role: "admin")
+      token = User |> OmQuery.filter(status: "active", verified: true, role: "admin")
 
       assert length(token.operations) == 3
       assert {:filter, {:status, :eq, "active", []}} in token.operations
@@ -113,8 +113,8 @@ defmodule Events.Core.Query.SyntaxTest do
     test "keyword filters can be chained" do
       token =
         User
-        |> Query.filter(status: "active")
-        |> Query.filter(verified: true)
+        |> OmQuery.filter(status: "active")
+        |> OmQuery.filter(verified: true)
 
       assert length(token.operations) == 2
     end
@@ -241,11 +241,11 @@ defmodule Events.Core.Query.SyntaxTest do
     test "mix of old and new syntax works together" do
       token =
         User
-        |> Query.filter(:status, "active")
-        |> Query.filter(verified: true)
-        |> Query.filter(:age, :gte, 18)
-        |> Query.order(:name, :asc)
-        |> Query.paginate(:offset, limit: 20)
+        |> OmQuery.filter(:status, "active")
+        |> OmQuery.filter(verified: true)
+        |> OmQuery.filter(:age, :gte, 18)
+        |> OmQuery.order(:name, :asc)
+        |> OmQuery.paginate(:offset, limit: 20)
 
       filters = Enum.filter(token.operations, fn {op, _} -> op == :filter end)
       assert length(filters) == 3
@@ -256,7 +256,7 @@ defmodule Events.Core.Query.SyntaxTest do
     test "join creates binding for later reference" do
       token =
         User
-        |> Query.join(:posts, :left, as: :user_posts)
+        |> OmQuery.join(:posts, :left, as: :user_posts)
 
       assert {:join, {:posts, :left, [as: :user_posts]}} in token.operations
     end
@@ -264,26 +264,26 @@ defmodule Events.Core.Query.SyntaxTest do
     test "filter with binding: option references joined table" do
       token =
         User
-        |> Query.join(:posts, :left, as: :posts)
-        |> Query.filter(:published, :eq, true, binding: :posts)
+        |> OmQuery.join(:posts, :left, as: :posts)
+        |> OmQuery.filter(:published, :eq, true, binding: :posts)
 
       assert {:filter, {:published, :eq, true, [binding: :posts]}} in token.operations
     end
 
-    test "Query.on/4 shorthand for filtering on binding" do
+    test "OmQuery.on/4 shorthand for filtering on binding" do
       token =
         User
-        |> Query.join(:posts, :left, as: :posts)
-        |> Query.on(:posts, :published, true)
+        |> OmQuery.join(:posts, :left, as: :posts)
+        |> OmQuery.on(:posts, :published, true)
 
       assert {:filter, {:published, :eq, true, [binding: :posts]}} in token.operations
     end
 
-    test "Query.on/5 with explicit operator" do
+    test "OmQuery.on/5 with explicit operator" do
       token =
         User
-        |> Query.join(:posts, :left, as: :posts)
-        |> Query.on(:posts, :views, :gte, 100)
+        |> OmQuery.join(:posts, :left, as: :posts)
+        |> OmQuery.on(:posts, :views, :gte, 100)
 
       assert {:filter, {:views, :gte, 100, [binding: :posts]}} in token.operations
     end
@@ -291,11 +291,11 @@ defmodule Events.Core.Query.SyntaxTest do
     test "multiple joins with different bindings" do
       token =
         User
-        |> Query.join(:posts, :left, as: :posts)
-        |> Query.join(:comments, :left, as: :comments)
-        |> Query.filter(:active, true)
-        |> Query.on(:posts, :published, true)
-        |> Query.on(:comments, :approved, true)
+        |> OmQuery.join(:posts, :left, as: :posts)
+        |> OmQuery.join(:comments, :left, as: :comments)
+        |> OmQuery.filter(:active, true)
+        |> OmQuery.on(:posts, :published, true)
+        |> OmQuery.on(:comments, :approved, true)
 
       filters = Enum.filter(token.operations, fn {op, _} -> op == :filter end)
       assert length(filters) == 3
@@ -399,7 +399,7 @@ defmodule Events.Core.Query.SyntaxTest do
     test "simple preload" do
       token =
         User
-        |> Query.preload(:posts)
+        |> OmQuery.preload(:posts)
 
       assert {:preload, :posts} in token.operations
     end
@@ -407,11 +407,11 @@ defmodule Events.Core.Query.SyntaxTest do
     test "preload with nested filters using builder function" do
       token =
         User
-        |> Query.preload(:posts, fn q ->
+        |> OmQuery.preload(:posts, fn q ->
           q
-          |> Query.filter(:published, true)
-          |> Query.order(:created_at, :desc)
-          |> Query.limit(10)
+          |> OmQuery.filter(:published, true)
+          |> OmQuery.order(:created_at, :desc)
+          |> OmQuery.limit(10)
         end)
 
       # Should have a preload with a nested token
@@ -433,10 +433,10 @@ defmodule Events.Core.Query.SyntaxTest do
     test "preload with new shorthand syntax in builder" do
       token =
         User
-        |> Query.preload(:posts, fn q ->
+        |> OmQuery.preload(:posts, fn q ->
           q
-          |> Query.filter(published: true, featured: true)
-          |> Query.order(:views, :desc)
+          |> OmQuery.filter(published: true, featured: true)
+          |> OmQuery.order(:views, :desc)
         end)
 
       {:preload, {:posts, nested_token}} =
@@ -504,7 +504,7 @@ defmodule Events.Core.Query.SyntaxTest do
       # This generates: JOIN categories c ON c.id = p.category_id AND c.tenant_id = p.tenant_id
       token =
         User
-        |> Query.join(Category, :left,
+        |> OmQuery.join(Category, :left,
           as: :cat,
           on: [id: :category_id, tenant_id: :tenant_id]
         )
@@ -519,15 +519,15 @@ defmodule Events.Core.Query.SyntaxTest do
       # WHERE c.active = true AND c.name = 'Electronics'
       token =
         User
-        |> Query.join(Category, :left,
+        |> OmQuery.join(Category, :left,
           as: :cat,
           # JOIN ON conditions
           on: [id: :category_id, tenant_id: :tenant_id]
         )
         # WHERE filter on joined table
-        |> Query.on(:cat, :active, true)
+        |> OmQuery.on(:cat, :active, true)
         # WHERE filter on joined table
-        |> Query.on(:cat, :name, "Electronics")
+        |> OmQuery.on(:cat, :name, "Electronics")
 
       joins = Enum.filter(token.operations, fn {op, _} -> op == :join end)
       filters = Enum.filter(token.operations, fn {op, _} -> op == :filter end)
@@ -543,20 +543,20 @@ defmodule Events.Core.Query.SyntaxTest do
     test "multiple joins with different ON conditions" do
       token =
         User
-        |> Query.join(Category, :left,
+        |> OmQuery.join(Category, :left,
           as: :cat,
           on: [id: :category_id, tenant_id: :tenant_id]
         )
-        |> Query.join(Brand, :left,
+        |> OmQuery.join(Brand, :left,
           as: :brand,
           on: [id: :brand_id, region: :region]
         )
         # Root table
-        |> Query.filter(:active, true)
+        |> OmQuery.filter(:active, true)
         # Category table
-        |> Query.on(:cat, :featured, true)
+        |> OmQuery.on(:cat, :featured, true)
         # Brand table
-        |> Query.on(:brand, :verified, true)
+        |> OmQuery.on(:brand, :verified, true)
 
       joins = Enum.filter(token.operations, fn {op, _} -> op == :join end)
       filters = Enum.filter(token.operations, fn {op, _} -> op == :filter end)
@@ -617,18 +617,18 @@ defmodule Events.Core.Query.SyntaxTest do
     test "pipeline style equivalent" do
       token =
         User
-        |> Query.join(:orders, :left, as: :orders)
-        |> Query.join(:products, :left, as: :products)
-        |> Query.filter(status: "active", verified: true)
-        |> Query.on(:orders, :status, "completed")
-        |> Query.on(:products, :category, :in, ["electronics", "books"])
-        |> Query.order(:name, :asc)
-        |> Query.paginate(:cursor, limit: 20)
-        |> Query.preload(:orders, fn q ->
+        |> OmQuery.join(:orders, :left, as: :orders)
+        |> OmQuery.join(:products, :left, as: :products)
+        |> OmQuery.filter(status: "active", verified: true)
+        |> OmQuery.on(:orders, :status, "completed")
+        |> OmQuery.on(:products, :category, :in, ["electronics", "books"])
+        |> OmQuery.order(:name, :asc)
+        |> OmQuery.paginate(:cursor, limit: 20)
+        |> OmQuery.preload(:orders, fn q ->
           q
-          |> Query.filter(:status, "completed")
-          |> Query.order(:created_at, :desc)
-          |> Query.limit(10)
+          |> OmQuery.filter(:status, "completed")
+          |> OmQuery.order(:created_at, :desc)
+          |> OmQuery.limit(10)
         end)
 
       joins = Enum.filter(token.operations, fn {op, _} -> op == :join end)
@@ -641,37 +641,37 @@ defmodule Events.Core.Query.SyntaxTest do
 
   describe "convenience join functions" do
     test "left_join is shorthand for join with :left type" do
-      token = User |> Query.left_join(:posts)
+      token = User |> OmQuery.left_join(:posts)
       assert {:join, {:posts, :left, []}} in token.operations
     end
 
     test "left_join with options" do
-      token = User |> Query.left_join(:posts, as: :user_posts)
+      token = User |> OmQuery.left_join(:posts, as: :user_posts)
       assert {:join, {:posts, :left, [as: :user_posts]}} in token.operations
     end
 
     test "left_join with schema and ON conditions" do
-      token = User |> Query.left_join(Category, as: :cat, on: [id: :category_id])
+      token = User |> OmQuery.left_join(Category, as: :cat, on: [id: :category_id])
       assert {:join, {Category, :left, [as: :cat, on: [id: :category_id]]}} in token.operations
     end
 
     test "right_join is shorthand for join with :right type" do
-      token = User |> Query.right_join(:posts)
+      token = User |> OmQuery.right_join(:posts)
       assert {:join, {:posts, :right, []}} in token.operations
     end
 
     test "inner_join is shorthand for join with :inner type" do
-      token = User |> Query.inner_join(:posts)
+      token = User |> OmQuery.inner_join(:posts)
       assert {:join, {:posts, :inner, []}} in token.operations
     end
 
     test "full_join is shorthand for join with :full type" do
-      token = User |> Query.full_join(:posts)
+      token = User |> OmQuery.full_join(:posts)
       assert {:join, {:posts, :full, []}} in token.operations
     end
 
     test "cross_join is shorthand for join with :cross type" do
-      token = User |> Query.cross_join(:roles)
+      token = User |> OmQuery.cross_join(:roles)
       assert {:join, {:roles, :cross, []}} in token.operations
     end
   end
@@ -815,7 +815,7 @@ defmodule Events.Core.Query.SyntaxTest do
     test "pipeline filter with case insensitive :in" do
       token =
         User
-        |> Query.filter(:role, :in, ["Admin", "Moderator"], case_insensitive: true)
+        |> OmQuery.filter(:role, :in, ["Admin", "Moderator"], case_insensitive: true)
 
       assert {:filter, {:role, :in, ["Admin", "Moderator"], [case_insensitive: true]}} in token.operations
     end
@@ -845,27 +845,27 @@ defmodule Events.Core.Query.SyntaxTest do
     import OmQuery.DSL
 
     test "cast string to integer" do
-      token = User |> Query.filter(:age, :eq, "25", cast: :integer)
+      token = User |> OmQuery.filter(:age, :eq, "25", cast: :integer)
       assert {:filter, {:age, :eq, 25, []}} in token.operations
     end
 
     test "cast string to integer in list" do
-      token = User |> Query.filter(:age, :in, ["18", "21", "25"], cast: :integer)
+      token = User |> OmQuery.filter(:age, :in, ["18", "21", "25"], cast: :integer)
       assert {:filter, {:age, :in, [18, 21, 25], []}} in token.operations
     end
 
     test "cast string to float" do
-      token = User |> Query.filter(:score, :gte, "9.5", cast: :float)
+      token = User |> OmQuery.filter(:score, :gte, "9.5", cast: :float)
       assert {:filter, {:score, :gte, 9.5, []}} in token.operations
     end
 
     test "cast string to boolean" do
-      token = User |> Query.filter(:active, :eq, "true", cast: :boolean)
+      token = User |> OmQuery.filter(:active, :eq, "true", cast: :boolean)
       assert {:filter, {:active, :eq, true, []}} in token.operations
     end
 
     test "cast string to date" do
-      token = User |> Query.filter(:birthday, :eq, "2000-01-15", cast: :date)
+      token = User |> OmQuery.filter(:birthday, :eq, "2000-01-15", cast: :date)
       assert {:filter, {:birthday, :eq, ~D[2000-01-15], []}} in token.operations
     end
 
@@ -909,15 +909,15 @@ defmodule Events.Core.Query.SyntaxTest do
     end
 
     test "cast preserves already-correct types" do
-      token = User |> Query.filter(:age, :eq, 25, cast: :integer)
+      token = User |> OmQuery.filter(:age, :eq, 25, cast: :integer)
       assert {:filter, {:age, :eq, 25, []}} in token.operations
     end
   end
 
   describe "execute vs build behavior" do
-    test "Query.build returns Ecto.Query struct" do
-      token = User |> Query.filter(:status, "active")
-      query = Query.build(token)
+    test "OmQuery.build returns Ecto.Query struct" do
+      token = User |> OmQuery.filter(:status, "active")
+      query = OmQuery.build(token)
 
       assert %Ecto.Query{} = query
     end
@@ -925,9 +925,9 @@ defmodule Events.Core.Query.SyntaxTest do
     test "Token has all operations stored" do
       token =
         User
-        |> Query.filter(:status, "active")
-        |> Query.order(:name, :asc)
-        |> Query.limit(10)
+        |> OmQuery.filter(:status, "active")
+        |> OmQuery.order(:name, :asc)
+        |> OmQuery.limit(10)
 
       assert {:filter, {:status, :eq, "active", []}} in token.operations
       assert {:order, {:name, :asc, []}} in token.operations

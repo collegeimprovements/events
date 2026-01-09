@@ -1,4 +1,29 @@
 defmodule OmSchema.ValidatorsTest do
+  @moduledoc """
+  Tests for OmSchema.Validators - Composable validation functions.
+
+  Validators provides a unified `apply/3` interface for all validation types,
+  making it easy to compose validations declaratively.
+
+  ## Use Cases
+
+  - **Email validation**: Format checks for emails, URLs, UUIDs, slugs
+  - **Number constraints**: Min/max, positive, non-negative, ranges
+  - **String constraints**: Length limits, format patterns, trimming
+  - **Date constraints**: Past/future dates, date ranges
+  - **Field relationships**: Exclusive fields, comparisons, confirmations
+
+  ## Pattern: Composable Validation
+
+      changeset
+      |> Validators.apply(:email, :required)
+      |> Validators.apply(:email, :email)
+      |> Validators.apply(:age, :min, value: 18)
+      |> Validators.apply(:status, :inclusion, in: ["active", "inactive"])
+
+  Each validation returns a changeset, enabling functional composition.
+  """
+
   use ExUnit.Case, async: true
 
   alias OmSchema.Validators

@@ -1,4 +1,29 @@
 defmodule OmCrud.ConfigTest do
+  @moduledoc """
+  Tests for OmCrud.Config - Application-level configuration for OmCrud.
+
+  Config provides centralized configuration management, allowing applications
+  to set defaults once rather than passing options to every call.
+
+  ## Use Cases
+
+  - **Default repo**: Avoid passing repo: MyRepo to every CRUD call
+  - **Telemetry prefix**: Customize event prefixes for your application
+  - **Multi-app setups**: Different repos for different umbrella apps
+
+  ## Pattern: Application Configuration
+
+      # config/config.exs
+      config :om_crud,
+        default_repo: MyApp.Repo,
+        telemetry_prefix: [:my_app, :crud]
+
+      # Then use OmCrud without specifying repo:
+      OmCrud.create(User, attrs)  # Uses MyApp.Repo automatically
+
+  Explicit options always override configured defaults.
+  """
+
   use ExUnit.Case, async: true
 
   describe "default_repo/0" do

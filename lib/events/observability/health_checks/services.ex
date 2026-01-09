@@ -193,16 +193,14 @@ defmodule Events.Observability.HealthChecks.Services do
 
   defp perform_cache_test(error), do: error
 
+  # Hammer v7 uses Events.Services.RateLimiter module
+  # Check if the rate limiter service is working
   defp check_redis do
-    with {:ok, redix_opts} <- redis_redix_config(),
-         {:ok, conn} <- Redix.start_link(redix_opts) do
-      conn
-      |> perform_redis_ping()
-      |> tap(fn _ -> Redix.stop(conn) end)
-    else
-      {:error, :not_configured} -> {:error, "Redis backend not configured"}
-      {:error, {:unsupported_backend, backend}} -> format_unsupported_backend(backend)
-      {:error, reason} -> {:error, inspect(reason)}
+    alias Events.Services.RateLimiter
+
+    case RateLimiter.check("health_check", 60_000, 1000) do
+      {:allow, _count} -> :ok
+      {:deny, _retry_after} -> :ok
     end
   rescue
     e -> {:error, Exception.message(e)}
@@ -221,22 +219,6 @@ defmodule Events.Observability.HealthChecks.Services do
 
   defp check_process(module) do
     if process_alive?(module), do: :ok, else: {:error, "Process not running"}
-  end
-
-  defp perform_redis_ping(conn) do
-    Redix.command(conn, ["PING"])
-    |> case do
-      {:ok, "PONG"} -> :ok
-      {:error, reason} -> {:error, inspect(reason)}
-      other -> {:error, inspect(other)}
-    end
-  end
-
-  defp format_unsupported_backend(backend) do
-    backend
-    |> Module.split()
-    |> List.last()
-    |> then(&{:error, "Unsupported Redis backend #{&1}"})
   end
 
   defp perform_s3_list({:ok, config, bucket}) do
@@ -321,33 +303,13 @@ defmodule Events.Observability.HealthChecks.Services do
     end
   end
 
+  # Hammer v7 uses module-based configuration via Events.Services.RateLimiter
   defp safe_get_redis_adapter do
-    Application.get_env(:hammer, :backend)
-    |> extract_backend_type()
+    backend = Application.get_env(:events, Events.Services.RateLimiter, [])[:backend] || :ets
+    "RateLimiter.#{backend}"
   rescue
-    _ -> "Hammer.Redis"
+    _ -> "RateLimiter.ETS"
   end
-
-  defp extract_backend_type({backend_module, _opts}) do
-    backend_module
-    |> Module.split()
-    |> List.last()
-    |> then(&"Hammer.#{&1}")
-  end
-
-  defp extract_backend_type(_), do: "Hammer.Redis"
-
-  defp redis_redix_config do
-    Application.get_env(:hammer, :backend)
-    |> parse_redis_backend()
-  end
-
-  defp parse_redis_backend({Hammer.Backend.Redis, opts}) do
-    {:ok, Keyword.get(opts, :redix_config, [])}
-  end
-
-  defp parse_redis_backend({backend, _opts}), do: {:error, {:unsupported_backend, backend}}
-  defp parse_redis_backend(_), do: {:error, :not_configured}
 
   defp safe_get_endpoint_adapter(module) do
     module.config(:adapter)

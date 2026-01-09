@@ -17,14 +17,14 @@ defmodule Events.DSLAdvancedTest do
         end
 
       assert [{:cte, {:active_users, cte_token}}, {:filter, _}] = token.operations
-      assert %Query.Token{} = cte_token
+      assert %OmQuery.Token{} = cte_token
       assert length(cte_token.operations) == 2
     end
 
     test "with_cte using existing token" do
       cte_token =
-        Query.new(User)
-        |> Query.where(:active, :eq, true)
+        OmQuery.new(User)
+        |> OmQuery.where(:active, :eq, true)
 
       token =
         query Post do
@@ -106,9 +106,9 @@ defmodule Events.DSLAdvancedTest do
   describe "DSL - subqueries" do
     test "in_subquery operator through filter" do
       user_ids_subquery =
-        Query.new(User)
-        |> Query.where(:active, :eq, true)
-        |> Query.select([:id])
+        OmQuery.new(User)
+        |> OmQuery.where(:active, :eq, true)
+        |> OmQuery.select([:id])
 
       token =
         query Post do
@@ -122,9 +122,9 @@ defmodule Events.DSLAdvancedTest do
 
     test "not_in_subquery operator through filter" do
       blocked_user_ids =
-        Query.new(User)
-        |> Query.where(:blocked, :eq, true)
-        |> Query.select([:id])
+        OmQuery.new(User)
+        |> OmQuery.where(:blocked, :eq, true)
+        |> OmQuery.select([:id])
 
       token =
         query Post do
@@ -136,14 +136,14 @@ defmodule Events.DSLAdvancedTest do
 
     test "multiple subquery filters" do
       active_users =
-        Query.new(User)
-        |> Query.where(:active, :eq, true)
-        |> Query.select([:id])
+        OmQuery.new(User)
+        |> OmQuery.where(:active, :eq, true)
+        |> OmQuery.select([:id])
 
       blocked_users =
-        Query.new(User)
-        |> Query.where(:blocked, :eq, true)
-        |> Query.select([:id])
+        OmQuery.new(User)
+        |> OmQuery.where(:blocked, :eq, true)
+        |> OmQuery.select([:id])
 
       token =
         query Post do
@@ -158,13 +158,13 @@ defmodule Events.DSLAdvancedTest do
   describe "DSL - complex combinations" do
     test "CTE + subquery + raw SQL + regular filters" do
       active_users_cte =
-        Query.new(User)
-        |> Query.where(:active, :eq, true)
+        OmQuery.new(User)
+        |> OmQuery.where(:active, :eq, true)
 
       high_engagement_subquery =
-        Query.new(Post)
-        |> Query.where(:views, :gt, 1000)
-        |> Query.select([:user_id])
+        OmQuery.new(Post)
+        |> OmQuery.where(:views, :gt, 1000)
+        |> OmQuery.select([:user_id])
 
       token =
         query Post do
@@ -209,7 +209,7 @@ defmodule Events.DSLAdvancedTest do
     end
 
     test "all features in single query" do
-      subquery = Query.new(User) |> Query.where(:active, :eq, true) |> Query.select([:id])
+      subquery = OmQuery.new(User) |> OmQuery.where(:active, :eq, true) |> OmQuery.select([:id])
 
       token =
         query Post do
@@ -239,10 +239,10 @@ defmodule Events.DSLAdvancedTest do
     test "realistic blog query with all features" do
       # Get active authors
       active_authors =
-        Query.new(User)
-        |> Query.where(:role, :eq, "author")
-        |> Query.where(:active, :eq, true)
-        |> Query.select([:id])
+        OmQuery.new(User)
+        |> OmQuery.where(:role, :eq, "author")
+        |> OmQuery.where(:active, :eq, true)
+        |> OmQuery.select([:id])
 
       # Build the main query
       token =
@@ -268,7 +268,7 @@ defmodule Events.DSLAdvancedTest do
           paginate(:cursor, limit: 25)
         end
 
-      assert %Query.Token{} = token
+      assert %OmQuery.Token{} = token
       # 1: with_cte, 2: filter (subquery), 3: raw_where, 4-5: filters, 6: order, 7: paginate
       assert length(token.operations) == 7
     end
@@ -278,15 +278,15 @@ defmodule Events.DSLAdvancedTest do
     test "maybe with default :present predicate" do
       # nil value - should not add filter
       token =
-        Query.new(User)
-        |> Query.maybe(:status, nil)
+        OmQuery.new(User)
+        |> OmQuery.maybe(:status, nil)
 
       assert token.operations == []
 
       # present value - should add filter
       token =
-        Query.new(User)
-        |> Query.maybe(:status, "active")
+        OmQuery.new(User)
+        |> OmQuery.maybe(:status, "active")
 
       assert [{:filter, {:status, :eq, "active", []}}] = token.operations
     end
@@ -294,22 +294,22 @@ defmodule Events.DSLAdvancedTest do
     test "maybe with :not_nil predicate allows false and empty string" do
       # nil - should not add filter
       token =
-        Query.new(User)
-        |> Query.maybe(:active, nil, :eq, when: :not_nil)
+        OmQuery.new(User)
+        |> OmQuery.maybe(:active, nil, :eq, when: :not_nil)
 
       assert token.operations == []
 
       # false - should add filter (not nil)
       token =
-        Query.new(User)
-        |> Query.maybe(:active, false, :eq, when: :not_nil)
+        OmQuery.new(User)
+        |> OmQuery.maybe(:active, false, :eq, when: :not_nil)
 
       assert [{:filter, {:active, :eq, false, []}}] = token.operations
 
       # empty string - should add filter (not nil)
       token =
-        Query.new(User)
-        |> Query.maybe(:name, "", :eq, when: :not_nil)
+        OmQuery.new(User)
+        |> OmQuery.maybe(:name, "", :eq, when: :not_nil)
 
       assert [{:filter, {:name, :eq, "", []}}] = token.operations
     end
@@ -317,29 +317,29 @@ defmodule Events.DSLAdvancedTest do
     test "maybe with :not_blank predicate" do
       # nil - should not add filter
       token =
-        Query.new(User)
-        |> Query.maybe(:name, nil, :ilike, when: :not_blank)
+        OmQuery.new(User)
+        |> OmQuery.maybe(:name, nil, :ilike, when: :not_blank)
 
       assert token.operations == []
 
       # empty string - should not add filter
       token =
-        Query.new(User)
-        |> Query.maybe(:name, "", :ilike, when: :not_blank)
+        OmQuery.new(User)
+        |> OmQuery.maybe(:name, "", :ilike, when: :not_blank)
 
       assert token.operations == []
 
       # whitespace only - should not add filter
       token =
-        Query.new(User)
-        |> Query.maybe(:name, "   ", :ilike, when: :not_blank)
+        OmQuery.new(User)
+        |> OmQuery.maybe(:name, "   ", :ilike, when: :not_blank)
 
       assert token.operations == []
 
       # valid string - should add filter
       token =
-        Query.new(User)
-        |> Query.maybe(:name, "john", :ilike, when: :not_blank)
+        OmQuery.new(User)
+        |> OmQuery.maybe(:name, "john", :ilike, when: :not_blank)
 
       assert [{:filter, {:name, :ilike, "john", []}}] = token.operations
     end
@@ -347,29 +347,29 @@ defmodule Events.DSLAdvancedTest do
     test "maybe with :not_empty predicate" do
       # nil - should not add filter
       token =
-        Query.new(User)
-        |> Query.maybe(:tags, nil, :in, when: :not_empty)
+        OmQuery.new(User)
+        |> OmQuery.maybe(:tags, nil, :in, when: :not_empty)
 
       assert token.operations == []
 
       # empty list - should not add filter
       token =
-        Query.new(User)
-        |> Query.maybe(:tags, [], :in, when: :not_empty)
+        OmQuery.new(User)
+        |> OmQuery.maybe(:tags, [], :in, when: :not_empty)
 
       assert token.operations == []
 
       # empty map - should not add filter
       token =
-        Query.new(User)
-        |> Query.maybe(:metadata, %{}, :eq, when: :not_empty)
+        OmQuery.new(User)
+        |> OmQuery.maybe(:metadata, %{}, :eq, when: :not_empty)
 
       assert token.operations == []
 
       # non-empty list - should add filter
       token =
-        Query.new(User)
-        |> Query.maybe(:tags, ["a", "b"], :in, when: :not_empty)
+        OmQuery.new(User)
+        |> OmQuery.maybe(:tags, ["a", "b"], :in, when: :not_empty)
 
       assert [{:filter, {:tags, :in, ["a", "b"], []}}] = token.operations
     end
@@ -377,15 +377,15 @@ defmodule Events.DSLAdvancedTest do
     test "maybe with custom predicate function" do
       # Value doesn't pass predicate
       token =
-        Query.new(User)
-        |> Query.maybe(:score, 0, :gte, when: &(&1 && &1 > 0))
+        OmQuery.new(User)
+        |> OmQuery.maybe(:score, 0, :gte, when: &(&1 && &1 > 0))
 
       assert token.operations == []
 
       # Value passes predicate
       token =
-        Query.new(User)
-        |> Query.maybe(:score, 50, :gte, when: &(&1 && &1 > 0))
+        OmQuery.new(User)
+        |> OmQuery.maybe(:score, 50, :gte, when: &(&1 && &1 > 0))
 
       assert [{:filter, {:score, :gte, 50, []}}] = token.operations
     end
@@ -393,15 +393,15 @@ defmodule Events.DSLAdvancedTest do
     test "maybe_on with :when predicate on joined table" do
       # nil value - should not add filter
       token =
-        Query.new(Product)
-        |> Query.maybe_on(:cat, :name, nil, :eq, when: :not_nil)
+        OmQuery.new(Product)
+        |> OmQuery.maybe_on(:cat, :name, nil, :eq, when: :not_nil)
 
       assert token.operations == []
 
       # present value - should add filter with binding
       token =
-        Query.new(Product)
-        |> Query.maybe_on(:cat, :name, "Electronics", :eq, when: :not_nil)
+        OmQuery.new(Product)
+        |> OmQuery.maybe_on(:cat, :name, "Electronics", :eq, when: :not_nil)
 
       assert [{:filter, {:name, :eq, "Electronics", [binding: :cat]}}] = token.operations
     end

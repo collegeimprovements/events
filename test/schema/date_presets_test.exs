@@ -4,7 +4,7 @@ defmodule Events.Core.Schema.DatePresetsTest do
   import OmSchema.Presets.Dates
 
   defmodule Event do
-    use Events.Core.Schema
+    use OmSchema
 
     schema "events" do
       field :event_date, :date, preset: future_date()

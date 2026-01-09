@@ -150,48 +150,20 @@ defmodule Events.Observability.HealthChecks.Infra do
     {"redis://#{host}:#{port}", "#{@redis_host_env}/#{@redis_port_env} env"}
   end
 
+  # Hammer v7 uses module-based configuration
+  # RateLimiter service handles rate limiting with ETS or Redis backend
   defp hammer_connection do
-    Application.get_env(:hammer, :backend)
-    |> build_hammer_connection()
-  end
+    backend = Application.get_env(:events, Events.Services.RateLimiter, [])[:backend] || :ets
 
-  defp build_hammer_connection({Hammer.Backend.Redis, opts}) do
-    opts
-    |> Keyword.get(:redix_config, [])
-    |> hammer_url()
-    |> build_hammer_result(opts)
-  end
-
-  defp build_hammer_connection(_), do: nil
-
-  defp build_hammer_result(url, opts) do
     %{
-      name: "Hammer Redis",
-      category: :redis,
-      url: mask_url(url),
-      raw_url: url,
-      source: "config :hammer, backend",
-      details: "expiry_ms=#{opts[:expiry_ms]}"
+      name: "RateLimiter",
+      category: :service,
+      url: "#{backend}://local",
+      raw_url: "#{backend}://local",
+      source: "Events.Services.RateLimiter",
+      details: "backend=#{backend}"
     }
   end
-
-  defp hammer_url(redix_opts) do
-    Keyword.get(redix_opts, :url) || build_redis_url_from_opts(redix_opts)
-  end
-
-  defp build_redis_url_from_opts(redix_opts) do
-    host = Keyword.get(redix_opts, :host, "localhost")
-    port = Keyword.get(redix_opts, :port, 6379)
-    db = Keyword.get(redix_opts, :database, 0)
-
-    redix_opts
-    |> Keyword.get(:password)
-    |> build_userinfo()
-    |> then(&"redis://#{&1}#{host}:#{port}/#{db}")
-  end
-
-  defp build_userinfo(nil), do: ""
-  defp build_userinfo(password), do: ":#{password}@"
 
   defp nebulex_connection do
     Application.get_env(@app_name, @cache_module, [])

@@ -1,4 +1,35 @@
 defmodule OmQuery.TokenTest do
+  @moduledoc """
+  Tests for OmQuery.Token - Type-safe query building primitives.
+
+  Token is the low-level building block for constructing database queries.
+  It validates operations at build time, preventing invalid queries from
+  reaching the database.
+
+  ## Use Cases
+
+  - **Filtering**: eq, neq, gt, gte, lt, lte, in, like, between, jsonb_*
+  - **Ordering**: asc, desc, with null handling variants
+  - **Pagination**: Offset-based and cursor-based pagination
+  - **Joins**: inner, left, right, full joins on associations
+  - **Aggregation**: group_by with having clauses
+  - **Locking**: Pessimistic locking for transactions
+
+  ## Pattern: Validated Query Building
+
+      Token.new(User)
+      |> Token.add_operation!({:filter, {:status, :eq, "active", []}})
+      |> Token.add_operation!({:order, {:created_at, :desc, []}})
+      |> Token.add_operation!({:limit, 20})
+
+  Invalid operations return descriptive errors before execution:
+
+      {:error, %ValidationError{message: "Invalid filter operator: :bad_op"}}
+      {:error, %LimitExceededError{requested: 10000, max: 1000}}
+
+  These primitives power the higher-level OmQuery DSL.
+  """
+
   use ExUnit.Case, async: true
 
   alias OmQuery.Token

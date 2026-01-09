@@ -5,9 +5,9 @@ defmodule OmScheduler.Workflow.StoreTest do
   alias OmScheduler.Workflow.{Execution, Store}
 
   setup do
-    # Configure OmScheduler to use Events.Core.Repo
+    # Configure OmScheduler to use Events.Data.Repo
     # Note: OmScheduler uses :events as app_name (configured in config.exs)
-    Application.put_env(:events, OmScheduler, repo: Events.Core.Repo, prefix: "public")
+    Application.put_env(:events, OmScheduler, repo: Events.Data.Repo, prefix: "public")
     on_exit(fn -> Application.delete_env(:events, OmScheduler) end)
     :ok
   end

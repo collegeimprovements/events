@@ -1,4 +1,34 @@
 defmodule OmSchema.ConditionalRequiredTest do
+  @moduledoc """
+  Tests for OmSchema.ConditionalRequired - Context-dependent required fields.
+
+  ConditionalRequired enables validation rules that depend on other field
+  values, supporting complex business logic without cluttering changesets.
+
+  ## Use Cases
+
+  - **Order cancellation**: Require `reason` when `status: "cancelled"`
+  - **Contact method**: Require `phone` when `contact_method: "sms"`
+  - **Business accounts**: Require `tax_id` when `is_business: true`
+  - **Shipping**: Require `address` when `type: "physical" AND requires_shipping: true`
+
+  ## Pattern: Conditional Validation DSL
+
+      # Simple equality
+      [{:reason, [status: "cancelled"]}]
+
+      # Comparison operators
+      [{:approval_notes, {:amount, :gt, 10_000}}]
+
+      # Boolean combinators
+      [{:phone, [[notify_sms: true], :or, [notify_call: true]]}]
+
+      # Negation
+      [{:reason, {:not, [status: "active"]}}]
+
+  This DSL replaces complex if/else validation logic with declarative rules.
+  """
+
   use ExUnit.Case, async: true
 
   alias OmSchema.ConditionalRequired

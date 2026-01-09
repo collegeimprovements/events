@@ -3,7 +3,7 @@ defmodule Events.Core.Schema.EnhancedFieldPhase2Test do
 
   # Test module for custom error messages
   defmodule TestCustomMessages do
-    use Events.Core.Schema
+    use OmSchema
 
     schema "test_custom_messages" do
       field :name, :string,
@@ -28,7 +28,7 @@ defmodule Events.Core.Schema.EnhancedFieldPhase2Test do
 
   # Test module for message map
   defmodule TestMessageMap do
-    use Events.Core.Schema
+    use OmSchema
 
     schema "test_message_map" do
       field :username, :string,
@@ -52,7 +52,7 @@ defmodule Events.Core.Schema.EnhancedFieldPhase2Test do
 
   # Test module for map validations
   defmodule TestMapValidations do
-    use Events.Core.Schema
+    use OmSchema
 
     schema "test_map_validations" do
       field :config, :map,
@@ -73,7 +73,7 @@ defmodule Events.Core.Schema.EnhancedFieldPhase2Test do
 
   # Test module for array item validations
   defmodule TestArrayItemValidations do
-    use Events.Core.Schema
+    use OmSchema
 
     schema "test_array_items" do
       field :tags, {:array, :string},
@@ -99,7 +99,7 @@ defmodule Events.Core.Schema.EnhancedFieldPhase2Test do
 
   # Test module for date/time validations
   defmodule TestDateTimeValidations do
-    use Events.Core.Schema
+    use OmSchema
 
     schema "test_datetime" do
       field :birth_date, :date, past: true
@@ -117,7 +117,7 @@ defmodule Events.Core.Schema.EnhancedFieldPhase2Test do
 
   # Test module for multiple normalizations
   defmodule TestMultipleNormalizations do
-    use Events.Core.Schema
+    use OmSchema
 
     schema "test_normalizations" do
       field :username, :string, normalize: [:trim, :downcase]
@@ -134,7 +134,7 @@ defmodule Events.Core.Schema.EnhancedFieldPhase2Test do
 
   # Test module for cross-field validations
   defmodule TestCrossField do
-    use Events.Core.Schema
+    use OmSchema
 
     schema "test_cross_field" do
       field :password, :string
@@ -166,7 +166,7 @@ defmodule Events.Core.Schema.EnhancedFieldPhase2Test do
 
   # Test module for conditional validation
   defmodule TestConditionalValidation do
-    use Events.Core.Schema
+    use OmSchema
 
     schema "test_conditional" do
       field :discount_code, :string,

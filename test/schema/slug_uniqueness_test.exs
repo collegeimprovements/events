@@ -2,7 +2,7 @@ defmodule Events.Core.Schema.SlugUniquenessTest do
   use Events.TestCase, async: true
 
   defmodule Post do
-    use Events.Core.Schema
+    use OmSchema
 
     schema "posts" do
       field :title, :string, required: true
@@ -88,7 +88,7 @@ defmodule Events.Core.Schema.SlugUniquenessTest do
 
   describe "slug preset" do
     defmodule Article do
-      use Events.Core.Schema
+      use OmSchema
       import OmSchema.Presets
 
       schema "articles" do
@@ -131,7 +131,7 @@ defmodule Events.Core.Schema.SlugUniquenessTest do
 
   describe "custom suffix length" do
     defmodule CustomPost do
-      use Events.Core.Schema
+      use OmSchema
 
       schema "custom_posts" do
         # Slug with custom 8-character suffix

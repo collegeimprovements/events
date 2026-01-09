@@ -100,16 +100,11 @@ config :events, Events.Data.Repo, repo_config
 config :events, Events.Data.Cache, OmCache.Config.build()
 
 # ==============================================================================
-# HAMMER RATE LIMITER CONFIGURATION
+# RATE LIMITER CONFIGURATION (Hammer v7)
 # ==============================================================================
-
-config :hammer,
-  backend:
-    {Hammer.Backend.Redis,
-     [
-       expiry_ms: :timer.hours(2),
-       redix_config: OmCache.Config.redis_opts()
-     ]}
+# Events.Services.RateLimiter uses ETS backend by default.
+# For multi-node production deployments, create a Redis-backed module.
+# See lib/events/services/rate_limiter.ex for details.
 
 # ==============================================================================
 # PHOENIX ENDPOINT CONFIGURATION

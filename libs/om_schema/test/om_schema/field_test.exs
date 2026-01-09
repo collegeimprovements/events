@@ -1,4 +1,29 @@
 defmodule OmSchema.FieldTest do
+  @moduledoc """
+  Tests for OmSchema.Field - Enhanced field macro option splitting.
+
+  Field handles the separation of validation options from Ecto field options,
+  enabling rich validation declarations in schema definitions.
+
+  ## Use Cases
+
+  - **Inline validation**: `field :email, :string, required: true, format: :email`
+  - **Behavioral options**: `field :password, :string, sensitive: true, immutable: true`
+  - **Type-specific constraints**: `field :age, :integer, positive: true, max: 150`
+  - **Documentation**: `field :status, :string, doc: "User status", example: "active"`
+
+  ## Pattern: Declarative Field Options
+
+      field :email, :string,
+        required: true,
+        format: :email,
+        max_length: 255,
+        normalize: [:trim, :downcase],
+        unique: true
+
+  Options are split: validation goes to changeset, Ecto options go to schema.
+  """
+
   use ExUnit.Case, async: true
 
   alias OmSchema.Field

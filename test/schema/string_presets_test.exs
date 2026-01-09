@@ -4,7 +4,7 @@ defmodule Events.Core.Schema.StringPresetsTest do
   import OmSchema.Presets.Strings
 
   defmodule Profile do
-    use Events.Core.Schema
+    use OmSchema
 
     schema "profiles" do
       field :first_name, :string, preset: name()

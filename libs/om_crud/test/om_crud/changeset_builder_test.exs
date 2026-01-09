@@ -1,4 +1,32 @@
 defmodule OmCrud.ChangesetBuilderTest do
+  @moduledoc """
+  Tests for OmCrud.ChangesetBuilder - Flexible changeset construction.
+
+  ChangesetBuilder resolves which changeset function to use based on
+  operation type, options, and schema configuration.
+
+  ## Use Cases
+
+  - **Action-specific changesets**: :create uses :registration_changeset,
+    :update uses :profile_changeset
+  - **Admin overrides**: Pass `changeset: :admin_changeset` for privileged ops
+  - **Multi-step forms**: Different changesets for different form steps
+  - **API vs Web**: Different validation rules for different interfaces
+
+  ## Pattern: Changeset Resolution
+
+      # Resolution priority:
+      # 1. Explicit changeset: option
+      # 2. Action-specific: create_changeset:, update_changeset:
+      # 3. Schema @crud_changeset attribute
+      # 4. Default :changeset function
+
+      ChangesetBuilder.build(User, attrs, changeset: :admin_changeset)
+      ChangesetBuilder.build(user, attrs, update_changeset: :profile_changeset)
+
+  This allows schemas to define different validation rules per context.
+  """
+
   use ExUnit.Case, async: true
 
   alias OmCrud.ChangesetBuilder

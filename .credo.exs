@@ -17,14 +17,7 @@
         ]
       },
       plugins: [],
-      requires: [
-        "lib/events/support/credo/checks/use_events_schema.ex",
-        "lib/events/support/credo/checks/use_events_migration.ex",
-        "lib/events/support/credo/checks/no_bang_repo_operations.ex",
-        "lib/events/support/credo/checks/require_result_tuples.ex",
-        "lib/events/support/credo/checks/prefer_pattern_matching.ex",
-        "lib/events/support/credo/checks/use_decorator.ex"
-      ],
+      requires: [],
       strict: false,
       parse_timeout: 5000,
       color: true,
@@ -198,14 +191,43 @@
           {Credo.Check.Warning.WrongTestFileExtension, []},
 
           #
-          # Events Project Custom Checks
+          # Events Project Custom Checks (from OmCredo lib)
           #
-          {Events.Support.Credo.Checks.UseEventsSchema, []},
-          {Events.Support.Credo.Checks.UseEventsMigration, []},
-          {Events.Support.Credo.Checks.NoBangRepoOperations, []},
-          {Events.Support.Credo.Checks.RequireResultTuples, [priority: :normal]},
-          {Events.Support.Credo.Checks.PreferPatternMatching, [priority: :low]},
-          {Events.Support.Credo.Checks.UseDecorator, [priority: :low]}
+          {OmCredo.Checks.UseEnhancedSchema,
+           [
+             enhanced_module: OmSchema,
+             raw_module: Ecto.Schema,
+             files: %{excluded: [~r"/test/", ~r"/deps/"]}
+           ]},
+          {OmCredo.Checks.UseEnhancedMigration,
+           [
+             enhanced_module: OmMigration,
+             raw_module: Ecto.Migration,
+             files: %{excluded: [~r"/test/", ~r"/deps/"]}
+           ]},
+          {OmCredo.Checks.NoBangRepoOperations,
+           [
+             repo_modules: [:Repo, Events.Data.Repo],
+             files: %{excluded: [~r"/test/", ~r"/deps/", ~r"/examples/"]}
+           ]},
+          {OmCredo.Checks.RequireResultTuples,
+           [
+             priority: :normal,
+             paths: ["/lib/events/domains/", "/lib/events/services/"],
+             excluded_names: ["changeset", "new", "build", "get", "fetch!"]
+           ]},
+          {OmCredo.Checks.PreferPatternMatching,
+           [
+             priority: :low,
+             files: %{excluded: [~r"/test/", ~r"/mix/tasks/"]}
+           ]},
+          {OmCredo.Checks.UseDecorator,
+           [
+             priority: :low,
+             decorator_module: FnDecorator,
+             paths: ["/lib/events/domains/", "/lib/events/services/"],
+             files: %{excluded: [~r"/test/"]}
+           ]}
         ],
         disabled: [
           # Disabled because we use multi-alias imports

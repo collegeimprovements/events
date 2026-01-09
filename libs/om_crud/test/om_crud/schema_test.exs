@@ -1,4 +1,35 @@
 defmodule OmCrud.SchemaTest do
+  @moduledoc """
+  Tests for OmCrud.Schema - Schema-level CRUD configuration.
+
+  OmCrud.Schema provides schema-level defaults for CRUD operations,
+  eliminating repetitive option passing and centralizing configuration.
+
+  ## Use Cases
+
+  - **Default changesets**: Always use :registration_changeset for User creates
+  - **Auto-preloading**: Every fetch includes [:account, :profile] by default
+  - **Schema-specific timeouts**: Long-running queries get extended timeouts
+  - **Soft deletes**: Configure soft delete behavior at schema level
+
+  ## Pattern: Schema Configuration
+
+      defmodule MyApp.User do
+        use Ecto.Schema
+        use OmCrud.Schema
+
+        crud_changeset :registration_changeset
+        crud_config preload: [:account], timeout: 30_000
+
+        schema "users" do
+          field :name, :string
+          belongs_to :account, Account
+        end
+      end
+
+  Configuration is picked up automatically by OmCrud operations.
+  """
+
   use ExUnit.Case, async: true
 
   describe "use OmCrud.Schema" do

@@ -132,16 +132,17 @@ defmodule Events.Dev.IExHelpers do
   end
 
   @doc """
-  Quick Redis connectivity via Hammer.
+  Quick Redis connectivity via RateLimiter.
   """
   def redis_check do
-    case Hammer.check_rate("iex_check", 60_000, 1) do
-      {:allow, _} -> IO.puts("✓ Redis connected via Hammer")
-      {:deny, _} -> IO.puts("✓ Redis connected (rate limited)")
-      {:error, reason} -> IO.puts("✗ Redis error: #{inspect(reason)}")
+    alias Events.Services.RateLimiter
+
+    case RateLimiter.check("iex_check", 60_000, 1) do
+      {:allow, _} -> IO.puts("✓ RateLimiter connected")
+      {:deny, _} -> IO.puts("✓ RateLimiter connected (rate limited)")
     end
   rescue
-    e -> IO.puts("✗ Redis error: #{Exception.message(e)}")
+    e -> IO.puts("✗ RateLimiter error: #{Exception.message(e)}")
   end
 
   @doc """

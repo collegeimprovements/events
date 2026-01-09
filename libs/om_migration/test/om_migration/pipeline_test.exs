@@ -1,4 +1,30 @@
 defmodule OmMigration.PipelineTest do
+  @moduledoc """
+  Tests for OmMigration.Pipeline - Composable migration patterns.
+
+  Pipeline provides pre-built migration patterns that combine multiple fields,
+  indexes, and constraints into reusable, domain-specific building blocks.
+
+  ## Use Cases
+
+  - **User tables**: Identity fields, authentication, profiles, soft deletes
+  - **Business entities**: Money fields, status with constraints, metadata
+  - **Content tables**: Tags, settings, slugs, full-text search
+  - **Infrastructure**: UUID primary keys, timestamps, version tracking
+
+  ## Pattern: Pipeline Composition
+
+      Token.new(:table, :users)
+      |> Pipeline.with_uuid_primary_key()
+      |> Pipeline.with_identity([:email, :username])
+      |> Pipeline.with_authentication()
+      |> Pipeline.with_profile([:bio, :avatar])
+      |> Pipeline.with_soft_delete()
+      |> Pipeline.with_timestamps()
+
+  Pipelines encapsulate common patterns, ensuring consistency across tables.
+  """
+
   use ExUnit.Case, async: true
 
   alias OmMigration.{Token, Pipeline}

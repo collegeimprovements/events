@@ -1,4 +1,4 @@
-defmodule Events.Infra.IdempotencyTest do
+defmodule OmIdempotencyTest do
   use ExUnit.Case, async: true
 
   alias OmIdempotency

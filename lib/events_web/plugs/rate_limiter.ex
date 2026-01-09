@@ -1,6 +1,6 @@
 defmodule EventsWeb.Plugs.RateLimiter do
   @moduledoc """
-  Rate limiting plug using Hammer with Redis backend.
+  Rate limiting plug using Events.Services.RateLimiter (Hammer v7).
 
   ## Usage
 
@@ -40,6 +40,8 @@ defmodule EventsWeb.Plugs.RateLimiter do
 
   import Plug.Conn
 
+  alias Events.Services.RateLimiter
+
   @behaviour Plug
 
   @default_max_requests 60
@@ -61,12 +63,12 @@ defmodule EventsWeb.Plugs.RateLimiter do
     identifier = get_identifier(conn, opts.identifier)
     bucket_id = "#{opts.id_prefix}:#{identifier}"
 
-    case Hammer.check_rate(bucket_id, opts.interval_ms, opts.max_requests) do
+    case safe_check(bucket_id, opts.interval_ms, opts.max_requests) do
       {:allow, _count} ->
         conn
 
-      {:deny, _limit} ->
-        retry_after = div(opts.interval_ms, 1000)
+      {:deny, retry_after_ms} ->
+        retry_after = max(div(retry_after_ms, 1000), 1)
 
         conn
         |> put_resp_header("x-ratelimit-limit", to_string(opts.max_requests))
@@ -75,13 +77,14 @@ defmodule EventsWeb.Plugs.RateLimiter do
         |> put_resp_header("retry-after", to_string(retry_after))
         |> send_resp(429, rate_limit_message(retry_after))
         |> halt()
-
-      {:error, reason} ->
-        # Log the error but don't fail the request
-        require Logger
-        Logger.error("Rate limiter error: #{inspect(reason)}")
-        conn
     end
+  end
+
+  # Wraps rate limiter check with error handling - fail open on any errors
+  defp safe_check(bucket_id, interval_ms, max_requests) do
+    RateLimiter.check(bucket_id, interval_ms, max_requests)
+  rescue
+    _ -> {:allow, 0}
   end
 
   defp get_identifier(conn, nil), do: get_ip(conn)

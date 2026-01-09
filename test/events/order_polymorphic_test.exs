@@ -1,14 +1,14 @@
 defmodule Events.OrderPolymorphicTest do
   use Events.TestCase, async: true
 
-  alias Events.Core.Query
+  alias OmQuery
 
   describe "order_by/order - Ecto keyword syntax vs tuple syntax" do
     test "Ecto keyword syntax - [asc: :field, desc: :field]" do
       token =
         User
-        |> Query.new()
-        |> Query.order_by(asc: :name, desc: :created_at, asc: :id)
+        |> OmQuery.new()
+        |> OmQuery.order_by(asc: :name, desc: :created_at, asc: :id)
 
       assert length(token.operations) == 3
 
@@ -22,8 +22,8 @@ defmodule Events.OrderPolymorphicTest do
     test "Ecto keyword syntax with null handling" do
       token =
         User
-        |> Query.new()
-        |> Query.order_by(desc_nulls_first: :score, asc_nulls_last: :name)
+        |> OmQuery.new()
+        |> OmQuery.order_by(desc_nulls_first: :score, asc_nulls_last: :name)
 
       assert length(token.operations) == 2
 
@@ -34,8 +34,8 @@ defmodule Events.OrderPolymorphicTest do
     test "tuple syntax - [{:field, :direction}]" do
       token =
         User
-        |> Query.new()
-        |> Query.order_by([{:name, :asc}, {:created_at, :desc}, {:id, :asc}])
+        |> OmQuery.new()
+        |> OmQuery.order_by([{:name, :asc}, {:created_at, :desc}, {:id, :asc}])
 
       assert length(token.operations) == 3
 
@@ -48,10 +48,10 @@ defmodule Events.OrderPolymorphicTest do
 
     test "both syntaxes produce same result" do
       # Ecto keyword syntax
-      token1 = User |> Query.new() |> Query.order_by(asc: :name, desc: :age)
+      token1 = User |> OmQuery.new() |> OmQuery.order_by(asc: :name, desc: :age)
 
       # Tuple syntax
-      token2 = User |> Query.new() |> Query.order_by([{:name, :asc}, {:age, :desc}])
+      token2 = User |> OmQuery.new() |> OmQuery.order_by([{:name, :asc}, {:age, :desc}])
 
       # Should be identical
       assert token1.operations == token2.operations
@@ -60,8 +60,8 @@ defmodule Events.OrderPolymorphicTest do
     test "mixed syntaxes in one call" do
       token =
         User
-        |> Query.new()
-        |> Query.order_by([
+        |> OmQuery.new()
+        |> OmQuery.order_by([
           # Plain atom
           :status,
           # Tuple
@@ -80,8 +80,8 @@ defmodule Events.OrderPolymorphicTest do
     test "order_by with single field" do
       token =
         User
-        |> Query.new()
-        |> Query.order_by(:name)
+        |> OmQuery.new()
+        |> OmQuery.order_by(:name)
 
       assert [{:order, {:name, :asc, []}}] = token.operations
     end
@@ -89,8 +89,8 @@ defmodule Events.OrderPolymorphicTest do
     test "order_by with single field and direction" do
       token =
         User
-        |> Query.new()
-        |> Query.order_by(:created_at, :desc)
+        |> OmQuery.new()
+        |> OmQuery.order_by(:created_at, :desc)
 
       assert [{:order, {:created_at, :desc, []}}] = token.operations
     end
@@ -98,8 +98,8 @@ defmodule Events.OrderPolymorphicTest do
     test "order_by with list of fields" do
       token =
         User
-        |> Query.new()
-        |> Query.order_by([{:priority, :desc}, {:created_at, :desc}, :id])
+        |> OmQuery.new()
+        |> OmQuery.order_by([{:priority, :desc}, {:created_at, :desc}, :id])
 
       assert length(token.operations) == 3
 
@@ -113,8 +113,8 @@ defmodule Events.OrderPolymorphicTest do
     test "order_by with list containing various formats" do
       token =
         User
-        |> Query.new()
-        |> Query.order_by([
+        |> OmQuery.new()
+        |> OmQuery.order_by([
           # atom (defaults to :asc)
           :name,
           # 2-tuple
@@ -137,8 +137,8 @@ defmodule Events.OrderPolymorphicTest do
     test "order (alias) with single field" do
       token =
         User
-        |> Query.new()
-        |> Query.order(:name)
+        |> OmQuery.new()
+        |> OmQuery.order(:name)
 
       assert [{:order, {:name, :asc, []}}] = token.operations
     end
@@ -146,8 +146,8 @@ defmodule Events.OrderPolymorphicTest do
     test "order (alias) with list of fields" do
       token =
         User
-        |> Query.new()
-        |> Query.order([{:priority, :desc}, :id])
+        |> OmQuery.new()
+        |> OmQuery.order([{:priority, :desc}, :id])
 
       assert length(token.operations) == 2
     end
@@ -155,10 +155,10 @@ defmodule Events.OrderPolymorphicTest do
     test "can mix single and list calls" do
       token =
         User
-        |> Query.new()
-        |> Query.order_by(:status)
-        |> Query.order_by([{:priority, :desc}, {:created_at, :desc}])
-        |> Query.order_by(:id)
+        |> OmQuery.new()
+        |> OmQuery.order_by(:status)
+        |> OmQuery.order_by([{:priority, :desc}, {:created_at, :desc}])
+        |> OmQuery.order_by(:id)
 
       assert length(token.operations) == 4
     end
@@ -166,8 +166,8 @@ defmodule Events.OrderPolymorphicTest do
     test "list form is same as order_bys" do
       list = [{:priority, :desc}, {:created_at, :desc}, :id]
 
-      token1 = User |> Query.new() |> Query.order_by(list)
-      token2 = User |> Query.new() |> Query.order_bys(list)
+      token1 = User |> OmQuery.new() |> OmQuery.order_by(list)
+      token2 = User |> OmQuery.new() |> OmQuery.order_bys(list)
 
       assert token1.operations == token2.operations
     end
@@ -175,8 +175,8 @@ defmodule Events.OrderPolymorphicTest do
     test "list form is same as orders" do
       list = [{:priority, :desc}, :id]
 
-      token1 = User |> Query.new() |> Query.order(list)
-      token2 = User |> Query.new() |> Query.orders(list)
+      token1 = User |> OmQuery.new() |> OmQuery.order(list)
+      token2 = User |> OmQuery.new() |> OmQuery.orders(list)
 
       assert token1.operations == token2.operations
     end

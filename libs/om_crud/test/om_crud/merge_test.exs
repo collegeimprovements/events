@@ -1,4 +1,30 @@
 defmodule OmCrud.MergeTest do
+  @moduledoc """
+  Tests for OmCrud.Merge - PostgreSQL MERGE operations for complex upserts.
+
+  Merge provides a fluent API for building SQL MERGE statements, enabling
+  sophisticated insert/update/delete logic in a single query.
+
+  ## Use Cases
+
+  - **Sync external data**: Match on external_id, update if exists, insert if new
+  - **Inventory updates**: Match on SKU, update quantities, insert new products
+  - **User imports**: Match on email, update profiles, skip duplicates
+  - **Deactivation**: Match on criteria, delete matches, ignore non-matches
+
+  ## Pattern: Fluent MERGE Builder
+
+      User
+      |> Merge.new(users_from_api)
+      |> Merge.match_on(:email)
+      |> Merge.when_matched(:update, [:name, :updated_at])
+      |> Merge.when_not_matched(:insert)
+      |> Merge.returning([:id, :email])
+      |> OmCrud.run()
+
+  MERGE is more efficient than separate SELECT + INSERT/UPDATE for bulk syncs.
+  """
+
   use ExUnit.Case, async: true
 
   alias OmCrud.Merge

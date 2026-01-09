@@ -1,4 +1,29 @@
 defmodule DagTest do
+  @moduledoc """
+  Tests for Dag - Directed Acyclic Graph data structure.
+
+  Dag provides an immutable DAG implementation with rich operations for
+  graph construction, traversal, analysis, and visualization.
+
+  ## Use Cases
+
+  - **Workflow orchestration**: Model step dependencies, find execution order
+  - **Build systems**: Dependency resolution, parallel execution planning
+  - **Data pipelines**: Stage ordering, critical path analysis
+  - **Scheduling**: Task prioritization, resource allocation
+
+  ## Pattern: Fluent Graph Building
+
+      Dag.new()
+      |> Dag.add_edge(:fetch_data, :transform)
+      |> Dag.add_edge(:transform, :validate)
+      |> Dag.add_edge(:validate, :persist)
+      |> Dag.topological_sort()  # => [:fetch_data, :transform, :validate, :persist]
+
+  Key algorithms: topological sort, cycle detection, critical path, shortest path.
+  Implements Enumerable for iteration and Collectable for building.
+  """
+
   use ExUnit.Case, async: true
 
   doctest Dag

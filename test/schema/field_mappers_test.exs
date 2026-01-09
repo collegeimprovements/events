@@ -2,7 +2,7 @@ defmodule Events.Core.Schema.FieldMappersTest do
   use Events.TestCase, async: true
 
   defmodule TestUser do
-    use Events.Core.Schema
+    use OmSchema
 
     schema "test_users" do
       # Using mappers with atom names (recommended)

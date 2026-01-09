@@ -1,4 +1,40 @@
 defmodule OmHealthTest do
+  @moduledoc """
+  Tests for OmHealth - Declarative health check system.
+
+  OmHealth provides a DSL for defining service health checks with support
+  for critical vs non-critical services, proxy detection, and environment info.
+
+  ## Use Cases
+
+  - **Load balancer health**: `/health` endpoint for traffic routing
+  - **Kubernetes probes**: Liveness and readiness checks
+  - **Service monitoring**: Dashboard showing all dependency statuses
+  - **Graceful degradation**: Continue operation when non-critical services fail
+
+  ## Pattern: Declarative Health Definition
+
+      defmodule MyApp.Health do
+        use OmHealth
+
+        config do
+          app_name :my_app
+        end
+
+        services do
+          service :database, type: :postgres, critical: true
+          service :cache, type: :redis, critical: false
+          service :api, type: :custom, check: {ApiClient, :ping}
+        end
+      end
+
+      # Usage:
+      MyApp.Health.overall_status()  # => :healthy | :degraded | :unhealthy
+      MyApp.Health.check_all()       # => %{services: [...], environment: ..., proxy: ...}
+
+  Returns :healthy (all ok), :degraded (non-critical failed), or :unhealthy (critical failed).
+  """
+
   use ExUnit.Case, async: true
 
   describe "DSL" do

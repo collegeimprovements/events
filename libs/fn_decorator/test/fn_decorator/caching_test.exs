@@ -1,14 +1,26 @@
 defmodule FnDecorator.CachingTest do
-  use ExUnit.Case, async: true
+  @moduledoc """
+  Tests for FnDecorator caching decorators - @cacheable, @cache_put, @cache_evict.
 
-  # ============================================
-  # Caching Schema Validation Tests
-  # ============================================
-  #
-  # Note: Full integration tests with actual caching would require
-  # a cache module to be available at compile time. These tests
-  # validate the decorator schemas and ensure proper validation.
-  # ============================================
+  These decorators provide declarative caching for function results:
+
+  ## Use Cases
+
+  - **@cacheable**: Cache function results with TTL, serve stale during refresh
+  - **@cache_put**: Update cache after function execution
+  - **@cache_evict**: Clear cache entries (single key, pattern match, or all)
+
+  ## Pattern: Transparent Caching
+
+      @decorate cacheable(store: [cache: MyCache, key: {User, id}, ttl: :timer.minutes(5)])
+      def get_user(id), do: Repo.get(User, id)
+
+  Note: Full integration tests with actual caching would require
+  a cache module to be available at compile time. These tests
+  validate the decorator schemas and ensure proper validation.
+  """
+
+  use ExUnit.Case, async: true
 
   describe "cacheable schema validation" do
     test "validates store option is required" do

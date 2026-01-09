@@ -1,4 +1,30 @@
 defmodule OmS3Test do
+  @moduledoc """
+  Tests for OmS3 - Fluent S3 operations API.
+
+  OmS3 provides a chainable, pipeline-friendly interface for S3 operations
+  with filename normalization, presigned URLs, and multipart uploads.
+
+  ## Use Cases
+
+  - **File uploads**: Put objects with content type, metadata, ACL
+  - **Presigned URLs**: Generate secure, time-limited download/upload links
+  - **Filename normalization**: Sanitize user filenames for S3 keys
+  - **Multipart uploads**: Handle large files with concurrent chunk uploads
+
+  ## Pattern: Fluent S3 Pipeline
+
+      OmS3.new(access_key_id: "...", secret_access_key: "...")
+      |> OmS3.bucket("my-bucket")
+      |> OmS3.prefix("uploads/")
+      |> OmS3.content_type("image/jpeg")
+      |> OmS3.acl("public-read")
+      |> OmS3.expires_in({15, :minutes})
+      |> OmS3.presign_upload("photo.jpg")
+
+  Supports: put, get, delete, copy, list, presigned URLs, multipart uploads.
+  """
+
   use ExUnit.Case, async: true
 
   describe "config/1" do

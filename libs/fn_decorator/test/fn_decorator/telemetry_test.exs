@@ -1,4 +1,26 @@
 defmodule FnDecorator.TelemetryTest do
+  @moduledoc """
+  Tests for FnDecorator telemetry decorators - @telemetry_span, @log_if_slow, etc.
+
+  These decorators add observability to functions without cluttering business logic:
+
+  ## Use Cases
+
+  - **@telemetry_span**: Emit start/stop/exception events for distributed tracing
+  - **@log_if_slow**: Warn when operations exceed threshold (find performance issues)
+  - **@benchmark**: Measure and report execution time statistics
+
+  ## Pattern: Declarative Observability
+
+      @decorate telemetry_span(event: [:myapp, :users, :fetch])
+      def fetch_user(id), do: Repo.get(User, id)
+
+      @decorate log_if_slow(threshold: 100)  # Log if > 100ms
+      def expensive_operation(data), do: ...
+
+  Events follow the [:app, :domain, :action] + [:start|:stop|:exception] convention.
+  """
+
   use ExUnit.Case, async: false
 
   # ============================================

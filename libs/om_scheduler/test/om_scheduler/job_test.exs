@@ -1,4 +1,36 @@
 defmodule OmScheduler.JobTest do
+  @moduledoc """
+  Tests for OmScheduler.Job - Scheduled job definition and management.
+
+  Job encapsulates all configuration for a scheduled task including
+  schedule type (cron/interval/reboot), retry behavior, and state tracking.
+
+  ## Use Cases
+
+  - **Cron jobs**: Run at specific times ("0 6 * * *" = daily at 6 AM)
+  - **Interval jobs**: Run every N seconds/minutes/hours
+  - **Reboot jobs**: Run once on application startup
+  - **Job control**: Enable, pause, set priority and retries
+
+  ## Pattern: Job Configuration
+
+      Job.new(%{
+        name: "daily_report",
+        module: "MyApp.ReportWorker",
+        function: "generate",
+        cron: "0 6 * * *",           # Daily at 6 AM
+        queue: "reports",
+        max_retries: 3,
+        timeout: 120_000
+      })
+
+      # Or with decorator:
+      @decorate scheduled(cron: "0 6 * * *", queue: :reports)
+      def generate, do: ...
+
+  Job tracks: next_run_at, last_run_at, run_count, fail_count, state.
+  """
+
   use ExUnit.Case, async: true
 
   alias OmScheduler.Job

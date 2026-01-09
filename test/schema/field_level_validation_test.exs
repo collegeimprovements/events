@@ -2,7 +2,7 @@ defmodule Events.Core.Schema.FieldLevelValidationTest do
   use Events.TestCase, async: true
 
   defmodule TestUser do
-    use Events.Core.Schema
+    use OmSchema
     import OmSchema.Presets
 
     schema "test_users" do

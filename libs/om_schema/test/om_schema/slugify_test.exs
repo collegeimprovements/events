@@ -1,4 +1,38 @@
 defmodule OmSchema.SlugifyTest do
+  @moduledoc """
+  Tests for OmSchema.Slugify - URL-safe slug generation from text.
+
+  Slugify converts human-readable text into URL-safe slugs with options
+  for customization, uniqueness, and truncation.
+
+  ## Use Cases
+
+  - **Blog posts**: "Hello World!" → "hello-world"
+  - **Product SKUs**: "Widget Pro 2000" → "widget-pro-2000"
+  - **Unique identifiers**: "New Post" → "new-post-x7k2m9" (with uniquify)
+  - **URL-safe filenames**: "My Document.pdf" → "my-document.pdf"
+  - **Unicode handling**: "café résumé" → "cafe-resume"
+
+  ## Pattern: Slug Generation Options
+
+      # Basic usage
+      Slugify.slugify("Hello World")          # "hello-world"
+
+      # With uniqueness suffix
+      Slugify.slugify("Post", uniquify: true) # "post-a7b3c2"
+
+      # Custom separator
+      Slugify.slugify("Hello World", separator: "_") # "hello_world"
+
+      # Preserve case
+      Slugify.slugify("Hello World", lowercase: false) # "Hello-World"
+
+      # Truncate long slugs
+      Slugify.slugify("Very Long Title...", truncate: 20)
+
+  Slugify handles unicode, special characters, and edge cases safely.
+  """
+
   use ExUnit.Case, async: true
 
   alias OmSchema.Slugify

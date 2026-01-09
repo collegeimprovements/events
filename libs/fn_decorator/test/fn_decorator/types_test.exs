@@ -1,4 +1,27 @@
 defmodule FnDecorator.TypesTest do
+  @moduledoc """
+  Tests for FnDecorator type decorators - returns_result, returns_maybe, returns_bang.
+
+  These decorators transform function return values to enforce type contracts:
+
+  ## Use Cases
+
+  - **returns_result**: Normalize all returns to {:ok, value} | {:error, reason}
+  - **returns_maybe**: Handle optional values with defaults, returning value | nil
+  - **returns_bang**: Unwrap result tuples, raise on error
+  - **normalize_result**: Convert raw values to result tuples automatically
+
+  ## Pattern: Consistent Return Types
+
+      @decorate returns_result(ok: User.t(), error: :atom)
+      def fetch_user(id), do: Repo.get(User, id)
+
+      @decorate returns_maybe(type: String.t(), default: "Guest")
+      def get_username(user), do: user && user.name
+
+  These decorators make APIs more predictable and self-documenting.
+  """
+
   use ExUnit.Case, async: true
 
   # ============================================

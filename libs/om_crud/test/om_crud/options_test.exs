@@ -1,4 +1,34 @@
 defmodule OmCrud.OptionsTest do
+  @moduledoc """
+  Tests for OmCrud.Options - Option parsing and validation for CRUD operations.
+
+  Options handles the parsing, validation, and extraction of options for
+  different CRUD operation types, ensuring consistent behavior.
+
+  ## Use Cases
+
+  - **Operation filtering**: Extract only relevant opts for insert vs update
+  - **Multi-tenancy**: Extract prefix for schema-based tenant isolation
+  - **Performance tuning**: Configure timeouts, returning fields, conflict handling
+  - **Preload control**: Specify associations to preload with results
+
+  ## Pattern: Option Categories
+
+      # Common options (all operations)
+      [repo: MyRepo, timeout: 30_000, prefix: "tenant_1", log: :debug]
+
+      # Write options (insert/update)
+      [changeset: :custom, returning: true, stale_error_field: :lock_version]
+
+      # Bulk options (insert_all/update_all)
+      [on_conflict: :replace_all, conflict_target: :email, placeholders: %{}]
+
+      # Query options (fetch/list)
+      [preload: [:account, :settings]]
+
+  Options uses the appropriate subset for each operation type.
+  """
+
   use ExUnit.Case, async: true
 
   alias OmCrud.Options

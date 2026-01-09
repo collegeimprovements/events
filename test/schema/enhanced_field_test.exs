@@ -2,7 +2,7 @@ defmodule Events.Core.Schema.EnhancedFieldTest do
   use Events.TestCase, async: true
 
   defmodule TestUser do
-    use Events.Core.Schema
+    use OmSchema
 
     schema "users" do
       field :name, :string, required: true, min_length: 2, max_length: 100
@@ -21,7 +21,7 @@ defmodule Events.Core.Schema.EnhancedFieldTest do
   end
 
   defmodule TestPost do
-    use Events.Core.Schema
+    use OmSchema
 
     schema "posts" do
       field :title, :string, required: true
