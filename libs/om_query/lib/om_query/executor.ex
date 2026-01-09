@@ -9,16 +9,10 @@ defmodule OmQuery.Executor do
   # - Streaming support
   # - Timeout handling
   # - Total count computation
+  # - Query complexity warnings
 
   import Ecto.Query
-  alias OmQuery.{Token, Builder, Result}
-
-  @default_timeout 15_000
-
-  # Configurable defaults - can be overridden via application config
-  # config :om_query, default_repo: MyApp.Repo, telemetry_prefix: [:my_app, :query]
-  @default_repo Application.compile_env(:om_query, :default_repo, nil)
-  @telemetry_prefix Application.compile_env(:om_query, :telemetry_prefix, [:om_query])
+  alias OmQuery.{Token, Builder, Result, Config}
 
   @doc """
   Execute a query token and return result or error tuple.
@@ -58,9 +52,16 @@ defmodule OmQuery.Executor do
   @spec execute!(Token.t(), keyword()) :: Result.t()
   def execute!(%Token{} = token, opts \\ []) do
     start_time = System.monotonic_time(:microsecond)
-    repo = get_repo(opts)
-    timeout = opts[:timeout] || @default_timeout
+    repo = Config.repo!(opts)
+    timeout = Config.timeout(opts)
     include_total = opts[:include_total_count] || false
+
+    # Check query complexity and emit warnings if needed
+    Config.check_complexity(token)
+
+    # Validate pagination options if present
+    {_type, pagination_opts} = get_pagination_info(token)
+    Config.validate_pagination!(pagination_opts)
 
     # Emit telemetry start event
     emit_telemetry_start(token, opts)
@@ -144,7 +145,7 @@ defmodule OmQuery.Executor do
   """
   @spec stream(Token.t(), keyword()) :: Enumerable.t()
   def stream(%Token{} = token, opts \\ []) do
-    repo = get_repo(opts)
+    repo = Config.repo!(opts)
     max_rows = opts[:max_rows] || 500
 
     # Warn if query has no limits - potential for large result sets
@@ -192,7 +193,7 @@ defmodule OmQuery.Executor do
   """
   @spec batch([Token.t()], keyword()) :: [{:ok, Result.t()} | {:error, Exception.t()}]
   def batch(tokens, opts \\ []) when is_list(tokens) do
-    timeout = opts[:timeout] || @default_timeout
+    timeout = Config.timeout(opts)
 
     # Execute all queries in parallel using Task
     # Each task returns {:ok, result} or {:error, exception}
@@ -361,7 +362,7 @@ defmodule OmQuery.Executor do
     {filter_summary, filter_count} = extract_filter_context(token)
 
     :telemetry.execute(
-      @telemetry_prefix ++ [:start],
+      Config.telemetry_event(:start),
       %{system_time: System.system_time()},
       %{
         source: token.source,
@@ -385,7 +386,7 @@ defmodule OmQuery.Executor do
     {filter_summary, filter_count} = extract_filter_context(token)
 
     :telemetry.execute(
-      @telemetry_prefix ++ [:stop],
+      Config.telemetry_event(:stop),
       %{
         duration: result.metadata.total_time_μs * 1000,
         query_time: result.metadata.query_time_μs * 1000
@@ -424,7 +425,7 @@ defmodule OmQuery.Executor do
 
   defp do_emit_telemetry_exception(token, exception, duration, opts, _enabled) do
     :telemetry.execute(
-      @telemetry_prefix ++ [:exception],
+      Config.telemetry_event(:exception),
       %{duration: duration * 1000},
       %{
         source: token.source,
@@ -436,11 +437,6 @@ defmodule OmQuery.Executor do
     )
   end
 
-  # Helper to get repo from opts or configured default
-  defp get_repo(opts) do
-    opts[:repo] || @default_repo ||
-      raise "No repo configured. Pass :repo option or configure default_repo: config :om_query, default_repo: MyApp.Repo"
-  end
 
   # ============================================================================
   # Batch Operations (update_all, delete_all)
@@ -506,8 +502,8 @@ defmodule OmQuery.Executor do
   """
   @spec update_all!(Token.t(), keyword(), keyword()) :: {non_neg_integer(), nil | [map()]}
   def update_all!(%Token{} = token, updates, opts \\ []) when is_list(updates) do
-    repo = get_repo(opts)
-    timeout = opts[:timeout] || @default_timeout
+    repo = Config.repo!(opts)
+    timeout = Config.timeout(opts)
 
     # Build the base query from token (filters, joins only - no select, order, pagination)
     query = build_update_query(token)
@@ -570,8 +566,8 @@ defmodule OmQuery.Executor do
   """
   @spec delete_all!(Token.t(), keyword()) :: {non_neg_integer(), nil | [map()]}
   def delete_all!(%Token{} = token, opts \\ []) do
-    repo = get_repo(opts)
-    timeout = opts[:timeout] || @default_timeout
+    repo = Config.repo!(opts)
+    timeout = Config.timeout(opts)
 
     # Build the base query from token (filters, joins only)
     query = build_delete_query(token)
@@ -678,14 +674,14 @@ defmodule OmQuery.Executor do
   """
   @spec explain!(Token.t(), keyword()) :: String.t() | list(map())
   def explain!(%Token{} = token, opts) do
-    repo = get_repo(opts)
+    repo = Config.repo!(opts)
 
     # Build query from token
     query = Builder.build(token)
 
     # Split our options from explain options
     {our_opts, explain_opts} = Keyword.split(opts, [:repo, :timeout])
-    timeout = our_opts[:timeout] || @default_timeout
+    timeout = Config.timeout(our_opts)
 
     # Add timeout to explain options
     explain_opts = Keyword.put(explain_opts, :timeout, timeout)
@@ -737,5 +733,344 @@ defmodule OmQuery.Executor do
     end
 
     token
+  end
+
+  # ============================================================================
+  # Bulk Insert Operations
+  # ============================================================================
+
+  @doc """
+  Insert multiple records in a single query.
+
+  This is a low-level bulk insert that bypasses changesets for performance.
+  For validated inserts, use OmCrud.create_all/3 instead.
+
+  ## Options
+
+  - `:repo` - Ecto repo to use (default: configured)
+  - `:timeout` - Query timeout in ms (default: 15000)
+  - `:returning` - Fields to return (e.g., `[:id]` or `true` for all)
+  - `:prefix` - Database schema prefix for multi-tenant apps
+  - `:on_conflict` - Conflict handling (see upsert_all/4)
+  - `:conflict_target` - Column(s) for conflict detection
+  - `:placeholders` - Map of shared values to reduce data transfer
+
+  ## Examples
+
+      # Basic bulk insert
+      users = [
+        %{name: "Alice", email: "alice@example.com"},
+        %{name: "Bob", email: "bob@example.com"}
+      ]
+      {:ok, {2, nil}} = OmQuery.insert_all(User, users)
+
+      # With returning
+      {:ok, {2, records}} = OmQuery.insert_all(User, users, returning: [:id, :inserted_at])
+
+      # With placeholders (efficient for shared values)
+      now = DateTime.utc_now()
+      users = [
+        %{name: "Alice", inserted_at: {:placeholder, :now}},
+        %{name: "Bob", inserted_at: {:placeholder, :now}}
+      ]
+      {:ok, {2, nil}} = OmQuery.insert_all(User, users, placeholders: %{now: now})
+
+      # Ignore conflicts (skip duplicates)
+      {:ok, {count, nil}} = OmQuery.insert_all(User, users,
+        on_conflict: :nothing,
+        conflict_target: :email
+      )
+  """
+  @spec insert_all(module(), [map()], keyword()) ::
+          {:ok, {non_neg_integer(), nil | [map()]}} | {:error, term()}
+  def insert_all(schema, entries, opts \\ []) when is_atom(schema) and is_list(entries) do
+    {:ok, insert_all!(schema, entries, opts)}
+  rescue
+    e -> {:error, e}
+  end
+
+  @doc """
+  Insert multiple records. Raises on failure.
+
+  See `insert_all/3` for documentation.
+  """
+  @spec insert_all!(module(), [map()], keyword()) :: {non_neg_integer(), nil | [map()]}
+  def insert_all!(schema, entries, opts \\ []) when is_atom(schema) and is_list(entries) do
+    repo = Config.repo!(opts)
+    timeout = Config.timeout(opts)
+
+    repo_opts =
+      opts
+      |> Keyword.take([:returning, :prefix, :on_conflict, :conflict_target, :placeholders])
+      |> Keyword.put(:timeout, timeout)
+      |> reject_nil_values()
+
+    repo.insert_all(schema, entries, repo_opts)
+  end
+
+  @doc """
+  Upsert multiple records (insert or update on conflict).
+
+  Combines insert with conflict resolution for idempotent bulk operations.
+
+  ## Conflict Options
+
+  - `:conflict_target` - Column(s) that determine uniqueness (required)
+    - Single: `:email`
+    - Multiple: `[:org_id, :email]`
+    - Constraint: `{:constraint, :users_email_org_unique}`
+
+  - `:on_conflict` - What to do on conflict:
+    - `:nothing` - Skip conflicting rows
+    - `:replace_all` - Replace all fields
+    - `{:replace, [:field1, :field2]}` - Replace specific fields
+    - `{:replace_all_except, [:id, :inserted_at]}` - Replace all except listed
+    - Keyword list for custom: `[set: [updated_at: DateTime.utc_now()]]`
+
+  ## Examples
+
+      # Basic upsert - update name on email conflict
+      users = [%{email: "a@b.com", name: "Updated"}]
+      {:ok, {1, nil}} = OmQuery.upsert_all(User, users,
+        conflict_target: :email,
+        on_conflict: {:replace, [:name, :updated_at]}
+      )
+
+      # Skip duplicates
+      {:ok, {count, nil}} = OmQuery.upsert_all(User, users,
+        conflict_target: :email,
+        on_conflict: :nothing
+      )
+
+      # Replace all fields except id and timestamps
+      {:ok, {count, records}} = OmQuery.upsert_all(User, users,
+        conflict_target: :email,
+        on_conflict: {:replace_all_except, [:id, :inserted_at]},
+        returning: true
+      )
+
+      # Composite conflict target
+      {:ok, {count, nil}} = OmQuery.upsert_all(OrgUser, entries,
+        conflict_target: [:org_id, :user_id],
+        on_conflict: {:replace, [:role, :updated_at]}
+      )
+  """
+  @spec upsert_all(module(), [map()], keyword()) ::
+          {:ok, {non_neg_integer(), nil | [map()]}} | {:error, term()}
+  def upsert_all(schema, entries, opts) when is_atom(schema) and is_list(entries) do
+    {:ok, upsert_all!(schema, entries, opts)}
+  rescue
+    e -> {:error, e}
+  end
+
+  @doc """
+  Upsert multiple records. Raises on failure.
+
+  See `upsert_all/3` for documentation.
+  """
+  @spec upsert_all!(module(), [map()], keyword()) :: {non_neg_integer(), nil | [map()]}
+  def upsert_all!(schema, entries, opts) when is_atom(schema) and is_list(entries) do
+    unless Keyword.has_key?(opts, :conflict_target) do
+      raise ArgumentError, """
+      upsert_all requires :conflict_target option.
+
+      Example:
+          OmQuery.upsert_all(User, entries,
+            conflict_target: :email,
+            on_conflict: {:replace, [:name]}
+          )
+      """
+    end
+
+    repo = Config.repo!(opts)
+    timeout = Config.timeout(opts)
+
+    # Normalize on_conflict
+    on_conflict = normalize_on_conflict(opts[:on_conflict] || :nothing)
+
+    repo_opts =
+      [
+        conflict_target: normalize_conflict_target(opts[:conflict_target]),
+        on_conflict: on_conflict,
+        timeout: timeout
+      ]
+      |> maybe_add(:returning, opts[:returning])
+      |> maybe_add(:prefix, opts[:prefix])
+      |> maybe_add(:placeholders, opts[:placeholders])
+
+    repo.insert_all(schema, entries, repo_opts)
+  end
+
+  # Normalize conflict target to Ecto format
+  defp normalize_conflict_target(target) when is_atom(target), do: [target]
+  defp normalize_conflict_target(target) when is_list(target), do: target
+  defp normalize_conflict_target({:constraint, name}), do: {:constraint, name}
+  defp normalize_conflict_target(target), do: target
+
+  # Normalize on_conflict to Ecto format
+  defp normalize_on_conflict(:nothing), do: :nothing
+  defp normalize_on_conflict(:replace_all), do: :replace_all
+  defp normalize_on_conflict({:replace, fields}) when is_list(fields), do: {:replace, fields}
+
+  defp normalize_on_conflict({:replace_all_except, fields}) when is_list(fields) do
+    {:replace_all_except, fields}
+  end
+
+  defp normalize_on_conflict(opts) when is_list(opts), do: opts
+  defp normalize_on_conflict(other), do: other
+
+  defp maybe_add(opts, _key, nil), do: opts
+  defp maybe_add(opts, key, value), do: Keyword.put(opts, key, value)
+
+  defp reject_nil_values(opts) do
+    Enum.reject(opts, fn {_k, v} -> is_nil(v) end)
+  end
+
+  # ============================================================================
+  # Batch Processing
+  # ============================================================================
+
+  @doc """
+  Process query results in batches for memory efficiency.
+
+  Useful for processing large datasets without loading everything into memory.
+  Uses cursor-based pagination internally for consistent ordering.
+
+  ## Options
+
+  - `:batch_size` - Records per batch (default: 1000)
+  - `:order_by` - Ordering field(s) (default: `:id`)
+  - `:repo` - Ecto repo to use
+  - `:timeout` - Query timeout per batch
+
+  ## Examples
+
+      # Process inactive users in batches of 500
+      User
+      |> OmQuery.filter(:status, :eq, "inactive")
+      |> OmQuery.find_in_batches(batch_size: 500, fn batch ->
+           Enum.each(batch, &send_reactivation_email/1)
+         end)
+      #=> {:ok, %{total_batches: 10, total_records: 5000}}
+
+      # With batch info
+      User
+      |> OmQuery.filter(:active, :eq, true)
+      |> OmQuery.find_in_batches(fn batch, info ->
+           IO.puts("Batch \#{info.batch_number}/\#{info.total_batches || "?"}")
+           process_batch(batch)
+         end)
+
+      # Custom ordering
+      Event
+      |> OmQuery.filter(:processed, :eq, false)
+      |> OmQuery.find_in_batches(
+           batch_size: 100,
+           order_by: [:priority, :id],
+           fn batch -> process_events(batch) end
+         )
+  """
+  @spec find_in_batches(Token.t(), keyword() | function(), function() | nil) ::
+          {:ok, map()} | {:error, term()}
+  def find_in_batches(token, opts_or_callback, callback \\ nil)
+
+  def find_in_batches(%Token{} = token, callback, nil) when is_function(callback) do
+    find_in_batches(token, [], callback)
+  end
+
+  def find_in_batches(%Token{} = token, opts, callback) when is_list(opts) and is_function(callback) do
+    batch_size = opts[:batch_size] || 1000
+    order_by = opts[:order_by] || :id
+    repo = Config.repo!(opts)
+    timeout = Config.timeout(opts)
+
+    # Ensure ordering for consistent batching
+    ordered_token = ensure_order_for_batching(token, order_by)
+
+    do_find_in_batches(ordered_token, batch_size, repo, timeout, callback, 0, 0)
+  end
+
+  defp do_find_in_batches(token, batch_size, repo, timeout, callback, batch_num, total_records) do
+    # Add pagination for this batch
+    query =
+      token
+      |> Token.add_operation({:pagination, {:offset, [limit: batch_size + 1, offset: batch_num * batch_size]}})
+      |> Builder.build()
+
+    results = repo.all(query, timeout: timeout)
+
+    has_more = length(results) > batch_size
+    batch = Enum.take(results, batch_size)
+    batch_count = length(batch)
+
+    if batch_count > 0 do
+      # Call the callback
+      batch_info = %{
+        batch_number: batch_num + 1,
+        batch_size: batch_count,
+        has_more: has_more
+      }
+
+      case :erlang.fun_info(callback, :arity) do
+        {:arity, 1} -> callback.(batch)
+        {:arity, 2} -> callback.(batch, batch_info)
+      end
+
+      if has_more do
+        do_find_in_batches(token, batch_size, repo, timeout, callback, batch_num + 1, total_records + batch_count)
+      else
+        {:ok, %{total_batches: batch_num + 1, total_records: total_records + batch_count}}
+      end
+    else
+      {:ok, %{total_batches: batch_num, total_records: total_records}}
+    end
+  rescue
+    e -> {:error, e}
+  end
+
+  defp ensure_order_for_batching(%Token{} = token, order_by) do
+    # Check if token already has ordering
+    has_order = Enum.any?(token.operations, fn
+      {:order, _} -> true
+      _ -> false
+    end)
+
+    if has_order do
+      token
+    else
+      order_fields = List.wrap(order_by)
+      Enum.reduce(order_fields, token, fn field, acc ->
+        Token.add_operation(acc, {:order, {field, :asc, []}})
+      end)
+    end
+  end
+
+  @doc """
+  Process each record individually with memory efficiency.
+
+  Like `find_in_batches/3` but invokes callback for each record instead of each batch.
+
+  ## Examples
+
+      User
+      |> OmQuery.filter(:needs_sync, :eq, true)
+      |> OmQuery.find_each(fn user ->
+           sync_to_external_service(user)
+         end)
+      #=> {:ok, %{total_records: 1500}}
+  """
+  @spec find_each(Token.t(), keyword() | function(), function() | nil) :: {:ok, map()} | {:error, term()}
+  def find_each(token, opts_or_callback, callback \\ nil)
+
+  def find_each(%Token{} = token, callback, nil) when is_function(callback, 1) do
+    find_each(token, [], callback)
+  end
+
+  def find_each(%Token{} = token, opts, callback) when is_list(opts) and is_function(callback, 1) do
+    batch_callback = fn batch ->
+      Enum.each(batch, callback)
+    end
+
+    find_in_batches(token, opts, batch_callback)
   end
 end

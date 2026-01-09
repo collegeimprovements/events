@@ -32,8 +32,8 @@ defmodule OmCrud.MixProject do
       {:ecto, "~> 3.11"},
       {:ecto_sql, "~> 3.11"},
       {:telemetry, "~> 1.0"},
-      {:om_query, path: "../om_query", only: :test},
-      {:postgrex, ">= 0.0.0", only: :test},
+      {:om_query, path: "../om_query"},
+      {:postgrex, ">= 0.0.0"},
       {:ex_doc, "~> 0.31", only: :dev, runtime: false}
     ]
   end

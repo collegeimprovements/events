@@ -77,6 +77,7 @@ defmodule OmQuery.FacetedSearch do
 
   alias OmQuery
   alias OmQuery.Token
+  alias OmQuery.Config
 
   defstruct [
     :source,
@@ -504,7 +505,7 @@ defmodule OmQuery.FacetedSearch do
   # Execute a facet with predefined ranges (e.g., price ranges)
   defp execute_range_facet(builder, config, opts) do
     base_token = build_facet_base_token(builder, config)
-    repo = opts[:repo] || get_repo()
+    repo = Config.repo!(opts)
 
     # For each range, count matching items
     Enum.map(config.ranges, fn {min, max, label} ->
@@ -540,7 +541,7 @@ defmodule OmQuery.FacetedSearch do
 
   # Execute a facet with group by (e.g., categories, brands)
   defp execute_group_facet(builder, config, opts) do
-    repo = opts[:repo] || get_repo()
+    repo = Config.repo!(opts)
 
     builder
     |> build_facet_base_token(config)
@@ -590,9 +591,4 @@ defmodule OmQuery.FacetedSearch do
 
   defp maybe_apply_search(token, nil), do: token
   defp maybe_apply_search(token, {term, fields, opts}), do: OmQuery.search(token, term, fields, opts)
-
-  defp get_repo do
-    Application.get_env(:om_query, :default_repo) ||
-      raise "No Ecto repo configured. Pass :repo option or configure: config :om_query, default_repo: MyApp.Repo"
-  end
 end

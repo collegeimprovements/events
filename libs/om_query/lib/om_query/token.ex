@@ -439,4 +439,21 @@ defmodule OmQuery.Token do
         :ok
     end
   end
+
+  @doc """
+  Convert the token to an Ecto.Query.
+
+  This function enables integration with OmCrud and other libraries
+  that need to convert OmQuery tokens to Ecto queries.
+
+  ## Examples
+
+      token = OmQuery.new(User) |> OmQuery.filter(:active, :eq, true)
+      ecto_query = OmQuery.Token.to_query(token)
+      # => #Ecto.Query<from u0 in User, where: u0.active == ^true>
+  """
+  @spec to_query(t()) :: Ecto.Query.t()
+  def to_query(%Token{} = token) do
+    OmQuery.Builder.build(token)
+  end
 end

@@ -32,8 +32,8 @@ defmodule OmQuery.MixProject do
       {:ecto, "~> 3.11"},
       {:ecto_sql, "~> 3.11"},
       {:telemetry, "~> 1.0"},
-      # Optional - for database integration
-      {:postgrex, ">= 0.0.0", optional: true},
+      # Required for SQL execution and error handling
+      {:postgrex, ">= 0.0.0"},
       # Dev/Test
       {:ex_doc, "~> 0.31", only: :dev, runtime: false}
     ]

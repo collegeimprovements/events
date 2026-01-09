@@ -8,17 +8,22 @@ defmodule OmQuery.Multi do
 
       alias OmQuery.Multi, as: QM
 
-      # Build a multi-step transaction
+      # Build and execute a multi-step transaction
       Ecto.Multi.new()
       |> QM.query(:users, user_query_token)
       |> QM.query(:posts, post_query_token)
-      |> QM.run(:process, fn _repo, %{users: users, posts: posts} ->
-        # Process results
+      |> QM.transaction(repo: MyApp.Repo)
+
+      # With processing step
+      Ecto.Multi.new()
+      |> QM.query(:users, user_query_token)
+      |> QM.query(:posts, post_query_token)
+      |> Ecto.Multi.run(:process, fn _repo, %{users: users, posts: posts} ->
         {:ok, %{user_count: length(users.data), post_count: length(posts.data)}}
       end)
-      |> nil.transaction()
+      |> QM.transaction()
 
-      # With dependencies
+      # With dependencies between queries
       Ecto.Multi.new()
       |> QM.query(:active_users, fn _ ->
         User
@@ -32,10 +37,20 @@ defmodule OmQuery.Multi do
         |> OmQuery.new()
         |> OmQuery.filter(:user_id, :in, user_ids)
       end)
-      |> nil.transaction()
+      |> QM.transaction()
+
+  ## Configuration
+
+  Configure the default repo in your application config:
+
+      config :om_query, :default_repo, MyApp.Repo
+
+  Or pass the repo explicitly:
+
+      QM.transaction(multi, repo: MyApp.Repo)
   """
 
-  alias OmQuery.{Token, Executor}
+  alias OmQuery.{Token, Executor, Config}
   alias Ecto.Multi
 
   @doc """
@@ -172,5 +187,38 @@ defmodule OmQuery.Multi do
         [_ | _] -> {:error, :multiple_results}
       end
     end)
+  end
+
+  # ─────────────────────────────────────────────────────────────
+  # Transaction Execution
+  # ─────────────────────────────────────────────────────────────
+
+  @doc """
+  Execute the Multi as a transaction.
+
+  This is a convenience function that calls `Repo.transaction/2`.
+
+  ## Options
+
+  - `:repo` - Repo module to use (defaults to configured `:default_repo`)
+  - `:timeout` - Transaction timeout in milliseconds
+
+  ## Examples
+
+      Ecto.Multi.new()
+      |> OmQuery.Multi.query(:users, user_token)
+      |> OmQuery.Multi.transaction()
+
+      # With explicit repo
+      |> OmQuery.Multi.transaction(repo: MyApp.Repo)
+
+      # With timeout
+      |> OmQuery.Multi.transaction(timeout: 60_000)
+  """
+  @spec transaction(Multi.t(), keyword()) :: {:ok, map()} | {:error, atom(), any(), map()}
+  def transaction(multi, opts \\ []) do
+    repo = Config.repo!(opts)
+    tx_opts = Keyword.take(opts, [:timeout])
+    repo.transaction(multi, tx_opts)
   end
 end

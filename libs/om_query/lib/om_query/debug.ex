@@ -69,9 +69,7 @@ defmodule OmQuery.Debug do
   alias OmQuery.Builder
   alias OmQuery.SyntaxConverter
   alias OmQuery.FacetedSearch
-
-  # Configurable default repo - can be overridden via application config
-  @default_repo Application.compile_env(:om_query, :default_repo, nil)
+  alias OmQuery.Config
 
   # Note: Ecto.Query not imported - we work with Token and use Builder
 
@@ -563,8 +561,7 @@ defmodule OmQuery.Debug do
 
   # Helper: Get repo from opts or config
   defp get_repo(opts) do
-    opts[:repo] || @default_repo ||
-      raise "No repo configured. Pass :repo option or configure: config :om_query, default_repo: MyApp.Repo"
+    Config.repo!(opts)
   end
 
   # Helper: Extract schema from token source

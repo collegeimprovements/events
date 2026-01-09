@@ -251,14 +251,17 @@ defmodule OmQuery.Result do
   defp compute_cursors([], _cursor_fields), do: {nil, nil}
 
   defp compute_cursors(data, cursor_fields) do
-    {encode_cursor(List.first(data), cursor_fields), encode_cursor(List.last(data), cursor_fields)}
+    OmQuery.Cursor.from_records(data, cursor_fields, format: :binary)
   end
 
   @doc """
   Encode a cursor from a record and cursor fields.
 
   This is the public API for encoding cursors, useful for testing
-  and manual cursor generation.
+  and manual cursor generation. Uses binary encoding by default
+  for compact representation.
+
+  For JSON encoding (API-friendly), use `OmQuery.Cursor.encode/3` directly.
 
   ## Parameters
 
@@ -279,24 +282,15 @@ defmodule OmQuery.Result do
       # Use in tests
       token = OmQuery.new(User)
         |> OmQuery.paginate(:cursor, after: cursor, limit: 10)
+
+      # For JSON encoding (API use)
+      cursor = OmQuery.Cursor.encode(record, fields, format: :json)
   """
   @spec encode_cursor(map() | nil, [atom() | {atom(), :asc | :desc}]) :: String.t() | nil
   def encode_cursor(nil, _fields), do: nil
 
   def encode_cursor(record, fields) when is_map(record) do
-    alias OmQuery.Builder
-
-    cursor_data =
-      fields
-      |> Enum.map(fn spec ->
-        field = Builder.cursor_field(spec)
-        {field, Map.get(record, field)}
-      end)
-      |> Enum.into(%{})
-
-    cursor_data
-    |> :erlang.term_to_binary()
-    |> Base.url_encode64(padding: false)
+    OmQuery.Cursor.encode(record, fields, format: :binary)
   end
 
   # Build query metadata

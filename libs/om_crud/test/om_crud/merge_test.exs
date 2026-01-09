@@ -28,6 +28,8 @@ defmodule OmCrud.MergeTest do
   use ExUnit.Case, async: true
 
   alias OmCrud.Merge
+  # OmCrud.Merge delegates to OmQuery.Merge, so struct assertions use the underlying type
+  alias OmQuery.Merge, as: MergeStruct
 
   defmodule TestSchema do
     use Ecto.Schema
@@ -43,7 +45,7 @@ defmodule OmCrud.MergeTest do
     test "creates merge token with schema" do
       merge = Merge.new(TestSchema)
 
-      assert %Merge{} = merge
+      assert %MergeStruct{} = merge
       assert merge.schema == TestSchema
     end
   end
@@ -53,7 +55,7 @@ defmodule OmCrud.MergeTest do
       source = [%{name: "Alice", email: "alice@test.com"}]
       merge = Merge.new(TestSchema, source)
 
-      assert %Merge{} = merge
+      assert %MergeStruct{} = merge
       assert merge.schema == TestSchema
       assert merge.source == source
     end

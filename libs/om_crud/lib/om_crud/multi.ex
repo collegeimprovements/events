@@ -36,7 +36,7 @@ defmodule OmCrud.Multi do
       Multi.create(:account, Account, fn %{user: user} -> %{owner_id: user.id} end)
   """
 
-  alias OmCrud.{ChangesetBuilder, Options, Merge}
+  alias OmCrud.{ChangesetBuilder, Options}
   # Protocol implementations are at the end of this module
 
   defstruct operations: [],
@@ -62,7 +62,7 @@ defmodule OmCrud.Multi do
           | {:update_all, Ecto.Query.t(), keyword(), keyword()}
           | {:delete_all, Ecto.Query.t(), keyword()}
           | {:run, (results() -> {:ok, any()} | {:error, any()})}
-          | {:merge, Merge.t()}
+          | {:merge, OmQuery.Merge.t()}
           | {:embed, t()}
 
   # ─────────────────────────────────────────────────────────────
@@ -219,8 +219,8 @@ defmodule OmCrud.Multi do
 
       Multi.merge(multi, :sync, merge_token)
   """
-  @spec merge(t(), name(), Merge.t()) :: t()
-  def merge(%__MODULE__{} = multi, name, %Merge{} = merge_token) do
+  @spec merge(t(), name(), OmQuery.Merge.t()) :: t()
+  def merge(%__MODULE__{} = multi, name, %OmQuery.Merge{} = merge_token) do
     add_operation(multi, name, {:merge, merge_token})
   end
 
@@ -307,8 +307,8 @@ defmodule OmCrud.Multi do
 
       Multi.merge_all(multi, :sync, merge_token)
   """
-  @spec merge_all(t(), name(), Merge.t()) :: t()
-  def merge_all(%__MODULE__{} = multi, name, %Merge{} = merge_token) do
+  @spec merge_all(t(), name(), OmQuery.Merge.t()) :: t()
+  def merge_all(%__MODULE__{} = multi, name, %OmQuery.Merge{} = merge_token) do
     add_operation(multi, name, {:merge, merge_token})
   end
 
@@ -605,10 +605,10 @@ defmodule OmCrud.Multi do
     end)
   end
 
-  defp add_to_ecto_multi(ecto_multi, name, {:merge, %Merge{} = merge}) do
+  defp add_to_ecto_multi(ecto_multi, name, {:merge, %OmQuery.Merge{} = merge}) do
     Ecto.Multi.run(ecto_multi, name, fn repo, _results ->
       # Execute the merge operation
-      {sql, params} = Merge.to_sql(merge, repo: repo)
+      {sql, params} = OmQuery.Merge.to_sql(merge, repo: repo)
       repo.query(sql, params)
     end)
   end

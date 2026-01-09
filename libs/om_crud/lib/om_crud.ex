@@ -67,7 +67,7 @@ defmodule OmCrud do
   - `:result` - Operation result type (`:ok`, `:error`) on stop events
   """
 
-  alias OmCrud.{Options, Multi, Merge, Validatable}
+  alias OmCrud.{Options, Multi, Validatable}
 
   # ─────────────────────────────────────────────────────────────
   # Unified Execution API
@@ -100,7 +100,7 @@ defmodule OmCrud do
     transaction(multi, opts)
   end
 
-  def run(%Merge{} = merge, opts) do
+  def run(%OmQuery.Merge{} = merge, opts) do
     execute_merge(merge, opts)
   end
 
@@ -212,8 +212,8 @@ defmodule OmCrud do
   - `{:ok, results}` - List of affected records (if returning is enabled)
   - `{:error, reason}` - Operation failed
   """
-  @spec execute_merge(Merge.t(), keyword()) :: {:ok, [struct()]} | {:error, any()}
-  def execute_merge(%Merge{} = merge, opts \\ []) do
+  @spec execute_merge(OmQuery.Merge.t(), keyword()) :: {:ok, [struct()]} | {:error, any()}
+  def execute_merge(%OmQuery.Merge{} = merge, opts \\ []) do
     # Merge token opts with call-time opts (call-time takes precedence)
     merged_opts = Keyword.merge(merge.opts, opts)
 
@@ -227,7 +227,7 @@ defmodule OmCrud do
       with :ok <- validate_token(merge) do
         repo = Options.repo(merged_opts)
         sql_opts = Options.sql_opts(merged_opts)
-        {sql, params} = Merge.to_sql(merge, merged_opts)
+        {sql, params} = OmQuery.Merge.to_sql(merge, merged_opts)
 
         case repo.query(sql, params, sql_opts) do
           {:ok, %{rows: rows, columns: columns}} ->

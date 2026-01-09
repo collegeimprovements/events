@@ -16,11 +16,14 @@ defmodule OmCrud.Pagination do
         limit: 20
       }
 
-  ## Cursor Format
+  ## Cursor Encoding
 
-  Cursors are Base64-encoded JSON containing the values of the cursor fields:
+  By default, uses JSON encoding for API compatibility. Can be configured
+  to use binary encoding for better performance:
 
-      %{"inserted_at" => "2024-01-15T...", "id" => "uuid-here"}
+      # In config.exs
+      config :om_crud, :pagination,
+        cursor_format: :binary  # or :json (default)
 
   ## Navigation
 
@@ -55,6 +58,9 @@ defmodule OmCrud.Pagination do
     :end_cursor,
     :limit
   ]
+
+  # Default to JSON for backwards compatibility with existing APIs
+  @default_cursor_format Application.compile_env(:om_crud, [:pagination, :cursor_format], :json)
 
   @doc """
   Create a new cursor pagination struct.
@@ -107,6 +113,7 @@ defmodule OmCrud.Pagination do
 
   - `:has_previous` - Whether there are previous results
   - `:fetched_extra` - If an extra record was fetched to check has_more
+  - `:cursor_format` - `:json` (default) or `:binary`
 
   ## Examples
 
@@ -130,6 +137,7 @@ defmodule OmCrud.Pagination do
   def from_records(records, cursor_fields, limit, opts) when is_list(records) do
     fetched_extra = Keyword.get(opts, :fetched_extra, false)
     has_previous = Keyword.get(opts, :has_previous, false)
+    cursor_format = Keyword.get(opts, :cursor_format, @default_cursor_format)
 
     # If we fetched an extra record to check has_more, trim it
     {records, has_more} =
@@ -146,8 +154,8 @@ defmodule OmCrud.Pagination do
       type: :cursor,
       has_more: has_more,
       has_previous: has_previous,
-      start_cursor: encode_cursor(first_record, cursor_fields),
-      end_cursor: encode_cursor(last_record, cursor_fields),
+      start_cursor: encode_cursor(first_record, cursor_fields, cursor_format),
+      end_cursor: encode_cursor(last_record, cursor_fields, cursor_format),
       limit: limit
     }
   end
@@ -155,49 +163,40 @@ defmodule OmCrud.Pagination do
   @doc """
   Encode a cursor from a record and cursor fields.
 
+  ## Options
+
+  - `:format` - `:json` (default) or `:binary`
+
   ## Examples
 
       iex> OmCrud.Pagination.encode_cursor(user, [:inserted_at, :id])
       "eyJpbnNlcnRlZF9hdCI6IjIwMjQtMDEtMTVUMTI6MDA6MDBaIiwiaWQiOiJ1dWlkIn0="
   """
-  @spec encode_cursor(struct() | nil, [atom()]) :: String.t() | nil
-  def encode_cursor(nil, _cursor_fields), do: nil
+  @spec encode_cursor(struct() | nil, [atom()], atom()) :: String.t() | nil
+  def encode_cursor(record, cursor_fields, format \\ @default_cursor_format)
 
-  def encode_cursor(record, cursor_fields) when is_struct(record) do
-    cursor_data =
-      cursor_fields
-      |> Enum.map(fn field ->
-        value = Map.get(record, field)
-        {Atom.to_string(field), encode_cursor_value(value)}
-      end)
-      |> Map.new()
+  def encode_cursor(nil, _cursor_fields, _format), do: nil
 
-    cursor_data
-    |> JSON.encode!()
-    |> Base.url_encode64(padding: false)
+  def encode_cursor(record, cursor_fields, format) when is_struct(record) do
+    OmQuery.Cursor.encode(record, cursor_fields, format: format)
   end
 
   @doc """
   Decode a cursor back to field values.
 
+  Automatically detects the encoding format.
+
   ## Examples
 
       iex> OmCrud.Pagination.decode_cursor("eyJp...")
-      {:ok, %{"inserted_at" => "2024-01-15T12:00:00Z", "id" => "uuid"}}
+      {:ok, %{inserted_at: "2024-01-15T12:00:00Z", id: "uuid"}}
 
       iex> OmCrud.Pagination.decode_cursor("invalid")
       {:error, :invalid_cursor}
   """
   @spec decode_cursor(String.t() | nil) :: {:ok, map()} | {:error, :invalid_cursor}
-  def decode_cursor(nil), do: {:ok, %{}}
-
-  def decode_cursor(cursor) when is_binary(cursor) do
-    with {:ok, json} <- Base.url_decode64(cursor, padding: false),
-         {:ok, data} <- JSON.decode(json) do
-      {:ok, data}
-    else
-      _ -> {:error, :invalid_cursor}
-    end
+  def decode_cursor(cursor) do
+    OmQuery.Cursor.decode(cursor, format: :auto)
   end
 
   @doc """
@@ -220,14 +219,11 @@ defmodule OmCrud.Pagination do
     }
   end
 
-  # Private helpers
+  @doc """
+  Get the configured default cursor format.
 
-  defp encode_cursor_value(%DateTime{} = dt), do: DateTime.to_iso8601(dt)
-  defp encode_cursor_value(%NaiveDateTime{} = ndt), do: NaiveDateTime.to_iso8601(ndt)
-  defp encode_cursor_value(%Date{} = d), do: Date.to_iso8601(d)
-  defp encode_cursor_value(%Time{} = t), do: Time.to_iso8601(t)
-  defp encode_cursor_value(value) when is_binary(value), do: value
-  defp encode_cursor_value(value) when is_number(value), do: value
-  defp encode_cursor_value(value) when is_atom(value), do: Atom.to_string(value)
-  defp encode_cursor_value(value), do: to_string(value)
+  Returns `:json` (default) or `:binary`.
+  """
+  @spec default_cursor_format() :: :json | :binary
+  def default_cursor_format, do: @default_cursor_format
 end

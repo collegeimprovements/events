@@ -2266,6 +2266,52 @@ defmodule OmQuery do
   end
 
   @doc """
+  Merge additional fields into an existing select.
+
+  Unlike `select/2`, which replaces the entire select clause, `select_merge/2`
+  adds fields to the existing schema selection. This is useful when you want
+  to include computed fields alongside the original struct fields.
+
+  ## Select Formats
+
+  - `[:field1, :field2]` - Simple field list from base table
+  - `%{alias: :field}` - Map with aliases from base table
+  - `%{alias: {:binding, :field}}` - Field from joined table
+
+  ## Examples
+
+      # Add computed fields to base schema
+      User
+      |> OmQuery.filter(:active, :eq, true)
+      |> OmQuery.select_merge(%{
+        full_name: fragment("first_name || ' ' || last_name"),
+        account_age_days: fragment("EXTRACT(DAY FROM NOW() - inserted_at)")
+      })
+      |> OmQuery.execute()
+
+      # Include fields from joined tables
+      Order
+      |> OmQuery.join(:customer, :left, as: :cust)
+      |> OmQuery.select_merge(%{
+        customer_name: {:cust, :name},
+        customer_email: {:cust, :email}
+      })
+      |> OmQuery.execute()
+
+      # Chain multiple select_merge calls
+      Product
+      |> OmQuery.filter(:active, :eq, true)
+      |> OmQuery.select_merge([:name, :price])
+      |> OmQuery.select_merge(%{discounted: fragment("price * 0.9")})
+  """
+  @spec select_merge(queryable(), list() | map()) :: Token.t()
+  def select_merge(source, fields) when is_list(fields) or is_map(fields) do
+    source
+    |> ensure_token()
+    |> Token.add_operation({:select_merge, fields})
+  end
+
+  @doc """
   Define a named window for use with window functions.
 
   Windows define the partitioning and ordering for window functions
@@ -2713,6 +2759,20 @@ defmodule OmQuery do
   defdelegate build(token), to: Builder
 
   @doc """
+  Convert a token to an Ecto.Query.
+
+  Alias for `build/1` that provides a common interface name
+  for libraries like OmCrud that expect `to_query/1`.
+
+  ## Examples
+
+      token = OmQuery.new(User) |> OmQuery.filter(:active, :eq, true)
+      ecto_query = OmQuery.to_query(token)
+  """
+  @spec to_query(Token.t()) :: Ecto.Query.t()
+  def to_query(%Token{} = token), do: Builder.build(token)
+
+  @doc """
   Execute the query and return result or error tuple.
 
   Returns `{:ok, result}` on success or `{:error, error}` on failure.
@@ -2899,6 +2959,147 @@ defmodule OmQuery do
   """
   @spec delete_all!(Token.t(), keyword()) :: {non_neg_integer(), nil | [map()]}
   defdelegate delete_all!(token, opts \\ []), to: Executor
+
+  # ============================================================================
+  # Bulk Insert Operations
+  # ============================================================================
+
+  @doc """
+  Insert multiple records in a single query.
+
+  This is a low-level bulk insert that bypasses changesets for performance.
+  For validated inserts, use OmCrud.create_all/3 instead.
+
+  ## Options
+
+  - `:repo` - Ecto repo to use (default: configured)
+  - `:timeout` - Query timeout in ms (default: 15000)
+  - `:returning` - Fields to return (e.g., `[:id]` or `true` for all)
+  - `:prefix` - Database schema prefix for multi-tenant apps
+  - `:on_conflict` - Conflict handling (see upsert_all/3)
+  - `:conflict_target` - Column(s) for conflict detection
+  - `:placeholders` - Map of shared values to reduce data transfer
+
+  ## Examples
+
+      # Basic bulk insert
+      users = [
+        %{name: "Alice", email: "alice@example.com"},
+        %{name: "Bob", email: "bob@example.com"}
+      ]
+      {:ok, {2, nil}} = OmQuery.insert_all(User, users)
+
+      # With returning
+      {:ok, {2, records}} = OmQuery.insert_all(User, users, returning: [:id])
+
+      # With placeholders
+      now = DateTime.utc_now()
+      OmQuery.insert_all(User, users, placeholders: %{now: now})
+  """
+  @spec insert_all(module(), [map()], keyword()) ::
+          {:ok, {non_neg_integer(), nil | [map()]}} | {:error, term()}
+  defdelegate insert_all(schema, entries, opts \\ []), to: Executor
+
+  @doc """
+  Insert multiple records. Raises on failure.
+
+  See `insert_all/3` for documentation.
+  """
+  @spec insert_all!(module(), [map()], keyword()) :: {non_neg_integer(), nil | [map()]}
+  defdelegate insert_all!(schema, entries, opts \\ []), to: Executor
+
+  @doc """
+  Upsert multiple records (insert or update on conflict).
+
+  Combines insert with conflict resolution for idempotent bulk operations.
+
+  ## Conflict Options
+
+  - `:conflict_target` - Column(s) for uniqueness (required)
+  - `:on_conflict` - What to do on conflict:
+    - `:nothing` - Skip conflicting rows
+    - `:replace_all` - Replace all fields
+    - `{:replace, [:field1, :field2]}` - Replace specific fields
+    - `{:replace_all_except, [:id, :inserted_at]}` - Replace all except listed
+
+  ## Examples
+
+      # Update name on email conflict
+      {:ok, {count, nil}} = OmQuery.upsert_all(User, users,
+        conflict_target: :email,
+        on_conflict: {:replace, [:name, :updated_at]}
+      )
+
+      # Skip duplicates
+      {:ok, {count, nil}} = OmQuery.upsert_all(User, users,
+        conflict_target: :email,
+        on_conflict: :nothing
+      )
+  """
+  @spec upsert_all(module(), [map()], keyword()) ::
+          {:ok, {non_neg_integer(), nil | [map()]}} | {:error, term()}
+  defdelegate upsert_all(schema, entries, opts), to: Executor
+
+  @doc """
+  Upsert multiple records. Raises on failure.
+
+  See `upsert_all/3` for documentation.
+  """
+  @spec upsert_all!(module(), [map()], keyword()) :: {non_neg_integer(), nil | [map()]}
+  defdelegate upsert_all!(schema, entries, opts), to: Executor
+
+  # ============================================================================
+  # Batch Processing
+  # ============================================================================
+
+  @doc """
+  Process query results in batches for memory efficiency.
+
+  Useful for processing large datasets without loading everything into memory.
+
+  ## Options
+
+  - `:batch_size` - Records per batch (default: 1000)
+  - `:order_by` - Ordering field(s) (default: `:id`)
+
+  ## Examples
+
+      # Process in batches of 500
+      User
+      |> OmQuery.filter(:status, :eq, "inactive")
+      |> OmQuery.find_in_batches(batch_size: 500, fn batch ->
+           Enum.each(batch, &send_email/1)
+         end)
+      #=> {:ok, %{total_batches: 10, total_records: 5000}}
+
+      # With batch info
+      User
+      |> OmQuery.find_in_batches(fn batch, info ->
+           IO.puts("Batch \#{info.batch_number}")
+           process_batch(batch)
+         end)
+  """
+  @spec find_in_batches(Token.t(), keyword() | function(), function() | nil) ::
+          {:ok, map()} | {:error, term()}
+  defdelegate find_in_batches(token, opts_or_callback, callback \\ nil), to: Executor
+
+  @doc """
+  Process each record individually with memory efficiency.
+
+  Like `find_in_batches/3` but invokes callback for each record.
+
+  ## Examples
+
+      User
+      |> OmQuery.filter(:needs_sync, :eq, true)
+      |> OmQuery.find_each(fn user ->
+           sync_to_external(user)
+         end)
+      #=> {:ok, %{total_records: 1500}}
+  """
+  @spec find_each(Token.t(), keyword() | function(), function() | nil) ::
+          {:ok, map()} | {:error, term()}
+  defdelegate find_each(token, opts_or_callback, callback \\ nil), to: Executor
 
   # ============================================================================
   # Query Plan Analysis (EXPLAIN)

@@ -90,6 +90,7 @@ defmodule OmQuery.Builder do
   defp apply_operation({:join, spec}, query), do: apply_join(query, spec)
   defp apply_operation({:preload, spec}, query), do: apply_preload(query, spec)
   defp apply_operation({:select, spec}, query), do: apply_select(query, spec)
+  defp apply_operation({:select_merge, spec}, query), do: apply_select_merge(query, spec)
   defp apply_operation({:group_by, spec}, query), do: apply_group_by(query, spec)
   defp apply_operation({:having, spec}, query), do: apply_having(query, spec)
   defp apply_operation({:limit, value}, query), do: from(q in query, limit: ^value)
@@ -1188,6 +1189,36 @@ defmodule OmQuery.Builder do
       end)
 
     from(q in query, select: ^select_expr)
+  end
+
+  ## Select Merge
+
+  defp apply_select_merge(query, fields) when is_list(fields) do
+    from(q in query, select_merge: map(q, ^fields))
+  end
+
+  defp apply_select_merge(query, field_map) when is_map(field_map) do
+    # Build select_merge expression from map
+    select_expr =
+      Enum.reduce(field_map, %{}, fn
+        # Simple field reference from base table
+        {key, field}, acc when is_atom(field) ->
+          Map.put(acc, key, dynamic([q], field(q, ^field)))
+
+        # Field from joined table: {:binding, :field}
+        {key, {binding, field}}, acc when is_atom(binding) and is_atom(field) ->
+          Map.put(acc, key, dynamic([{^binding, b}], field(b, ^field)))
+
+        # Fragment pass-through (for raw SQL expressions)
+        {key, %Ecto.Query.DynamicExpr{} = dynamic_expr}, acc ->
+          Map.put(acc, key, dynamic_expr)
+
+        # Pass through other values (literals, etc.)
+        {key, value}, acc ->
+          Map.put(acc, key, value)
+      end)
+
+    from(q in query, select_merge: ^select_expr)
   end
 
   ## Group By
