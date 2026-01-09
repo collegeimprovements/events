@@ -178,17 +178,52 @@ defmodule OmGoogle.ServiceAccount do
 
   Makes a request to Google's OAuth2 token endpoint using a signed JWT assertion.
 
+  ## Options
+
+  - `:timeout` - Connect timeout in ms (default: 30_000)
+  - `:receive_timeout` - Receive timeout in ms (default: 60_000)
+  - `:pool_timeout` - Connection pool checkout timeout in ms (default: 5_000)
+  - `:max_retries` - Maximum retry attempts for failed requests (default: 3)
+  - `:proxy` - Proxy URL (e.g., `"http://user:pass@proxy:8080"`) or tuple `{host, port}`
+  - `:proxy_auth` - Proxy credentials as `{username, password}` (if not in URL)
+
+  ## Configuration Priority
+
+  Options are resolved in priority order:
+
+  1. Explicit option in `get_access_token/3`
+  2. Application config: `config :om_google, timeout: 30_000`
+  3. Environment variables for proxy: `HTTP_PROXY`/`HTTPS_PROXY`
+  4. Default values
+
+  ## Application Config Example
+
+      # config/runtime.exs
+      config :om_google,
+        timeout: 30_000,
+        receive_timeout: 60_000,
+        pool_timeout: 5_000,
+        max_retries: 3,
+        proxy: System.get_env("HTTP_PROXY")
+
   ## Examples
 
       {:ok, token} = ServiceAccount.get_access_token(creds, [
         "https://www.googleapis.com/auth/firebase.messaging"
       ])
 
+      # With timeout and proxy
+      {:ok, token} = ServiceAccount.get_access_token(creds, scopes,
+        timeout: 10_000,
+        receive_timeout: 30_000,
+        proxy: "http://user:pass@proxy.example.com:8080"
+      )
+
       # Use the token
       headers = [{"authorization", "\#{token.token_type} \#{token.access_token}"}]
   """
-  @spec get_access_token(credentials(), [String.t()]) :: {:ok, token()} | {:error, term()}
-  def get_access_token(credentials, scopes) when is_list(scopes) do
+  @spec get_access_token(credentials(), [String.t()], keyword()) :: {:ok, token()} | {:error, term()}
+  def get_access_token(credentials, scopes, opts \\ []) when is_list(scopes) do
     jwt = build_jwt(credentials, scopes)
 
     body = %{
@@ -196,7 +231,9 @@ defmodule OmGoogle.ServiceAccount do
       assertion: jwt
     }
 
-    case Req.post(credentials.token_uri, form: body) do
+    req_opts = build_req_opts(opts, form: body)
+
+    case Req.post(credentials.token_uri, req_opts) do
       {:ok, %{status: 200, body: response}} ->
         token = %{
           access_token: response["access_token"],
@@ -211,6 +248,75 @@ defmodule OmGoogle.ServiceAccount do
 
       {:error, reason} ->
         {:error, {:request_error, reason}}
+    end
+  end
+
+  @default_timeout 30_000
+  @default_receive_timeout 60_000
+  @default_pool_timeout 5_000
+  @default_max_retries 3
+
+  defp build_req_opts(opts, base_opts) do
+    proxy_config = get_proxy_config(opts)
+    proxy_opts = OmHttp.Proxy.to_req_options(proxy_config)
+
+    # Build connect_options with proxy and timeout
+    # Priority: explicit option > app config > default
+    timeout = Keyword.get(opts, :timeout) || get_app_config(:timeout) || @default_timeout
+    timeout = validate_timeout!(timeout, :timeout)
+    connect_opts = Keyword.put(proxy_opts, :timeout, timeout)
+
+    # Add receive_timeout at the top level
+    receive_timeout = Keyword.get(opts, :receive_timeout) || get_app_config(:receive_timeout) || @default_receive_timeout
+    receive_timeout = validate_timeout!(receive_timeout, :receive_timeout)
+
+    # Add pool_timeout
+    pool_timeout = Keyword.get(opts, :pool_timeout) || get_app_config(:pool_timeout) || @default_pool_timeout
+    pool_timeout = validate_timeout!(pool_timeout, :pool_timeout)
+
+    # Add retry configuration
+    max_retries = Keyword.get(opts, :max_retries) || get_app_config(:max_retries) || @default_max_retries
+    max_retries = validate_max_retries!(max_retries)
+
+    base_opts
+    |> Keyword.put(:connect_options, connect_opts)
+    |> Keyword.put(:receive_timeout, receive_timeout)
+    |> Keyword.put(:pool_timeout, pool_timeout)
+    |> Keyword.put(:retry, :safe_transient)
+    |> Keyword.put(:max_retries, max_retries)
+  end
+
+  defp get_app_config(key) do
+    Application.get_env(:om_google, key) ||
+      (Application.get_env(:om_google, OmGoogle) || [])[key]
+  end
+
+  defp validate_timeout!(ms, _field) when is_integer(ms) and ms > 0, do: ms
+
+  defp validate_timeout!(ms, field) do
+    raise ArgumentError, "#{field} must be a positive integer, got: #{inspect(ms)}"
+  end
+
+  defp validate_max_retries!(n) when is_integer(n) and n >= 0, do: n
+
+  defp validate_max_retries!(n) do
+    raise ArgumentError, "max_retries must be a non-negative integer, got: #{inspect(n)}"
+  end
+
+  defp get_proxy_config(opts) do
+    # Priority: explicit option > app config > env vars
+    proxy = Keyword.get(opts, :proxy) || get_app_config(:proxy)
+    proxy_auth = Keyword.get(opts, :proxy_auth) || get_app_config(:proxy_auth)
+
+    cond do
+      proxy != nil ->
+        OmHttp.Proxy.get_config(proxy: proxy, proxy_auth: proxy_auth)
+
+      true ->
+        case OmHttp.Proxy.from_env() do
+          {:ok, config} -> config
+          :no_proxy -> nil
+        end
     end
   end
 

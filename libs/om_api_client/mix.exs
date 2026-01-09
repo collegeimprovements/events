@@ -35,6 +35,7 @@ defmodule OmApiClient.MixProject do
       {:req, "~> 0.5"},
       {:telemetry, "~> 1.0"},
       {:fn_types, path: "../fn_types"},
+      {:om_http, path: "../om_http"},
       {:om_idempotency, path: "../om_idempotency"},
       {:ex_doc, "~> 0.31", only: :dev, runtime: false}
     ]

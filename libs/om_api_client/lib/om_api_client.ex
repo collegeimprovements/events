@@ -30,6 +30,42 @@ defmodule OmApiClient do
   - `:rate_limiter` - Rate limiter name (atom)
   - `:telemetry` - Enable telemetry events (default: true)
   - `:telemetry_prefix` - Custom telemetry prefix (default: [:om_api_client])
+  - `:timeout` - Default connect timeout in ms
+  - `:receive_timeout` - Default receive timeout in ms
+  - `:pool_timeout` - Default pool timeout in ms (time to acquire connection from pool)
+  - `:proxy` - Default proxy URL (e.g., `"http://user:pass@proxy:8080"`) or tuple `{host, port}`
+  - `:proxy_auth` - Default proxy auth as `{username, password}` (if not in URL)
+
+  ## Proxy Configuration
+
+  Proxy is resolved in priority order:
+
+  1. **Config map** - `new(%{proxy: "..."})` (highest priority)
+  2. **Module-level** - `use OmApiClient, proxy: "..."`
+  3. **Application config** - `config :om_api_client, proxy: "..."`
+  4. **Environment variables** - `HTTP_PROXY`/`HTTPS_PROXY` (fallback)
+
+  ### Application Config Example
+
+      # config/runtime.exs
+      config :om_api_client,
+        proxy: System.get_env("HTTP_PROXY"),
+        proxy_auth: {System.get_env("PROXY_USER"), System.get_env("PROXY_PASS")}
+
+  ## Timeout Configuration
+
+  Timeouts are resolved in priority order:
+
+  1. **Config map** - `new(%{timeout: 30_000})` (highest priority)
+  2. **Module-level** - `use OmApiClient, timeout: 30_000`
+  3. **Application config** - `config :om_api_client, timeout: 30_000`
+
+  ### Application Config Example
+
+      # config/runtime.exs
+      config :om_api_client,
+        timeout: 30_000,          # Connect timeout (ms)
+        receive_timeout: 60_000   # Receive timeout (ms)
 
   ## Dual API Pattern
 
@@ -87,6 +123,11 @@ defmodule OmApiClient do
     rate_limiter = Keyword.get(opts, :rate_limiter)
     telemetry_enabled = Keyword.get(opts, :telemetry, true)
     telemetry_prefix = Keyword.get(opts, :telemetry_prefix, [:om_api_client])
+    timeout = Keyword.get(opts, :timeout)
+    receive_timeout = Keyword.get(opts, :receive_timeout)
+    pool_timeout = Keyword.get(opts, :pool_timeout)
+    proxy = Keyword.get(opts, :proxy)
+    proxy_auth = Keyword.get(opts, :proxy_auth)
 
     # Allow custom Request/Response modules for clients with extended structs
     request_module = Keyword.get(opts, :request_module, OmApiClient.Request)
@@ -108,6 +149,11 @@ defmodule OmApiClient do
       @rate_limiter unquote(rate_limiter)
       @telemetry_enabled unquote(telemetry_enabled)
       @telemetry_prefix unquote(telemetry_prefix)
+      @default_timeout unquote(timeout)
+      @default_receive_timeout unquote(receive_timeout)
+      @default_pool_timeout unquote(pool_timeout)
+      @default_proxy unquote(proxy)
+      @default_proxy_auth unquote(proxy_auth)
       @client_name __MODULE__
 
       # ============================================
@@ -123,7 +169,9 @@ defmodule OmApiClient do
       @impl true
       @spec new(map() | struct()) :: unquote(request_module).t()
       def new(config) do
-        req = unquote(request_module).new(config)
+        # Merge defaults with config (config takes precedence)
+        config_with_defaults = apply_defaults(config)
+        req = unquote(request_module).new(config_with_defaults)
 
         req =
           case @circuit_breaker do
@@ -135,6 +183,27 @@ defmodule OmApiClient do
           nil -> req
           name -> unquote(request_module).rate_limit_key(req, name)
         end
+      end
+
+      defp apply_defaults(config) when is_map(config) do
+        # Priority: config map > module-level > app config > env vars
+        # (env vars are handled in Request.new/1 as final fallback for proxy)
+        config
+        |> maybe_put_default(:timeout, @default_timeout || get_app_config(:timeout))
+        |> maybe_put_default(:receive_timeout, @default_receive_timeout || get_app_config(:receive_timeout))
+        |> maybe_put_default(:pool_timeout, @default_pool_timeout || get_app_config(:pool_timeout))
+        |> maybe_put_default(:proxy, @default_proxy || get_app_config(:proxy))
+        |> maybe_put_default(:proxy_auth, @default_proxy_auth || get_app_config(:proxy_auth))
+      end
+
+      defp maybe_put_default(config, _key, nil), do: config
+      defp maybe_put_default(config, key, default) do
+        if Map.has_key?(config, key), do: config, else: Map.put(config, key, default)
+      end
+
+      defp get_app_config(key) do
+        Application.get_env(:om_api_client, key) ||
+          (Application.get_env(:om_api_client, OmApiClient) || [])[key]
       end
 
       @impl true

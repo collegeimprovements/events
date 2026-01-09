@@ -41,6 +41,22 @@ defmodule OmApiClient.Request do
       Request.new(config)
       |> Request.metadata(:operation, :create_customer)
       |> Request.metadata(:customer_id, customer_id)
+
+  ## Proxy Configuration
+
+  Proxy can be configured in multiple ways:
+
+      # Via config map
+      Request.new(%{api_key: "xxx", proxy: "http://user:pass@proxy:8080"})
+
+      # Via builder function
+      Request.new(config) |> Request.proxy("http://proxy:8080")
+
+      # With separate auth
+      Request.new(config) |> Request.proxy("http://proxy:8080", {"user", "pass"})
+
+      # Automatically from HTTP_PROXY/HTTPS_PROXY env vars (fallback)
+      Request.new(config)  # Uses env vars if no explicit proxy
   """
 
   @type method :: :get | :post | :put | :patch | :delete | :head | :options
@@ -57,10 +73,13 @@ defmodule OmApiClient.Request do
           body_type: body_type(),
           timeout: pos_integer() | nil,
           receive_timeout: pos_integer() | nil,
+          pool_timeout: pos_integer() | nil,
+          max_retries: non_neg_integer() | nil,
           metadata: map(),
           idempotency_key: String.t() | nil,
           circuit_breaker: atom() | nil,
-          rate_limit_key: atom() | nil
+          rate_limit_key: atom() | nil,
+          proxy: OmHttp.Proxy.t() | nil
         }
 
   @enforce_keys [:config]
@@ -72,9 +91,12 @@ defmodule OmApiClient.Request do
     :body_type,
     :timeout,
     :receive_timeout,
+    :pool_timeout,
+    :max_retries,
     :idempotency_key,
     :circuit_breaker,
     :rate_limit_key,
+    :proxy,
     query: [],
     headers: [],
     metadata: %{}
@@ -90,14 +112,61 @@ defmodule OmApiClient.Request do
   The config map typically contains authentication credentials
   and other client-specific settings.
 
+  Proxy configuration is automatically loaded from:
+  1. `proxy` key in config map (URL string or keyword opts)
+  2. `proxy_auth` key in config map (for separate auth)
+  3. `HTTP_PROXY`/`HTTPS_PROXY` environment variables (fallback)
+
   ## Examples
 
       Request.new(%{api_key: "sk_test_xxx"})
       Request.new(%{username: "user", password: "pass"})
+
+      # With proxy in config
+      Request.new(%{api_key: "xxx", proxy: "http://user:pass@proxy:8080"})
+      Request.new(%{api_key: "xxx", proxy: "http://proxy:8080", proxy_auth: {"user", "pass"}})
   """
   @spec new(map()) :: t()
   def new(config) when is_map(config) do
-    %__MODULE__{config: config}
+    proxy_config = get_proxy_config(config)
+    {timeout, receive_timeout, pool_timeout, max_retries} = get_request_config(config)
+
+    %__MODULE__{
+      config: config,
+      proxy: proxy_config,
+      timeout: timeout,
+      receive_timeout: receive_timeout,
+      pool_timeout: pool_timeout,
+      max_retries: max_retries
+    }
+  end
+
+  defp get_request_config(config) do
+    # Read timeouts and retries from config struct/map
+    # Supports both :timeout and :connect_timeout naming
+    timeout = Map.get(config, :timeout) || Map.get(config, :connect_timeout)
+    receive_timeout = Map.get(config, :receive_timeout)
+    pool_timeout = Map.get(config, :pool_timeout)
+    max_retries = Map.get(config, :max_retries)
+    {timeout, receive_timeout, pool_timeout, max_retries}
+  end
+
+  defp get_proxy_config(config) do
+    proxy = Map.get(config, :proxy)
+    proxy_auth = Map.get(config, :proxy_auth)
+
+    cond do
+      # Explicit proxy in config
+      proxy != nil ->
+        OmHttp.Proxy.get_config(proxy: proxy, proxy_auth: proxy_auth)
+
+      # Fall back to environment
+      true ->
+        case OmHttp.Proxy.from_env() do
+          {:ok, proxy_config} -> proxy_config
+          :no_proxy -> nil
+        end
+    end
   end
 
   # ============================================
@@ -294,6 +363,33 @@ defmodule OmApiClient.Request do
     %{req | receive_timeout: ms}
   end
 
+  @doc """
+  Sets the pool timeout in milliseconds.
+
+  This is the time to wait for a connection from the pool.
+  Default is 5000ms in Req.
+
+  ## Examples
+
+      Request.pool_timeout(req, 10_000)
+  """
+  @spec pool_timeout(t(), pos_integer()) :: t()
+  def pool_timeout(%__MODULE__{} = req, ms) when is_integer(ms) and ms > 0 do
+    %{req | pool_timeout: ms}
+  end
+
+  @doc """
+  Sets the maximum number of retry attempts.
+
+  ## Examples
+
+      Request.max_retries(req, 5)
+  """
+  @spec max_retries(t(), non_neg_integer()) :: t()
+  def max_retries(%__MODULE__{} = req, n) when is_integer(n) and n >= 0 do
+    %{req | max_retries: n}
+  end
+
   # ============================================
   # Metadata & Middleware
   # ============================================
@@ -351,6 +447,63 @@ defmodule OmApiClient.Request do
   end
 
   # ============================================
+  # Proxy Configuration
+  # ============================================
+
+  @doc """
+  Sets the proxy for this request.
+
+  Accepts various formats:
+  - URL string: `"http://proxy:8080"` or `"http://user:pass@proxy:8080"`
+  - Tuple: `{"proxy.example.com", 8080}`
+  - Keyword options: `[proxy: "http://proxy:8080", proxy_auth: {"user", "pass"}]`
+
+  ## Examples
+
+      # URL with embedded credentials
+      Request.proxy(req, "http://user:pass@proxy.example.com:8080")
+
+      # URL without credentials
+      Request.proxy(req, "http://proxy.example.com:8080")
+
+      # Tuple format
+      Request.proxy(req, {"proxy.example.com", 8080})
+
+      # Disable proxy (override env vars)
+      Request.proxy(req, nil)
+  """
+  @spec proxy(t(), String.t() | {String.t(), pos_integer()} | nil) :: t()
+  def proxy(%__MODULE__{} = req, nil) do
+    %{req | proxy: nil}
+  end
+
+  def proxy(%__MODULE__{} = req, proxy_url) when is_binary(proxy_url) do
+    %{req | proxy: OmHttp.Proxy.get_config(proxy_url)}
+  end
+
+  def proxy(%__MODULE__{} = req, {host, port}) when is_binary(host) and is_integer(port) do
+    %{req | proxy: OmHttp.Proxy.get_config(proxy: {host, port})}
+  end
+
+  @doc """
+  Sets the proxy with separate authentication.
+
+  ## Examples
+
+      Request.proxy(req, "http://proxy.example.com:8080", {"username", "password"})
+      Request.proxy(req, {"proxy.example.com", 8080}, {"username", "password"})
+  """
+  @spec proxy(t(), String.t() | {String.t(), pos_integer()}, {String.t(), String.t()}) :: t()
+  def proxy(%__MODULE__{} = req, proxy_url, {user, pass}) when is_binary(proxy_url) do
+    %{req | proxy: OmHttp.Proxy.get_config(proxy: proxy_url, proxy_auth: {user, pass})}
+  end
+
+  def proxy(%__MODULE__{} = req, {host, port}, {user, pass})
+      when is_binary(host) and is_integer(port) do
+    %{req | proxy: OmHttp.Proxy.get_config(proxy: {host, port}, proxy_auth: {user, pass})}
+  end
+
+  # ============================================
   # Conversion
   # ============================================
 
@@ -375,8 +528,22 @@ defmodule OmApiClient.Request do
     opts = if req.query != [], do: Keyword.put(opts, :params, req.query), else: opts
     opts = if req.timeout, do: Keyword.put(opts, :connect_timeout, req.timeout), else: opts
     opts = if req.receive_timeout, do: Keyword.put(opts, :receive_timeout, req.receive_timeout), else: opts
+    opts = if req.pool_timeout, do: Keyword.put(opts, :pool_timeout, req.pool_timeout), else: opts
+    opts = if req.max_retries, do: Keyword.put(opts, :max_retries, req.max_retries), else: opts
+    opts = add_proxy_to_opts(opts, req.proxy)
 
     add_body_to_opts(opts, req.body, req.body_type)
+  end
+
+  defp add_proxy_to_opts(opts, nil), do: opts
+
+  defp add_proxy_to_opts(opts, %OmHttp.Proxy{} = proxy) do
+    proxy_opts = OmHttp.Proxy.to_req_options(proxy)
+
+    case proxy_opts do
+      [] -> opts
+      _ -> Keyword.put(opts, :connect_options, proxy_opts)
+    end
   end
 
   defp add_body_to_opts(opts, nil, _type), do: opts

@@ -33,6 +33,7 @@ defmodule OmGoogle.MixProject do
   defp deps do
     [
       {:om_api_client, path: "../om_api_client"},
+      {:om_http, path: "../om_http"},
       {:fn_types, path: "../fn_types"},
       {:jose, "~> 1.11"},
       {:req, "~> 0.5"},

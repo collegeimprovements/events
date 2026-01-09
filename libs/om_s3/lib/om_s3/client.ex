@@ -250,7 +250,10 @@ defmodule OmS3.Client do
     Req.new(
       aws_sigv4: aws_sigv4,
       connect_options: connect_opts,
-      receive_timeout: config.receive_timeout
+      receive_timeout: config.receive_timeout,
+      pool_timeout: config.pool_timeout,
+      retry: :safe_transient,
+      max_retries: config.max_retries
     )
     |> ReqS3.attach()
   end
