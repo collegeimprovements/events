@@ -191,14 +191,7 @@ defmodule OmQuery.Merge do
 
   @spec when_matched(t(), :update, [atom()] | keyword()) :: t()
   def when_matched(%Merge{} = merge, :update, fields) when is_list(fields) do
-    action =
-      if Keyword.keyword?(fields) do
-        {:update, fields}
-      else
-        {:update, fields}
-      end
-
-    add_when_matched(merge, :always, action)
+    add_when_matched(merge, :always, {:update, fields})
   end
 
   @spec when_matched(t(), condition(), match_action()) :: t()
@@ -535,17 +528,15 @@ defmodule OmQuery.Merge do
   Check if the Merge token has any WHEN MATCHED clauses.
   """
   @spec has_matched_clauses?(t()) :: boolean()
-  def has_matched_clauses?(%Merge{when_matched: clauses}) do
-    length(clauses) > 0
-  end
+  def has_matched_clauses?(%Merge{when_matched: []}), do: false
+  def has_matched_clauses?(%Merge{when_matched: [_ | _]}), do: true
 
   @doc """
   Check if the Merge token has any WHEN NOT MATCHED clauses.
   """
   @spec has_not_matched_clauses?(t()) :: boolean()
-  def has_not_matched_clauses?(%Merge{when_not_matched: clauses}) do
-    length(clauses) > 0
-  end
+  def has_not_matched_clauses?(%Merge{when_not_matched: []}), do: false
+  def has_not_matched_clauses?(%Merge{when_not_matched: [_ | _]}), do: true
 
   @doc """
   Get the number of source records.

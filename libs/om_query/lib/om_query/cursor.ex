@@ -230,6 +230,9 @@ defmodule OmQuery.Cursor do
     Enum.map(fields, &field_name/1)
   end
 
+  # Alias for internal use - delegates to field_name/1
+  defp normalize_field(field), do: field_name(field)
+
   # ─────────────────────────────────────────────────────────────
   # Cursor Generation from Records
   # ─────────────────────────────────────────────────────────────
@@ -258,9 +261,6 @@ defmodule OmQuery.Cursor do
   # ─────────────────────────────────────────────────────────────
   # Private Helpers
   # ─────────────────────────────────────────────────────────────
-
-  defp normalize_field({field, _direction}) when is_atom(field), do: field
-  defp normalize_field(field) when is_atom(field), do: field
 
   # JSON value encoding for various types
   defp encode_json_value(%DateTime{} = dt), do: DateTime.to_iso8601(dt)

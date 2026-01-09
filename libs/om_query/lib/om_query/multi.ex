@@ -72,16 +72,7 @@ defmodule OmQuery.Multi do
   """
   @spec query(Multi.t(), atom(), Token.t() | (map() -> Token.t())) :: Multi.t()
   def query(multi, name, token_or_fun) when is_atom(name) do
-    Multi.run(multi, name, fn repo, changes ->
-      token =
-        case token_or_fun do
-          %Token{} = t -> t
-          fun when is_function(fun, 1) -> fun.(changes)
-        end
-
-      result = Executor.execute!(token, repo: repo, telemetry: false)
-      {:ok, result}
-    end)
+    run_query(multi, name, token_or_fun, fn result -> {:ok, result} end)
   end
 
   @doc """
@@ -119,16 +110,7 @@ defmodule OmQuery.Multi do
   """
   @spec query_data(Multi.t(), atom(), Token.t() | (map() -> Token.t())) :: Multi.t()
   def query_data(multi, name, token_or_fun) when is_atom(name) do
-    Multi.run(multi, name, fn repo, changes ->
-      token =
-        case token_or_fun do
-          %Token{} = t -> t
-          fun when is_function(fun, 1) -> fun.(changes)
-        end
-
-      result = Executor.execute!(token, repo: repo, telemetry: false)
-      {:ok, result.data}
-    end)
+    run_query(multi, name, token_or_fun, fn result -> {:ok, result.data} end)
   end
 
   @doc """
@@ -143,15 +125,7 @@ defmodule OmQuery.Multi do
   """
   @spec query_one(Multi.t(), atom(), Token.t() | (map() -> Token.t())) :: Multi.t()
   def query_one(multi, name, token_or_fun) when is_atom(name) do
-    Multi.run(multi, name, fn repo, changes ->
-      token =
-        case token_or_fun do
-          %Token{} = t -> t
-          fun when is_function(fun, 1) -> fun.(changes)
-        end
-
-      result = Executor.execute!(token, repo: repo, telemetry: false)
-
+    run_query(multi, name, token_or_fun, fn result ->
       case result.data do
         [] -> {:error, :not_found}
         [first | _] -> {:ok, first}
@@ -172,15 +146,7 @@ defmodule OmQuery.Multi do
   """
   @spec query_one!(Multi.t(), atom(), Token.t() | (map() -> Token.t())) :: Multi.t()
   def query_one!(multi, name, token_or_fun) when is_atom(name) do
-    Multi.run(multi, name, fn repo, changes ->
-      token =
-        case token_or_fun do
-          %Token{} = t -> t
-          fun when is_function(fun, 1) -> fun.(changes)
-        end
-
-      result = Executor.execute!(token, repo: repo, telemetry: false)
-
+    run_query(multi, name, token_or_fun, fn result ->
       case result.data do
         [] -> {:error, :not_found}
         [single] -> {:ok, single}
@@ -221,4 +187,20 @@ defmodule OmQuery.Multi do
     tx_opts = Keyword.take(opts, [:timeout])
     repo.transaction(multi, tx_opts)
   end
+
+  # ─────────────────────────────────────────────────────────────
+  # Private Helpers
+  # ─────────────────────────────────────────────────────────────
+
+  # Common query execution pattern used by query/3, query_data/3, query_one/3, query_one!/3
+  defp run_query(multi, name, token_or_fun, result_handler) do
+    Multi.run(multi, name, fn repo, changes ->
+      token = resolve_token(token_or_fun, changes)
+      result = Executor.execute!(token, repo: repo, telemetry: false)
+      result_handler.(result)
+    end)
+  end
+
+  defp resolve_token(%Token{} = token, _changes), do: token
+  defp resolve_token(fun, changes) when is_function(fun, 1), do: fun.(changes)
 end

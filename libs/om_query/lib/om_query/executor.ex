@@ -295,23 +295,13 @@ defmodule OmQuery.Executor do
     end
   end
 
-  defp get_cursor_fields(token) do
-    case get_pagination_info(token) do
-      {:cursor, opts} -> opts[:cursor_fields]
-      _ -> nil
-    end
-  end
+  defp get_cursor_fields(token), do: get_cursor_opt(token, :cursor_fields)
+  defp get_after_cursor(token), do: get_cursor_opt(token, :after)
+  defp get_before_cursor(token), do: get_cursor_opt(token, :before)
 
-  defp get_after_cursor(token) do
+  defp get_cursor_opt(token, key) do
     case get_pagination_info(token) do
-      {:cursor, opts} -> opts[:after]
-      _ -> nil
-    end
-  end
-
-  defp get_before_cursor(token) do
-    case get_pagination_info(token) do
-      {:cursor, opts} -> opts[:before]
+      {:cursor, opts} -> opts[key]
       _ -> nil
     end
   end
@@ -506,7 +496,7 @@ defmodule OmQuery.Executor do
     timeout = Config.timeout(opts)
 
     # Build the base query from token (filters, joins only - no select, order, pagination)
-    query = build_update_query(token)
+    query = build_bulk_query(token)
 
     # Build repo options
     repo_opts =
@@ -570,7 +560,7 @@ defmodule OmQuery.Executor do
     timeout = Config.timeout(opts)
 
     # Build the base query from token (filters, joins only)
-    query = build_delete_query(token)
+    query = build_bulk_query(token)
 
     # Build repo options
     repo_opts =
@@ -582,18 +572,11 @@ defmodule OmQuery.Executor do
     repo.delete_all(query, repo_opts)
   end
 
-  # Build a query suitable for update_all (only where/join clauses)
-  defp build_update_query(%Token{} = token) do
-    # Remove operations not supported by update_all
-    cleaned_token = clean_token_for_bulk(token)
-    Builder.build(cleaned_token)
-  end
-
-  # Build a query suitable for delete_all (only where/join clauses)
-  defp build_delete_query(%Token{} = token) do
-    # Remove operations not supported by delete_all
-    cleaned_token = clean_token_for_bulk(token)
-    Builder.build(cleaned_token)
+  # Build a query suitable for update_all/delete_all (only where/join clauses)
+  defp build_bulk_query(%Token{} = token) do
+    token
+    |> clean_token_for_bulk()
+    |> Builder.build()
   end
 
   # Remove operations not allowed in update_all/delete_all

@@ -794,42 +794,37 @@ defmodule OmQuery.Builder do
   ## For similarity modes, also uses similarity score as secondary sort.
 
   defp apply_search_rank(query, {parsed_fields, term}) do
-    # Build CASE WHEN expression for primary ranking
     rank_expr = build_rank_case_expression(parsed_fields, term)
-
-    # Build secondary similarity score expression (for tiebreaking within same rank)
     similarity_expr = build_similarity_score_expression(parsed_fields, term)
+    apply_rank_ordering(query, rank_expr, similarity_expr)
+  end
 
-    # Apply ordering: rank ASC, then similarity DESC (if applicable)
-    case similarity_expr do
-      nil ->
-        from(q in query, order_by: [asc: ^rank_expr])
+  # Apply rank-based ordering with optional similarity tiebreaker
+  defp apply_rank_ordering(query, rank_expr, nil) do
+    from(q in query, order_by: [asc: ^rank_expr])
+  end
 
-      sim_expr ->
-        from(q in query, order_by: [asc: ^rank_expr, desc: ^sim_expr])
-    end
+  defp apply_rank_ordering(query, rank_expr, sim_expr) do
+    from(q in query, order_by: [asc: ^rank_expr, desc: ^sim_expr])
   end
 
   # Build CASE WHEN expression that returns the rank for whichever field matched
   # Handles both 4-tuple {field, mode, opts, rank} and 5-tuple {field, mode, opts, rank, take} formats
   defp build_rank_case_expression(parsed_fields, term) do
-    # Build list of {condition_dynamic, rank} tuples
     conditions =
-      parsed_fields
-      |> Enum.map(fn
-        {field, mode, opts, rank, _take} ->
-          condition = build_rank_condition(field, mode, term, opts)
-          {condition, rank}
-
-        {field, mode, opts, rank} ->
-          condition = build_rank_condition(field, mode, term, opts)
-          {condition, rank}
+      Enum.map(parsed_fields, fn tuple ->
+        {field, mode, opts} = extract_field_info(tuple)
+        rank = extract_rank(tuple)
+        condition = build_rank_condition(field, mode, term, opts)
+        {condition, rank}
       end)
 
-    # Build the CASE WHEN as a fragment
-    # This creates: CASE WHEN cond1 THEN rank1 WHEN cond2 THEN rank2 ... ELSE 999 END
     build_case_when_dynamic(conditions)
   end
+
+  # Extract rank from both tuple formats
+  defp extract_rank({_field, _mode, _opts, rank, _take}), do: rank
+  defp extract_rank({_field, _mode, _opts, rank}), do: rank
 
   # Build condition dynamic for a single field (with binding support)
   # Uses pattern matching on function heads for flat, readable code
@@ -914,27 +909,19 @@ defmodule OmQuery.Builder do
     end)
   end
 
+  @similarity_modes [:similarity, :word_similarity, :strict_word_similarity]
+
   # Build similarity score expression for secondary sorting
   # Only returns a value if there are similarity-based fields
-  # Handles both 4-tuple and 5-tuple formats
   defp build_similarity_score_expression(parsed_fields, term) do
-    similarity_fields =
-      Enum.filter(parsed_fields, fn
-        {_field, mode, _opts, _rank, _take} ->
-          mode in [:similarity, :word_similarity, :strict_word_similarity]
-
-        {_field, mode, _opts, _rank} ->
-          mode in [:similarity, :word_similarity, :strict_word_similarity]
-      end)
-
-    case similarity_fields do
-      [] ->
-        nil
-
-      fields ->
-        # Build GREATEST of all similarity scores
-        # This ensures we sort by the best similarity match
-        build_greatest_similarity(fields, term)
+    parsed_fields
+    |> Enum.filter(fn tuple ->
+      {_field, mode, _opts} = extract_field_info(tuple)
+      mode in @similarity_modes
+    end)
+    |> case do
+      [] -> nil
+      fields -> build_greatest_similarity(fields, term)
     end
   end
 
@@ -983,30 +970,17 @@ defmodule OmQuery.Builder do
   ## For exact per-rank enforcement, consider using multiple queries or raw SQL.
 
   defp apply_search_rank_limited(query, {parsed_fields, term}) do
-    # Build rank ordering expression
     rank_expr = build_rank_case_expression(parsed_fields, term)
-
-    # Build similarity score for secondary ordering
     similarity_expr = build_similarity_score_expression(parsed_fields, term)
 
-    # Calculate total limit from take values
     total_limit =
       parsed_fields
       |> Enum.map(fn {_field, _mode, _opts, _rank, take} -> take || 1000 end)
       |> Enum.sum()
 
-    # Apply ordering: rank ASC (lower rank = higher priority), then similarity DESC
-    query =
-      case similarity_expr do
-        nil ->
-          from(q in query, order_by: [asc: ^rank_expr])
-
-        sim_expr ->
-          from(q in query, order_by: [asc: ^rank_expr, desc: ^sim_expr])
-      end
-
-    # Apply total limit
-    from(q in query, limit: ^total_limit)
+    query
+    |> apply_rank_ordering(rank_expr, similarity_expr)
+    |> from(limit: ^total_limit)
   end
 
   ## Join
