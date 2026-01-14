@@ -308,6 +308,63 @@ defmodule FnTypes.Result do
   def from_nilable_lazy(nil, error_fun) when is_function(error_fun, 0), do: {:error, error_fun.()}
   def from_nilable_lazy(value, _error_fun), do: {:ok, value}
 
+  @doc """
+  Creates a result from an Ecto changeset.
+
+  Returns `{:ok, changeset}` if valid, `{:error, changeset}` if invalid.
+  Optionally normalizes the error to a FnTypes.Error struct.
+
+  ## Options
+
+  - `:normalize` - When true, converts invalid changeset to FnTypes.Error (default: false)
+  - `:message` - Custom error message for normalization
+  - `:context` - Additional context for normalization
+
+  ## Examples
+
+      # Basic usage - returns changeset as-is
+      iex> changeset = User.changeset(%User{}, %{email: "valid@test.com"})
+      iex> {:ok, ^changeset} = Result.from_changeset(changeset)
+
+      iex> changeset = User.changeset(%User{}, %{email: "invalid"})
+      iex> {:error, ^changeset} = Result.from_changeset(changeset)
+
+      # With normalization - converts to FnTypes.Error
+      iex> changeset = User.changeset(%User{}, %{email: "invalid"})
+      iex> {:error, %FnTypes.Error{type: :validation}} = Result.from_changeset(changeset, normalize: true)
+
+      # Extract data on success
+      iex> changeset = User.changeset(%User{}, %{email: "test@example.com"})
+      iex> {:ok, data} = changeset |> Result.from_changeset() |> Result.map(&Ecto.Changeset.apply_changes/1)
+
+  ## Pipeline Integration
+
+      Pipeline.new(%{attrs: attrs})
+      |> Pipeline.step(:validate, fn ctx ->
+        User.changeset(%User{}, ctx.attrs)
+        |> Result.from_changeset(normalize: true)
+        |> Result.map(fn cs -> %{changeset: cs} end)
+      end)
+  """
+  if Code.ensure_loaded?(Ecto.Changeset) do
+    @spec from_changeset(Ecto.Changeset.t(), keyword()) :: t(Ecto.Changeset.t(), Ecto.Changeset.t() | FnTypes.Error.t())
+    def from_changeset(changeset, opts \\ [])
+
+    def from_changeset(%Ecto.Changeset{valid?: true} = changeset, _opts) do
+      {:ok, changeset}
+    end
+
+    def from_changeset(%Ecto.Changeset{valid?: false} = changeset, opts) do
+      case Keyword.get(opts, :normalize, false) do
+        true ->
+          {:error, FnTypes.Protocols.Normalizable.normalize(changeset, opts)}
+
+        false ->
+          {:error, changeset}
+      end
+    end
+  end
+
   ## Collection Operations
 
   @doc """

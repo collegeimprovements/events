@@ -385,11 +385,10 @@ defmodule OmScheduler.Job do
     end
   end
 
+  defp build_cron_schedule("@reboot"), do: {:reboot, %{}}
+
   defp build_cron_schedule(cron) do
-    case Cron.reboot?(cron) do
-      true -> {:reboot, %{}}
-      false -> {:cron, %{expressions: List.wrap(cron)}}
-    end
+    {:cron, %{expressions: List.wrap(cron)}}
   end
 
   defp normalize_duration({n, unit}) when is_integer(n) and is_atom(unit) do
@@ -498,30 +497,22 @@ defmodule OmScheduler.Job do
   end
 
   defp validate_timezone(changeset) do
-    changeset
-    |> get_field(:timezone)
-    |> do_validate_timezone(changeset)
-  end
+    timezone = get_field(changeset, :timezone)
 
-  defp do_validate_timezone(nil, changeset), do: changeset
-
-  defp do_validate_timezone(timezone, changeset) do
-    case valid_timezone?(timezone) do
-      true -> changeset
-      false -> add_error(changeset, :timezone, "is not a valid timezone")
+    case timezone do
+      nil -> changeset
+      tz when tz in ["Etc/UTC", "UTC"] -> changeset
+      tz -> validate_timezone_with_database(changeset, tz)
     end
   end
 
-  defp valid_timezone?("Etc/UTC"), do: true
-  defp valid_timezone?("UTC"), do: true
-
-  defp valid_timezone?(tz) do
+  defp validate_timezone_with_database(changeset, tz) do
     case Calendar.get_time_zone_database().time_zone_periods_from_wall_datetime(
            ~N[2024-01-01 00:00:00],
            tz
          ) do
-      {:ok, _} -> true
-      _ -> false
+      {:ok, _} -> changeset
+      _ -> add_error(changeset, :timezone, "is not a valid timezone")
     end
   end
 end

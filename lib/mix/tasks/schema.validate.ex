@@ -147,7 +147,7 @@ defmodule Mix.Tasks.Schema.Validate do
     # Convert to JSON-safe format
     data = convert_to_json_safe(data)
 
-    IO.puts(JSON.encode!(data, pretty: true))
+    IO.puts(JSON.encode!(data))
   end
 
   defp output(result, "text", quiet) do

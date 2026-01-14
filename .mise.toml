@@ -52,6 +52,6 @@ S3_BUCKET = "events"  # Default S3 bucket for health checks and uploads
 
 [tools]
 # Specify required tools and versions
-elixir = "1.19"
+elixir = "1.20.0-rc.0-otp-28"
 erlang = "28"
 postgres = "18.1"

@@ -93,18 +93,18 @@ defmodule OmHttp.Proxy do
   end
 
   def parse(opts) when is_list(opts) or is_map(opts) do
-    opts = if is_map(opts), do: Map.to_list(opts), else: opts
+    opts = to_keyword(opts)
 
     proxy = Keyword.get(opts, :proxy)
     proxy_auth = Keyword.get(opts, :proxy_auth)
     no_proxy = Keyword.get(opts, :no_proxy, [])
 
     with {:ok, host, url_auth} <- parse_proxy_value(proxy) do
-      # Explicit proxy_auth takes precedence over URL-embedded auth
-      auth = proxy_auth || url_auth
-      no_proxy_list = parse_no_proxy(no_proxy)
-
-      {:ok, %__MODULE__{host: host, auth: auth, no_proxy: no_proxy_list}}
+      {:ok, %__MODULE__{
+        host: host,
+        auth: proxy_auth || url_auth,
+        no_proxy: parse_no_proxy(no_proxy)
+      }}
     end
   end
 
@@ -131,21 +131,12 @@ defmodule OmHttp.Proxy do
   """
   @spec from_env() :: {:ok, t()} | :no_proxy
   def from_env do
-    proxy_url = get_env_proxy()
-    no_proxy = get_env_no_proxy()
-
-    case proxy_url do
-      nil ->
-        :no_proxy
-
-      url ->
-        case parse_url(url) do
-          {:ok, config} ->
-            {:ok, %{config | no_proxy: no_proxy}}
-
-          {:error, _} = error ->
-            error
-        end
+    with url when is_binary(url) <- get_env_proxy(),
+         {:ok, config} <- parse_url(url) do
+      {:ok, %{config | no_proxy: get_env_no_proxy()}}
+    else
+      nil -> :no_proxy
+      {:error, _} = error -> error
     end
   end
 
@@ -172,26 +163,15 @@ defmodule OmHttp.Proxy do
   end
 
   def get_config(opts) when is_list(opts) or is_map(opts) do
-    opts = if is_map(opts), do: Map.to_list(opts), else: opts
+    opts = to_keyword(opts)
 
     case Keyword.get(opts, :proxy) do
-      nil ->
-        get_config(nil)
-
-      _ ->
-        case parse(opts) do
-          {:ok, config} -> config
-          {:error, _} -> nil
-        end
+      nil -> get_config(nil)
+      _ -> parse_or_nil(opts)
     end
   end
 
-  def get_config(url) when is_binary(url) do
-    case parse(url) do
-      {:ok, config} -> config
-      {:error, _} -> nil
-    end
-  end
+  def get_config(url) when is_binary(url), do: parse_or_nil(url)
 
   # ============================================
   # Output Formats
@@ -283,10 +263,9 @@ defmodule OmHttp.Proxy do
   def to_req_options_for(nil, _host), do: []
 
   def to_req_options_for(%__MODULE__{} = config, host) do
-    if should_bypass?(config, host) do
-      []
-    else
-      to_req_options(config)
+    case should_bypass?(config, host) do
+      true -> []
+      false -> to_req_options(config)
     end
   end
 
@@ -414,5 +393,15 @@ defmodule OmHttp.Proxy do
   defp get_env_no_proxy do
     (System.get_env("NO_PROXY") || System.get_env("no_proxy") || "")
     |> parse_no_proxy()
+  end
+
+  defp to_keyword(opts) when is_map(opts), do: Map.to_list(opts)
+  defp to_keyword(opts) when is_list(opts), do: opts
+
+  defp parse_or_nil(input) do
+    case parse(input) do
+      {:ok, config} -> config
+      {:error, _} -> nil
+    end
   end
 end

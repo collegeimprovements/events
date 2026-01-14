@@ -51,7 +51,7 @@ defmodule FnTypes.Errors.StripeError do
       })
 
       # Normalize to standard Error
-      FnTypes.Protocols.Normalizable.normalize(error)
+      FnTypes.Protocols.Normalizable.normalize(error, [])
 
       # Check if recoverable
       FnTypes.Protocols.Recoverable.recoverable?(error)
@@ -62,7 +62,7 @@ defmodule FnTypes.Errors.StripeError do
         {:ok, charge} -> {:ok, charge}
         {:error, %StripeError{type: "card_error"} = error} ->
           # Handle card decline
-          {:error, Normalizable.normalize(error)}
+          {:error, Normalizable.normalize(error, [])}
         {:error, %StripeError{type: "rate_limit_error"} = error} ->
           # Will be retried automatically
           {:error, error}

@@ -156,7 +156,11 @@ defmodule Dag.Algorithms do
     missing =
       dag.edges
       |> Enum.flat_map(fn {from, targets} ->
-        missing_from = if MapSet.member?(node_set, from), do: [], else: [from]
+        missing_from =
+          case MapSet.member?(node_set, from) do
+            true -> []
+            false -> [from]
+          end
 
         missing_to =
           targets
@@ -799,9 +803,7 @@ defmodule Dag.Algorithms do
       # Add groups
       dag =
         Enum.reduce(groups, dag, fn {group_name, members}, acc ->
-          group_atom =
-            if is_binary(group_name), do: String.to_existing_atom(group_name), else: group_name
-
+          group_atom = to_atom(group_name)
           Dag.add_to_group(acc, group_atom, members)
         end)
 
@@ -1046,4 +1048,7 @@ defmodule Dag.Algorithms do
         end)
     end
   end
+
+  defp to_atom(name) when is_binary(name), do: String.to_existing_atom(name)
+  defp to_atom(name) when is_atom(name), do: name
 end

@@ -43,7 +43,7 @@ defprotocol OmCrud.Executable do
   - `{:error, failed_operation, failed_value, changes_so_far}`
   """
   @spec execute(t(), keyword()) :: {:ok, any()} | {:error, any()}
-  def execute(token, opts \\ [])
+  def execute(token, opts)
 end
 
 defprotocol OmCrud.Validatable do

@@ -288,8 +288,7 @@ defmodule OmGoogle.FCM do
   """
   @spec push_to_topic(config(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def push_to_topic(config, topic, opts) do
-    opts = Keyword.put(opts, :topic, topic)
-    push(config, opts)
+    push(config, Keyword.put(opts, :topic, topic))
   end
 
   @doc """
@@ -413,10 +412,7 @@ defmodule OmGoogle.FCM do
     # Add notification
     notification = build_notification(opts)
 
-    message =
-      if map_size(notification) > 0,
-        do: Map.put(message, "notification", notification),
-        else: message
+    message = maybe_add_config(message, "notification", notification)
 
     # Add data
     message =
@@ -476,11 +472,7 @@ defmodule OmGoogle.FCM do
     android_config = maybe_put(android_config, "notification", android[:notification])
     android_config = maybe_put(android_config, "fcm_options", android[:fcm_options])
 
-    if map_size(android_config) > 0 do
-      Map.put(message, "android", android_config)
-    else
-      message
-    end
+    maybe_add_config(message, "android", android_config)
   end
 
   defp maybe_add_apns(message, nil), do: message
@@ -491,11 +483,7 @@ defmodule OmGoogle.FCM do
     apns_config = maybe_put(apns_config, "payload", apns[:payload])
     apns_config = maybe_put(apns_config, "fcm_options", apns[:fcm_options])
 
-    if map_size(apns_config) > 0 do
-      Map.put(message, "apns", apns_config)
-    else
-      message
-    end
+    maybe_add_config(message, "apns", apns_config)
   end
 
   defp maybe_add_webpush(message, nil), do: message
@@ -507,22 +495,20 @@ defmodule OmGoogle.FCM do
     webpush_config = maybe_put(webpush_config, "notification", webpush[:notification])
     webpush_config = maybe_put(webpush_config, "fcm_options", webpush[:fcm_options])
 
-    if map_size(webpush_config) > 0 do
-      Map.put(message, "webpush", webpush_config)
-    else
-      message
-    end
+    maybe_add_config(message, "webpush", webpush_config)
   end
+
+  defp maybe_add_config(message, _key, config) when map_size(config) == 0, do: message
+  defp maybe_add_config(message, key, config), do: Map.put(message, key, config)
 
   # ============================================
   # Token Management
   # ============================================
 
   defp ensure_valid_token(%{token: token} = config) when not is_nil(token) do
-    if ServiceAccount.token_valid?(token) do
-      {:ok, config}
-    else
-      refresh_token(config)
+    case ServiceAccount.token_valid?(token) do
+      true -> {:ok, config}
+      false -> refresh_token(config)
     end
   end
 

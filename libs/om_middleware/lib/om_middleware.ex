@@ -87,10 +87,9 @@ defmodule OmMiddleware do
   ## Example
 
       def before_execute(context) do
-        if authorized?(context) do
-          {:ok, Map.put(context, :auth_checked, true)}
-        else
-          {:halt, :unauthorized}
+        case authorized?(context) do
+          true -> {:ok, Map.put(context, :auth_checked, true)}
+          false -> {:halt, :unauthorized}
         end
       end
   """
@@ -118,10 +117,9 @@ defmodule OmMiddleware do
   ## Example
 
       def on_error(error, context) do
-        if retryable?(error) do
-          {:retry, error}
-        else
-          {:ok, error}
+        case retryable?(error) do
+          true -> {:retry, error}
+          false -> {:ok, error}
         end
       end
   """
@@ -412,10 +410,9 @@ defmodule OmMiddleware do
   # ============================================
 
   defp safe_call(mod, fun, args) do
-    if function_exported?(mod, fun, length(args)) do
-      apply(mod, fun, args)
-    else
-      :ok
+    case function_exported?(mod, fun, length(args)) do
+      true -> apply(mod, fun, args)
+      false -> :ok
     end
   rescue
     e ->

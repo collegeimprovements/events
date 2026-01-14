@@ -65,8 +65,6 @@ defmodule FnTypes.Retry do
   - `[:events, :retry, :success]` - Operation succeeded
   """
 
-  require Logger
-
   alias FnTypes.{Backoff, Protocols.Recoverable}
 
   # ============================================

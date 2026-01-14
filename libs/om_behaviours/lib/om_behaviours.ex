@@ -58,11 +58,15 @@ defmodule OmBehaviours do
   """
   @spec implements?(module(), module()) :: boolean()
   def implements?(module, behaviour) do
-    :attributes
-    |> module.__info__()
-    |> Keyword.get(:behaviour, [])
+    module
+    |> module_behaviours()
     |> Enum.member?(behaviour)
   rescue
     _ -> false
+  end
+
+  defp module_behaviours(module) do
+    module.__info__(:attributes)
+    |> Keyword.get(:behaviour, [])
   end
 end

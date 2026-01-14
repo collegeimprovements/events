@@ -362,15 +362,17 @@ defmodule OmTtyd do
   """
   @spec version() :: {:ok, String.t()} | {:error, :not_found}
   def version do
-    if available?() do
-      result =
-        ExCmd.stream!(["ttyd", "--version"])
-        |> Enum.into(<<>>)
-        |> String.trim()
+    case System.find_executable("ttyd") do
+      nil ->
+        {:error, :not_found}
 
-      {:ok, result}
-    else
-      {:error, :not_found}
+      _path ->
+        result =
+          ExCmd.stream!(["ttyd", "--version"])
+          |> Enum.into(<<>>)
+          |> String.trim()
+
+        {:ok, result}
     end
   end
 
@@ -428,11 +430,7 @@ defmodule OmTtyd do
     }
 
     # Call on_start callback
-    if is_function(on_start, 1) do
-      url = build_url(state)
-      on_start.(url)
-    end
-
+    call_on_start(on_start, state)
     {:ok, state}
   end
 
@@ -496,40 +494,47 @@ defmodule OmTtyd do
   @impl true
   def terminate(reason, state) do
     Logger.info("[ttyd] Terminating: #{inspect(reason)}")
-
-    if state.process do
-      # Send SIGTERM first
-      if state.os_pid do
-        System.cmd("kill", ["-TERM", to_string(state.os_pid)], stderr_to_stdout: true)
-      end
-
-      # Give it a moment to clean up
-      Process.sleep(100)
-
-      # Force close if still open
-      try do
-        Port.close(state.process)
-      rescue
-        _ -> :ok
-      end
-    end
-
+    cleanup_process(state)
     :ok
   end
+
+  defp cleanup_process(%{process: nil}), do: :ok
+
+  defp cleanup_process(%{process: process, os_pid: os_pid}) do
+    # Send SIGTERM first
+    send_sigterm(os_pid)
+
+    # Give it a moment to clean up
+    Process.sleep(100)
+
+    # Force close if still open
+    try do
+      Port.close(process)
+    rescue
+      _ -> :ok
+    end
+  end
+
+  defp send_sigterm(nil), do: :ok
+  defp send_sigterm(os_pid), do: System.cmd("kill", ["-TERM", to_string(os_pid)], stderr_to_stdout: true)
 
   # ============================================================================
   # Private Helpers
   # ============================================================================
 
   defp extract_gen_opts(opts) do
-    {gen_keys, ttyd_keys} = Keyword.split(opts, [:name])
-    {gen_keys, ttyd_keys}
+    Keyword.split(opts, [:name])
   end
 
-  defp build_url(state) do
-    scheme = if state.ssl, do: "https", else: "http"
-    "#{scheme}://localhost:#{state.port}"
+  defp build_url(%{ssl: true, port: port}), do: "https://localhost:#{port}"
+  defp build_url(%{ssl: false, port: port}), do: "http://localhost:#{port}"
+
+  defp call_on_start(on_start, state) when is_function(on_start, 1) do
+    url = build_url(state)
+    on_start.(url)
   end
+
+  defp call_on_start(_on_start, _state), do: :ok
 
   defp build_args(command, opts) do
     []
@@ -572,14 +577,8 @@ defmodule OmTtyd do
 
     # writable: true means add -W flag, readonly: true means don't add -W
     # Default is readonly (no -W flag)
-    args =
-      if writable and not readonly do
-        args ++ ["-W"]
-      else
-        args
-      end
-
     args
+    |> maybe_add_flag("-W", writable and not readonly)
     |> maybe_add_arg("-T", Keyword.get(opts, :terminal_type))
     |> add_client_options(Keyword.get(opts, :client_options))
     |> maybe_add_flag("-a", Keyword.get(opts, :url_arg))
@@ -678,10 +677,7 @@ defmodule OmTtyd do
   end
 
   defp format_option_key(key) when is_atom(key) do
-    key
-    |> Atom.to_string()
-    |> Macro.camelize()
-    |> uncapitalize()
+    key |> Atom.to_string() |> Macro.camelize() |> uncapitalize()
   end
 
   defp format_option_key(key) when is_binary(key), do: key

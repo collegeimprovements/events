@@ -325,7 +325,10 @@ defmodule OmCrud.Multi do
   ## Examples
 
       Multi.run(multi, :validate, fn %{user: user} ->
-        if valid?(user), do: {:ok, user}, else: {:error, :invalid}
+        case valid?(user) do
+          true -> {:ok, user}
+          false -> {:error, :invalid}
+        end
       end)
 
       Multi.run(multi, :notify, MyModule, :send_notification, [:user_created])
@@ -373,11 +376,13 @@ defmodule OmCrud.Multi do
   ## Examples
 
       Multi.when_ok(multi, :user, fn %{user: user} ->
-        if user.role == :admin do
-          Multi.new()
-          |> Multi.create(:admin_record, AdminRecord, %{user_id: user.id})
-        else
-          Multi.new()
+        case user.role do
+          :admin ->
+            Multi.new()
+            |> Multi.create(:admin_record, AdminRecord, %{user_id: user.id})
+
+          _other ->
+            Multi.new()
         end
       end)
   """
@@ -446,7 +451,7 @@ defmodule OmCrud.Multi do
     prefix = Keyword.get(opts, :prefix)
 
     Enum.reduce(multi2.operations, multi1, fn {name, op}, acc ->
-      prefixed_name = if prefix, do: :"#{prefix}_#{name}", else: name
+      prefixed_name = prefix_name(name, prefix)
       add_operation(acc, prefixed_name, op)
     end)
   end
@@ -554,7 +559,7 @@ defmodule OmCrud.Multi do
       fn results ->
         struct = struct_fn.(results)
         schema = struct.__struct__
-        attrs_resolved = if is_function(attrs, 1), do: attrs.(results), else: attrs
+        attrs_resolved = resolve_attrs(attrs, results)
         changeset_fn = ChangesetBuilder.resolve(schema, :update, opts)
         apply(schema, changeset_fn, [struct, attrs_resolved])
       end,
@@ -618,16 +623,24 @@ defmodule OmCrud.Multi do
   # ─────────────────────────────────────────────────────────────
 
   defp add_operation(%__MODULE__{names: names} = multi, name, operation) do
-    if MapSet.member?(names, name) do
-      raise ArgumentError, "operation #{inspect(name)} already exists in Multi"
-    end
+    case MapSet.member?(names, name) do
+      true ->
+        raise ArgumentError, "operation #{inspect(name)} already exists in Multi"
 
-    %{
-      multi
-      | operations: multi.operations ++ [{name, operation}],
-        names: MapSet.put(names, name)
-    }
+      false ->
+        %{
+          multi
+          | operations: multi.operations ++ [{name, operation}],
+            names: MapSet.put(names, name)
+        }
+    end
   end
+
+  defp prefix_name(name, nil), do: name
+  defp prefix_name(name, prefix), do: :"#{prefix}_#{name}"
+
+  defp resolve_attrs(attrs, results) when is_function(attrs, 1), do: attrs.(results)
+  defp resolve_attrs(attrs, _results), do: attrs
 end
 
 # ─────────────────────────────────────────────────────────────
@@ -672,14 +685,14 @@ defimpl Inspect, for: OmCrud.Multi do
   end
 
   defp format_multi([]), do: "#OmCrud.Multi<>"
-  defp format_multi([{n1, _}]), do: "#OmCrud.Multi<#{n1}>"
-  defp format_multi([{n1, _}, {n2, _}]), do: "#OmCrud.Multi<#{n1}, #{n2}>"
-  defp format_multi([{n1, _}, {n2, _}, {n3, _}]), do: "#OmCrud.Multi<#{n1}, #{n2}, #{n3}>"
-  defp format_multi([{n1, _}, {n2, _}, {n3, _}, {n4, _}]), do: "#OmCrud.Multi<#{n1}, #{n2}, #{n3}, #{n4}>"
-  defp format_multi([{n1, _}, {n2, _}, {n3, _}, {n4, _}, {n5, _}]), do: "#OmCrud.Multi<#{n1}, #{n2}, #{n3}, #{n4}, #{n5}>"
+
+  defp format_multi(ops) when length(ops) <= 5 do
+    names = Enum.map_join(ops, ", ", fn {name, _} -> Atom.to_string(name) end)
+    "#OmCrud.Multi<#{names}>"
+  end
 
   defp format_multi(ops) do
-    [{n1, _}, {n2, _}, {n3, _} | _rest] = ops
-    "#OmCrud.Multi<#{n1}, #{n2}, #{n3}, ... (#{length(ops)} total)>"
+    first_three = ops |> Enum.take(3) |> Enum.map_join(", ", fn {name, _} -> Atom.to_string(name) end)
+    "#OmCrud.Multi<#{first_three}, ... (#{length(ops)} total)>"
   end
 end

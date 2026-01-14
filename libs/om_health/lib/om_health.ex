@@ -282,30 +282,9 @@ defmodule OmHealth do
   # Service Check Runner
   # ============================================
 
-  defp run_service_check(%{type: :custom, check: {mod, fun}} = service, _config)
-       when is_atom(mod) and is_atom(fun) do
-    case apply(mod, fun, []) do
-      :ok -> build_ok_result(service, "Custom", "Healthy")
-      {:ok, info} -> build_ok_result(service, "Custom", info)
-      {:error, reason} -> build_error_result(service, "Custom", reason, "Service unavailable")
-    end
-  end
-
-  defp run_service_check(%{type: :custom, check: {mod, fun, _arity}} = service, _config)
-       when is_atom(mod) and is_atom(fun) do
-    case apply(mod, fun, []) do
-      :ok -> build_ok_result(service, "Custom", "Healthy")
-      {:ok, info} -> build_ok_result(service, "Custom", info)
-      {:error, reason} -> build_error_result(service, "Custom", reason, "Service unavailable")
-    end
-  end
-
-  defp run_service_check(%{type: :custom, check: check_fn} = service, _config) when is_function(check_fn, 0) do
-    case check_fn.() do
-      :ok -> build_ok_result(service, "Custom", "Healthy")
-      {:ok, info} -> build_ok_result(service, "Custom", info)
-      {:error, reason} -> build_error_result(service, "Custom", reason, "Service unavailable")
-    end
+  defp run_service_check(%{type: :custom, check: check} = service, _config) do
+    result = execute_custom_check(check)
+    handle_custom_check_result(service, result)
   end
 
   defp run_service_check(%{type: :repo, module: module} = service, _config) do
@@ -348,42 +327,75 @@ defmodule OmHealth do
   end
 
   # ============================================
+  # Custom Check Execution
+  # ============================================
+
+  defp execute_custom_check({mod, fun}) when is_atom(mod) and is_atom(fun) do
+    apply(mod, fun, [])
+  end
+
+  defp execute_custom_check({mod, fun, _arity}) when is_atom(mod) and is_atom(fun) do
+    apply(mod, fun, [])
+  end
+
+  defp execute_custom_check(check_fn) when is_function(check_fn, 0) do
+    check_fn.()
+  end
+
+  defp handle_custom_check_result(service, :ok) do
+    build_ok_result(service, "Custom", "Healthy")
+  end
+
+  defp handle_custom_check_result(service, {:ok, info}) do
+    build_ok_result(service, "Custom", info)
+  end
+
+  defp handle_custom_check_result(service, {:error, reason}) do
+    build_error_result(service, "Custom", reason, "Service unavailable")
+  end
+
+  # ============================================
   # Health Checks
   # ============================================
 
   defp check_repo(module) do
-    if process_alive?(module) do
-      try do
-        case module.query("SELECT 1", [], timeout: 5_000) do
-          {:ok, _} -> :ok
-          {:error, reason} -> {:error, format_error(reason)}
-        end
-      rescue
-        e -> {:error, Exception.message(e)}
-      end
+    with true <- process_alive?(module),
+         {:ok, _} <- safe_query(module) do
+      :ok
     else
-      {:error, "Process not running"}
+      false -> {:error, "Process not running"}
+      {:error, reason} -> {:error, format_error(reason)}
     end
+  end
+
+  defp safe_query(module) do
+    module.query("SELECT 1", [], timeout: 5_000)
+  rescue
+    e -> {:error, Exception.message(e)}
   end
 
   defp check_cache(module) do
-    if process_alive?(module) do
-      try do
-        test_key = {:__health_check__, System.unique_integer()}
-        module.put(test_key, true, ttl: :timer.seconds(1))
-        module.get(test_key)
-        module.delete(test_key)
-        :ok
-      rescue
-        e -> {:error, Exception.message(e)}
-      end
-    else
-      {:error, "Process not running"}
+    case process_alive?(module) do
+      true -> safe_cache_roundtrip(module)
+      false -> {:error, "Process not running"}
     end
   end
 
+  defp safe_cache_roundtrip(module) do
+    test_key = {:__health_check__, System.unique_integer()}
+    module.put(test_key, true, ttl: :timer.seconds(1))
+    module.get(test_key)
+    module.delete(test_key)
+    :ok
+  rescue
+    e -> {:error, Exception.message(e)}
+  end
+
   defp check_process(module) do
-    if process_alive?(module), do: :ok, else: {:error, "Process not running"}
+    case process_alive?(module) do
+      true -> :ok
+      false -> {:error, "Process not running"}
+    end
   end
 
   defp process_alive?(module) when is_atom(module) do

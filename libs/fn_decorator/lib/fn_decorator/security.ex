@@ -6,7 +6,6 @@ defmodule FnDecorator.Security do
   """
 
   use FnDecorator.Define
-  require Logger
 
   ## Schemas
 
@@ -310,11 +309,17 @@ defmodule FnDecorator.Security do
     include_result = validated_opts[:include_result]
     metadata = validated_opts[:metadata]
 
+    # Extract context fields
+    ctx_module = context.module
+    ctx_name = context.name
+    ctx_arity = context.arity
+    ctx_args = context.args
+
     quote do
       start_time = System.monotonic_time(:microsecond)
 
       # Extract specified fields from arguments
-      arg_names = unquote(FnDecorator.Support.AST.get_args(context))
+      arg_names = unquote(ctx_args)
       args_map = Enum.zip(arg_names, var!(args)) |> Map.new()
 
       captured_fields =
@@ -331,7 +336,7 @@ defmodule FnDecorator.Security do
 
       # Build audit entry
       audit_entry = %{
-        function: "#{unquote(context.module)}.#{unquote(context.name)}/#{unquote(context.arity)}",
+        function: "#{unquote(ctx_module)}.#{unquote(ctx_name)}/#{unquote(ctx_arity)}",
         level: unquote(level),
         fields: captured_fields,
         metadata: unquote(metadata),

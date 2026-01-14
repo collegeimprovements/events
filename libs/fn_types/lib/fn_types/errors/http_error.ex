@@ -12,7 +12,7 @@ defmodule FnTypes.Errors.HttpError do
       error = FnTypes.Errors.HttpError.new(500, body: %{"error" => "Internal error"})
 
       # Normalize it
-      FnTypes.Protocols.Normalizable.normalize(error)
+      FnTypes.Protocols.Normalizable.normalize(error, [])
   """
 
   @type t :: %__MODULE__{

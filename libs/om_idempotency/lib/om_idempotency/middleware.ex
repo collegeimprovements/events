@@ -43,8 +43,6 @@ defmodule OmIdempotency.Middleware do
   GET, DELETE, HEAD, OPTIONS are idempotent by nature and don't need tracking.
   """
 
-  require Logger
-
   alias OmIdempotency
   alias OmIdempotency.Response, as: ResponseBehaviour
 

@@ -9,8 +9,6 @@ defmodule OmSchema.Warnings do
   - Best practice violations
   """
 
-  require Logger
-
   @doc """
   Check field options for potential issues and emit warnings.
   """

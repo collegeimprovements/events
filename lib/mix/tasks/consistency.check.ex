@@ -454,7 +454,7 @@ defmodule Mix.Tasks.Consistency.Check do
       results
       |> Enum.map(fn {key, result} -> {key, maybe_from_struct(result)} end)
       |> Map.new()
-      |> JSON.encode!(pretty: true)
+      |> JSON.encode!()
 
     IO.puts(json)
   end

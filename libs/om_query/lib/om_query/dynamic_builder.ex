@@ -16,8 +16,6 @@ defmodule OmQuery.DynamicBuilder do
   alias OmQuery.Token
   alias OmQuery.PaginationValidator
 
-  require Logger
-
   @type filter_spec :: {:filter, atom(), atom(), term() | {:param, atom()}, keyword()}
   @type order_spec :: {:order, atom(), :asc | :desc, keyword()}
   @type preload_spec ::

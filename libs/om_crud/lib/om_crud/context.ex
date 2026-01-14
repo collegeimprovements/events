@@ -139,24 +139,16 @@ defmodule OmCrud.Context do
       @doc false
       def __apply_crud_query_opts__(query, opts) do
         query
-        |> then(fn q ->
-          case opts[:select] do
-            nil -> q
-            fields -> OmQuery.select(q, fields)
-          end
-        end)
-        |> then(fn q ->
-          case opts[:distinct] do
-            nil -> q
-            value -> OmQuery.distinct(q, value)
-          end
-        end)
-        |> then(fn q ->
-          case opts[:lock] do
-            nil -> q
-            mode -> OmQuery.lock(q, mode)
-          end
-        end)
+        |> apply_opt_if_present(opts, :select, &OmQuery.select/2)
+        |> apply_opt_if_present(opts, :distinct, &OmQuery.distinct/2)
+        |> apply_opt_if_present(opts, :lock, &OmQuery.lock/2)
+      end
+
+      defp apply_opt_if_present(query, opts, key, apply_fn) do
+        case opts[key] do
+          nil -> query
+          value -> apply_fn.(query, value)
+        end
       end
 
       @doc false
@@ -176,6 +168,10 @@ defmodule OmCrud.Context do
           {field, :desc} -> {field, :asc}
         end)
       end
+
+      @doc false
+      def __maybe_add_changeset__(opts, nil), do: opts
+      def __maybe_add_changeset__(opts, changeset), do: Keyword.put_new(opts, :changeset, changeset)
     end
   end
 
@@ -304,8 +300,8 @@ defmodule OmCrud.Context do
   defp build_overridable_list(functions, resource, resources, generate_bang, filterable) do
     Enum.flat_map(functions, fn
       :fetch ->
-        fns = [{:"fetch_#{resource}", 1}, {:"fetch_#{resource}", 2}]
-        if generate_bang, do: fns ++ [{:"fetch_#{resource}!", 1}, {:"fetch_#{resource}!", 2}], else: fns
+        base = [{:"fetch_#{resource}", 1}, {:"fetch_#{resource}", 2}]
+        maybe_add_bang(base, generate_bang, [{:"fetch_#{resource}!", 1}, {:"fetch_#{resource}!", 2}])
 
       :get ->
         [{:"get_#{resource}", 1}, {:"get_#{resource}", 2}]
@@ -323,12 +319,12 @@ defmodule OmCrud.Context do
         [{:"count_#{resources}", 0}, {:"count_#{resources}", 1}]
 
       :first ->
-        fns = [{:"first_#{resource}", 0}, {:"first_#{resource}", 1}]
-        if generate_bang, do: fns ++ [{:"first_#{resource}!", 0}, {:"first_#{resource}!", 1}], else: fns
+        base = [{:"first_#{resource}", 0}, {:"first_#{resource}", 1}]
+        maybe_add_bang(base, generate_bang, [{:"first_#{resource}!", 0}, {:"first_#{resource}!", 1}])
 
       :last ->
-        fns = [{:"last_#{resource}", 0}, {:"last_#{resource}", 1}]
-        if generate_bang, do: fns ++ [{:"last_#{resource}!", 0}, {:"last_#{resource}!", 1}], else: fns
+        base = [{:"last_#{resource}", 0}, {:"last_#{resource}", 1}]
+        maybe_add_bang(base, generate_bang, [{:"last_#{resource}!", 0}, {:"last_#{resource}!", 1}])
 
       :exists? ->
         [{:"#{resource}_exists?", 1}, {:"#{resource}_exists?", 2}]
@@ -337,16 +333,16 @@ defmodule OmCrud.Context do
         [{:"stream_#{resources}", 0}, {:"stream_#{resources}", 1}]
 
       :create ->
-        fns = [{:"create_#{resource}", 1}, {:"create_#{resource}", 2}]
-        if generate_bang, do: fns ++ [{:"create_#{resource}!", 1}, {:"create_#{resource}!", 2}], else: fns
+        base = [{:"create_#{resource}", 1}, {:"create_#{resource}", 2}]
+        maybe_add_bang(base, generate_bang, [{:"create_#{resource}!", 1}, {:"create_#{resource}!", 2}])
 
       :update ->
-        fns = [{:"update_#{resource}", 2}, {:"update_#{resource}", 3}]
-        if generate_bang, do: fns ++ [{:"update_#{resource}!", 2}, {:"update_#{resource}!", 3}], else: fns
+        base = [{:"update_#{resource}", 2}, {:"update_#{resource}", 3}]
+        maybe_add_bang(base, generate_bang, [{:"update_#{resource}!", 2}, {:"update_#{resource}!", 3}])
 
       :delete ->
-        fns = [{:"delete_#{resource}", 1}, {:"delete_#{resource}", 2}]
-        if generate_bang, do: fns ++ [{:"delete_#{resource}!", 1}, {:"delete_#{resource}!", 2}], else: fns
+        base = [{:"delete_#{resource}", 1}, {:"delete_#{resource}", 2}]
+        maybe_add_bang(base, generate_bang, [{:"delete_#{resource}!", 1}, {:"delete_#{resource}!", 2}])
 
       :create_all ->
         [{:"create_all_#{resources}", 1}, {:"create_all_#{resources}", 2}]
@@ -359,6 +355,9 @@ defmodule OmCrud.Context do
     end)
     |> Enum.uniq()
   end
+
+  defp maybe_add_bang(fns, false, _bang_fns), do: fns
+  defp maybe_add_bang(fns, true, bang_fns), do: fns ++ bang_fns
 
   # ─────────────────────────────────────────────────────────────
   # Function Generators
@@ -385,23 +384,18 @@ defmodule OmCrud.Context do
       end
     ]
 
-    bang =
-      if generate_bang do
-        [
-          quote do
-            @doc "Fetch a #{unquote(resource)} by ID. Returns record or raises `Ecto.NoResultsError`."
-            @spec unquote(bang_name)(binary(), keyword()) :: struct()
-            def unquote(bang_name)(id, opts \\ []) do
-              case unquote(fn_name)(id, opts) do
-                {:ok, record} -> record
-                {:error, :not_found} -> raise Ecto.NoResultsError, queryable: unquote(schema)
-              end
-            end
+    bang = generate_bang_function(generate_bang, fn ->
+      quote do
+        @doc "Fetch a #{unquote(resource)} by ID. Returns record or raises `Ecto.NoResultsError`."
+        @spec unquote(bang_name)(binary(), keyword()) :: struct()
+        def unquote(bang_name)(id, opts \\ []) do
+          case unquote(fn_name)(id, opts) do
+            {:ok, record} -> record
+            {:error, :not_found} -> raise Ecto.NoResultsError, queryable: unquote(schema)
           end
-        ]
-      else
-        []
+        end
       end
+    end)
 
     base ++ bang
   end
@@ -612,23 +606,18 @@ defmodule OmCrud.Context do
       end
     ]
 
-    bang =
-      if generate_bang do
-        [
-          quote do
-            @doc "Get the first #{unquote(resource)} or raise."
-            @spec unquote(bang_name)(keyword()) :: struct()
-            def unquote(bang_name)(opts \\ []) do
-              case unquote(fn_name)(opts) do
-                {:ok, record} -> record
-                {:error, :not_found} -> raise Ecto.NoResultsError, queryable: unquote(schema)
-              end
-            end
+    bang = generate_bang_function(generate_bang, fn ->
+      quote do
+        @doc "Get the first #{unquote(resource)} or raise."
+        @spec unquote(bang_name)(keyword()) :: struct()
+        def unquote(bang_name)(opts \\ []) do
+          case unquote(fn_name)(opts) do
+            {:ok, record} -> record
+            {:error, :not_found} -> raise Ecto.NoResultsError, queryable: unquote(schema)
           end
-        ]
-      else
-        []
+        end
       end
+    end)
 
     base ++ bang
   end
@@ -671,23 +660,18 @@ defmodule OmCrud.Context do
       end
     ]
 
-    bang =
-      if generate_bang do
-        [
-          quote do
-            @doc "Get the last #{unquote(resource)} or raise."
-            @spec unquote(bang_name)(keyword()) :: struct()
-            def unquote(bang_name)(opts \\ []) do
-              case unquote(fn_name)(opts) do
-                {:ok, record} -> record
-                {:error, :not_found} -> raise Ecto.NoResultsError, queryable: unquote(schema)
-              end
-            end
+    bang = generate_bang_function(generate_bang, fn ->
+      quote do
+        @doc "Get the last #{unquote(resource)} or raise."
+        @spec unquote(bang_name)(keyword()) :: struct()
+        def unquote(bang_name)(opts \\ []) do
+          case unquote(fn_name)(opts) do
+            {:ok, record} -> record
+            {:error, :not_found} -> raise Ecto.NoResultsError, queryable: unquote(schema)
           end
-        ]
-      else
-        []
+        end
       end
+    end)
 
     base ++ bang
   end
@@ -802,13 +786,7 @@ defmodule OmCrud.Context do
         @spec unquote(fn_name)(map(), keyword()) :: {:ok, struct()} | {:error, Ecto.Changeset.t()}
         def unquote(fn_name)(attrs, opts \\ []) do
           opts = Keyword.merge(unquote(default_opts), opts)
-
-          opts =
-            if unquote(default_changeset) do
-              Keyword.put_new(opts, :changeset, unquote(default_changeset))
-            else
-              opts
-            end
+          opts = __maybe_add_changeset__(opts, unquote(default_changeset))
 
           OmCrud.Telemetry.span(:create, %{schema: unquote(schema)}, fn ->
             result = OmCrud.create(unquote(schema), attrs, opts)
@@ -830,26 +808,21 @@ defmodule OmCrud.Context do
       end
     ]
 
-    bang =
-      if generate_bang do
-        [
-          quote do
-            @doc "Create a new #{unquote(resource)} or raise."
-            @spec unquote(bang_name)(map(), keyword()) :: struct()
-            def unquote(bang_name)(attrs, opts \\ []) do
-              case unquote(fn_name)(attrs, opts) do
-                {:ok, record} ->
-                  record
+    bang = generate_bang_function(generate_bang, fn ->
+      quote do
+        @doc "Create a new #{unquote(resource)} or raise."
+        @spec unquote(bang_name)(map(), keyword()) :: struct()
+        def unquote(bang_name)(attrs, opts \\ []) do
+          case unquote(fn_name)(attrs, opts) do
+            {:ok, record} ->
+              record
 
-                {:error, %Ecto.Changeset{} = changeset} ->
-                  raise Ecto.InvalidChangesetError, action: :insert, changeset: changeset
-              end
-            end
+            {:error, %Ecto.Changeset{} = changeset} ->
+              raise Ecto.InvalidChangesetError, action: :insert, changeset: changeset
           end
-        ]
-      else
-        []
+        end
       end
+    end)
 
     base ++ bang
   end
@@ -878,13 +851,7 @@ defmodule OmCrud.Context do
                 {:ok, struct()} | {:error, Ecto.Changeset.t()}
         def unquote(fn_name)(record, attrs, opts \\ []) do
           opts = Keyword.merge(unquote(default_opts), opts)
-
-          opts =
-            if unquote(default_changeset) do
-              Keyword.put_new(opts, :changeset, unquote(default_changeset))
-            else
-              opts
-            end
+          opts = __maybe_add_changeset__(opts, unquote(default_changeset))
 
           OmCrud.Telemetry.span(:update, %{schema: unquote(schema), id: record.id}, fn ->
             result = OmCrud.update(record, attrs, opts)
@@ -906,26 +873,21 @@ defmodule OmCrud.Context do
       end
     ]
 
-    bang =
-      if generate_bang do
-        [
-          quote do
-            @doc "Update a #{unquote(resource)} or raise."
-            @spec unquote(bang_name)(struct(), map(), keyword()) :: struct()
-            def unquote(bang_name)(record, attrs, opts \\ []) do
-              case unquote(fn_name)(record, attrs, opts) do
-                {:ok, record} ->
-                  record
+    bang = generate_bang_function(generate_bang, fn ->
+      quote do
+        @doc "Update a #{unquote(resource)} or raise."
+        @spec unquote(bang_name)(struct(), map(), keyword()) :: struct()
+        def unquote(bang_name)(record, attrs, opts \\ []) do
+          case unquote(fn_name)(record, attrs, opts) do
+            {:ok, record} ->
+              record
 
-                {:error, %Ecto.Changeset{} = changeset} ->
-                  raise Ecto.InvalidChangesetError, action: :update, changeset: changeset
-              end
-            end
+            {:error, %Ecto.Changeset{} = changeset} ->
+              raise Ecto.InvalidChangesetError, action: :update, changeset: changeset
           end
-        ]
-      else
-        []
+        end
       end
+    end)
 
     base ++ bang
   end
@@ -949,26 +911,21 @@ defmodule OmCrud.Context do
       end
     ]
 
-    bang =
-      if generate_bang do
-        [
-          quote do
-            @doc "Delete a #{unquote(resource)} or raise."
-            @spec unquote(bang_name)(struct(), keyword()) :: struct()
-            def unquote(bang_name)(record, opts \\ []) do
-              case unquote(fn_name)(record, opts) do
-                {:ok, record} ->
-                  record
+    bang = generate_bang_function(generate_bang, fn ->
+      quote do
+        @doc "Delete a #{unquote(resource)} or raise."
+        @spec unquote(bang_name)(struct(), keyword()) :: struct()
+        def unquote(bang_name)(record, opts \\ []) do
+          case unquote(fn_name)(record, opts) do
+            {:ok, record} ->
+              record
 
-                {:error, %Ecto.Changeset{} = changeset} ->
-                  raise Ecto.InvalidChangesetError, action: :delete, changeset: changeset
-              end
-            end
+            {:error, %Ecto.Changeset{} = changeset} ->
+              raise Ecto.InvalidChangesetError, action: :delete, changeset: changeset
           end
-        ]
-      else
-        []
+        end
       end
+    end)
 
     base ++ bang
   end
@@ -1114,4 +1071,7 @@ defmodule OmCrud.Context do
       end
     ]
   end
+
+  defp generate_bang_function(false, _generator), do: []
+  defp generate_bang_function(true, generator), do: [generator.()]
 end

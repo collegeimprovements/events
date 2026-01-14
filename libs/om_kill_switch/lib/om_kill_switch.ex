@@ -26,10 +26,9 @@ defmodule OmKillSwitch do
 
   ### Check if service is enabled
 
-      if OmKillSwitch.enabled?(:s3) do
-        S3.upload(bucket, key, content)
-      else
-        {:error, :service_disabled}
+      case OmKillSwitch.enabled?(:s3) do
+        true -> S3.upload(bucket, key, content)
+        false -> {:error, :service_disabled}
       end
 
   ### Execute with fallback
@@ -187,9 +186,7 @@ defmodule OmKillSwitch do
   """
   @spec status_all() :: %{service() => status()}
   def status_all do
-    services()
-    |> Enum.map(&{&1, status(&1)})
-    |> Map.new()
+    Map.new(services(), &{&1, status(&1)})
   end
 
   @doc """
@@ -293,37 +290,22 @@ defmodule OmKillSwitch do
   end
 
   defp initialize_services(services) do
-    services
-    |> Enum.map(&{&1, initialize_service(&1)})
-    |> Map.new()
+    Map.new(services, &{&1, initialize_service(&1)})
   end
 
   defp initialize_service(service) do
     enabled = read_service_config(service)
 
-    %{
-      enabled: enabled,
-      reason: if(enabled, do: nil, else: "Disabled via configuration"),
-      disabled_at: if(enabled, do: nil, else: DateTime.utc_now())
-    }
+    build_status(enabled)
   end
 
   defp read_service_config(service) do
     env_var = "#{String.upcase(to_string(service))}_ENABLED"
 
-    # Priority: env var > app config > default (true)
     case System.get_env(env_var) do
-      nil ->
-        Application.get_env(:om_kill_switch, service, true)
-
-      "false" ->
-        false
-
-      "0" ->
-        false
-
-      _ ->
-        true
+      nil -> Application.get_env(:om_kill_switch, service, true)
+      value when value in ["false", "0"] -> false
+      _other -> true
     end
   end
 
@@ -346,17 +328,12 @@ defmodule OmKillSwitch do
     }
   end
 
-  defp update_service_state(state, service, enabled, reason) do
-    service_state =
-      case enabled do
-        true ->
-          %{enabled: true, reason: nil, disabled_at: nil}
+  defp update_service_state(state, service, true, _reason) do
+    Map.put(state, service, %{enabled: true, reason: nil, disabled_at: nil})
+  end
 
-        false ->
-          %{enabled: false, reason: reason, disabled_at: DateTime.utc_now()}
-      end
-
-    Map.put(state, service, service_state)
+  defp update_service_state(state, service, false, reason) do
+    Map.put(state, service, %{enabled: false, reason: reason, disabled_at: DateTime.utc_now()})
   end
 
   defp emit_telemetry(event, service, reason) do
@@ -366,4 +343,7 @@ defmodule OmKillSwitch do
       %{service: service, reason: reason}
     )
   end
+
+  defp build_status(true), do: %{enabled: true, reason: nil, disabled_at: nil}
+  defp build_status(false), do: %{enabled: false, reason: "Disabled via configuration", disabled_at: DateTime.utc_now()}
 end

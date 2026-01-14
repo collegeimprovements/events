@@ -123,6 +123,7 @@ defmodule OmPubSub do
       # Custom Redis config
       OmPubSub.start_link(name: MyApp.PubSub, redis_host: "redis.local", redis_port: 6380)
   """
+  @spec start_link(keyword()) :: Supervisor.on_start()
   def start_link(opts) do
     name = Keyword.fetch!(opts, :name)
     Supervisor.start_link(__MODULE__, opts, name: name)
@@ -136,7 +137,6 @@ defmodule OmPubSub do
 
     Logger.info("PubSub #{inspect(name)} starting with #{adapter} adapter")
 
-    # Store config in persistent_term for fast access
     :persistent_term.put({__MODULE__, name}, %__MODULE__{
       name: name,
       server_name: server_name,
@@ -159,9 +159,7 @@ defmodule OmPubSub do
       Phoenix.PubSub.broadcast(OmPubSub.server(MyApp.PubSub), "topic", message)
   """
   @spec server(atom()) :: atom()
-  def server(name) do
-    get_config(name).server_name
-  end
+  def server(name), do: get_config(name).server_name
 
   @doc """
   Subscribe the current process to a topic.
@@ -235,17 +233,15 @@ defmodule OmPubSub do
       OmPubSub.direct_broadcast(MyApp.PubSub, node(), "room:123", :ping, %{})
   """
   @spec direct_broadcast(atom(), node(), String.t(), atom(), term()) :: :ok | {:error, term()}
-  def direct_broadcast(name, node, topic, event, payload) do
-    Phoenix.PubSub.direct_broadcast(node, server(name), topic, {event, payload})
+  def direct_broadcast(name, target_node, topic, event, payload) do
+    Phoenix.PubSub.direct_broadcast(target_node, server(name), topic, {event, payload})
   end
 
   @doc """
   Returns the current adapter type.
   """
   @spec adapter(atom()) :: adapter()
-  def adapter(name) do
-    get_config(name).adapter
-  end
+  def adapter(name), do: get_config(name).adapter
 
   @doc """
   Checks if Redis adapter is currently active.
@@ -269,51 +265,29 @@ defmodule OmPubSub do
   # Private Functions
   # ==============================================================================
 
-  defp get_config(name) do
-    :persistent_term.get({__MODULE__, name})
-  end
+  defp get_config(name), do: :persistent_term.get({__MODULE__, name})
 
-  defp server_name(name) do
-    :"#{name}.Server"
-  end
+  defp server_name(name), do: :"#{name}.Server"
 
   defp determine_adapter(opts) do
-    forced_adapter = Keyword.get(opts, :adapter, :auto)
-
-    case forced_adapter do
-      :local ->
-        Logger.debug("PubSub: Using local adapter (forced via option)")
-        :local
-
-      :redis ->
-        Logger.debug("PubSub: Using Redis adapter (forced via option)")
-        :redis
-
-      :postgres ->
-        Logger.debug("PubSub: Using Postgres adapter (forced via option)")
-        :postgres
-
+    case Keyword.get(opts, :adapter, :auto) do
       :auto ->
         determine_adapter_from_env(opts)
+
+      adapter when adapter in [:local, :redis, :postgres] ->
+        Logger.debug("PubSub: Using #{adapter} adapter (forced via option)")
+        adapter
     end
   end
 
   defp determine_adapter_from_env(opts) do
     case Cfg.string("PUBSUB_ADAPTER") do
-      "local" ->
-        Logger.debug("PubSub: Using local adapter (forced via PUBSUB_ADAPTER)")
-        :local
-
-      "redis" ->
-        Logger.debug("PubSub: Using Redis adapter (forced via PUBSUB_ADAPTER)")
-        :redis
-
-      "postgres" ->
-        Logger.debug("PubSub: Using Postgres adapter (forced via PUBSUB_ADAPTER)")
-        :postgres
+      adapter when adapter in ["local", "redis", "postgres"] ->
+        adapter_atom = String.to_existing_atom(adapter)
+        Logger.debug("PubSub: Using #{adapter} adapter (forced via PUBSUB_ADAPTER)")
+        adapter_atom
 
       _ ->
-        # Use fallback chain
         fallback_chain = Keyword.get(opts, :fallback_chain, @default_fallback_chain)
         determine_adapter_from_chain(fallback_chain, opts)
     end
@@ -325,12 +299,14 @@ defmodule OmPubSub do
   end
 
   defp determine_adapter_from_chain([adapter | rest], opts) do
-    if adapter_available?(adapter, opts) do
-      Logger.debug("PubSub: #{adapter} available, using #{adapter} adapter")
-      adapter
-    else
-      Logger.debug("PubSub: #{adapter} unavailable, trying next in chain")
-      determine_adapter_from_chain(rest, opts)
+    case adapter_available?(adapter, opts) do
+      true ->
+        Logger.debug("PubSub: #{adapter} available, using #{adapter} adapter")
+        adapter
+
+      false ->
+        Logger.debug("PubSub: #{adapter} unavailable, trying next in chain")
+        determine_adapter_from_chain(rest, opts)
     end
   end
 
@@ -342,12 +318,7 @@ defmodule OmPubSub do
 
     case Redix.start_link(host: host, port: port, timeout: 5_000) do
       {:ok, conn} ->
-        result =
-          case Redix.command(conn, ["PING"]) do
-            {:ok, "PONG"} -> true
-            _ -> false
-          end
-
+        result = Redix.command(conn, ["PING"]) == {:ok, "PONG"}
         Redix.stop(conn)
         result
 
@@ -361,33 +332,38 @@ defmodule OmPubSub do
     repo = Keyword.get(opts, :repo)
     conn_opts = Keyword.get(opts, :conn_opts, [])
 
-    cond do
-      # If repo is provided and started, assume Postgres is available
-      repo != nil ->
-        case Process.whereis(repo) do
-          nil ->
-            Logger.debug("PubSub: Repo #{inspect(repo)} not started")
-            false
-
-          _pid ->
-            true
-        end
-
-      # If conn_opts provided, try to connect
-      conn_opts != [] ->
-        case Postgrex.start_link(conn_opts ++ [timeout: 5_000]) do
-          {:ok, conn} ->
-            GenServer.stop(conn)
-            true
-
-          {:error, reason} ->
-            Logger.debug("PubSub: Postgres connection failed: #{inspect(reason)}")
-            false
-        end
-
-      # No config for Postgres
-      true ->
+    case {repo, conn_opts} do
+      {nil, []} ->
         Logger.debug("PubSub: No Postgres config (need :repo or :conn_opts)")
+        false
+
+      {nil, conn_opts} ->
+        check_postgres_connection(conn_opts)
+
+      {repo, _} ->
+        check_repo_available(repo)
+    end
+  end
+
+  defp check_repo_available(repo) do
+    case Process.whereis(repo) do
+      nil ->
+        Logger.debug("PubSub: Repo #{inspect(repo)} not started")
+        false
+
+      _pid ->
+        true
+    end
+  end
+
+  defp check_postgres_connection(conn_opts) do
+    case Postgrex.start_link(conn_opts ++ [timeout: 5_000]) do
+      {:ok, conn} ->
+        GenServer.stop(conn)
+        true
+
+      {:error, reason} ->
+        Logger.debug("PubSub: Postgres connection failed: #{inspect(reason)}")
         false
     end
   end
@@ -427,11 +403,8 @@ defmodule OmPubSub do
 
   defp node_name do
     case node() do
-      :nonode@nohost ->
-        :"om_pubsub_#{System.unique_integer([:positive])}"
-
-      named_node ->
-        named_node
+      :nonode@nohost -> :"om_pubsub_#{System.unique_integer([:positive])}"
+      named_node -> named_node
     end
   end
 end

@@ -10,7 +10,6 @@ defmodule OmScheduler.Store.Memory do
   """
 
   use GenServer
-  require Logger
 
   alias OmScheduler.{Job, Execution}
   alias OmScheduler.Workflow

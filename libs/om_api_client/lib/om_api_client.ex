@@ -441,29 +441,28 @@ defmodule OmApiClient do
           do: :ok
       end
 
-      defp apply_retry_options(opts) do
-        case @retry_opts do
-          false ->
-            Keyword.put(opts, :retry, false)
+      # Generate only the needed retry option handler based on compile-time @retry_opts
+      case @retry_opts do
+        false ->
+          defp apply_retry_options(opts), do: Keyword.put(opts, :retry, false)
 
-          true ->
-            Keyword.put(opts, :retry, :transient)
+        true ->
+          defp apply_retry_options(opts), do: Keyword.put(opts, :retry, :transient)
 
-          retry_opts when is_list(retry_opts) ->
-            Keyword.put(opts, :retry, :transient)
-            |> Keyword.put(:retry_delay, retry_delay_fn(retry_opts))
-        end
-      end
+        retry_opts when is_list(retry_opts) ->
+          @retry_delay_fn (fn attempt ->
+                             base_delay = Keyword.get(unquote(retry_opts), :base_delay, 1000)
+                             max_delay = Keyword.get(unquote(retry_opts), :max_delay, 30_000)
+                             delay = base_delay * Integer.pow(2, attempt - 1)
+                             jitter = :rand.uniform(div(delay, 4))
+                             min(delay + jitter, max_delay)
+                           end)
 
-      defp retry_delay_fn(opts) do
-        base_delay = Keyword.get(opts, :base_delay, 1000)
-        max_delay = Keyword.get(opts, :max_delay, 30_000)
-
-        fn attempt ->
-          delay = base_delay * Integer.pow(2, attempt - 1)
-          jitter = :rand.uniform(div(delay, 4))
-          min(delay + jitter, max_delay)
-        end
+          defp apply_retry_options(opts) do
+            opts
+            |> Keyword.put(:retry, :transient)
+            |> Keyword.put(:retry_delay, @retry_delay_fn)
+          end
       end
 
       defp generate_request_id do

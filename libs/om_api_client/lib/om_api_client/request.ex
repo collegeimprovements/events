@@ -152,20 +152,15 @@ defmodule OmApiClient.Request do
   end
 
   defp get_proxy_config(config) do
-    proxy = Map.get(config, :proxy)
-    proxy_auth = Map.get(config, :proxy_auth)
-
-    cond do
-      # Explicit proxy in config
-      proxy != nil ->
-        OmHttp.Proxy.get_config(proxy: proxy, proxy_auth: proxy_auth)
-
-      # Fall back to environment
-      true ->
+    case {Map.get(config, :proxy), Map.get(config, :proxy_auth)} do
+      {nil, _} ->
         case OmHttp.Proxy.from_env() do
           {:ok, proxy_config} -> proxy_config
           :no_proxy -> nil
         end
+
+      {proxy, proxy_auth} ->
+        OmHttp.Proxy.get_config(proxy: proxy, proxy_auth: proxy_auth)
     end
   end
 
@@ -519,21 +514,22 @@ defmodule OmApiClient.Request do
   """
   @spec to_req_options(t()) :: keyword()
   def to_req_options(%__MODULE__{} = req) do
-    opts = [
+    [
       method: req.method || :get,
       url: req.path || "/",
       headers: Enum.reverse(req.headers)
     ]
-
-    opts = if req.query != [], do: Keyword.put(opts, :params, req.query), else: opts
-    opts = if req.timeout, do: Keyword.put(opts, :connect_timeout, req.timeout), else: opts
-    opts = if req.receive_timeout, do: Keyword.put(opts, :receive_timeout, req.receive_timeout), else: opts
-    opts = if req.pool_timeout, do: Keyword.put(opts, :pool_timeout, req.pool_timeout), else: opts
-    opts = if req.max_retries, do: Keyword.put(opts, :max_retries, req.max_retries), else: opts
-    opts = add_proxy_to_opts(opts, req.proxy)
-
-    add_body_to_opts(opts, req.body, req.body_type)
+    |> maybe_put(:params, req.query, req.query != [])
+    |> maybe_put(:connect_timeout, req.timeout, req.timeout != nil)
+    |> maybe_put(:receive_timeout, req.receive_timeout, req.receive_timeout != nil)
+    |> maybe_put(:pool_timeout, req.pool_timeout, req.pool_timeout != nil)
+    |> maybe_put(:max_retries, req.max_retries, req.max_retries != nil)
+    |> add_proxy_to_opts(req.proxy)
+    |> add_body_to_opts(req.body, req.body_type)
   end
+
+  defp maybe_put(opts, _key, _value, false), do: opts
+  defp maybe_put(opts, key, value, true), do: Keyword.put(opts, key, value)
 
   defp add_proxy_to_opts(opts, nil), do: opts
 
@@ -552,9 +548,12 @@ defmodule OmApiClient.Request do
     Keyword.put(opts, :json, body)
   end
 
+  defp add_body_to_opts(opts, body, :form) when is_map(body) do
+    Keyword.put(opts, :form, Map.to_list(body))
+  end
+
   defp add_body_to_opts(opts, body, :form) do
-    form_data = if is_map(body), do: Map.to_list(body), else: body
-    Keyword.put(opts, :form, form_data)
+    Keyword.put(opts, :form, body)
   end
 
   defp add_body_to_opts(opts, parts, :multipart) do

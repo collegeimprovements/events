@@ -56,12 +56,7 @@ defmodule Effect.Visualization do
     case Builder.build_dag(effect) do
       {:ok, dag} ->
         ascii = Dag.Visualization.to_ascii(dag, opts)
-
-        if show_title do
-          "#{effect.name}\n#{ascii}"
-        else
-          ascii
-        end
+        format_with_title(ascii, effect.name, show_title)
 
       {:error, reason} ->
         "Error building DAG: #{inspect(reason)}"
@@ -180,61 +175,34 @@ defmodule Effect.Visualization do
   @spec summary(Builder.t()) :: map()
   def summary(%Builder{} = effect) do
     steps = Builder.step_names(effect)
-
-    has_parallel =
-      Enum.any?(effect.steps, fn step -> step.type == :parallel end)
-
-    has_branches =
-      Enum.any?(effect.steps, fn step -> step.type == :branch end)
-
-    has_each =
-      Enum.any?(effect.steps, fn step -> step.type == :each end)
-
-    has_race =
-      Enum.any?(effect.steps, fn step -> step.type == :race end)
-
-    has_embed =
-      Enum.any?(effect.steps, fn step -> step.type == :embed end)
+    step_types = MapSet.new(effect.steps, & &1.type)
 
     %{
       name: effect.name,
       step_count: length(steps),
       steps: steps,
-      has_parallel: has_parallel,
-      has_branches: has_branches,
-      has_each: has_each,
-      has_race: has_race,
-      has_embed: has_embed,
+      has_parallel: MapSet.member?(step_types, :parallel),
+      has_branches: MapSet.member?(step_types, :branch),
+      has_each: MapSet.member?(step_types, :each),
+      has_race: MapSet.member?(step_types, :race),
+      has_embed: MapSet.member?(step_types, :embed),
       middleware_count: length(effect.middleware),
-      has_ensure: length(effect.ensure_fns) > 0
+      has_ensure: effect.ensure_fns != []
     }
   end
 
   # Format a node label with step type info
   defp format_node_label(name, effect) do
     step = Enum.find(effect.steps, fn s -> s.name == name end)
-
-    case step do
-      nil ->
-        to_string(name)
-
-      %{type: :parallel} ->
-        "#{name}\\n[parallel]"
-
-      %{type: :branch} ->
-        "#{name}\\n[branch]"
-
-      %{type: :each} ->
-        "#{name}\\n[each]"
-
-      %{type: :race} ->
-        "#{name}\\n[race]"
-
-      %{type: :embed} ->
-        "#{name}\\n[embed]"
-
-      _ ->
-        to_string(name)
-    end
+    format_step_label(name, step)
   end
+
+  defp format_step_label(name, %{type: type}) when type in [:parallel, :branch, :each, :race, :embed] do
+    "#{name}\\n[#{type}]"
+  end
+
+  defp format_step_label(name, _step), do: to_string(name)
+
+  defp format_with_title(content, _name, false), do: content
+  defp format_with_title(content, name, true), do: "#{name}\n#{content}"
 end

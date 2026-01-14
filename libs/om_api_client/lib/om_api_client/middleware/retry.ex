@@ -45,8 +45,6 @@ defmodule OmApiClient.Middleware.Retry do
       )
   """
 
-  require Logger
-
   alias FnTypes.Backoff
 
   @default_max_attempts 3

@@ -362,14 +362,12 @@ defmodule OmMigration.Token do
     Enum.map(fields, fn {name, type, opts} ->
       type_str = format_type(type)
       opts_str = format_schema_opts(opts)
-
-      if opts_str == "" do
-        "field :#{name}, #{type_str}"
-      else
-        "field :#{name}, #{type_str}, #{opts_str}"
-      end
+      format_field_line(name, type_str, opts_str)
     end)
   end
+
+  defp format_field_line(name, type_str, ""), do: "field :#{name}, #{type_str}"
+  defp format_field_line(name, type_str, opts_str), do: "field :#{name}, #{type_str}, #{opts_str}"
 
   # ============================================
   # Private Helpers
@@ -384,19 +382,14 @@ defmodule OmMigration.Token do
   defp format_type(type), do: ":#{type}"
 
   defp format_schema_opts(opts) do
-    schema_relevant = [:null, :default, :primary_key]
-
     opts
-    |> Keyword.take(schema_relevant)
-    |> Enum.map(fn
-      {:null, false} -> "null: false"
-      {:null, true} -> "null: true"
-      {:default, val} when is_binary(val) -> "default: #{inspect(val)}"
-      {:default, val} -> "default: #{inspect(val)}"
-      {:primary_key, true} -> "primary_key: true"
-      _ -> nil
+    |> Keyword.take([:null, :default, :primary_key])
+    |> Enum.flat_map(fn
+      {:null, value} -> ["null: #{value}"]
+      {:default, val} -> ["default: #{inspect(val)}"]
+      {:primary_key, true} -> ["primary_key: true"]
+      _ -> []
     end)
-    |> Enum.reject(&is_nil/1)
     |> Enum.join(", ")
   end
 end

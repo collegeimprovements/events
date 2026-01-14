@@ -57,62 +57,30 @@ defmodule OmQuery.SqlScope.Security do
   """
   @spec validate_identifier!(atom() | String.t()) :: String.t()
   def validate_identifier!(identifier) when is_atom(identifier) do
-    identifier
-    |> Atom.to_string()
-    |> validate_identifier!()
+    identifier |> Atom.to_string() |> validate_identifier!()
+  end
+
+  def validate_identifier!("") do
+    raise SecurityError, """
+    Empty identifier not allowed.
+
+    Identifiers must be at least 1 character long.
+    """
+  end
+
+  def validate_identifier!(identifier) when is_binary(identifier) and byte_size(identifier) > @max_identifier_length do
+    raise SecurityError, """
+    Identifier too long: #{byte_size(identifier)} characters.
+
+    PostgreSQL identifiers must be #{@max_identifier_length} characters or less.
+    Provided: #{String.slice(identifier, 0, 50)}...
+    """
   end
 
   def validate_identifier!(identifier) when is_binary(identifier) do
-    cond do
-      byte_size(identifier) == 0 ->
-        raise SecurityError, """
-        Empty identifier not allowed.
-
-        Identifiers must be at least 1 character long.
-        """
-
-      byte_size(identifier) > @max_identifier_length ->
-        raise SecurityError, """
-        Identifier too long: #{byte_size(identifier)} characters.
-
-        PostgreSQL identifiers must be #{@max_identifier_length} characters or less.
-        Provided: #{String.slice(identifier, 0, 50)}...
-        """
-
-      not String.match?(identifier, @identifier_regex) ->
-        # Check for common SQL injection patterns
-        if contains_sql_keywords?(identifier) or contains_dangerous_chars?(identifier) do
-          raise SecurityError, """
-          SQL injection detected in identifier: #{inspect(identifier)}
-
-          Identifiers can only contain:
-          - Letters (a-z, A-Z)
-          - Numbers (0-9)
-          - Underscores (_)
-          - Must start with a letter or underscore
-
-          This looks like a SQL injection attempt.
-          """
-        else
-          raise SecurityError, """
-          Invalid identifier: #{inspect(identifier)}
-
-          Identifiers can only contain:
-          - Letters (a-z, A-Z)
-          - Numbers (0-9)
-          - Underscores (_)
-          - Must start with a letter or underscore
-
-          Examples of valid identifiers:
-          - users
-          - user_id
-          - UserAccount
-          - _private
-          """
-        end
-
-      true ->
-        identifier
+    case String.match?(identifier, @identifier_regex) do
+      true -> identifier
+      false -> raise_invalid_identifier_error(identifier)
     end
   end
 
@@ -122,6 +90,40 @@ defmodule OmQuery.SqlScope.Security do
 
     Expected atom or string, got: #{inspect(other.__struct__)}
     """
+  end
+
+  defp raise_invalid_identifier_error(identifier) do
+    case contains_sql_keywords?(identifier) or contains_dangerous_chars?(identifier) do
+      true ->
+        raise SecurityError, """
+        SQL injection detected in identifier: #{inspect(identifier)}
+
+        Identifiers can only contain:
+        - Letters (a-z, A-Z)
+        - Numbers (0-9)
+        - Underscores (_)
+        - Must start with a letter or underscore
+
+        This looks like a SQL injection attempt.
+        """
+
+      false ->
+        raise SecurityError, """
+        Invalid identifier: #{inspect(identifier)}
+
+        Identifiers can only contain:
+        - Letters (a-z, A-Z)
+        - Numbers (0-9)
+        - Underscores (_)
+        - Must start with a letter or underscore
+
+        Examples of valid identifiers:
+        - users
+        - user_id
+        - UserAccount
+        - _private
+        """
+    end
   end
 
   @doc """
@@ -244,37 +246,45 @@ defmodule OmQuery.SqlScope.Security do
       ~r/\bLOAD_FILE\b/i
     ]
 
-    if Enum.any?(dangerous_patterns, &String.match?(fragment, &1)) do
-      raise SecurityError, """
-      Dangerous SQL fragment detected: #{inspect(fragment)}
+    check_dangerous_patterns(fragment, dangerous_patterns)
+    check_fragment_length(fragment)
+  end
 
-      This fragment contains patterns commonly used in SQL injection attacks.
+  defp check_dangerous_patterns(fragment, patterns) do
+    case Enum.any?(patterns, &String.match?(fragment, &1)) do
+      false ->
+        :ok
 
-      If this is a legitimate WHERE clause, please use parameterized queries
-      with bindings instead of raw SQL fragments.
+      true ->
+        raise SecurityError, """
+        Dangerous SQL fragment detected: #{inspect(fragment)}
 
-      Example:
-        # Instead of:
-        SqlScope.scope_custom("status = '\#{user_input}'")
+        This fragment contains patterns commonly used in SQL injection attacks.
 
-        # Use:
-        SqlScope.Scope.new() |> SqlScope.Scope.eq(:status, user_input)
-      """
+        If this is a legitimate WHERE clause, please use parameterized queries
+        with bindings instead of raw SQL fragments.
+
+        Example:
+          # Instead of:
+          SqlScope.scope_custom("status = '\#{user_input}'")
+
+          # Use:
+          SqlScope.Scope.new() |> SqlScope.Scope.eq(:status, user_input)
+        """
     end
+  end
 
-    # Warn if fragment is very long (possible injection)
-    if byte_size(fragment) > 1000 do
-      raise SecurityError, """
-      SQL fragment too long: #{byte_size(fragment)} characters.
+  defp check_fragment_length(fragment) when byte_size(fragment) <= 1000, do: :ok
 
-      Maximum allowed: 1000 characters.
+  defp check_fragment_length(fragment) do
+    raise SecurityError, """
+    SQL fragment too long: #{byte_size(fragment)} characters.
 
-      Long SQL fragments are often used in injection attacks.
-      If you need complex WHERE clauses, use the Scope builder instead.
-      """
-    end
+    Maximum allowed: 1000 characters.
 
-    fragment
+    Long SQL fragments are often used in injection attacks.
+    If you need complex WHERE clauses, use the Scope builder instead.
+    """
   end
 
   @doc """
@@ -296,17 +306,18 @@ defmodule OmQuery.SqlScope.Security do
   def validate_options!(opts, allowed_keys) when is_list(opts) and is_list(allowed_keys) do
     provided_keys = Keyword.keys(opts)
     unknown_keys = provided_keys -- allowed_keys
+    check_unknown_options(unknown_keys, allowed_keys, provided_keys)
+  end
 
-    if unknown_keys != [] do
-      raise SecurityError, """
-      Unknown options: #{inspect(unknown_keys)}
+  defp check_unknown_options([], _allowed_keys, _provided_keys), do: :ok
 
-      Allowed options: #{inspect(allowed_keys)}
-      Provided options: #{inspect(provided_keys)}
-      """
-    end
+  defp check_unknown_options(unknown_keys, allowed_keys, provided_keys) do
+    raise SecurityError, """
+    Unknown options: #{inspect(unknown_keys)}
 
-    :ok
+    Allowed options: #{inspect(allowed_keys)}
+    Provided options: #{inspect(provided_keys)}
+    """
   end
 
   # Private helper: check for SQL keywords in identifier

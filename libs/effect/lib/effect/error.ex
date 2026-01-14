@@ -95,6 +95,8 @@ defmodule Effect.Error do
     %{error | rollback_errors: errors ++ [%{step: step, error: err}]}
   end
 
+  @recoverable_tags [:timeout, :rate_limited, :transient]
+
   @doc """
   Checks if the error is recoverable using the Recoverable protocol.
 
@@ -102,30 +104,33 @@ defmodule Effect.Error do
   that indicate recoverability.
   """
   @spec recoverable?(t()) :: boolean()
-  def recoverable?(%__MODULE__{tag: tag}) when tag in [:timeout, :rate_limited, :transient] do
-    true
-  end
+  def recoverable?(%__MODULE__{tag: tag}) when tag in @recoverable_tags, do: true
 
   def recoverable?(%__MODULE__{reason: reason}) do
-    # Try to use Recoverable protocol if available
-    if Code.ensure_loaded?(FnTypes.Protocols.Recoverable) do
-      try do
-        FnTypes.Protocols.Recoverable.recoverable?(reason)
-      rescue
-        _ -> false
-      end
-    else
-      false
-    end
+    check_recoverable_protocol(reason)
+  end
+
+  defp check_recoverable_protocol(reason) do
+    Code.ensure_loaded?(FnTypes.Protocols.Recoverable) and
+      safe_recoverable?(reason)
+  end
+
+  defp safe_recoverable?(reason) do
+    FnTypes.Protocols.Recoverable.recoverable?(reason)
+  rescue
+    _ -> false
   end
 
   @doc """
   Returns a human-readable message for the error.
   """
   @spec message(t()) :: String.t()
+  def message(%__MODULE__{step: step, reason: reason, tag: nil}) do
+    "Step :#{step} failed: #{inspect(reason)}"
+  end
+
   def message(%__MODULE__{step: step, reason: reason, tag: tag}) do
-    tag_str = if tag, do: " (#{tag})", else: ""
-    "Step :#{step} failed#{tag_str}: #{inspect(reason)}"
+    "Step :#{step} failed (#{tag}): #{inspect(reason)}"
   end
 end
 
@@ -140,13 +145,11 @@ defimpl Inspect, for: Effect.Error do
       attempts: error.attempts
     ]
 
-    fields =
-      if error.rollback_errors != [] do
-        fields ++ [rollback_errors: length(error.rollback_errors)]
-      else
-        fields
-      end
+    fields = maybe_add_rollback_count(fields, error.rollback_errors)
 
     concat(["#Effect.Error<", to_doc(fields, opts), ">"])
   end
+
+  defp maybe_add_rollback_count(fields, []), do: fields
+  defp maybe_add_rollback_count(fields, errors), do: fields ++ [rollback_errors: length(errors)]
 end

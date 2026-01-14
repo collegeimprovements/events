@@ -550,8 +550,8 @@ defmodule OmS3.Request do
     dest_prefix = String.trim_trailing(dest_prefix, "/")
     dest_prefix = if dest_prefix == "", do: "", else: dest_prefix <> "/"
 
-    source_pattern
-    |> expand_pattern(req)
+    req
+    |> expand_pattern(source_pattern)
     |> Task.async_stream(
       fn source_uri ->
         filename = OmS3.URI.filename(source_uri)

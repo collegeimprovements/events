@@ -85,36 +85,27 @@ defmodule OmCache.Telemetry do
 
   @doc false
   def handle_event([:nebulex, :cache, :command, :start], _measurements, metadata, config) do
-    if config.log_args do
-      Logger.log(config.level, fn ->
-        "Cache #{metadata.cache} #{metadata.command} started with args: #{inspect(metadata.args)}"
-      end)
-    else
-      Logger.log(config.level, fn ->
-        "Cache #{metadata.cache} #{metadata.command} started"
-      end)
-    end
-
-    :ok
+    Logger.log(config.level, start_message(metadata, config.log_args))
   end
 
   def handle_event([:nebulex, :cache, :command, :stop], measurements, metadata, config) do
-    duration_ms = System.convert_time_unit(measurements.duration, :native, :millisecond)
-
-    Logger.log(config.level, fn ->
-      "Cache #{metadata.cache} #{metadata.command} completed in #{duration_ms}ms"
-    end)
-
-    :ok
+    duration_ms = duration_in_ms(measurements.duration)
+    Logger.log(config.level, fn -> "Cache #{metadata.cache} #{metadata.command} completed in #{duration_ms}ms" end)
   end
 
   def handle_event([:nebulex, :cache, :command, :exception], measurements, metadata, _config) do
-    duration_ms = System.convert_time_unit(measurements.duration, :native, :millisecond)
-
-    Logger.error(fn ->
-      "Cache #{metadata.cache} #{metadata.command} failed after #{duration_ms}ms: #{inspect(metadata.reason)}"
-    end)
-
-    :ok
+    duration_ms = duration_in_ms(measurements.duration)
+    Logger.error(fn -> "Cache #{metadata.cache} #{metadata.command} failed after #{duration_ms}ms: #{inspect(metadata.reason)}" end)
   end
+
+  # Pattern matching replaces if/else for log_args toggle
+  defp start_message(metadata, true = _log_args) do
+    fn -> "Cache #{metadata.cache} #{metadata.command} started with args: #{inspect(metadata.args)}" end
+  end
+
+  defp start_message(metadata, false = _log_args) do
+    fn -> "Cache #{metadata.cache} #{metadata.command} started" end
+  end
+
+  defp duration_in_ms(duration), do: System.convert_time_unit(duration, :native, :millisecond)
 end

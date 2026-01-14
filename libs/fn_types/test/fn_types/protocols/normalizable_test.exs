@@ -10,7 +10,7 @@ defmodule FnTypes.Protocols.NormalizableTest do
 
   describe "normalize/2 for atoms" do
     test "normalizes :not_found to error struct" do
-      error = Normalizable.normalize(:not_found)
+      error = Normalizable.normalize(:not_found, [])
 
       assert %Error{} = error
       assert error.type == :not_found
@@ -18,7 +18,7 @@ defmodule FnTypes.Protocols.NormalizableTest do
     end
 
     test "normalizes :unauthorized to error struct" do
-      error = Normalizable.normalize(:unauthorized)
+      error = Normalizable.normalize(:unauthorized, [])
 
       assert %Error{} = error
       assert error.type == :unauthorized
@@ -26,7 +26,7 @@ defmodule FnTypes.Protocols.NormalizableTest do
     end
 
     test "normalizes :timeout as recoverable" do
-      error = Normalizable.normalize(:timeout)
+      error = Normalizable.normalize(:timeout, [])
 
       assert %Error{} = error
       assert error.type == :timeout
@@ -34,7 +34,7 @@ defmodule FnTypes.Protocols.NormalizableTest do
     end
 
     test "normalizes unknown atoms" do
-      error = Normalizable.normalize(:some_custom_error)
+      error = Normalizable.normalize(:some_custom_error, [])
 
       assert %Error{} = error
       assert error.type == :internal
@@ -81,7 +81,7 @@ defmodule FnTypes.Protocols.NormalizableTest do
   describe "normalize/2 for exceptions" do
     test "normalizes RuntimeError" do
       exception = %RuntimeError{message: "Something broke"}
-      error = Normalizable.normalize(exception)
+      error = Normalizable.normalize(exception, [])
 
       assert %Error{} = error
       assert error.type == :internal
@@ -91,7 +91,7 @@ defmodule FnTypes.Protocols.NormalizableTest do
 
     test "normalizes ArgumentError" do
       exception = %ArgumentError{message: "Invalid argument"}
-      error = Normalizable.normalize(exception)
+      error = Normalizable.normalize(exception, [])
 
       assert %Error{} = error
       assert error.type == :validation
@@ -100,7 +100,7 @@ defmodule FnTypes.Protocols.NormalizableTest do
 
     test "normalizes KeyError" do
       exception = %KeyError{key: :missing_key, term: %{}}
-      error = Normalizable.normalize(exception)
+      error = Normalizable.normalize(exception, [])
 
       assert %Error{} = error
       assert error.type == :internal
@@ -127,7 +127,7 @@ defmodule FnTypes.Protocols.NormalizableTest do
 
   describe "normalize/2 for strings" do
     test "uses string as message" do
-      error = Normalizable.normalize("Error message string")
+      error = Normalizable.normalize("Error message string", [])
 
       assert %Error{} = error
       assert error.message == "Error message string"
@@ -166,7 +166,7 @@ defmodule FnTypes.Protocols.NormalizableTest do
   describe "normalize/2 for Error structs" do
     test "normalizes Error struct to itself" do
       original = Error.new(:validation, :test_code, message: "Test")
-      normalized = Normalizable.normalize(original)
+      normalized = Normalizable.normalize(original, [])
 
       # Should normalize to an Error (may add fields)
       assert %Error{} = normalized

@@ -165,12 +165,10 @@ defmodule OmBehaviours.Adapter do
   """
   @spec resolve(adapter_name :: atom(), base_module :: module()) :: module()
   def resolve(adapter_name, base_module) do
-    adapter_module_name =
-      adapter_name
-      |> Atom.to_string()
-      |> Macro.camelize()
-
-    Module.concat([base_module, adapter_module_name])
+    adapter_name
+    |> Atom.to_string()
+    |> Macro.camelize()
+    |> then(&Module.concat(base_module, &1))
   end
 
   @doc """

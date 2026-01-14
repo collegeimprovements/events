@@ -30,5 +30,5 @@ defprotocol FnTypes.Protocols.Normalizable do
   - `:include_stacktrace` - Whether to include stacktrace (default: false)
   """
   @spec normalize(t(), keyword()) :: FnTypes.Error.t()
-  def normalize(error, opts \\ [])
+  def normalize(error, opts)
 end

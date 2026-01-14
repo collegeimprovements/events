@@ -63,7 +63,7 @@ defmodule OmStripe do
 
         {:error, %StripeError{} = error} ->
           # Normalize to standard error format
-          normalized = Normalizable.normalize(error)
+          normalized = Normalizable.normalize(error, [])
           Logger.error("Stripe error: \#{inspect(normalized)}")
       end
 

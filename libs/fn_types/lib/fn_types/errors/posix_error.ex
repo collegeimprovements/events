@@ -13,7 +13,7 @@ defmodule FnTypes.Errors.PosixError do
       error = FnTypes.Errors.PosixError.new(:eacces, path: "/etc/passwd", operation: :write)
 
       # Normalize it
-      FnTypes.Protocols.Normalizable.normalize(error)
+      FnTypes.Protocols.Normalizable.normalize(error, [])
 
   ## Common POSIX Codes
 

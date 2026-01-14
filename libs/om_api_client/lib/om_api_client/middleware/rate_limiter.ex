@@ -43,7 +43,6 @@ defmodule OmApiClient.Middleware.RateLimiter do
   """
 
   use GenServer
-  require Logger
 
   @type name :: atom()
   @type opts :: [

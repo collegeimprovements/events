@@ -9,8 +9,6 @@ defmodule OmScheduler.Executor do
   - Execution recording
   """
 
-  require Logger
-
   alias OmScheduler.{
     Job,
     Execution,

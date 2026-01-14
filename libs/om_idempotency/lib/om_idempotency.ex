@@ -166,7 +166,6 @@ defmodule OmIdempotency do
 
     base_key =
       params
-      |> Keyword.delete(:scope)
       |> Enum.sort()
       |> Enum.map(fn {k, v} -> "#{k}=#{v}" end)
       |> case do
@@ -174,10 +173,7 @@ defmodule OmIdempotency do
         parts -> "#{operation}:" <> Enum.join(parts, ":")
       end
 
-    case scope do
-      nil -> base_key
-      s -> "#{s}:#{base_key}"
-    end
+    prefix_with_scope(base_key, scope)
   end
 
   @doc """
@@ -199,12 +195,8 @@ defmodule OmIdempotency do
       |> Base.encode16(case: :lower)
       |> binary_part(0, 32)
 
-    base_key = "#{operation}:#{hash}"
-
-    case scope do
-      nil -> base_key
-      s -> "#{s}:#{base_key}"
-    end
+    "#{operation}:#{hash}"
+    |> prefix_with_scope(scope)
   end
 
   # ============================================
@@ -333,10 +325,9 @@ defmodule OmIdempotency do
         {:ok, record}
 
       {:error, %Ecto.Changeset{errors: errors}} = error ->
-        if Keyword.has_key?(errors, :key) do
-          {:error, :already_exists}
-        else
-          error
+        case Keyword.has_key?(errors, :key) do
+          true -> {:error, :already_exists}
+          false -> error
         end
     end
   end
@@ -380,10 +371,9 @@ defmodule OmIdempotency do
          }}
 
       {0, _} ->
-        if current_state == :processing do
-          {:error, :already_processing}
-        else
-          {:error, :stale}
+        case current_state do
+          :processing -> {:error, :already_processing}
+          _ -> {:error, :stale}
         end
     end
   end
@@ -474,10 +464,7 @@ defmodule OmIdempotency do
         ]
       )
 
-    if count > 0 do
-      Logger.warning("[OmIdempotency] Recovered #{count} stale processing records")
-    end
-
+    log_recovery_count(count)
     {:ok, count}
   end
 
@@ -537,14 +524,7 @@ defmodule OmIdempotency do
           result
 
         {:error, error} = result ->
-          if permanent_failure?(error) do
-            fail(record, error, opts)
-            emit_telemetry(:failed, record.key, record.scope, %{})
-          else
-            release(record, opts)
-            emit_telemetry(:released, record.key, record.scope, %{})
-          end
-
+          handle_execution_error(record, error, opts)
           result
       end
     rescue
@@ -608,16 +588,22 @@ defmodule OmIdempotency do
     # Check if error implements a recoverable? function
     case error do
       %{__struct__: module} = struct ->
-        if function_exported?(module, :recoverable?, 1) do
-          not module.recoverable?(struct)
-        else
-          false
-        end
+        check_permanent_failure(module, struct)
 
       _ ->
         false
     end
   end
+
+  defp check_permanent_failure(module, struct) do
+    case function_exported?(module, :recoverable?, 1) do
+      true -> not module.recoverable?(struct)
+      false -> false
+    end
+  end
+
+  defp prefix_with_scope(key, nil), do: key
+  defp prefix_with_scope(key, scope), do: "#{scope}:#{key}"
 
   defp serialize_response({:ok, data}), do: %{ok: data}
   defp serialize_response(data), do: data
@@ -645,5 +631,20 @@ defmodule OmIdempotency do
       Map.merge(%{count: 1}, measurements),
       %{key: key, scope: scope}
     )
+  end
+
+  defp log_recovery_count(0), do: :ok
+  defp log_recovery_count(count), do: Logger.warning("[OmIdempotency] Recovered #{count} stale processing records")
+
+  defp handle_execution_error(record, error, opts) do
+    case permanent_failure?(error) do
+      true ->
+        fail(record, error, opts)
+        emit_telemetry(:failed, record.key, record.scope, %{})
+
+      false ->
+        release(record, opts)
+        emit_telemetry(:released, record.key, record.scope, %{})
+    end
   end
 end

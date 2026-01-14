@@ -92,14 +92,15 @@ defmodule OmMigration.Helpers do
   """
   @spec validate_field_options(atom(), keyword()) :: {:ok, keyword()} | {:error, String.t()}
   def validate_field_options(type, opts) do
-    opts
-    |> Enum.reduce_while({:ok, []}, fn {key, value}, {:ok, acc} ->
-      case validate_option(type, key, value) do
-        :ok -> {:cont, {:ok, [{key, value} | acc]}}
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
-    end)
-    |> case do
+    result =
+      Enum.reduce_while(opts, {:ok, []}, fn {key, value}, {:ok, acc} ->
+        case validate_option(type, key, value) do
+          :ok -> {:cont, {:ok, [{key, value} | acc]}}
+          {:error, reason} -> {:halt, {:error, reason}}
+        end
+      end)
+
+    case result do
       {:ok, validated} -> {:ok, Enum.reverse(validated)}
       error -> error
     end

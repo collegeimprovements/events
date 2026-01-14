@@ -28,7 +28,7 @@ defmodule FnTypes.Errors.FcmError do
       )
 
       # Normalize to standard Error
-      FnTypes.Protocols.Normalizable.normalize(error)
+      FnTypes.Protocols.Normalizable.normalize(error, [])
 
       # Check if recoverable
       FnTypes.Protocols.Recoverable.recoverable?(error)  #=> false (permanent)
@@ -44,7 +44,7 @@ defmodule FnTypes.Errors.FcmError do
         {:error, %FcmError{code: "UNREGISTERED"} = error} ->
           # Remove invalid token from database
           Tokens.invalidate(error.device_token)
-          {:error, Normalizable.normalize(error)}
+          {:error, Normalizable.normalize(error, [])}
       end
   """
 

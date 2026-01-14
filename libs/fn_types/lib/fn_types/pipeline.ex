@@ -458,6 +458,118 @@ defmodule FnTypes.Pipeline do
   end
 
   # ============================================
+  # Database Transaction Integration
+  # ============================================
+
+  @doc """
+  Wraps a step in a database transaction using OmCrud.Multi.
+
+  Bridges Pipeline and OmCrud.Multi for atomic database operations.
+  The step function should return either:
+  - `{:ok, map()}` - Merges results into context
+  - `{:ok, %OmCrud.Multi{}}` - Executes Multi and merges results
+  - `{:error, reason}` - Halts pipeline
+
+  ## Options
+
+  - `:repo` - Repository module (defaults to configured repo)
+  - `:timeout` - Transaction timeout in ms
+  - `:prefix` - Schema prefix for multi-tenancy
+
+  ## Examples
+
+      # Execute a Multi within a pipeline
+      Pipeline.new(%{user_attrs: attrs})
+      |> Pipeline.transaction(:create_user, fn ctx ->
+        OmCrud.Multi.new()
+        |> OmCrud.Multi.create(:user, User, ctx.user_attrs)
+        |> OmCrud.Multi.create(:profile, Profile, fn %{user: u} ->
+          %{user_id: u.id}
+        end)
+      end)
+      |> Pipeline.step(:send_email, &send_welcome/1)
+      |> Pipeline.run()
+
+      # Simple transactional step
+      Pipeline.transaction(pipeline, :atomic_update, fn ctx ->
+        case Repo.transaction(fn ->
+          user = Repo.get!(User, ctx.user_id)
+          Repo.update!(User.changeset(user, ctx.changes))
+        end) do
+          {:ok, user} -> {:ok, %{user: user}}
+          {:error, reason} -> {:error, reason}
+        end
+      end)
+
+  ## Multi Composition Pattern
+
+      # Define reusable Multi builders
+      defmodule UserMulti do
+        def create_with_profile(attrs) do
+          OmCrud.Multi.new()
+          |> OmCrud.Multi.create(:user, User, attrs)
+          |> OmCrud.Multi.create(:profile, Profile, fn %{user: u} ->
+            %{user_id: u.id, name: u.name}
+          end)
+        end
+      end
+
+      # Use in pipeline
+      Pipeline.new(%{attrs: attrs})
+      |> Pipeline.transaction(:setup, fn ctx ->
+        UserMulti.create_with_profile(ctx.attrs)
+      end)
+      |> Pipeline.step(:notify, fn ctx ->
+        Mailer.send_welcome(ctx.user)
+      end)
+  """
+  @spec transaction(t(), step_name(), (context() -> {:ok, map()} | {:error, term()} | OmCrud.Multi.t()), keyword()) :: t()
+  def transaction(pipeline, name, fun, opts \\ [])
+
+  def transaction(%__MODULE__{halted: true} = pipeline, _name, _fun, _opts), do: pipeline
+
+  def transaction(%__MODULE__{} = pipeline, name, fun, opts)
+      when is_atom(name) and is_function(fun, 1) do
+    step(pipeline, name, fn ctx ->
+      case fun.(ctx) do
+        # Direct result passthrough
+        {:ok, _} = ok ->
+          ok
+
+        {:error, _} = error ->
+          error
+
+        # Multi token - execute it
+        %{__struct__: OmCrud.Multi} = multi ->
+          execute_multi_in_transaction(multi, opts)
+
+        # Invalid return - helpful error
+        other ->
+          {:error, {:invalid_transaction_return, other}}
+      end
+    end, opts)
+  end
+
+  defp execute_multi_in_transaction(multi, opts) do
+    case Code.ensure_loaded?(OmCrud) do
+      true ->
+        case OmCrud.run(multi, opts) do
+          {:ok, results} when is_map(results) ->
+            {:ok, results}
+
+          {:error, _failed_operation, changeset, _changes} ->
+            {:error, changeset}
+
+          {:error, reason} ->
+            {:error, reason}
+        end
+
+      false ->
+        {:error, :om_crud_not_available}
+    end
+  end
+
+  # ============================================
   # Execution
   # ============================================
 
