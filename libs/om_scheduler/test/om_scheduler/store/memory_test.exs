@@ -276,6 +276,138 @@ defmodule OmScheduler.Store.MemoryTest do
     end
   end
 
+  describe "bulk_update_jobs/2" do
+    test "updates multiple jobs by queue" do
+      {:ok, _} = Memory.register_job(build_job("sync_job_1", queue: "sync"))
+      {:ok, _} = Memory.register_job(build_job("sync_job_2", queue: "sync"))
+      {:ok, _} = Memory.register_job(build_job("default_job", queue: "default"))
+
+      assert {:ok, 2} = Memory.bulk_update_jobs([queue: "sync"], %{paused: true})
+
+      assert {:ok, job1} = Memory.get_job("sync_job_1")
+      assert {:ok, job2} = Memory.get_job("sync_job_2")
+      assert {:ok, job3} = Memory.get_job("default_job")
+
+      assert job1.paused == true
+      assert job2.paused == true
+      assert job3.paused == false
+    end
+
+    test "updates jobs by name pattern" do
+      {:ok, _} = Memory.register_job(build_job("report_daily"))
+      {:ok, _} = Memory.register_job(build_job("report_weekly"))
+      {:ok, _} = Memory.register_job(build_job("sync_users"))
+
+      assert {:ok, 2} = Memory.bulk_update_jobs([name_pattern: "report_*"], %{max_retries: 10})
+
+      assert {:ok, job1} = Memory.get_job("report_daily")
+      assert {:ok, job2} = Memory.get_job("report_weekly")
+      assert {:ok, job3} = Memory.get_job("sync_users")
+
+      assert job1.max_retries == 10
+      assert job2.max_retries == 10
+      assert job3.max_retries == 3
+    end
+
+    test "updates jobs by specific names" do
+      {:ok, _} = Memory.register_job(build_job("job_a"))
+      {:ok, _} = Memory.register_job(build_job("job_b"))
+      {:ok, _} = Memory.register_job(build_job("job_c"))
+
+      assert {:ok, 2} = Memory.bulk_update_jobs([names: ["job_a", "job_c"]], %{timeout: 120_000})
+
+      assert {:ok, job_a} = Memory.get_job("job_a")
+      assert {:ok, job_b} = Memory.get_job("job_b")
+      assert {:ok, job_c} = Memory.get_job("job_c")
+
+      assert job_a.timeout == 120_000
+      assert job_b.timeout == 60_000
+      assert job_c.timeout == 120_000
+    end
+
+    test "updates jobs by tags" do
+      {:ok, _} = Memory.register_job(build_job("critical_job", tags: ["critical", "sync"]))
+      {:ok, _} = Memory.register_job(build_job("normal_job", tags: ["normal"]))
+      {:ok, _} = Memory.register_job(build_job("tagged_job", tags: ["critical"]))
+
+      assert {:ok, 2} = Memory.bulk_update_jobs([tags: ["critical"]], %{priority: 1})
+
+      assert {:ok, j1} = Memory.get_job("critical_job")
+      assert {:ok, j2} = Memory.get_job("normal_job")
+      assert {:ok, j3} = Memory.get_job("tagged_job")
+
+      assert j1.priority == 1
+      assert j2.priority == 0
+      assert j3.priority == 1
+    end
+
+    test "updates jobs by state" do
+      {:ok, _} = Memory.register_job(build_job("active_job", state: :active))
+      {:ok, _} = Memory.register_job(build_job("paused_job", state: :paused, paused: true))
+
+      assert {:ok, 1} = Memory.bulk_update_jobs([state: :paused], %{state: :active, paused: false})
+
+      assert {:ok, j1} = Memory.get_job("active_job")
+      assert {:ok, j2} = Memory.get_job("paused_job")
+
+      assert j1.state == :active
+      assert j2.state == :active
+      assert j2.paused == false
+    end
+
+    test "handles combined filters" do
+      {:ok, _} = Memory.register_job(build_job("sync_job_1", queue: "sync", tags: ["critical"]))
+      {:ok, _} = Memory.register_job(build_job("sync_job_2", queue: "sync", tags: ["normal"]))
+      {:ok, _} = Memory.register_job(build_job("default_job", queue: "default", tags: ["critical"]))
+
+      assert {:ok, 1} = Memory.bulk_update_jobs([queue: "sync", tags: ["critical"]], %{priority: 1})
+
+      assert {:ok, j1} = Memory.get_job("sync_job_1")
+      assert {:ok, j2} = Memory.get_job("sync_job_2")
+      assert {:ok, j3} = Memory.get_job("default_job")
+
+      assert j1.priority == 1
+      assert j2.priority == 0
+      assert j3.priority == 0
+    end
+
+    test "returns zero when no jobs match" do
+      {:ok, _} = Memory.register_job(build_job("some_job"))
+
+      assert {:ok, 0} = Memory.bulk_update_jobs([queue: "nonexistent"], %{paused: true})
+    end
+  end
+
+  describe "count_jobs/1" do
+    test "counts jobs by filter" do
+      {:ok, _} = Memory.register_job(build_job("sync_1", queue: "sync"))
+      {:ok, _} = Memory.register_job(build_job("sync_2", queue: "sync"))
+      {:ok, _} = Memory.register_job(build_job("default_1", queue: "default"))
+
+      assert {:ok, 2} = Memory.count_jobs(queue: "sync")
+      assert {:ok, 1} = Memory.count_jobs(queue: "default")
+      assert {:ok, 3} = Memory.count_jobs([])
+    end
+
+    test "counts jobs by name pattern" do
+      {:ok, _} = Memory.register_job(build_job("report_daily"))
+      {:ok, _} = Memory.register_job(build_job("report_weekly"))
+      {:ok, _} = Memory.register_job(build_job("sync_users"))
+
+      assert {:ok, 2} = Memory.count_jobs(name_pattern: "report_*")
+      assert {:ok, 1} = Memory.count_jobs(name_pattern: "sync_*")
+      assert {:ok, 0} = Memory.count_jobs(name_pattern: "nonexistent_*")
+    end
+
+    test "counts paused jobs" do
+      {:ok, _} = Memory.register_job(build_job("active_job", paused: false))
+      {:ok, _} = Memory.register_job(build_job("paused_job", paused: true))
+
+      assert {:ok, 1} = Memory.count_jobs(paused: true)
+      assert {:ok, 1} = Memory.count_jobs(paused: false)
+    end
+  end
+
   describe "workflow operations" do
     test "registers workflow" do
       workflow = build_workflow(:test_workflow)
@@ -325,11 +457,11 @@ defmodule OmScheduler.Store.MemoryTest do
       timezone: "Etc/UTC",
       enabled: Keyword.get(opts, :enabled, true),
       paused: Keyword.get(opts, :paused, false),
-      state: :active,
+      state: Keyword.get(opts, :state, :active),
       queue: Keyword.get(opts, :queue, "default"),
       priority: Keyword.get(opts, :priority, 0),
-      max_retries: 3,
-      timeout: 60_000,
+      max_retries: Keyword.get(opts, :max_retries, 3),
+      timeout: Keyword.get(opts, :timeout, 60_000),
       tags: Keyword.get(opts, :tags, []),
       next_run_at: Keyword.get(opts, :next_run_at),
       run_count: 0,

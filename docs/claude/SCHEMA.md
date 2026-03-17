@@ -1,7 +1,8 @@
 # Schema & Migration Reference
 
 > **Always use `OmSchema` and `Events.Core.Migration`** instead of raw Ecto.
-> For complete reference, see `docs/EVENTS_REFERENCE.md`.
+> For **comprehensive OmSchema reference**, see `docs/claude/OMSCHEMA_REFERENCE.md`.
+> For complete docs, see `docs/EVENTS_REFERENCE.md`.
 
 ## Schema Rules
 

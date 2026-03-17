@@ -8,10 +8,22 @@ defmodule OmMigration.Token do
 
   ## Token Types
 
+  ### Create Operations
   - `:table` - Creates a new table with fields, indexes, and constraints
   - `:index` - Creates a standalone index
   - `:constraint` - Creates a standalone constraint
-  - `:alter` - Alters an existing table
+
+  ### Modify Operations
+  - `:alter` - Alters an existing table (add/remove/modify fields)
+
+  ### Drop Operations
+  - `:drop_table` - Drops an existing table
+  - `:drop_index` - Drops an existing index
+  - `:drop_constraint` - Drops an existing constraint
+
+  ### Rename Operations
+  - `:rename_table` - Renames a table
+  - `:rename_column` - Renames a column in a table
 
   ## Pipeline Pattern
 
@@ -29,7 +41,16 @@ defmodule OmMigration.Token do
   Use `validate/1` or `validate!/1` to check a token manually.
   """
 
-  @type token_type :: :table | :index | :constraint | :alter
+  @type token_type ::
+          :table
+          | :index
+          | :constraint
+          | :alter
+          | :drop_table
+          | :drop_index
+          | :drop_constraint
+          | :rename_table
+          | :rename_column
   @type field_type :: atom() | {:array, atom()} | {:references, atom(), keyword()}
   @type field :: {atom(), field_type(), keyword()}
   @type index_spec :: {atom(), [atom()], keyword()}
@@ -87,6 +108,32 @@ defmodule OmMigration.Token do
   @spec add_field(t(), atom(), atom(), keyword()) :: t()
   def add_field(%__MODULE__{fields: fields} = token, name, type, opts \\ []) do
     %{token | fields: fields ++ [{name, type, opts}]}
+  end
+
+  @doc """
+  Marks a field for removal (used with alter tokens).
+
+  ## Examples
+
+      Token.new(:alter, :users)
+      |> Token.remove_field(:legacy_column)
+  """
+  @spec remove_field(t(), atom()) :: t()
+  def remove_field(%__MODULE__{fields: fields} = token, name) do
+    %{token | fields: fields ++ [{:remove, name}]}
+  end
+
+  @doc """
+  Marks a field for modification (used with alter tokens).
+
+  ## Examples
+
+      Token.new(:alter, :users)
+      |> Token.modify_field(:status, :string, null: false, default: "active")
+  """
+  @spec modify_field(t(), atom(), atom(), keyword()) :: t()
+  def modify_field(%__MODULE__{fields: fields} = token, name, type, opts \\ []) do
+    %{token | fields: fields ++ [{:modify, name, type, opts}]}
   end
 
   @doc """

@@ -48,7 +48,7 @@ defmodule FnTypes.Protocols.NormalizableTest do
 
   describe "normalize/2 for maps" do
     test "extracts message and code from map" do
-      error = Normalizable.normalize(%{message: "Something went wrong", code: :custom_code})
+      error = Normalizable.normalize(%{message: "Something went wrong", code: :custom_code}, [])
 
       assert %Error{} = error
       assert error.message == "Something went wrong"
@@ -56,7 +56,7 @@ defmodule FnTypes.Protocols.NormalizableTest do
     end
 
     test "handles string keys" do
-      error = Normalizable.normalize(%{"message" => "String key message", "code" => "string_code"})
+      error = Normalizable.normalize(%{"message" => "String key message", "code" => "string_code"}, [])
 
       assert %Error{} = error
       assert error.message == "String key message"
@@ -67,7 +67,7 @@ defmodule FnTypes.Protocols.NormalizableTest do
         message: "Error",
         code: :test,
         extra_field: "value"
-      })
+      }, [])
 
       assert %Error{} = error
       assert error.details.extra_field == "value"
@@ -114,7 +114,7 @@ defmodule FnTypes.Protocols.NormalizableTest do
 
   describe "normalize/2 for error tuples" do
     test "unwraps {:error, reason} tuples" do
-      error = Normalizable.normalize({:error, :not_found})
+      error = Normalizable.normalize({:error, :not_found}, [])
 
       assert %Error{} = error
       assert error.type == :not_found

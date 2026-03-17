@@ -138,7 +138,11 @@ defmodule OmSchema do
           belongs_to: 2,
           belongs_to: 3,
           has_many: 2,
-          has_many: 3
+          has_many: 3,
+          embeds_one: 2,
+          embeds_one: 3,
+          embeds_many: 2,
+          embeds_many: 3
         ]
 
       import OmSchema
@@ -161,6 +165,74 @@ defmodule OmSchema do
 
       # Register belongs_to fields for FK constraint tracking
       Module.register_attribute(__MODULE__, :belongs_to_fields, accumulate: true)
+
+      # Register embedded schemas for validation propagation
+      Module.register_attribute(__MODULE__, :embedded_schemas, accumulate: true)
+
+      # Register before_compile for sensitive field protocol implementations
+      @before_compile OmSchema.Sensitive
+    end
+  end
+
+  # =====================================================================
+  # Embedded Schema Macros
+  # =====================================================================
+
+  @doc """
+  Enhanced embeds_one macro with validation propagation support.
+
+  See `OmSchema.Embedded` for detailed documentation.
+
+  ## Options
+
+  All standard Ecto `embeds_one` options are supported, plus:
+
+    * `:propagate_validations` - When `true`, automatically uses the
+      embedded schema's `base_changeset/2` for validation (default: `false`)
+
+  """
+  defmacro embeds_one(name, schema, opts \\ []) do
+    {propagate, ecto_opts} = Keyword.pop(opts, :propagate_validations, false)
+
+    quote do
+      # Store metadata for later use
+      Module.put_attribute(
+        __MODULE__,
+        :embedded_schemas,
+        {unquote(name), :one, unquote(schema), unquote(propagate)}
+      )
+
+      # Call Ecto's embeds_one
+      Ecto.Schema.embeds_one(unquote(name), unquote(schema), unquote(ecto_opts))
+    end
+  end
+
+  @doc """
+  Enhanced embeds_many macro with validation propagation support.
+
+  See `OmSchema.Embedded` for detailed documentation.
+
+  ## Options
+
+  All standard Ecto `embeds_many` options are supported, plus:
+
+    * `:propagate_validations` - When `true`, automatically uses the
+      embedded schema's `base_changeset/2` for validation (default: `false`)
+
+  """
+  defmacro embeds_many(name, schema, opts \\ []) do
+    {propagate, ecto_opts} = Keyword.pop(opts, :propagate_validations, false)
+
+    quote do
+      # Store metadata for later use
+      Module.put_attribute(
+        __MODULE__,
+        :embedded_schemas,
+        {unquote(name), :many, unquote(schema), unquote(propagate)}
+      )
+
+      # Call Ecto's embeds_many
+      Ecto.Schema.embeds_many(unquote(name), unquote(schema), unquote(ecto_opts))
     end
   end
 
@@ -198,7 +270,11 @@ defmodule OmSchema do
             belongs_to: 2,
             belongs_to: 3,
             has_many: 2,
-            has_many: 3
+            has_many: 3,
+            embeds_one: 2,
+            embeds_one: 3,
+            embeds_many: 2,
+            embeds_many: 3
           ]
 
         import OmSchema,
@@ -209,6 +285,10 @@ defmodule OmSchema do
             belongs_to: 3,
             has_many: 2,
             has_many: 3,
+            embeds_one: 2,
+            embeds_one: 3,
+            embeds_many: 2,
+            embeds_many: 3,
             type_fields: 0,
             type_fields: 1,
             status_fields: 1,
@@ -1058,6 +1138,57 @@ defmodule OmSchema do
                                        condition = Keyword.get(opts, :required_when),
                                        do: {name, condition}
                                      )
+
+      # =====================================================================
+      # Auto-Generated Typespec Helper
+      # =====================================================================
+
+      @doc """
+      Returns the typespec AST for this schema's `t()` type.
+
+      Useful for documentation generation and introspection.
+
+      ## Example
+
+          MySchema.__typespec_ast__()
+          # => {:@, [], [{:type, [], [{:"::", [], [{:t, [], []}, ...]}]}]}
+
+      """
+      def __typespec_ast__ do
+        OmSchema.TypeGenerator.generate_type_definition(field_validations())
+      end
+
+      @doc """
+      Returns a human-readable typespec string for this schema.
+
+      ## Example
+
+          MySchema.typespec_string()
+          # => "@type t() :: %__MODULE__{id: binary() | nil, name: String.t(), ...}"
+
+      """
+      def typespec_string do
+        OmSchema.TypeGenerator.to_typespec_string(field_validations())
+      end
+
+      # =====================================================================
+      # Embedded Schema Introspection
+      # =====================================================================
+
+      @embedded_schemas_computed Module.get_attribute(__MODULE__, :embedded_schemas) || []
+
+      @doc """
+      Returns metadata about embedded schemas in this module.
+
+      Each entry is a tuple: `{name, cardinality, module, propagate_validations?}`
+
+      ## Example
+
+          MySchema.embedded_schemas()
+          # => [{:address, :one, MyApp.Address, true}, {:tags, :many, MyApp.Tag, false}]
+
+      """
+      def embedded_schemas, do: @embedded_schemas_computed
 
       @doc "Returns fields with `cast: true` (default for most fields)."
       def cast_fields, do: @cast_fields_computed

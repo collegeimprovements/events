@@ -398,13 +398,14 @@ defmodule FnTypes.Pipeline do
 
       case AsyncResult.parallel(tasks, opts) do
         {:ok, results} ->
+          # AsyncResult.parallel unwraps ok values, so results are plain values
           merged =
             parallel_steps
             |> Enum.zip(results)
             |> Enum.reduce(%{}, fn {{name, _fun}, result}, acc ->
               case result do
                 %{} = map -> Map.merge(acc, map)
-                _ -> Map.put(acc, name, result)
+                value -> Map.put(acc, name, value)
               end
             end)
 
@@ -553,7 +554,7 @@ defmodule FnTypes.Pipeline do
   defp execute_multi_in_transaction(multi, opts) do
     case Code.ensure_loaded?(OmCrud) do
       true ->
-        case OmCrud.run(multi, opts) do
+        case apply(OmCrud, :run, [multi, opts]) do
           {:ok, results} when is_map(results) ->
             {:ok, results}
 
@@ -828,7 +829,14 @@ defmodule FnTypes.Pipeline do
   end
 
   defp do_retry_step(fun, ctx, attempt, max_attempts, delay, should_retry) do
-    case fun.(ctx) do
+    result =
+      try do
+        fun.(ctx)
+      rescue
+        e -> {:error, {:step_exception, Exception.message(e)}}
+      end
+
+    case result do
       {:ok, _} = success ->
         success
 
@@ -839,6 +847,9 @@ defmodule FnTypes.Pipeline do
         else
           error
         end
+
+      other ->
+        {:error, {:invalid_step_return, other}}
     end
   end
 
@@ -1085,7 +1096,14 @@ defmodule FnTypes.Pipeline do
       true ->
         emit_step_start(pipeline, step)
 
-        case step.fun.(pipeline.context) do
+        result =
+          try do
+            step.fun.(pipeline.context)
+          rescue
+            e -> {:error, {:step_exception, step.name, Exception.message(e)}}
+          end
+
+        case result do
           {:ok, additions} when is_map(additions) ->
             new_context = Map.merge(pipeline.context, additions)
 
@@ -1096,6 +1114,16 @@ defmodule FnTypes.Pipeline do
             {:cont, updated}
 
           {:error, reason} ->
+            emit_step_stop(pipeline, step, {:error, reason})
+            {:halt, %{pipeline | halted: true, error: reason}}
+
+          {:ok, non_map} ->
+            reason = {:invalid_step_return, step.name, {:expected_map, non_map}}
+            emit_step_stop(pipeline, step, {:error, reason})
+            {:halt, %{pipeline | halted: true, error: reason}}
+
+          other ->
+            reason = {:invalid_step_return, step.name, other}
             emit_step_stop(pipeline, step, {:error, reason})
             {:halt, %{pipeline | halted: true, error: reason}}
         end

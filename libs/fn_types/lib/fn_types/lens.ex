@@ -856,14 +856,17 @@ defmodule FnTypes.Lens do
     end)
   end
 
-  defp put_in_path(data, keys, value) do
-    # Safely put value at nested path, creating intermediate maps if needed
-    put_in(data, Enum.map(keys, &Access.key(&1, %{})), value)
-  rescue
-    # Fallback for structs or other types
-    _ -> force_put_in(data, keys, value)
+  defp put_in_path(data, [key], value) when is_map(data) do
+    Map.put(data, key, value)
   end
 
+  defp put_in_path(data, [key | rest], value) when is_map(data) do
+    current = Map.get(data, key, %{})
+    updated = if is_map(current), do: put_in_path(current, rest, value), else: put_in_path(%{}, rest, value)
+    Map.put(data, key, updated)
+  end
+
+  # Creates nested maps if they don't exist (used by path_force)
   defp force_put_in(data, [key], value) do
     Map.put(data || %{}, key, value)
   end

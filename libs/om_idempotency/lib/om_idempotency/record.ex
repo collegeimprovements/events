@@ -28,8 +28,9 @@ defmodule OmIdempotency.Record do
                      +------> pending (on release)
   """
 
-  use Ecto.Schema
+  use OmSchema
   import Ecto.Changeset
+
 
   @type state :: :pending | :processing | :completed | :failed | :expired
 
@@ -152,5 +153,59 @@ defmodule OmIdempotency.Record do
   @spec expired?(t()) :: boolean()
   def expired?(%__MODULE__{expires_at: expires_at}) do
     DateTime.compare(expires_at, DateTime.utc_now()) == :lt
+  end
+end
+
+# ============================================
+# Protocol Implementations
+# ============================================
+
+defimpl FnTypes.Protocols.Recoverable, for: OmIdempotency.Record do
+  @recoverable_states [:pending, :processing]
+
+  def recoverable?(%OmIdempotency.Record{state: state}), do: state in @recoverable_states
+
+  def strategy(%OmIdempotency.Record{state: :pending}), do: :retry
+  def strategy(%OmIdempotency.Record{state: :processing}), do: :retry_with_backoff
+  def strategy(%OmIdempotency.Record{}), do: :fail_fast
+
+  def retry_delay(%OmIdempotency.Record{state: :processing}, attempt), do: min(500 * attempt, 10_000)
+  def retry_delay(%OmIdempotency.Record{}, _attempt), do: 100
+
+  def max_attempts(%OmIdempotency.Record{state: state}) when state in @recoverable_states, do: 3
+  def max_attempts(%OmIdempotency.Record{}), do: 1
+
+  def trips_circuit?(%OmIdempotency.Record{}), do: false
+
+  def severity(%OmIdempotency.Record{state: :pending}), do: :transient
+  def severity(%OmIdempotency.Record{state: :processing}), do: :transient
+  def severity(%OmIdempotency.Record{state: :failed}), do: :permanent
+  def severity(%OmIdempotency.Record{state: :expired}), do: :permanent
+  def severity(%OmIdempotency.Record{}), do: :transient
+
+  def fallback(%OmIdempotency.Record{}), do: nil
+end
+
+defimpl FnTypes.Protocols.Identifiable, for: OmIdempotency.Record do
+  def entity_type(%OmIdempotency.Record{}), do: :idempotency_record
+
+  def id(%OmIdempotency.Record{id: id}), do: id
+
+  def identity(%OmIdempotency.Record{id: id}), do: {:idempotency_record, id}
+end
+
+defimpl FnTypes.Protocols.Normalizable, for: OmIdempotency.Record do
+  def normalize(%OmIdempotency.Record{} = record, _opts \\ []) do
+    %{
+      id: record.id,
+      key: record.key,
+      scope: record.scope,
+      state: record.state,
+      version: record.version,
+      started_at: record.started_at,
+      completed_at: record.completed_at,
+      expires_at: record.expires_at,
+      metadata: record.metadata
+    }
   end
 end

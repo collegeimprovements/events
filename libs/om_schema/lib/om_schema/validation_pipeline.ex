@@ -17,6 +17,7 @@ defmodule OmSchema.ValidationPipeline do
 
   import Ecto.Changeset
 
+  alias OmSchema.CustomValidators
   alias OmSchema.Helpers.{Conditional, Normalizer}
   alias OmSchema.ValidatorRegistry
   alias OmSchema.Validators.Constraints
@@ -55,9 +56,19 @@ defmodule OmSchema.ValidationPipeline do
       changeset
       |> apply_type_validations(field_name, field_type, opts)
       |> apply_custom_validation(field_name, opts)
+      |> apply_validators(field_name, opts)
       |> Constraints.validate(field_name, opts)
     else
       changeset
+    end
+  end
+
+  # Apply list of validators from :validators option
+  defp apply_validators(changeset, field_name, opts) do
+    case opts[:validators] do
+      nil -> changeset
+      [] -> changeset
+      validators when is_list(validators) -> CustomValidators.apply_validators(changeset, field_name, validators)
     end
   end
 

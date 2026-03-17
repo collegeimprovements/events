@@ -65,9 +65,9 @@ defimpl FnTypes.Protocols.Recoverable, for: FnTypes.Error do
   For other types, uses appropriate backoff strategies.
   """
   @impl true
-  def retry_delay(%{type: :rate_limited, context: context}, _attempt) do
+  def retry_delay(%{type: :rate_limited, context: context}, attempt) do
     case extract_retry_after(context) do
-      nil -> Backoff.exponential(1, base: 5_000, max: 60_000)
+      nil -> Backoff.exponential(attempt, base: 5_000, max: 60_000)
       delay_ms -> delay_ms
     end
   end

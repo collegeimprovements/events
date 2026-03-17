@@ -72,7 +72,7 @@ defmodule OmScheduler do
       Scheduler.queue_stats()
   """
 
-  alias OmScheduler.{Config, Job, Execution}
+  alias OmScheduler.{Config, Job, Execution, Telemetry}
   alias OmScheduler.Queue.Producer
 
   # ============================================
@@ -246,6 +246,196 @@ defmodule OmScheduler do
   def running_jobs do
     queue_stats()
     |> Enum.flat_map(fn {_queue, stats} -> Map.get(stats, :running_jobs, []) end)
+  end
+
+  # ============================================
+  # Bulk Job Operations
+  # ============================================
+
+  @type filter :: keyword()
+
+  @doc """
+  Pauses multiple jobs matching the filter.
+
+  Returns `{:ok, count}` with the number of jobs paused.
+
+  ## Filter Options
+
+  - `:names` - List of job names (exact match)
+  - `:name_pattern` - Name pattern with wildcards (e.g., "sync_*")
+  - `:queue` - Filter by queue name
+  - `:state` - Filter by state (:active, :paused, :disabled)
+  - `:tags` - Filter by tags (any match)
+
+  ## Examples
+
+      # Pause all jobs in the sync queue
+      OmScheduler.bulk_pause(queue: "sync")
+
+      # Pause all jobs matching a pattern
+      OmScheduler.bulk_pause(name_pattern: "report_*")
+
+      # Pause jobs with specific tags
+      OmScheduler.bulk_pause(tags: ["experimental"])
+
+      # Pause specific jobs by name
+      OmScheduler.bulk_pause(names: ["job_a", "job_b", "job_c"])
+  """
+  @spec bulk_pause(filter()) :: {:ok, non_neg_integer()} | {:error, term()}
+  def bulk_pause(filter) when is_list(filter) do
+    result = store().bulk_update_jobs(filter, %{paused: true, state: :paused})
+
+    case result do
+      {:ok, count} when count > 0 ->
+        Telemetry.bulk_event(:pause, count, filter)
+        result
+
+      _ ->
+        result
+    end
+  end
+
+  @doc """
+  Resumes multiple paused jobs matching the filter.
+
+  Returns `{:ok, count}` with the number of jobs resumed.
+
+  ## Filter Options
+
+  Same as `bulk_pause/1`.
+
+  ## Examples
+
+      # Resume all jobs in the sync queue
+      OmScheduler.bulk_resume(queue: "sync")
+
+      # Resume paused jobs matching a pattern
+      OmScheduler.bulk_resume(name_pattern: "report_*")
+  """
+  @spec bulk_resume(filter()) :: {:ok, non_neg_integer()} | {:error, term()}
+  def bulk_resume(filter) when is_list(filter) do
+    # Only resume jobs that are actually paused
+    filter_with_paused = Keyword.put(filter, :paused, true)
+    result = store().bulk_update_jobs(filter_with_paused, %{paused: false, state: :active})
+
+    case result do
+      {:ok, count} when count > 0 ->
+        Telemetry.bulk_event(:resume, count, filter)
+        result
+
+      _ ->
+        result
+    end
+  end
+
+  @doc """
+  Disables multiple jobs matching the filter.
+
+  Disabled jobs will not be scheduled until re-enabled.
+
+  Returns `{:ok, count}` with the number of jobs disabled.
+
+  ## Filter Options
+
+  Same as `bulk_pause/1`.
+
+  ## Examples
+
+      # Disable all jobs with experimental tag
+      OmScheduler.bulk_disable(tags: ["experimental"])
+  """
+  @spec bulk_disable(filter()) :: {:ok, non_neg_integer()} | {:error, term()}
+  def bulk_disable(filter) when is_list(filter) do
+    result = store().bulk_update_jobs(filter, %{enabled: false, state: :disabled})
+
+    case result do
+      {:ok, count} when count > 0 ->
+        Telemetry.bulk_event(:disable, count, filter)
+        result
+
+      _ ->
+        result
+    end
+  end
+
+  @doc """
+  Enables multiple disabled jobs matching the filter.
+
+  Returns `{:ok, count}` with the number of jobs enabled.
+
+  ## Filter Options
+
+  Same as `bulk_pause/1`.
+
+  ## Examples
+
+      # Enable all jobs in the reports queue
+      OmScheduler.bulk_enable(queue: "reports")
+  """
+  @spec bulk_enable(filter()) :: {:ok, non_neg_integer()} | {:error, term()}
+  def bulk_enable(filter) when is_list(filter) do
+    # Only enable jobs that are actually disabled
+    filter_with_disabled = Keyword.put(filter, :enabled, false)
+    result = store().bulk_update_jobs(filter_with_disabled, %{enabled: true, state: :active})
+
+    case result do
+      {:ok, count} when count > 0 ->
+        Telemetry.bulk_event(:enable, count, filter)
+        result
+
+      _ ->
+        result
+    end
+  end
+
+  @doc """
+  Counts jobs matching the filter.
+
+  ## Filter Options
+
+  Same as `bulk_pause/1`.
+
+  ## Examples
+
+      # Count all paused jobs
+      OmScheduler.count_jobs(paused: true)
+
+      # Count jobs in a specific queue
+      OmScheduler.count_jobs(queue: "sync")
+  """
+  @spec count_jobs(filter()) :: {:ok, non_neg_integer()} | {:error, term()}
+  def count_jobs(filter) when is_list(filter) do
+    store().count_jobs(filter)
+  end
+
+  @doc """
+  Updates multiple jobs matching the filter with the given attributes.
+
+  This is a lower-level function - prefer `bulk_pause/1`, `bulk_resume/1`, etc.
+  for common operations.
+
+  Returns `{:ok, count}` with the number of jobs updated.
+
+  ## Examples
+
+      # Update max_retries for all sync jobs
+      OmScheduler.bulk_update(
+        [name_pattern: "sync_*"],
+        %{max_retries: 5}
+      )
+  """
+  @spec bulk_update(filter(), map()) :: {:ok, non_neg_integer()} | {:error, term()}
+  def bulk_update(filter, attrs) when is_list(filter) and is_map(attrs) do
+    result = store().bulk_update_jobs(filter, attrs)
+
+    case result do
+      {:ok, count} when count > 0 ->
+        Telemetry.bulk_event(:update, count, filter)
+        result
+
+      _ ->
+        result
+    end
   end
 
   # ============================================

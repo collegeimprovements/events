@@ -608,8 +608,17 @@ defmodule FnTypes.Error do
       #=> %Error{...} (the innermost error)
   """
   @spec root_cause(t()) :: t()
-  def root_cause(%Error{cause: nil} = error), do: error
-  def root_cause(%Error{cause: cause}), do: root_cause(cause)
+  def root_cause(%Error{} = error), do: do_root_cause(error, MapSet.new())
+
+  defp do_root_cause(%Error{cause: nil} = error, _seen), do: error
+
+  defp do_root_cause(%Error{cause: cause, id: id} = error, seen) do
+    if MapSet.member?(seen, id) do
+      error
+    else
+      do_root_cause(cause, MapSet.put(seen, id))
+    end
+  end
 
   @doc """
   Returns all errors in the cause chain.
@@ -620,8 +629,17 @@ defmodule FnTypes.Error do
       #=> [outer_error, middle_error, root_error]
   """
   @spec cause_chain(t()) :: [t()]
-  def cause_chain(%Error{cause: nil} = error), do: [error]
-  def cause_chain(%Error{cause: cause} = error), do: [error | cause_chain(cause)]
+  def cause_chain(%Error{} = error), do: do_cause_chain(error, MapSet.new())
+
+  defp do_cause_chain(%Error{cause: nil} = error, _seen), do: [error]
+
+  defp do_cause_chain(%Error{cause: cause, id: id} = error, seen) do
+    if MapSet.member?(seen, id) do
+      [error]
+    else
+      [error | do_cause_chain(cause, MapSet.put(seen, id))]
+    end
+  end
 
   ## Category Helpers
 

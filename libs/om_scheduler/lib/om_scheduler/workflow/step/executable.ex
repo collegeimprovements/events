@@ -163,6 +163,30 @@ defimpl OmScheduler.Workflow.Step.Executable, for: Tuple do
     end
   end
 
+  # {:effect_with_context, effect, context_fn} - Effect with context transformation
+  if Code.ensure_loaded?(Effect.Builder) do
+    def execute({:effect_with_context, %Effect.Builder{} = effect, context_fn}, context)
+        when is_function(context_fn, 1) do
+      # Transform context before passing to effect
+      transformed_context =
+        try do
+          context_fn.(context)
+        rescue
+          e -> {:error, {:context_transform_failed, e, __STACKTRACE__}}
+        end
+
+      case transformed_context do
+        {:error, _} = error ->
+          error
+
+        transformed when is_map(transformed) ->
+          # Merge transformed context with original (transformed takes precedence)
+          merged_context = Map.merge(context, transformed)
+          Executable.execute(effect, merged_context)
+      end
+    end
+  end
+
   # {module, function} - MF tuple
   def execute({module, function}, context) when is_atom(module) and is_atom(function) do
     try do
@@ -193,6 +217,10 @@ defimpl OmScheduler.Workflow.Step.Executable, for: Tuple do
   def rollback({:nested_workflow, _name, _module, _fn}, _context), do: :ok
   def rollback({:workflow, _name}, _context), do: :ok
 
+  if Code.ensure_loaded?(Effect.Builder) do
+    def rollback({:effect_with_context, %Effect.Builder{}, _context_fn}, _context), do: :ok
+  end
+
   def rollback({module, _function}, context) when is_atom(module),
     do: Executable.rollback(module, context)
 
@@ -203,6 +231,11 @@ defimpl OmScheduler.Workflow.Step.Executable, for: Tuple do
   def has_rollback?({:function, _module, _function_name}), do: false
   def has_rollback?({:nested_workflow, _name, _module, _fn}), do: false
   def has_rollback?({:workflow, _name}), do: false
+
+  if Code.ensure_loaded?(Effect.Builder) do
+    def has_rollback?({:effect_with_context, %Effect.Builder{}, _context_fn}), do: false
+  end
+
   def has_rollback?({module, _function}) when is_atom(module), do: Executable.has_rollback?(module)
 
   def has_rollback?({module, _function, _args}) when is_atom(module),

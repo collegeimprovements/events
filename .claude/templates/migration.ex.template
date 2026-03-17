@@ -13,7 +13,7 @@ defmodule Events.Core.Repo.Migrations.CreateTableName do
   use OmMigration
 
   # Uncomment if using migration constants
-  # alias Events.Core.Repo.MigrationConstants, as: C
+  # alias Events.Constants, as: C
 
   def change do
     create table(:table_name, primary_key: false) do

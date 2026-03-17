@@ -521,6 +521,123 @@ config :om_idempotency,
 
 ---
 
+## Advanced Features
+
+### Batch Operations
+
+Process multiple idempotency records efficiently:
+
+```elixir
+alias OmIdempotency.Batch
+
+# Create multiple records at once
+Batch.create_all([
+  {"order_123_charge", scope: "stripe", metadata: %{order_id: 123}},
+  {"order_124_charge", scope: "stripe", metadata: %{order_id: 124}}
+])
+
+# Execute multiple operations in parallel
+operations = [
+  {"charge_1", fn -> Stripe.charge(100) end, [scope: "stripe"]},
+  {"charge_2", fn -> Stripe.charge(200) end, [scope: "stripe"]}
+]
+Batch.execute_all(operations)
+
+# Complete multiple records in a transaction
+Batch.complete_all([
+  {record1, response1},
+  {record2, response2}
+])
+```
+
+### Query Helpers
+
+Query idempotency records with convenience functions:
+
+```elixir
+alias OmIdempotency.Query
+
+# List records by state
+{:ok, processing} = Query.list_by_state(:processing, scope: "stripe")
+
+# Find stale processing records
+{:ok, stale} = Query.list_stale_processing()
+
+# Get statistics
+{:ok, stats} = Query.stats()
+#=> %{pending: 10, processing: 5, completed: 1000, failed: 3}
+
+# Statistics by scope
+{:ok, scope_stats} = Query.stats_by_scope()
+#=> %{
+  "stripe" => %{completed: 500, failed: 2},
+  "sendgrid" => %{completed: 300}
+}
+
+# Search by key pattern
+{:ok, orders} = Query.search_by_key("order_%", scope: "stripe")
+```
+
+### Health Checks
+
+Monitor idempotency system health:
+
+```elixir
+alias OmIdempotency.HealthCheck
+
+# Full health check
+{:ok, health} = HealthCheck.check()
+#=> %{
+  status: :healthy,
+  stale_count: 2,
+  expired_count: 150,
+  stats: %{...},
+  timestamp: ~U[...]
+}
+
+# Quick check (DB connectivity only)
+:ok = HealthCheck.quick_check()
+```
+
+### Middleware Integration
+
+Automatic idempotency for API clients:
+
+```elixir
+alias OmIdempotency.Middleware
+
+# With any request struct
+request
+|> Request.idempotency_key("order_123")
+|> Middleware.wrap(&Client.execute/1, scope: "stripe")
+
+# With Req library
+Req.new()
+|> Middleware.attach(scope: "stripe")
+|> Req.post("/v1/charges", json: params, idempotency_key: "order_123")
+
+# With Phoenix (as a Plug)
+plug OmIdempotency.Middleware, scope: "webhooks", on_duplicate: :return
+```
+
+### Protocols
+
+Records implement FnTypes protocols:
+
+```elixir
+alias FnTypes.Protocols.{Recoverable, Identifiable, Normalizable}
+
+# Check if a record can be retried
+Recoverable.recoverable?(record)  #=> true/false
+
+# Get unique identifier
+Identifiable.identifier(record)  #=> "stripe:order_123"
+
+# Normalize to simple map
+Normalizable.normalize(record)
+#=> %{id: "...", key: "...", state: :completed, ...}
+```
+
 ## Best Practices
 
 ### 1. Use Deterministic Keys

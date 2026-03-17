@@ -33,9 +33,11 @@ defmodule OmSchema.Field do
         :immutable,
         :sensitive,
         :required_when,
-        # Documentation
+        # Documentation & Meta
         :doc,
         :example,
+        # Custom Validators
+        :validators,
         # String
         :min_length,
         :max_length,
@@ -90,15 +92,26 @@ defmodule OmSchema.Field do
         :check
       ]
 
-    # Handle Ecto.Enum specially - values is an Ecto option
-    validation_keys =
+    {validation_opts, ecto_opts} = Keyword.split(opts, validation_keys)
+
+    # For Ecto.Enum, copy :values to validation_opts for introspection
+    # (values must remain in ecto_opts for Ecto to work)
+    validation_opts =
       if type == Ecto.Enum do
-        validation_keys
+        case Keyword.get(ecto_opts, :values) do
+          nil -> validation_opts
+          values -> Keyword.put(validation_opts, :values, values)
+        end
       else
-        validation_keys
+        validation_opts
       end
 
-    {validation_opts, ecto_opts} = Keyword.split(opts, validation_keys)
+    # Copy :default from ecto_opts to validation_opts for introspection
+    validation_opts =
+      case Keyword.get(ecto_opts, :default) do
+        nil -> validation_opts
+        default -> Keyword.put(validation_opts, :default, default)
+      end
 
     # Auto-add redact: true when sensitive: true
     ecto_opts =

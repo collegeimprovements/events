@@ -227,6 +227,77 @@ defmodule OmScheduler.Store.Database do
   end
 
   # ============================================
+  # Bulk Job Operations
+  # ============================================
+
+  @impl OmScheduler.Store.Behaviour
+  def bulk_update_jobs(filter, attrs) when is_list(filter) and is_map(attrs) do
+    query = build_filter_query(filter)
+
+    # Convert attrs to keyword list for Ecto update_all
+    updates =
+      attrs
+      |> Map.put(:updated_at, DateTime.utc_now())
+      |> Enum.map(fn {k, v} -> {k, v} end)
+
+    case repo().update_all(query, [set: updates], prefix: prefix()) do
+      {count, _} -> {:ok, count}
+    end
+  end
+
+  @impl OmScheduler.Store.Behaviour
+  def count_jobs(filter) when is_list(filter) do
+    query =
+      filter
+      |> build_filter_query()
+      |> select([j], count(j.id))
+
+    {:ok, repo().one(query, prefix: prefix()) || 0}
+  end
+
+  defp build_filter_query(filter) do
+    Enum.reduce(filter, from(j in Job), fn {key, value}, query ->
+      apply_filter(query, key, value)
+    end)
+  end
+
+  defp apply_filter(query, :names, names) when is_list(names) do
+    from(j in query, where: j.name in ^names)
+  end
+
+  defp apply_filter(query, :name_pattern, pattern) when is_binary(pattern) do
+    # Convert glob pattern to SQL LIKE pattern
+    like_pattern =
+      pattern
+      |> String.replace("*", "%")
+      |> String.replace("?", "_")
+
+    from(j in query, where: like(j.name, ^like_pattern))
+  end
+
+  defp apply_filter(query, :queue, queue) do
+    from(j in query, where: j.queue == ^to_string(queue))
+  end
+
+  defp apply_filter(query, :state, state) do
+    from(j in query, where: j.state == ^state)
+  end
+
+  defp apply_filter(query, :tags, tags) when is_list(tags) do
+    from(j in query, where: fragment("? && ?", j.tags, ^tags))
+  end
+
+  defp apply_filter(query, :enabled, enabled) do
+    from(j in query, where: j.enabled == ^enabled)
+  end
+
+  defp apply_filter(query, :paused, paused) do
+    from(j in query, where: j.paused == ^paused)
+  end
+
+  defp apply_filter(query, _key, _value), do: query
+
+  # ============================================
   # Scheduling Operations
   # ============================================
 

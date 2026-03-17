@@ -962,7 +962,7 @@ defmodule FnTypes.Maybe do
     end
   end
 
-  def fetch_path(_, _), do: :none
+  def fetch_path(_, path) when is_list(path), do: :none
 
   # ============================================
   # Function Lifting

@@ -521,18 +521,53 @@ defmodule FnTypes.Diff do
     build_list_ops(old, new, lcs, key_fn)
   end
 
-  defp compute_lcs([], _new), do: []
-  defp compute_lcs(_old, []), do: []
+  # Dynamic programming LCS - O(m*n) time and space
+  defp compute_lcs(old, new) do
+    old_vec = :array.from_list(old)
+    new_vec = :array.from_list(new)
+    m = :array.size(old_vec)
+    n = :array.size(new_vec)
 
-  defp compute_lcs([h | old_rest], [h | new_rest]) do
-    [h | compute_lcs(old_rest, new_rest)]
+    # Build DP table
+    table = build_lcs_table(old_vec, new_vec, m, n)
+
+    # Backtrack to recover LCS
+    backtrack_lcs(table, old_vec, new_vec, m, n, [])
   end
 
-  defp compute_lcs([_oh | old_rest] = old, [_nh | new_rest] = new) do
-    lcs1 = compute_lcs(old_rest, new)
-    lcs2 = compute_lcs(old, new_rest)
+  defp build_lcs_table(old_vec, new_vec, m, n) do
+    # table is a map of {i, j} => length
+    Enum.reduce(0..m, %{}, fn i, table ->
+      Enum.reduce(0..n, table, fn j, table ->
+        cond do
+          i == 0 or j == 0 ->
+            Map.put(table, {i, j}, 0)
 
-    if length(lcs1) >= length(lcs2), do: lcs1, else: lcs2
+          :array.get(i - 1, old_vec) == :array.get(j - 1, new_vec) ->
+            Map.put(table, {i, j}, Map.get(table, {i - 1, j - 1}, 0) + 1)
+
+          true ->
+            val = max(Map.get(table, {i - 1, j}, 0), Map.get(table, {i, j - 1}, 0))
+            Map.put(table, {i, j}, val)
+        end
+      end)
+    end)
+  end
+
+  defp backtrack_lcs(_table, _old_vec, _new_vec, 0, _n, acc), do: acc
+  defp backtrack_lcs(_table, _old_vec, _new_vec, _m, 0, acc), do: acc
+
+  defp backtrack_lcs(table, old_vec, new_vec, m, n, acc) do
+    cond do
+      :array.get(m - 1, old_vec) == :array.get(n - 1, new_vec) ->
+        backtrack_lcs(table, old_vec, new_vec, m - 1, n - 1, [:array.get(m - 1, old_vec) | acc])
+
+      Map.get(table, {m - 1, n}, 0) > Map.get(table, {m, n - 1}, 0) ->
+        backtrack_lcs(table, old_vec, new_vec, m - 1, n, acc)
+
+      true ->
+        backtrack_lcs(table, old_vec, new_vec, m, n - 1, acc)
+    end
   end
 
   defp build_list_ops(old, new, lcs, key_fn) do

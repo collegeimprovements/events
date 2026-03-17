@@ -373,23 +373,27 @@ defmodule FnTypes.Ior do
     on_success = Keyword.get(opts, :on_success)
     on_failure = Keyword.get(opts, :on_failure)
 
-    case ior do
-      {:success, value} when is_function(on_success, 1) ->
-        {:success, on_success.(value)}
+    try do
+      case ior do
+        {:success, value} when is_function(on_success, 1) ->
+          {:success, on_success.(value)}
 
-      {:success, _} = success ->
-        success
+        {:success, _} = success ->
+          success
 
-      {:partial, errors, value} ->
-        new_value = if is_function(on_success, 1), do: on_success.(value), else: value
-        new_errors = if is_function(on_failure, 1), do: Enum.map(errors, on_failure), else: errors
-        {:partial, new_errors, new_value}
+        {:partial, errors, value} ->
+          new_value = if is_function(on_success, 1), do: on_success.(value), else: value
+          new_errors = if is_function(on_failure, 1), do: Enum.map(errors, on_failure), else: errors
+          {:partial, new_errors, new_value}
 
-      {:failure, errors} when is_function(on_failure, 1) ->
-        {:failure, Enum.map(errors, on_failure)}
+        {:failure, errors} when is_function(on_failure, 1) ->
+          {:failure, Enum.map(errors, on_failure)}
 
-      {:failure, _} = failure ->
-        failure
+        {:failure, _} = failure ->
+          failure
+      end
+    rescue
+      e -> {:failure, [{:bimap_error, Exception.message(e)}]}
     end
   end
 

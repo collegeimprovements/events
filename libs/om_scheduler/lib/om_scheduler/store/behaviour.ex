@@ -108,6 +108,44 @@ defmodule OmScheduler.Store.Behaviour do
   @callback delete_job(job_name()) :: :ok | {:error, term()}
 
   # ============================================
+  # Bulk Job Operations
+  # ============================================
+
+  @type filter :: keyword()
+
+  @doc """
+  Updates multiple jobs matching a filter.
+
+  Returns `{:ok, count}` with the number of updated jobs.
+
+  ## Filter Options
+
+  - `:names` - List of job names (exact match)
+  - `:name_pattern` - Name pattern with wildcards (e.g., "sync_*")
+  - `:queue` - Filter by queue name
+  - `:state` - Filter by state (:active, :paused, :disabled)
+  - `:tags` - Filter by tags (any match)
+
+  ## Examples
+
+      # Pause all jobs in the sync queue
+      bulk_update_jobs([queue: "sync"], %{paused: true, state: :paused})
+
+      # Resume jobs matching a pattern
+      bulk_update_jobs([name_pattern: "report_*"], %{paused: false, state: :active})
+  """
+  @callback bulk_update_jobs(filter(), map()) :: {:ok, non_neg_integer()} | {:error, term()}
+
+  @doc """
+  Counts jobs matching a filter.
+
+  ## Filter Options
+
+  Same as `bulk_update_jobs/2`.
+  """
+  @callback count_jobs(filter()) :: {:ok, non_neg_integer()} | {:error, term()}
+
+  # ============================================
   # Scheduling Operations
   # ============================================
 

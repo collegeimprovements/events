@@ -1110,6 +1110,275 @@ MyApp.Cache.all()
 
 ---
 
+## Advanced Features
+
+### Error Handling
+
+`OmCache.Error` provides structured error types with protocol implementations:
+
+```elixir
+alias OmCache.{Helpers, Error}
+
+case Helpers.fetch(MyApp.Cache, {User, 123}) do
+  {:ok, user} -> user
+  {:error, %Error{type: :key_not_found}} -> handle_not_found()
+  {:error, %Error{type: :connection_failed}} -> handle_connection_error()
+end
+
+# Check if error is recoverable (for retry logic)
+FnTypes.Protocols.Recoverable.recoverable?(error)
+#=> true  # connection_failed is recoverable
+```
+
+### Result Tuple Wrappers
+
+`OmCache.Helpers` provides a consistent `{:ok, value} | {:error, reason}` API:
+
+```elixir
+alias OmCache.Helpers
+
+# Fetch with result tuple
+Helpers.fetch(MyApp.Cache, {User, 123})
+#=> {:ok, %User{}} or {:error, %OmCache.Error{}}
+
+# Fetch or raise
+Helpers.fetch!(MyApp.Cache, {User, 123})
+#=> %User{} or raises OmCache.Error
+
+# Safe put with validation
+Helpers.put_safe(MyApp.Cache, {User, 123}, user, ttl: :timer.minutes(30))
+#=> {:ok, :ok} or {:error, reason}
+
+# Cache-aside pattern
+Helpers.get_or_fetch(MyApp.Cache, {User, 123}, fn ->
+  {:ok, Repo.get(User, 123)}
+end, ttl: :timer.minutes(30))
+```
+
+### Performance Statistics
+
+Track cache performance with `OmCache.Stats`:
+
+```elixir
+# Attach stats collector
+OmCache.Stats.attach(MyApp.Cache)
+
+# Get comprehensive stats
+OmCache.Stats.get_stats(MyApp.Cache)
+#=> %{
+#     hits: 1234,
+#     misses: 56,
+#     hit_ratio: 0.956,
+#     avg_latency_ms: 2.5,
+#     p95_latency_ms: 8.5,
+#     error_breakdown: %{timeout: 1}
+#   }
+
+# Get hit ratio
+OmCache.Stats.hit_ratio(MyApp.Cache)
+#=> 0.956
+```
+
+### Cache Invalidation
+
+Pattern-based and tag-based invalidation with `OmCache.Invalidation`:
+
+```elixir
+alias OmCache.Invalidation
+
+# Pattern matching - invalidate all User keys
+Invalidation.invalidate_pattern(MyApp.Cache, {User, :_})
+
+# Tag-based invalidation
+Invalidation.put_tagged(MyApp.Cache, {Product, 123}, product,
+  tags: [:products, :electronics],
+  ttl: :timer.hours(1)
+)
+
+Invalidation.invalidate_tagged(MyApp.Cache, :electronics)
+#=> {:ok, 45}  # Invalidated 45 entries
+
+# Group invalidation
+keys = [{User, 1}, {User, 2}, {:session, "abc"}]
+Invalidation.invalidate_group(MyApp.Cache, keys)
+```
+
+### Batch Operations
+
+Enhanced batch operations with `OmCache.Batch`:
+
+```elixir
+alias OmCache.Batch
+
+# Fetch batch with auto-loading for misses
+Batch.fetch_batch(MyApp.Cache, [1, 2, 3], fn id ->
+  {:ok, Repo.get(User, id)}
+end, key_fn: fn id -> {User, id} end, ttl: :timer.minutes(30))
+#=> {:ok, %{1 => user1, 2 => user2, 3 => user3}}
+
+# Parallel fetch
+Batch.fetch_parallel(MyApp.Cache, [{User, 1}, {User, 2}])
+#=> {:ok, %{hits: %{...}, misses: [...]}}
+
+# Warm cache in batches
+user_ids = [1, 2, 3, 4, 5]
+Batch.warm_cache(MyApp.Cache, user_ids, fn batch ->
+  users = Repo.all(from u in User, where: u.id in ^batch)
+  {:ok, Map.new(users, fn u -> {{User, u.id}, u} end)}
+end, ttl: :timer.hours(1))
+```
+
+### Circuit Breaker
+
+Graceful degradation with `OmCache.CircuitBreaker`:
+
+```elixir
+# Start circuit breaker
+OmCache.CircuitBreaker.start_link(MyApp.Cache)
+
+# Use with automatic fallback
+OmCache.CircuitBreaker.call(MyApp.Cache, fn cache ->
+  cache.get({User, 123})
+end, fallback: fn ->
+  Repo.get(User, 123)  # Fallback to database
+end)
+
+# Check circuit state
+OmCache.CircuitBreaker.open?(MyApp.Cache)
+#=> false
+
+# Get stats
+OmCache.CircuitBreaker.stats(MyApp.Cache)
+#=> %{state: :closed, error_count: 0, avg_latency_ms: 2.5}
+```
+
+### Multi-Level Caching
+
+Two-tier caching with `OmCache.MultiLevel`:
+
+```elixir
+# Define L1 (fast, local) and L2 (shared, distributed) caches
+defmodule MyApp.L1Cache do
+  use OmCache, otp_app: :my_app, default_adapter: :local
+end
+
+defmodule MyApp.L2Cache do
+  use OmCache, otp_app: :my_app, default_adapter: :redis
+end
+
+# Get with automatic L1 promotion
+OmCache.MultiLevel.get(MyApp.L1Cache, MyApp.L2Cache, {User, 123})
+
+# Put to both levels
+OmCache.MultiLevel.put(MyApp.L1Cache, MyApp.L2Cache, {User, 123}, user,
+  l1_ttl: :timer.minutes(5),
+  l2_ttl: :timer.hours(1)
+)
+
+# Delete from both
+OmCache.MultiLevel.delete(MyApp.L1Cache, MyApp.L2Cache, {User, 123})
+```
+
+### Cache Warming
+
+Preload frequently accessed data with `OmCache.Warming`:
+
+```elixir
+# Warm specific keys
+user_ids = [1, 2, 3, 4, 5]
+OmCache.Warming.warm(MyApp.Cache, user_ids, fn id ->
+  {:ok, Repo.get(User, id)}
+end, key_fn: fn id -> {User, id} end, ttl: :timer.hours(1))
+
+# Warm with pre-loaded data
+users = Repo.all(from u in User, where: u.active)
+OmCache.Warming.warm_batch(MyApp.Cache, users, fn user ->
+  {User, user.id}
+end, ttl: :timer.hours(1))
+
+# Schedule periodic warming
+OmCache.Warming.schedule_warming(
+  MyApp.Cache,
+  [cron: "0 * * * *"],  # Every hour
+  fn ->
+    products = Repo.all(from p in Product, where: p.featured)
+    {:ok, Map.new(products, fn p -> {{Product, p.id}, p} end)}
+  end
+)
+```
+
+### Testing Utilities
+
+Test helpers in `OmCache.TestHelpers`:
+
+```elixir
+defmodule MyApp.UsersTest do
+  use ExUnit.Case
+  import OmCache.TestHelpers
+
+  setup do
+    setup_test_cache(MyApp.Cache)
+  end
+
+  test "caches user data", %{cache: cache} do
+    user = %User{id: 1}
+    cache.put({User, 1}, user)
+
+    assert_cached(cache, {User, 1}, user)
+    assert_cache_size(cache, 1)
+  end
+
+  test "handles cache miss" do
+    simulate_miss(MyApp.Cache, {User, 999}, fn ->
+      # Test cache miss behavior
+    end)
+  end
+end
+```
+
+### Enhanced Telemetry
+
+Custom telemetry events with `OmCache.Telemetry`:
+
+```elixir
+# Emit custom events
+OmCache.Telemetry.emit_cache_hit(MyApp.Cache, {User, 123}, 2.5)
+OmCache.Telemetry.emit_cache_miss(MyApp.Cache, {User, 999}, 1.2)
+OmCache.Telemetry.emit_cache_error(MyApp.Cache, error)
+
+# Available events
+[:om_cache, :hit]
+[:om_cache, :miss]
+[:om_cache, :write]
+[:om_cache, :error]
+[:om_cache, :eviction]
+[:om_cache, :batch]
+[:om_cache, :warming]
+[:om_cache, :circuit_breaker, :state_change]
+```
+
+---
+
+## Module Reference
+
+| Module | Purpose |
+|--------|---------|
+| `OmCache` | Main cache module definition |
+| `OmCache.Config` | Configuration builder |
+| `OmCache.KeyGenerator` | Cache key generation |
+| `OmCache.Telemetry` | Telemetry integration |
+| `OmCache.Error` | Structured error types |
+| `OmCache.Helpers` | Result tuple wrappers |
+| `OmCache.Stats` | Performance statistics |
+| `OmCache.Invalidation` | Cache invalidation strategies |
+| `OmCache.Batch` | Batch operations |
+| `OmCache.CircuitBreaker` | Graceful degradation |
+| `OmCache.MultiLevel` | Multi-tier caching |
+| `OmCache.Warming` | Cache warming utilities |
+| `OmCache.TestHelpers` | Testing utilities |
+
+---
+
 ## License
 
 MIT

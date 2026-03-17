@@ -557,10 +557,10 @@ defmodule FnTypes.AsyncResult do
     parent = self()
     ref = make_ref()
 
-    # Start all tasks
+    # Start all tasks (unlinked — we manage cleanup ourselves)
     task_pids =
       Enum.map(tasks, fn task ->
-        spawn_link(fn ->
+        spawn(fn ->
           result = safe_execute(task)
           send(parent, {ref, self(), result})
         end)
@@ -573,6 +573,9 @@ defmodule FnTypes.AsyncResult do
     Enum.each(task_pids, fn pid ->
       if Process.alive?(pid), do: Process.exit(pid, :shutdown)
     end)
+
+    # Flush any orphaned messages from completed tasks
+    flush_messages(ref)
 
     result
   end
@@ -619,9 +622,9 @@ defmodule FnTypes.AsyncResult do
     parent = self()
     ref = make_ref()
 
-    # Start primary immediately
+    # Start primary immediately (unlinked — we manage cleanup ourselves)
     primary_pid =
-      spawn_link(fn ->
+      spawn(fn ->
         result = safe_execute(primary)
         send(parent, {ref, :primary, result})
       end)
@@ -631,16 +634,23 @@ defmodule FnTypes.AsyncResult do
 
     backup_timer = Process.send_after(self(), {backup_pid_ref, :start_backup}, delay)
 
-    result = hedge_collect(ref, backup_pid_ref, primary_pid, nil, backup, parent, timeout)
+    deadline = System.monotonic_time(:millisecond) + timeout
+    result = hedge_collect(ref, backup_pid_ref, primary_pid, nil, backup, parent, deadline)
 
-    # Cleanup
+    # Cleanup on all paths
     Process.cancel_timer(backup_timer)
     if Process.alive?(primary_pid), do: Process.exit(primary_pid, :shutdown)
+
+    # Flush orphaned messages
+    flush_messages(ref)
+    flush_backup_timer(backup_pid_ref)
 
     result
   end
 
-  defp hedge_collect(ref, backup_pid_ref, primary_pid, backup_pid, backup_fun, parent, timeout) do
+  defp hedge_collect(ref, backup_pid_ref, primary_pid, backup_pid, backup_fun, parent, deadline) do
+    remaining = max(0, deadline - System.monotonic_time(:millisecond))
+
     receive do
       {^ref, _source, {:ok, value}} ->
         if backup_pid && Process.alive?(backup_pid), do: Process.exit(backup_pid, :shutdown)
@@ -648,11 +658,13 @@ defmodule FnTypes.AsyncResult do
 
       {^ref, :primary, {:error, _} = error} ->
         if backup_pid do
-          # Wait for backup
+          # Wait for backup with remaining time budget
+          backup_remaining = max(0, deadline - System.monotonic_time(:millisecond))
+
           receive do
             {^ref, :backup, result} -> result
           after
-            timeout -> {:error, :timeout}
+            backup_remaining -> {:error, :timeout}
           end
         else
           error
@@ -660,19 +672,20 @@ defmodule FnTypes.AsyncResult do
 
       {^ref, :backup, {:error, _}} ->
         # Backup failed, keep waiting for primary
-        hedge_collect(ref, backup_pid_ref, primary_pid, nil, backup_fun, parent, timeout)
+        hedge_collect(ref, backup_pid_ref, primary_pid, nil, backup_fun, parent, deadline)
 
       {^backup_pid_ref, :start_backup} ->
-        # Start backup task
+        # Start backup task (unlinked — we manage cleanup ourselves)
         pid =
-          spawn_link(fn ->
+          spawn(fn ->
             result = safe_execute(backup_fun)
             send(parent, {ref, :backup, result})
           end)
 
-        hedge_collect(ref, backup_pid_ref, primary_pid, pid, backup_fun, parent, timeout)
+        hedge_collect(ref, backup_pid_ref, primary_pid, pid, backup_fun, parent, deadline)
     after
-      timeout ->
+      remaining ->
+        if backup_pid && Process.alive?(backup_pid), do: Process.exit(backup_pid, :shutdown)
         {:error, :timeout}
     end
   end
@@ -1351,6 +1364,23 @@ defmodule FnTypes.AsyncResult do
       {:ok, _}, {s, e} -> {s + 1, e}
       {:error, _}, {s, e} -> {s, e + 1}
     end)
+  end
+
+  # Flush orphaned messages from race/hedge tasks
+  defp flush_messages(ref) do
+    receive do
+      {^ref, _, _} -> flush_messages(ref)
+    after
+      0 -> :ok
+    end
+  end
+
+  defp flush_backup_timer(backup_pid_ref) do
+    receive do
+      {^backup_pid_ref, :start_backup} -> :ok
+    after
+      0 -> :ok
+    end
   end
 
   defp emit_start(prefix, metadata) do

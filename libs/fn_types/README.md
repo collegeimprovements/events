@@ -199,16 +199,17 @@ Result.traverse([1, 2, 3], &fetch_user/1)
 ### Error Recovery
 
 ```elixir
-# recover_with - transform recoverable errors
-Result.recover_with({:error, :timeout}, fn
+# or_else - recover from errors (receives the error reason)
+{:error, :timeout}
+|> Result.or_else(fn
   :timeout -> {:ok, :cached_value}
   other -> {:error, other}
 end)
 
-# try_recover - attempt recovery function
-Result.try_recover({:error, :not_found}, fn _ ->
-  fetch_from_backup()
-end)
+# Chain multiple recovery strategies
+fetch_from_primary(id)
+|> Result.or_else(fn _ -> fetch_from_cache(id) end)
+|> Result.or_else(fn _ -> {:ok, default_value()} end)
 ```
 
 ---
@@ -223,23 +224,23 @@ Safe handling of optional (nilable) values.
 alias FnTypes.Maybe
 
 # From nilable values
-Maybe.from_nilable("hello")  #=> {:just, "hello"}
-Maybe.from_nilable(nil)      #=> :nothing
+Maybe.from_nilable("hello")  #=> {:some, "hello"}
+Maybe.from_nilable(nil)      #=> :none
 
 # Explicit creation
-Maybe.just(42)    #=> {:just, 42}
-Maybe.nothing()   #=> :nothing
+Maybe.some(42)    #=> {:some, 42}
+Maybe.none()      #=> :none
 ```
 
 ### Transformations
 
 ```elixir
 # map - transform if present
-{:just, "hello"} |> Maybe.map(&String.upcase/1)
-#=> {:just, "HELLO"}
+{:some, "hello"} |> Maybe.map(&String.upcase/1)
+#=> {:some, "HELLO"}
 
-:nothing |> Maybe.map(&String.upcase/1)
-#=> :nothing
+:none |> Maybe.map(&String.upcase/1)
+#=> :none
 
 # and_then - chain maybe-returning functions
 Maybe.from_nilable(user)
@@ -251,15 +252,15 @@ Maybe.from_nilable(user)
 
 ```elixir
 # unwrap_or - with default
-Maybe.unwrap_or({:just, 42}, 0)  #=> 42
-Maybe.unwrap_or(:nothing, 0)     #=> 0
+Maybe.unwrap_or({:some, 42}, 0)  #=> 42
+Maybe.unwrap_or(:none, 0)        #=> 0
 
 # unwrap_or_else - lazy default
-Maybe.unwrap_or_else(:nothing, fn -> expensive_default() end)
+Maybe.unwrap_or_else(:none, fn -> expensive_default() end)
 
 # to_result - convert to Result
-Maybe.to_result({:just, 42}, :not_found)     #=> {:ok, 42}
-Maybe.to_result(:nothing, :not_found)         #=> {:error, :not_found}
+Maybe.to_result({:some, 42}, :not_found)     #=> {:ok, 42}
+Maybe.to_result(:none, :not_found)           #=> {:error, :not_found}
 ```
 
 ### Common Patterns
@@ -655,8 +656,8 @@ end
 # Available guards
 is_ok(term)        # Matches {:ok, _}
 is_error(term)     # Matches {:error, _}
-is_just(term)      # Matches {:just, _}
-is_nothing(term)   # Matches :nothing
+is_some(term)      # Matches {:some, _}
+is_none(term)      # Matches :none
 ```
 
 ---
@@ -1182,7 +1183,7 @@ config :fn_types, FnTypes.Retry,
 | Module | Purpose |
 |--------|---------|
 | `FnTypes.Result` | Error handling with `{:ok, v}` / `{:error, e}` |
-| `FnTypes.Maybe` | Optional values with `{:just, v}` / `:nothing` |
+| `FnTypes.Maybe` | Optional values with `{:some, v}` / `:none` |
 | `FnTypes.Pipeline` | Multi-step workflows with context |
 | `FnTypes.AsyncResult` | Concurrent operations |
 | `FnTypes.Validation` | Accumulating validation errors |

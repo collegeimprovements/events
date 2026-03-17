@@ -9,6 +9,18 @@ defmodule OmMigration.PipelineExtended do
   > For new code, consider using the behavior-based FieldBuilders in
   > `OmMigration.FieldBuilders.*` which provide better consistency
   > and reference `OmMigration.FieldDefinitions` for type definitions.
+  >
+  > **Deprecated functions (use FieldBuilders instead):**
+  > - `with_type_fields/2` → `OmMigration.FieldBuilders.TypeFields`
+  > - `with_status_fields/2` → `OmMigration.FieldBuilders.StatusFields`
+  > - `with_audit_fields/2` → `OmMigration.FieldBuilders.AuditFields`
+  > - `with_timestamps/2` → `OmMigration.FieldBuilders.Timestamps`
+  >
+  > **Unique functions (still use PipelineExtended):**
+  > - `with_title_fields/2` - Title and subtitle fields with translations
+  > - `with_name_fields/2` - Comprehensive name fields
+  > - `with_slug_fields/2` - URL-friendly slug with unique constraint
+  > - `with_seo_fields/2` - SEO optimization fields (meta, OG, Twitter)
   """
 
   alias OmMigration.Token

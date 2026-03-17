@@ -321,4 +321,197 @@ defmodule OmMigration.DSL do
         )
     end
   end
+
+  # ============================================
+  # Alter Table DSL
+  # ============================================
+
+  @doc """
+  Alters an existing table with a clean DSL.
+
+  ## Examples
+
+      # In up/0
+      alter :users do
+        add :phone, :string
+        add :verified_at, :utc_datetime
+        remove :legacy_field
+        modify :status, :string, null: false, default: "active"
+      end
+
+      # In down/0
+      alter :users do
+        remove :phone
+        remove :verified_at
+        add :legacy_field, :string
+        modify :status, :string, null: true, default: nil
+      end
+  """
+  defmacro alter(name, do: block) do
+    quote do
+      token = Token.new(:alter, unquote(name))
+
+      var!(current_token, OmMigration.DSL) = token
+      unquote(block)
+      token = var!(current_token, OmMigration.DSL)
+
+      OmMigration.Executor.execute(token)
+    end
+  end
+
+  @doc """
+  Adds a field in an alter block.
+
+  ## Examples
+
+      alter :users do
+        add :phone, :string, null: true
+        add :role, :string, default: "user"
+      end
+  """
+  defmacro add(name, type, opts \\ []) do
+    quote do
+      var!(current_token, OmMigration.DSL) =
+        Token.add_field(
+          var!(current_token, OmMigration.DSL),
+          unquote(name),
+          unquote(type),
+          unquote(opts)
+        )
+    end
+  end
+
+  @doc """
+  Removes a field in an alter block.
+
+  ## Examples
+
+      alter :users do
+        remove :deprecated_column
+        remove :old_field
+      end
+  """
+  defmacro remove(name) do
+    quote do
+      var!(current_token, OmMigration.DSL) =
+        Token.remove_field(
+          var!(current_token, OmMigration.DSL),
+          unquote(name)
+        )
+    end
+  end
+
+  @doc """
+  Modifies an existing field in an alter block.
+
+  ## Examples
+
+      alter :users do
+        modify :status, :string, null: false, default: "active"
+        modify :amount, :decimal, precision: 12, scale: 4
+      end
+  """
+  defmacro modify(name, type, opts \\ []) do
+    quote do
+      var!(current_token, OmMigration.DSL) =
+        Token.modify_field(
+          var!(current_token, OmMigration.DSL),
+          unquote(name),
+          unquote(type),
+          unquote(opts)
+        )
+    end
+  end
+
+  # ============================================
+  # Drop DSL
+  # ============================================
+
+  @doc """
+  Drops a table.
+
+  ## Options
+
+  - `:if_exists` - Only drop if table exists (default: false)
+  - `:prefix` - Schema prefix for multi-tenant setups
+
+  ## Examples
+
+      # Simple drop
+      drop_table :users
+
+      # With options
+      drop_table :users, if_exists: true
+      drop_table :users, prefix: "tenant_1"
+  """
+  defmacro drop_table(name, opts \\ []) do
+    quote do
+      token = Token.new(:drop_table, unquote(name), unquote(opts))
+      OmMigration.Executor.execute(token)
+    end
+  end
+
+  @doc """
+  Drops an index.
+
+  ## Examples
+
+      drop_index :users, :users_email_index
+      drop_index :users, :users_email_unique
+  """
+  defmacro drop_index(table, index_name, opts \\ []) do
+    quote do
+      token = Token.new(:drop_index, unquote(table), [{:index_name, unquote(index_name)} | unquote(opts)])
+      OmMigration.Executor.execute(token)
+    end
+  end
+
+  @doc """
+  Drops a constraint.
+
+  ## Examples
+
+      drop_constraint :orders, :orders_amount_positive
+      drop_constraint :users, :users_email_format
+  """
+  defmacro drop_constraint(table, constraint_name, opts \\ []) do
+    quote do
+      token = Token.new(:drop_constraint, unquote(table), [{:constraint_name, unquote(constraint_name)} | unquote(opts)])
+      OmMigration.Executor.execute(token)
+    end
+  end
+
+  # ============================================
+  # Rename DSL
+  # ============================================
+
+  @doc """
+  Renames a table.
+
+  ## Examples
+
+      rename_table :users, to: :accounts
+      rename_table :old_name, to: :new_name
+  """
+  defmacro rename_table(name, opts) do
+    quote do
+      token = Token.new(:rename_table, unquote(name), unquote(opts))
+      OmMigration.Executor.execute(token)
+    end
+  end
+
+  @doc """
+  Renames a column in a table.
+
+  ## Examples
+
+      rename_column :users, :email, to: :email_address
+      rename_column :orders, :amount, to: :total_amount
+  """
+  defmacro rename_column(table, from, opts) do
+    quote do
+      token = Token.new(:rename_column, unquote(table), [{:from, unquote(from)} | unquote(opts)])
+      OmMigration.Executor.execute(token)
+    end
+  end
 end

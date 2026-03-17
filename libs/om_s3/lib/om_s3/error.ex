@@ -310,7 +310,7 @@ defimpl FnTypes.Protocols.Normalizable, for: OmS3.Error do
   end
 
   defp recoverable?(type) do
-    type in [:request_timeout, :service_unavailable, :slow_down, :connection_error]
+    type in [:request_timeout, :service_unavailable, :slow_down, :connection_error, :internal_error]
   end
 end
 

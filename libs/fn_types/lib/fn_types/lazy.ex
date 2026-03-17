@@ -85,7 +85,7 @@ defmodule FnTypes.Lazy do
 
   defstruct computation: nil,
             memoized: false,
-            cached_result: nil
+            memo_ref: nil
 
   # ============================================
   # Deferred Computation
@@ -112,9 +112,12 @@ defmodule FnTypes.Lazy do
   """
   @spec defer((-> Result.t(a, e)), keyword()) :: t(a) when a: term(), e: term()
   def defer(computation, opts \\ []) when is_function(computation, 0) do
+    memoize = Keyword.get(opts, :memoize, false)
+
     %__MODULE__{
       computation: computation,
-      memoized: Keyword.get(opts, :memoize, false)
+      memoized: memoize,
+      memo_ref: if(memoize, do: make_ref(), else: nil)
     }
   end
 
@@ -159,14 +162,18 @@ defmodule FnTypes.Lazy do
     computation.()
   end
 
-  def run(%__MODULE__{cached_result: cached}) when not is_nil(cached) do
-    cached
-  end
+  def run(%__MODULE__{computation: computation, memoized: true, memo_ref: ref}) do
+    memo_key = {__MODULE__, ref}
 
-  def run(%__MODULE__{computation: computation, memoized: true}) do
-    # Note: This doesn't actually update the struct since Elixir is immutable
-    # For true memoization, use an Agent or ETS
-    computation.()
+    case Process.get(memo_key) do
+      nil ->
+        result = computation.()
+        Process.put(memo_key, result)
+        result
+
+      cached ->
+        cached
+    end
   end
 
   @doc """

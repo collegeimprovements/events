@@ -389,8 +389,8 @@ defmodule FnTypes.Result do
       {:error, _} = error, _ ->
         {:halt, error}
 
-      _, acc ->
-        {:cont, acc}
+      other, _ ->
+        {:halt, {:error, {:invalid_result, other}}}
     end)
     |> case do
       {:ok, list} -> {:ok, Enum.reverse(list)}

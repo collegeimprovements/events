@@ -337,6 +337,57 @@ defmodule OmCrud do
     |> unwrap_single(:record, schema, opts)
   end
 
+  @doc """
+  Upsert a single record (insert or update on conflict).
+
+  This is a convenience wrapper for single-record upserts.
+  For bulk upserts, use `upsert_all/3`.
+
+  ## Options
+
+  - `:conflict_target` - Column(s) for conflict detection (required)
+  - `:on_conflict` - Action on conflict (:replace_all, {:replace, fields}, or :nothing)
+  - `:changeset` - Changeset function name (default: :changeset)
+  - `:returning` - Fields to return (default: true)
+  - `:preload` - Associations to preload after upsert
+
+  ## Examples
+
+      # Insert or update user by email
+      {:ok, user} = OmCrud.upsert(User, %{email: "test@example.com", name: "Test"},
+        conflict_target: :email,
+        on_conflict: {:replace, [:name, :updated_at]}
+      )
+
+      # Insert or do nothing on conflict
+      {:ok, user} = OmCrud.upsert(User, attrs,
+        conflict_target: [:org_id, :email],
+        on_conflict: :nothing
+      )
+
+      # Replace all fields on conflict
+      {:ok, user} = OmCrud.upsert(User, attrs,
+        conflict_target: :email,
+        on_conflict: :replace_all
+      )
+  """
+  @spec upsert(module(), map(), keyword()) :: {:ok, struct()} | {:error, Ecto.Changeset.t()}
+  def upsert(schema, attrs, opts) when is_atom(schema) and is_map(attrs) do
+    unless Keyword.has_key?(opts, :conflict_target) do
+      raise ArgumentError, "upsert/3 requires :conflict_target option"
+    end
+
+    opts =
+      opts
+      |> put_crud_context(:upsert, schema: schema)
+      |> Keyword.put_new(:returning, true)
+
+    Multi.new()
+    |> Multi.upsert(:record, schema, attrs, opts)
+    |> transaction(opts)
+    |> unwrap_single(:record, schema, opts)
+  end
+
   # ─────────────────────────────────────────────────────────────
   # Read Operations
   # ─────────────────────────────────────────────────────────────

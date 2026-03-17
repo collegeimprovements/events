@@ -274,6 +274,71 @@ defmodule OmScheduler.Workflow do
     |> maybe_add_to_group(name, Keyword.get(opts, :group))
   end
 
+  if Code.ensure_loaded?(Effect.Builder) do
+    @doc """
+    Adds an Effect as a workflow step.
+
+    This enables composing Effect workflows within OmScheduler workflows,
+    bridging the two systems for powerful composition.
+
+    ## Effect Execution
+
+    - The workflow context is passed directly to the Effect
+    - Effect results are merged back into the workflow context
+    - Effect's internal rollbacks are executed on failure before propagating
+
+    ## Error Handling
+
+    - Effect `{:ok, map}` → Workflow continues with merged context
+    - Effect `{:error, Error.t()}` → Workflow step fails
+    - Effect `{:halted, reason}` → Workflow step is skipped
+
+    ## Context Transformation
+
+    Use the `:context` option to transform the workflow context before
+    passing it to the Effect:
+
+        Workflow.effect(:payment, payment_effect,
+          after: :validate,
+          context: fn ctx -> %{amount: ctx.order.total, card: ctx.card} end
+        )
+
+    ## Examples
+
+        # Basic usage
+        payment_effect = Effect.new(:payment)
+          |> Effect.step(:authorize, &authorize/1)
+          |> Effect.step(:capture, &capture/1, rollback: &void/1)
+
+        Workflow.new(:order)
+        |> Workflow.step(:validate, &validate/1)
+        |> Workflow.effect(:payment, payment_effect, after: :validate)
+        |> Workflow.step(:fulfill, &fulfill/1, after: :payment)
+
+        # With context transformation
+        Workflow.effect(:notify, notification_effect,
+          after: :fulfill,
+          context: fn ctx -> %{user: ctx.user, message: "Order complete!"} end
+        )
+    """
+    @spec effect(t(), atom(), Effect.Builder.t(), keyword()) :: t()
+    def effect(%__MODULE__{} = workflow, name, %Effect.Builder{} = effect_builder, opts \\ []) do
+      # Extract context transformation function if provided
+      context_fn = Keyword.get(opts, :context)
+      step_opts = Keyword.drop(opts, [:context])
+
+      # Wrap the effect with optional context transformation
+      job =
+        if context_fn do
+          {:effect_with_context, effect_builder, context_fn}
+        else
+          effect_builder
+        end
+
+      step(workflow, name, job, step_opts)
+    end
+  end
+
   @doc """
   Adds multiple parallel steps (fan-out pattern).
 

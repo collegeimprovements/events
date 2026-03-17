@@ -47,6 +47,7 @@ defmodule OmS3.Request do
   """
 
   alias OmS3.Config
+  alias OmS3.Duration
 
   @type t :: %__MODULE__{
           config: Config.t(),
@@ -202,7 +203,7 @@ defmodule OmS3.Request do
   """
   @spec expires_in(t(), pos_integer() | {pos_integer(), atom()}) :: t()
   def expires_in(%__MODULE__{} = req, duration) do
-    %{req | expires_in: normalize_expiration(duration)}
+    %{req | expires_in: Duration.to_seconds(duration)}
   end
 
   @doc """
@@ -239,13 +240,7 @@ defmodule OmS3.Request do
   """
   @spec timeout(t(), pos_integer() | {pos_integer(), atom()}) :: t()
   def timeout(%__MODULE__{} = req, duration) do
-    timeout_ms =
-      case duration do
-        {n, unit} -> normalize_expiration({n, unit}) * 1000
-        ms when is_integer(ms) -> ms
-      end
-
-    %{req | timeout: timeout_ms}
+    %{req | timeout: Duration.to_ms(duration)}
   end
 
   # ============================================
@@ -448,7 +443,10 @@ defmodule OmS3.Request do
       max_concurrency: req.concurrency,
       timeout: req.timeout
     )
-    |> Enum.map(fn {:ok, result} -> result end)
+    |> Enum.map(fn
+      {:ok, result} -> result
+      {:exit, reason} -> {:error, "unknown", {:exit, reason}}
+    end)
   end
 
   @doc """
@@ -479,7 +477,10 @@ defmodule OmS3.Request do
       max_concurrency: req.concurrency,
       timeout: req.timeout
     )
-    |> Enum.map(fn {:ok, result} -> result end)
+    |> Enum.map(fn
+      {:ok, result} -> result
+      {:exit, reason} -> {:error, "unknown", {:exit, reason}}
+    end)
   end
 
   @doc """
@@ -506,7 +507,10 @@ defmodule OmS3.Request do
       max_concurrency: req.concurrency,
       timeout: req.timeout
     )
-    |> Enum.map(fn {:ok, result} -> result end)
+    |> Enum.map(fn
+      {:ok, result} -> result
+      {:exit, reason} -> {:error, "unknown", {:exit, reason}}
+    end)
   end
 
   @doc """
@@ -541,7 +545,10 @@ defmodule OmS3.Request do
       max_concurrency: req.concurrency,
       timeout: req.timeout
     )
-    |> Enum.map(fn {:ok, result} -> result end)
+    |> Enum.map(fn
+      {:ok, result} -> result
+      {:exit, reason} -> {:error, "unknown", {:exit, reason}}
+    end)
   end
 
   def copy_all(%__MODULE__{} = req, source_pattern, opts) when is_binary(source_pattern) do
@@ -565,7 +572,10 @@ defmodule OmS3.Request do
       max_concurrency: req.concurrency,
       timeout: req.timeout
     )
-    |> Enum.map(fn {:ok, result} -> result end)
+    |> Enum.map(fn
+      {:ok, result} -> result
+      {:exit, reason} -> {:error, "unknown", {:exit, reason}}
+    end)
   end
 
   @doc """
@@ -630,10 +640,12 @@ defmodule OmS3.Request do
 
     case S3URI.parse(uri) do
       {:ok, bucket, key} ->
-        if String.contains?(key, "*") do
-          expand_glob(req, bucket, key)
-        else
-          [uri]
+        case OmS3.Glob.parse_pattern(key) do
+          {:glob, prefix, pattern} ->
+            expand_glob(req, bucket, prefix, pattern)
+
+          :literal ->
+            [uri]
         end
 
       :error ->
@@ -641,17 +653,13 @@ defmodule OmS3.Request do
     end
   end
 
-  defp expand_glob(%__MODULE__{} = req, bucket, key_pattern) do
+  defp expand_glob(%__MODULE__{} = req, bucket, prefix, pattern) do
     alias OmS3.URI, as: S3URI
 
-    # Get the prefix (everything before the first *)
-    prefix = key_pattern |> String.split("*") |> List.first() |> get_directory_prefix()
-
-    # Fetch all pages of keys matching the prefix
     case list_all_keys(req.config, bucket, prefix) do
       {:ok, keys} ->
         keys
-        |> Enum.filter(&glob_match?(&1, prefix, key_pattern))
+        |> OmS3.Glob.filter_keys(prefix, pattern)
         |> Enum.map(&S3URI.build(bucket, &1))
 
       {:error, _} ->
@@ -683,43 +691,4 @@ defmodule OmS3.Request do
     end
   end
 
-  defp get_directory_prefix(path) do
-    case String.split(path, "/") |> Enum.drop(-1) do
-      [] -> ""
-      parts -> Enum.join(parts, "/") <> "/"
-    end
-  end
-
-  defp glob_match?(key, prefix, pattern) do
-    relative_key = String.replace_prefix(key, prefix, "")
-    relative_pattern = String.replace_prefix(pattern, prefix, "")
-
-    regex_pattern =
-      relative_pattern
-      |> Regex.escape()
-      |> String.replace("\\*\\*", ".*")
-      |> String.replace("\\*", "[^/]*")
-      |> then(&("^" <> &1 <> "$"))
-
-    case Regex.compile(regex_pattern) do
-      {:ok, regex} -> Regex.match?(regex, relative_key)
-      _ -> false
-    end
-  end
-
-  defp normalize_expiration({n, :second}), do: n
-  defp normalize_expiration({n, :seconds}), do: n
-  defp normalize_expiration({n, :minute}), do: n * 60
-  defp normalize_expiration({n, :minutes}), do: n * 60
-  defp normalize_expiration({n, :hour}), do: n * 3600
-  defp normalize_expiration({n, :hours}), do: n * 3600
-  defp normalize_expiration({n, :day}), do: n * 86_400
-  defp normalize_expiration({n, :days}), do: n * 86_400
-  defp normalize_expiration({n, :week}), do: n * 604_800
-  defp normalize_expiration({n, :weeks}), do: n * 604_800
-  defp normalize_expiration({n, :month}), do: n * 2_592_000
-  defp normalize_expiration({n, :months}), do: n * 2_592_000
-  defp normalize_expiration({n, :year}), do: n * 31_536_000
-  defp normalize_expiration({n, :years}), do: n * 31_536_000
-  defp normalize_expiration(seconds) when is_integer(seconds), do: seconds
 end

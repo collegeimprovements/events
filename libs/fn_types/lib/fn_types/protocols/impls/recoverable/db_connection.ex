@@ -49,7 +49,7 @@ if match?({:module, _}, Code.ensure_compiled(DBConnection.ConnectionError)) do
       cond do
         # Deadlock - quick retry with small jitter
         contains?(message, "deadlock") ->
-          50 + :rand.uniform(50) * attempt
+          50 + :rand.uniform(50 * attempt)
 
         # Pool timeout - back off to let pool recover
         contains?(message, "pool") or contains?(message, "timeout") ->

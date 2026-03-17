@@ -48,6 +48,9 @@ defmodule OmScheduler.MixProject do
       {:fn_types, path: "../fn_types"},  # use path until hex published
       {:fn_decorator, path: "../fn_decorator"},  # use path until hex published
 
+      # Optional: Effect integration for composable workflows
+      {:effect, path: "../effect", optional: true},
+
       # Dev/Test
       {:ex_doc, "~> 0.34", only: :dev, runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},

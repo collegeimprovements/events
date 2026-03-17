@@ -82,12 +82,21 @@ defmodule OmMigration.Behaviours.FieldBuilder do
     # Start with defaults
     config = Map.merge(defaults, opts_map)
 
-    # Apply field filtering if :fields is present
-    case Map.get(defaults, :fields) do
-      nil ->
+    # Handle fields:
+    # 1. If user explicitly passed :fields, use their list directly
+    # 2. If user passed :only/:except, filter default fields
+    # 3. Otherwise use default fields as-is
+    case {Keyword.get(opts, :fields), Map.get(defaults, :fields)} do
+      {user_fields, _} when is_list(user_fields) ->
+        # User explicitly passed fields - use them directly
         config
 
-      all_fields ->
+      {nil, nil} ->
+        # No fields in defaults or opts
+        config
+
+      {nil, all_fields} ->
+        # Apply only/except filtering on default fields
         filtered = filter_fields(all_fields, opts)
         Map.put(config, :fields, filtered)
     end

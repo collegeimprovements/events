@@ -20,8 +20,8 @@ defmodule FnTypes.Testing do
   | `assert_error/1` | Assert {:error, reason} and return reason |
   | `assert_error/2` | Assert {:error, expected_reason} |
   | `assert_error_type/2` | Assert error matches a type/pattern |
-  | `assert_just/1` | Assert {:just, value} (Maybe) |
-  | `assert_nothing/1` | Assert :nothing (Maybe) |
+  | `assert_some/1` | Assert {:some, value} (Maybe) |
+  | `assert_none/1` | Assert :none (Maybe) |
   | `assert_pipeline_ok/1` | Assert pipeline succeeded |
   | `assert_pipeline_error/2` | Assert pipeline failed at step |
 
@@ -337,47 +337,62 @@ defmodule FnTypes.Testing do
   # ============================================
 
   @doc """
-  Asserts the maybe is `{:just, value}` and returns the value.
+  Asserts the maybe is `{:some, value}` and returns the value.
 
   ## Examples
 
-      user = assert_just(find_user(id))
+      user = assert_some(find_user(id))
       assert user.active?
   """
-  defmacro assert_just(maybe) do
+  defmacro assert_some(maybe) do
     quote do
       case unquote(maybe) do
-        {:just, value} ->
+        {:some, value} ->
           value
 
-        :nothing ->
-          flunk("Expected {:just, _}, got :nothing")
+        :none ->
+          flunk("Expected {:some, _}, got :none")
 
         other ->
-          flunk("Expected {:just, _}, got #{inspect(other)}")
+          flunk("Expected {:some, _}, got #{inspect(other)}")
       end
     end
   end
 
   @doc """
-  Asserts the maybe is `:nothing`.
+  Asserts the maybe is `:none`.
 
   ## Examples
 
-      assert_nothing(find_deleted_user(id))
+      assert_none(find_deleted_user(id))
   """
-  defmacro assert_nothing(maybe) do
+  defmacro assert_none(maybe) do
     quote do
       case unquote(maybe) do
-        :nothing ->
-          :nothing
+        :none ->
+          :none
 
-        {:just, value} ->
-          flunk("Expected :nothing, got {:just, #{inspect(value)}}")
+        {:some, value} ->
+          flunk("Expected :none, got {:some, #{inspect(value)}}")
 
         other ->
-          flunk("Expected :nothing, got #{inspect(other)}")
+          flunk("Expected :none, got #{inspect(other)}")
       end
+    end
+  end
+
+  # Deprecated aliases for backwards compatibility
+  @doc false
+  defmacro assert_just(maybe) do
+    quote do
+      FnTypes.Testing.assert_some(unquote(maybe))
+    end
+  end
+
+  @doc false
+  defmacro assert_nothing(maybe) do
+    quote do
+      FnTypes.Testing.assert_none(unquote(maybe))
     end
   end
 

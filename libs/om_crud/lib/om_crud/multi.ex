@@ -403,6 +403,255 @@ defmodule OmCrud.Multi do
   end
 
   # ─────────────────────────────────────────────────────────────
+  # Conditional Operations
+  # ─────────────────────────────────────────────────────────────
+
+  @doc """
+  Conditionally add operations based on a predicate.
+
+  If the predicate returns true (or is truthy), the operations from
+  the function are added to the Multi.
+
+  ## Examples
+
+      # Static condition
+      Multi.new()
+      |> Multi.create(:user, User, attrs)
+      |> Multi.when_cond(send_welcome_email?, fn multi ->
+        Multi.run(multi, :email, fn _ -> send_email() end)
+      end)
+
+      # Condition based on previous results
+      Multi.new()
+      |> Multi.create(:user, User, attrs)
+      |> Multi.when_cond(fn %{user: user} -> user.role == :admin end, fn multi, results ->
+        Multi.create(multi, :admin_settings, AdminSettings, %{user_id: results.user.id})
+      end)
+  """
+  # Static boolean condition, function takes only multi
+  def when_cond(%__MODULE__{} = multi, true, fun) when is_function(fun, 1) do
+    fun.(multi)
+  end
+
+  def when_cond(%__MODULE__{} = multi, false, fun) when is_function(fun, 1) do
+    _ = fun
+    multi
+  end
+
+  # Static boolean condition, function takes multi and results (results ignored)
+  def when_cond(%__MODULE__{} = multi, true, fun) when is_function(fun, 2) do
+    fun.(multi, %{})
+  end
+
+  def when_cond(%__MODULE__{} = multi, false, fun) when is_function(fun, 2) do
+    _ = fun
+    multi
+  end
+
+  # Dynamic condition based on results
+  def when_cond(%__MODULE__{} = multi, condition_fn, fun)
+      when is_function(condition_fn, 1) and is_function(fun, 2) do
+    name = generate_conditional_name()
+
+    run_fn = fn results ->
+      if condition_fn.(results) do
+        inner_multi = fun.(new(), results)
+        {:ok, {:embed, inner_multi}}
+      else
+        {:ok, nil}
+      end
+    end
+
+    add_operation(multi, name, {:run, run_fn})
+  end
+
+  @doc """
+  Conditionally skip operations based on a predicate.
+
+  Opposite of `when/3` - adds operations when condition is false.
+
+  ## Examples
+
+      Multi.new()
+      |> Multi.create(:user, User, attrs)
+      |> Multi.unless(skip_notifications?, fn multi ->
+        Multi.run(multi, :notify, fn _ -> send_notification() end)
+      end)
+  """
+  def unless(%__MODULE__{} = multi, true, fun) when is_function(fun, 1) do
+    _ = fun
+    multi
+  end
+
+  def unless(%__MODULE__{} = multi, false, fun) when is_function(fun, 1) do
+    fun.(multi)
+  end
+
+  def unless(%__MODULE__{} = multi, true, fun) when is_function(fun, 2) do
+    _ = fun
+    multi
+  end
+
+  def unless(%__MODULE__{} = multi, false, fun) when is_function(fun, 2) do
+    fun.(multi, %{})
+  end
+
+  def unless(%__MODULE__{} = multi, condition_fn, fun)
+      when is_function(condition_fn, 1) and is_function(fun, 2) do
+    __MODULE__.when_cond(multi, fn results -> not condition_fn.(results) end, fun)
+  end
+
+  @doc """
+  Branch between two different operation sets based on a condition.
+
+  ## Examples
+
+      Multi.new()
+      |> Multi.create(:user, User, attrs)
+      |> Multi.branch(
+        fn %{user: user} -> user.type == :premium end,
+        fn multi, results ->
+          Multi.create(multi, :premium, PremiumFeatures, %{user_id: results.user.id})
+        end,
+        fn multi, results ->
+          Multi.create(multi, :trial, TrialFeatures, %{user_id: results.user.id})
+        end
+      )
+  """
+  @spec branch(
+          t(),
+          (results() -> boolean()),
+          (t(), results() -> t()),
+          (t(), results() -> t())
+        ) :: t()
+  def branch(%__MODULE__{} = multi, condition_fn, if_true_fn, if_false_fn)
+      when is_function(condition_fn, 1) and is_function(if_true_fn, 2) and
+             is_function(if_false_fn, 2) do
+    name = generate_conditional_name()
+
+    run_fn = fn results ->
+      inner_multi =
+        if condition_fn.(results) do
+          if_true_fn.(new(), results)
+        else
+          if_false_fn.(new(), results)
+        end
+
+      {:ok, {:embed, inner_multi}}
+    end
+
+    add_operation(multi, name, {:run, run_fn})
+  end
+
+  @doc """
+  Iterate over a list and add operations for each item.
+
+  Useful for creating multiple related records in a single transaction.
+
+  ## Examples
+
+      # Create tags for a post
+      Multi.new()
+      |> Multi.create(:post, Post, post_attrs)
+      |> Multi.each(:tags, tag_names, fn multi, tag_name, index, results ->
+        Multi.create(multi, {:tag, index}, Tag, %{
+          name: tag_name,
+          post_id: results.post.id
+        })
+      end)
+
+      # With a function that returns the list
+      Multi.new()
+      |> Multi.create(:user, User, attrs)
+      |> Multi.each(:roles, fn %{user: user} -> user.role_names end, fn multi, role, idx, results ->
+        Multi.create(multi, {:role, idx}, UserRole, %{
+          user_id: results.user.id,
+          role: role
+        })
+      end)
+  """
+  # Static list
+  def each(%__MODULE__{} = multi, _name, list, fun) when is_list(list) and is_function(fun, 4) do
+    list
+    |> Enum.with_index()
+    |> Enum.reduce(multi, fn {item, index}, acc ->
+      fun.(acc, item, index, %{})
+    end)
+  end
+
+  # Dynamic list from results
+  def each(%__MODULE__{} = multi, name, list_fn, fun)
+      when is_function(list_fn, 1) and is_function(fun, 4) do
+    run_fn = fn results ->
+      list = list_fn.(results)
+
+      inner_multi =
+        list
+        |> Enum.with_index()
+        |> Enum.reduce(new(), fn {item, index}, acc ->
+          fun.(acc, item, index, results)
+        end)
+
+      {:ok, {:embed, inner_multi}}
+    end
+
+    add_operation(multi, name, {:run, run_fn})
+  end
+
+  @doc """
+  Execute a function only if a previous operation returned a specific value.
+
+  ## Examples
+
+      Multi.new()
+      |> Multi.run(:check, fn _ -> {:ok, :proceed} end)
+      |> Multi.when_value(:check, :proceed, fn multi, _results ->
+        Multi.create(multi, :record, Record, %{})
+      end)
+  """
+  @spec when_value(t(), name(), term(), (t(), results() -> t())) :: t()
+  def when_value(%__MODULE__{} = multi, result_name, expected_value, fun)
+      when is_function(fun, 2) do
+    __MODULE__.when_cond(
+      multi,
+      fn results -> Map.get(results, result_name) == expected_value end,
+      fun
+    )
+  end
+
+  @doc """
+  Execute a function only if a previous operation's result matches a pattern.
+
+  Uses a guard function to test the result.
+
+  ## Examples
+
+      Multi.new()
+      |> Multi.run(:fetch, fn _ -> fetch_user(id) end)
+      |> Multi.when_match(:fetch, &match?(%User{role: :admin}, &1), fn multi, results ->
+        Multi.create(multi, :audit, AuditLog, %{user_id: results.fetch.id})
+      end)
+  """
+  @spec when_match(t(), name(), (term() -> boolean()), (t(), results() -> t())) :: t()
+  def when_match(%__MODULE__{} = multi, result_name, matcher_fn, fun)
+      when is_function(matcher_fn, 1) and is_function(fun, 2) do
+    __MODULE__.when_cond(
+      multi,
+      fn results ->
+        case Map.get(results, result_name) do
+          nil -> false
+          value -> matcher_fn.(value)
+        end
+      end,
+      fun
+    )
+  end
+
+  defp generate_conditional_name do
+    :"__conditional_#{System.unique_integer([:positive])}"
+  end
+
+  # ─────────────────────────────────────────────────────────────
   # Composition
   # ─────────────────────────────────────────────────────────────
 

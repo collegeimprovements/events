@@ -171,12 +171,12 @@ end)
 
 > **Full Reference:** `docs/claude/SCHEMA.md`, `docs/EVENTS_REFERENCE.md`
 
-### Always Use Events Modules
+### Always Use Enhanced Modules
 
 ```elixir
 # CORRECT
-use Events.Schema
-use Events.Migration
+use OmSchema        # or use Events.Schema
+use OmMigration     # or use Events.Migration
 
 # WRONG
 use Ecto.Schema
@@ -187,7 +187,7 @@ use Ecto.Migration
 
 ```elixir
 defmodule MyApp.User do
-  use Events.Schema
+  use OmSchema
   import OmSchema.Presets
 
   schema "users" do
@@ -208,22 +208,190 @@ defmodule MyApp.User do
 end
 ```
 
-### Migration Example
+---
+
+## OmMigration
+
+> Token-based migration DSL with pipelines, FieldBuilders, and full up/down support.
+
+### Two Styles: Pipeline API vs DSL Macros
+
+```elixir
+# Pipeline API - composable, testable
+create_table(:users)
+|> with_uuid_primary_key()
+|> with_identity(:name, :email)
+|> run()
+
+# DSL Macros - declarative, readable
+table :users do
+  uuid_primary_key()
+  field :email, :citext
+  has_authentication()
+  timestamps()
+end
+```
+
+### Create Table (change/0)
 
 ```elixir
 defmodule MyApp.Repo.Migrations.CreateUsers do
-  use Events.Migration
+  use OmMigration
 
   def change do
+    # Pipeline API
     create_table(:users)
     |> with_uuid_primary_key()
     |> with_identity(:name, :email)
+    |> with_authentication()
     |> with_audit()
     |> with_soft_delete()
     |> with_timestamps()
-    |> execute()
+    |> run()
   end
 end
+```
+
+### Up/Down Migrations
+
+```elixir
+defmodule MyApp.Repo.Migrations.UpdateUsers do
+  use OmMigration
+
+  def up do
+    # DSL style
+    alter :users do
+      add :phone, :string, null: true
+      add :verified_at, :utc_datetime
+      modify :status, :string, null: false, default: "active"
+    end
+
+    # Or pipeline style
+    alter_table(:users)
+    |> add_field(:avatar_url, :string)
+    |> run()
+  end
+
+  def down do
+    alter :users do
+      remove :phone
+      remove :verified_at
+      remove :avatar_url
+      modify :status, :string, null: true
+    end
+  end
+end
+```
+
+### Drop & Rename Operations
+
+```elixir
+# Drop operations
+drop_table :old_table
+drop_table :old_table, if_exists: true
+drop_index :users, :users_email_index
+drop_constraint :orders, :amount_positive
+
+# Rename operations
+rename_table :users, to: :accounts
+rename_column :users, :email, to: :email_address
+```
+
+### FieldBuilders
+
+Reusable field composition modules. Use directly or via pipeline helpers.
+
+| Builder | Fields Added | Pipeline Helper |
+|---------|--------------|-----------------|
+| `Timestamps` | inserted_at, updated_at | `with_timestamps()` |
+| `AuditFields` | created_by, updated_by, ip, session | `with_audit()` |
+| `SoftDelete` | deleted_at, deleted_by | `with_soft_delete()` |
+| `StatusFields` | status, substatus | `with_status()` |
+| `TypeFields` | type, subtype | `with_type()` |
+| `Identity` | email, username, phone, name fields | `with_identity()` |
+| `Authentication` | password_hash, oauth, magic_link | `with_authentication()` |
+| `Profile` | bio, avatar, location, social | `with_profile()` |
+| `Money` | decimal fields with precision | `with_money()` |
+| `Metadata` | JSONB field with GIN index | `with_metadata()` |
+| `Tags` | string array with GIN index | `with_tags()` |
+
+```elixir
+# Direct FieldBuilder usage
+alias OmMigration.FieldBuilders.{Identity, Authentication, Profile}
+
+create_table(:users)
+|> Identity.add(only: [:email, :username])
+|> Authentication.add(type: :password, with_lockout: true)
+|> Profile.add(only: [:bio, :avatar])
+|> run()
+
+# Via pipeline helpers (equivalent)
+create_table(:users)
+|> with_identity(:email, :username)
+|> with_authentication(type: :password, with_lockout: true)
+|> with_profile(:bio, :avatar)
+|> run()
+```
+
+### DSL Quick Reference
+
+```elixir
+# Create table
+table :users do
+  uuid_primary_key()
+  field :email, :citext, unique: true
+  field :name, :string
+  belongs_to :organization, :organizations
+  has_authentication()
+  has_profile()
+  has_audit()
+  has_soft_delete()
+  has_metadata()
+  has_tags()
+  timestamps()
+  index [:organization_id]
+  unique_index [:email]
+  check_constraint :email_format, "email ~* '^[^@]+@[^@]+$'"
+end
+
+# Alter table
+alter :users do
+  add :phone, :string
+  remove :legacy_field
+  modify :status, :string, null: false
+end
+
+# Drop/rename
+drop_table :old_table
+drop_index :users, :users_email_index
+rename_table :users, to: :accounts
+rename_column :users, :email, to: :email_address
+```
+
+### Pipeline Quick Reference
+
+| Operation | Function |
+|-----------|----------|
+| Create table | `create_table(:name) \|> ... \|> run()` |
+| Alter table | `alter_table(:name) \|> add_field() \|> run()` |
+| Drop table | `drop_table(:name) \|> run()` |
+| Create index | `create_index(:table, [:cols]) \|> run()` |
+| Drop index | `drop_index(:table, :index_name) \|> run()` |
+| Rename table | `rename_table(:old, to: :new) \|> run()` |
+| Rename column | `rename_column(:table, from: :old, to: :new) \|> run()` |
+
+### TokenValidator
+
+Automatic validation before execution. Catches errors early with clear messages.
+
+```elixir
+# Validation happens automatically in run()
+# To skip (not recommended):
+Executor.execute(token, skip_validation: true)
+
+# Manual validation
+{:ok, token} = TokenValidator.validate(token)
+{:error, errors} = TokenValidator.validate(invalid_token)
 ```
 
 ---
@@ -421,6 +589,7 @@ end
 | `if...else` | `case`, `cond`, pattern matching |
 | `Repo.insert!()` | `Repo.insert()` |
 | `use Ecto.Schema` | `use OmSchema` |
+| `use Ecto.Migration` | `use OmMigration` |
 | Nested case | `with` statement |
 | Macros for logic | Functions + pattern matching |
 | Raising errors | Return `{:error, reason}` |
@@ -449,3 +618,5 @@ mix dialyzer
 | `docs/claude/S3.md` | S3 API reference |
 | `docs/functional/OVERVIEW.md` | Comprehensive functional module documentation |
 | `docs/EVENTS_REFERENCE.md` | Complete Schema/Migration/Decorator reference |
+| `libs/om_migration/CHANGELOG.md` | OmMigration changelog and feature list |
+| `libs/om_migration/README.md` | OmMigration full documentation |

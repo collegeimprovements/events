@@ -49,7 +49,7 @@ defmodule Dag.MixProject do
     [
       main: "Dag",
       source_url: @source_url,
-      extras: ["README.md", "CHANGELOG.md"]
+      extras: ["README.md", "CHANGELOG.md", "guides/workflow.md", "guides/cheatsheet.md"]
     ]
   end
 end

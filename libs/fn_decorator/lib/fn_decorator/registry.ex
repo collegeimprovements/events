@@ -71,7 +71,13 @@ defmodule FnDecorator.Registry do
 
     # Pipeline decorators
     pipe_through: {FnDecorator.Pipeline, :pipe_through},
-    around: {FnDecorator.Pipeline, :around}
+    around: {FnDecorator.Pipeline, :around},
+    compose: {FnDecorator.Pipeline, :compose},
+
+    # OpenTelemetry decorators
+    propagate_context: {FnDecorator.OpenTelemetry.Decorators, :propagate_context},
+    with_baggage: {FnDecorator.OpenTelemetry.Decorators, :with_baggage},
+    otel_span_advanced: {FnDecorator.OpenTelemetry.Decorators, :otel_span_advanced}
   }
 
   @doc """
@@ -241,7 +247,8 @@ defmodule FnDecorator.Registry do
       tracing: [:trace],
       validation: [:validate_args, :validate_return],
       purity: [:pure, :memoize],
-      pipeline: [:pipe_through, :around, :compose]
+      pipeline: [:pipe_through, :around, :compose],
+      opentelemetry: [:propagate_context, :with_baggage, :otel_span_advanced]
     }
   end
 end

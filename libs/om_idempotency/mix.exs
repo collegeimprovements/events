@@ -36,11 +36,22 @@ defmodule OmIdempotency.MixProject do
       {:ecto_sql, "~> 3.11"},
       {:telemetry, "~> 1.0"},
 
+      # Om libraries
+      {:fn_types, path: "../fn_types"},
+      {:fn_decorator, path: "../fn_decorator"},
+      {:om_schema, path: "../om_schema"},
+      {:om_migration, path: "../om_migration"},
+      {:om_crud, path: "../om_crud"},
+      {:om_query, path: "../om_query"},
+
       # Optional deps
       {:req, "~> 0.4", optional: true},
+      {:jason, "~> 1.4", optional: true},
+      {:plug, "~> 1.14", optional: true},
 
       # Dev/Test
-      {:ex_doc, "~> 0.31", only: :dev, runtime: false}
+      {:ex_doc, "~> 0.31", only: :dev, runtime: false},
+      {:benchee, "~> 1.1", only: :dev}
     ]
   end
 

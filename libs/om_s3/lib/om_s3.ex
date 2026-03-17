@@ -106,6 +106,7 @@ defmodule OmS3 do
   alias OmS3.Client
   alias OmS3.Request
   alias OmS3.URI, as: S3URI
+  alias OmS3.Duration
   alias FnTypes.AsyncResult
 
   @type config :: Config.t()
@@ -262,8 +263,11 @@ defmodule OmS3 do
   end
 
   def put(uri, content, %Config{} = config, opts) do
-    {bucket, key} = S3URI.parse!(uri)
-    Client.put_object(config, bucket, key, content, opts)
+    with {:ok, bucket, key} <- S3URI.parse(uri) do
+      Client.put_object(config, bucket, key, content, opts)
+    else
+      :error -> {:error, {:invalid_uri, uri}}
+    end
   end
 
   @doc """
@@ -291,8 +295,11 @@ defmodule OmS3 do
   end
 
   def get(uri, %Config{} = config) do
-    {bucket, key} = S3URI.parse!(uri)
-    Client.get_object(config, bucket, key)
+    with {:ok, bucket, key} <- S3URI.parse(uri) do
+      Client.get_object(config, bucket, key)
+    else
+      :error -> {:error, {:invalid_uri, uri}}
+    end
   end
 
   @doc """
@@ -316,8 +323,11 @@ defmodule OmS3 do
   end
 
   def delete(uri, %Config{} = config) do
-    {bucket, key} = S3URI.parse!(uri)
-    Client.delete_object(config, bucket, key)
+    with {:ok, bucket, key} <- S3URI.parse(uri) do
+      Client.delete_object(config, bucket, key)
+    else
+      :error -> {:error, {:invalid_uri, uri}}
+    end
   end
 
   @doc """
@@ -365,8 +375,11 @@ defmodule OmS3 do
   end
 
   def head(uri, %Config{} = config) do
-    {bucket, key} = S3URI.parse!(uri)
-    Client.head_object(config, bucket, key)
+    with {:ok, bucket, key} <- S3URI.parse(uri) do
+      Client.head_object(config, bucket, key)
+    else
+      :error -> {:error, {:invalid_uri, uri}}
+    end
   end
 
   @doc """
@@ -406,8 +419,11 @@ defmodule OmS3 do
   end
 
   def list(uri, %Config{} = config, opts) do
-    {bucket, prefix} = S3URI.parse!(uri)
-    Client.list_objects(config, bucket, prefix, opts)
+    with {:ok, bucket, prefix} <- S3URI.parse(uri) do
+      Client.list_objects(config, bucket, prefix, opts)
+    else
+      :error -> {:error, {:invalid_uri, uri}}
+    end
   end
 
   @doc """
@@ -454,9 +470,12 @@ defmodule OmS3 do
   end
 
   def copy(source_uri, dest_uri, %Config{} = config) do
-    {source_bucket, source_key} = S3URI.parse!(source_uri)
-    {dest_bucket, dest_key} = S3URI.parse!(dest_uri)
-    Client.copy_object(config, source_bucket, source_key, dest_bucket, dest_key)
+    with {:ok, source_bucket, source_key} <- S3URI.parse(source_uri),
+         {:ok, dest_bucket, dest_key} <- S3URI.parse(dest_uri) do
+      Client.copy_object(config, source_bucket, source_key, dest_bucket, dest_key)
+    else
+      :error -> {:error, {:invalid_uri, {source_uri, dest_uri}}}
+    end
   end
 
   # ============================================
@@ -496,16 +515,19 @@ defmodule OmS3 do
   end
 
   def presign(uri, %Config{} = config, opts) do
-    {bucket, key} = S3URI.parse!(uri)
-    method = Keyword.get(opts, :method, :get)
-    expires_in = normalize_expiration(Keyword.get(opts, :expires_in, 3600))
+    with {:ok, bucket, key} <- S3URI.parse(uri) do
+      method = Keyword.get(opts, :method, :get)
+      expires_in = Duration.to_seconds(Keyword.get(opts, :expires_in, 3600))
 
-    case method do
-      :get ->
-        Client.presigned_get_url(config, bucket, key, expires_in)
+      case method do
+        :get ->
+          Client.presigned_get_url(config, bucket, key, expires_in)
 
-      :put ->
-        Client.presigned_upload_form(config, bucket, key, expires_in: expires_in)
+        :put ->
+          Client.presigned_upload_form(config, bucket, key, expires_in: expires_in)
+      end
+    else
+      :error -> {:error, {:invalid_uri, uri}}
     end
   end
 
@@ -780,71 +802,45 @@ defmodule OmS3 do
 
   def presign_all(uris, %Config{} = config, opts) when is_list(uris) do
     method = Keyword.get(opts, :method, :get)
-    expires_in = normalize_expiration(Keyword.get(opts, :expires_in, 3600))
+    expires_in = Duration.to_seconds(Keyword.get(opts, :expires_in, 3600))
 
     uris
     |> Enum.flat_map(&expand_uri_pattern(&1, config))
     |> Enum.map(fn uri ->
-      {bucket, key} = S3URI.parse!(uri)
+      with {:ok, bucket, key} <- S3URI.parse(uri) do
+        result =
+          case method do
+            :get ->
+              Client.presigned_get_url(config, bucket, key, expires_in)
 
-      result =
-        case method do
-          :get ->
-            Client.presigned_get_url(config, bucket, key, expires_in)
+            :put ->
+              Client.presigned_upload_form(config, bucket, key, expires_in: expires_in)
+          end
 
-          :put ->
-            Client.presigned_upload_form(config, bucket, key, expires_in: expires_in)
+        case result do
+          {:ok, url} -> {:ok, uri, url}
+          {:error, reason} -> {:error, uri, reason}
         end
-
-      case result do
-        {:ok, url} -> {:ok, uri, url}
-        {:error, reason} -> {:error, uri, reason}
+      else
+        :error -> {:error, uri, {:invalid_uri, uri}}
       end
     end)
   end
 
   # Expand glob patterns like "s3://bucket/folder/*.pdf"
   defp expand_uri_pattern(uri, config) do
-    case parse_glob_pattern(uri) do
-      {:glob, bucket, prefix, pattern} ->
-        expand_glob(bucket, prefix, pattern, config)
-
-      :literal ->
-        [uri]
-    end
-  end
-
-  defp parse_glob_pattern(uri) do
     case S3URI.parse(uri) do
       {:ok, bucket, key} ->
-        if String.contains?(key, "*") do
-          # Split into prefix (before *) and pattern
-          parts = String.split(key, "*", parts: 2)
+        case OmS3.Glob.parse_pattern(key) do
+          {:glob, prefix, pattern} ->
+            expand_glob(bucket, prefix, pattern, config)
 
-          case parts do
-            [prefix_part, suffix] ->
-              # Get the directory prefix (everything before the last /)
-              prefix = get_directory_prefix(prefix_part)
-              # Build the glob pattern
-              pattern = String.replace(prefix_part, prefix, "") <> "*" <> suffix
-              {:glob, bucket, prefix, pattern}
-
-            _ ->
-              :literal
-          end
-        else
-          :literal
+          :literal ->
+            [uri]
         end
 
       :error ->
-        :literal
-    end
-  end
-
-  defp get_directory_prefix(path) do
-    case String.split(path, "/") |> Enum.drop(-1) do
-      [] -> ""
-      parts -> Enum.join(parts, "/") <> "/"
+        [uri]
     end
   end
 
@@ -855,28 +851,11 @@ defmodule OmS3 do
       {:ok, files} ->
         files
         |> Enum.map(& &1.key)
-        |> Enum.filter(&glob_match?(&1, prefix, pattern))
+        |> OmS3.Glob.filter_keys(prefix, pattern)
         |> Enum.map(&S3URI.build(bucket, &1))
 
       {:error, _} ->
         []
-    end
-  end
-
-  defp glob_match?(key, prefix, pattern) do
-    # Get the part of the key after the prefix
-    relative_key = String.replace_prefix(key, prefix, "")
-    # Convert glob pattern to regex
-    regex_pattern =
-      pattern
-      |> Regex.escape()
-      |> String.replace("\\*\\*", ".*")
-      |> String.replace("\\*", "[^/]*")
-      |> then(&("^" <> &1 <> "$"))
-
-    case Regex.compile(regex_pattern) do
-      {:ok, regex} -> Regex.match?(regex, relative_key)
-      _ -> false
     end
   end
 
@@ -963,22 +942,6 @@ defmodule OmS3 do
     prefix = normalize_prefix(prefix)
     S3URI.build(bucket, prefix <> key)
   end
-
-  defp normalize_expiration({n, :second}), do: n
-  defp normalize_expiration({n, :seconds}), do: n
-  defp normalize_expiration({n, :minute}), do: n * 60
-  defp normalize_expiration({n, :minutes}), do: n * 60
-  defp normalize_expiration({n, :hour}), do: n * 3600
-  defp normalize_expiration({n, :hours}), do: n * 3600
-  defp normalize_expiration({n, :day}), do: n * 86_400
-  defp normalize_expiration({n, :days}), do: n * 86_400
-  defp normalize_expiration({n, :week}), do: n * 604_800
-  defp normalize_expiration({n, :weeks}), do: n * 604_800
-  defp normalize_expiration({n, :month}), do: n * 2_592_000
-  defp normalize_expiration({n, :months}), do: n * 2_592_000
-  defp normalize_expiration({n, :year}), do: n * 31_536_000
-  defp normalize_expiration({n, :years}), do: n * 31_536_000
-  defp normalize_expiration(seconds) when is_integer(seconds), do: seconds
 
   # ============================================
   # AsyncResult Settlement Helpers

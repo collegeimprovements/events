@@ -400,7 +400,7 @@ defmodule FnTypes.Backoff do
     attempt = Keyword.fetch!(opts, :attempt)
 
     # Random between 0 and exponential cap
-    upper = config.initial_delay * :math.pow(2, attempt)
+    upper = config.initial_delay * :math.pow(2, attempt - 1)
     calculated = :rand.uniform() * upper
     final_delay = min(round(calculated), config.max_delay)
 

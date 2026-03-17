@@ -272,6 +272,66 @@ if Code.ensure_loaded?(Redix) do
   end
 
   # ============================================
+  # Bulk Job Operations
+  # ============================================
+
+  @impl OmScheduler.Store.Behaviour
+  def bulk_update_jobs(filter, attrs) when is_list(filter) and is_map(attrs) do
+    # Get all jobs and filter in memory, then update each
+    # Note: For large datasets, consider using Redis Lua scripts
+    {:ok, jobs} = list_jobs([])
+
+    matching_jobs = filter_jobs_by_criteria(jobs, filter)
+
+    count =
+      Enum.reduce(matching_jobs, 0, fn job, acc ->
+        case update_job(job.name, attrs) do
+          {:ok, _} -> acc + 1
+          {:error, _} -> acc
+        end
+      end)
+
+    {:ok, count}
+  end
+
+  @impl OmScheduler.Store.Behaviour
+  def count_jobs(filter) when is_list(filter) do
+    {:ok, jobs} = list_jobs([])
+    count = jobs |> filter_jobs_by_criteria(filter) |> length()
+    {:ok, count}
+  end
+
+  defp filter_jobs_by_criteria(jobs, filter) do
+    Enum.filter(jobs, fn job ->
+      Enum.all?(filter, fn {key, value} ->
+        matches_criterion?(job, key, value)
+      end)
+    end)
+  end
+
+  defp matches_criterion?(job, :names, names) when is_list(names), do: job.name in names
+
+  defp matches_criterion?(job, :name_pattern, pattern) when is_binary(pattern) do
+    regex = pattern_to_regex(pattern)
+    Regex.match?(regex, job.name)
+  end
+
+  defp matches_criterion?(job, :queue, queue), do: job.queue == to_string(queue)
+  defp matches_criterion?(job, :state, state), do: job.state == state
+  defp matches_criterion?(job, :tags, tags) when is_list(tags), do: Enum.any?(tags, &(&1 in job.tags))
+  defp matches_criterion?(job, :enabled, enabled), do: job.enabled == enabled
+  defp matches_criterion?(job, :paused, paused), do: job.paused == paused
+  defp matches_criterion?(_job, _key, _value), do: true
+
+  defp pattern_to_regex(pattern) do
+    pattern
+    |> Regex.escape()
+    |> String.replace("\\*", ".*")
+    |> String.replace("\\?", ".")
+    |> then(&Regex.compile!("^#{&1}$"))
+  end
+
+  # ============================================
   # Scheduling Operations - Redis Optimized
   # ============================================
 

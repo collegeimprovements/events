@@ -844,6 +844,28 @@ dag = Stream.map(steps, &to_dag_entry/1)
 | **Project Management** | Task dependencies, critical path |
 | **UI Rendering** | Component dependency trees |
 
+## Dag.Workflow — Execution Engine
+
+The library includes a full workflow execution engine built on top of the DAG data structure. Five component types, three-phase dispatch, retry with backoff, saga compensation, checkpoint/restore.
+
+```elixir
+alias Dag.{Workflow, Components.Step, Components.Branch}
+
+w =
+  Workflow.new(:order_processing)
+  |> Workflow.add(Step.new(:validate, fn order -> {:ok, validate(order)} end))
+  |> Workflow.add(Branch.new(:route,
+    condition: fn order -> if order.total > 1000, do: :review, else: :auto end
+  ), after: :validate)
+  |> Workflow.add(Step.new(:review, &manual_review/1), after: :route, edge: %{when: :review})
+  |> Workflow.add(Step.new(:auto, &auto_approve/1), after: :route, edge: %{when: :auto})
+  |> Workflow.react_until_satisfied(order, async: true)
+
+Workflow.raw_productions(w)
+```
+
+See the **[Workflow Guide](guides/workflow.md)** for full documentation and the **[Cheatsheet](guides/cheatsheet.md)** for quick reference.
+
 ## License
 
 MIT

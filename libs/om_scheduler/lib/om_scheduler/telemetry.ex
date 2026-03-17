@@ -28,6 +28,14 @@ defmodule OmScheduler.Telemetry do
   - `[:om_scheduler, :peer, :election]` - Node became leader
   - `[:om_scheduler, :peer, :resignation]` - Node lost leadership
 
+  ## Bulk Operations Events
+
+  - `[:om_scheduler, :bulk, :pause]` - Multiple jobs paused
+  - `[:om_scheduler, :bulk, :resume]` - Multiple jobs resumed
+  - `[:om_scheduler, :bulk, :enable]` - Multiple jobs enabled
+  - `[:om_scheduler, :bulk, :disable]` - Multiple jobs disabled
+  - `[:om_scheduler, :bulk, :update]` - Multiple jobs updated
+
   ## Queue Events
 
   - `[:om_scheduler, :queue, :pause]` - Queue paused
@@ -195,6 +203,35 @@ defmodule OmScheduler.Telemetry do
       [:plugin, event],
       %{system_time: System.system_time()},
       Map.put(meta, :plugin, plugin)
+    )
+  end
+
+  @doc """
+  Emits a bulk operation event.
+
+  ## Events
+
+  - `:pause` - Multiple jobs paused
+  - `:resume` - Multiple jobs resumed
+  - `:enable` - Multiple jobs enabled
+  - `:disable` - Multiple jobs disabled
+  - `:update` - Multiple jobs updated
+
+  ## Measurements
+
+  - `:count` - Number of jobs affected
+
+  ## Metadata
+
+  - `:filter` - The filter used to select jobs
+  - `:operation` - The operation performed
+  """
+  @spec bulk_event(atom(), non_neg_integer(), keyword()) :: :ok
+  def bulk_event(operation, count, filter) do
+    execute(
+      [:bulk, operation],
+      %{count: count, system_time: System.system_time()},
+      %{filter: filter, operation: operation}
     )
   end
 end

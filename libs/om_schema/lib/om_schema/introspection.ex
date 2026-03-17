@@ -4,7 +4,33 @@ defmodule OmSchema.Introspection do
 
   Provides functions to inspect and analyze schema field validations at runtime.
   Useful for documentation generation, API clients, and form builders.
+
+  ## OpenAPI Generation
+
+  For OpenAPI 3.x schema generation, see `OmSchema.OpenAPI`:
+
+      OmSchema.OpenAPI.to_schema(MyApp.User)
+      OmSchema.OpenAPI.to_components([MyApp.User, MyApp.Account])
+
+  This module also provides a convenience delegation:
+
+      OmSchema.Introspection.to_openapi_schema(MyApp.User)
+
   """
+
+  @doc """
+  Generates an OpenAPI 3.x schema from a schema module.
+
+  Delegates to `OmSchema.OpenAPI.to_schema/2`. See that module for full options.
+
+  ## Examples
+
+      iex> OmSchema.Introspection.to_openapi_schema(MyApp.User)
+      %{type: "object", properties: %{...}, required: [...]}
+
+  """
+  @spec to_openapi_schema(module(), keyword()) :: map()
+  defdelegate to_openapi_schema(schema_module, opts \\ []), to: OmSchema.OpenAPI, as: :to_schema
 
   @doc """
   Get detailed validation information for a schema module.
@@ -13,11 +39,17 @@ defmodule OmSchema.Introspection do
   """
   @spec inspect_schema(module()) :: [map()]
   def inspect_schema(schema_module) do
-    if function_exported?(schema_module, :__field_validations__, 0) do
-      schema_module.__field_validations__()
-      |> Enum.map(&field_to_spec/1)
-    else
-      []
+    cond do
+      function_exported?(schema_module, :field_validations, 0) ->
+        schema_module.field_validations()
+        |> Enum.map(&field_to_spec/1)
+
+      function_exported?(schema_module, :__field_validations__, 0) ->
+        schema_module.__field_validations__()
+        |> Enum.map(&field_to_spec/1)
+
+      true ->
+        []
     end
   end
 
@@ -103,6 +135,12 @@ defmodule OmSchema.Introspection do
   # Private helpers
 
   defp field_to_spec({name, type, opts}) do
+    # Extract validations, adding enum values as :in if present
+    validations =
+      opts
+      |> extract_validations()
+      |> add_enum_values(type, opts)
+
     %{
       field: name,
       type: normalize_type(type),
@@ -115,10 +153,21 @@ defmodule OmSchema.Introspection do
       sensitive: Keyword.get(opts, :sensitive, false),
       doc: Keyword.get(opts, :doc),
       example: Keyword.get(opts, :example),
-      validations: extract_validations(opts),
+      validations: validations,
       normalizations: extract_normalizations(opts)
     }
   end
+
+  # For Ecto.Enum types, add the values to validations as :in
+  defp add_enum_values(validations, Ecto.Enum, opts) do
+    case Keyword.get(opts, :values) do
+      nil -> validations
+      values when is_list(values) -> Map.put(validations, :in, values)
+      _ -> validations
+    end
+  end
+
+  defp add_enum_values(validations, _type, _opts), do: validations
 
   defp normalize_type({:array, inner}), do: {:array, normalize_type(inner)}
   defp normalize_type({:map, inner}), do: {:map, inner}

@@ -86,7 +86,11 @@ defmodule FnDecorator.Define do
     returns_list: 1,
     returns_union: 1,
     returns_pipeline: 1,
-    normalize_result: 1
+    normalize_result: 1,
+    # OpenTelemetry decorators
+    propagate_context: 1,
+    with_baggage: 1,
+    otel_span_advanced: 1
 
   # Caching decorators
   defdelegate cacheable(opts, body, context), to: FnDecorator.Caching
@@ -145,4 +149,9 @@ defmodule FnDecorator.Define do
   defdelegate returns_union(opts, body, context), to: FnDecorator.Types
   defdelegate returns_pipeline(opts, body, context), to: FnDecorator.Types
   defdelegate normalize_result(opts, body, context), to: FnDecorator.Types
+
+  # OpenTelemetry decorators
+  defdelegate propagate_context(opts, body, context), to: FnDecorator.OpenTelemetry.Decorators
+  defdelegate with_baggage(opts, body, context), to: FnDecorator.OpenTelemetry.Decorators
+  defdelegate otel_span_advanced(opts, body, context), to: FnDecorator.OpenTelemetry.Decorators
 end

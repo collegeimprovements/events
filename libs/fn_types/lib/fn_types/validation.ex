@@ -1031,12 +1031,13 @@ defmodule FnTypes.Validation do
   @spec min(number(), keyword()) :: validator(number())
   def min(minimum, opts \\ []) do
     error = Keyword.get(opts, :message) || {:min, minimum}
+    type_error = Keyword.get(opts, :message) || :not_a_number
 
     fn
       nil -> {:ok, nil}
       value when is_number(value) and value >= minimum -> {:ok, value}
       value when is_number(value) -> {:error, [error]}
-      _ -> {:error, [:not_a_number]}
+      _ -> {:error, [type_error]}
     end
   end
 
@@ -1056,12 +1057,13 @@ defmodule FnTypes.Validation do
   @spec max(number(), keyword()) :: validator(number())
   def max(maximum, opts \\ []) do
     error = Keyword.get(opts, :message) || {:max, maximum}
+    type_error = Keyword.get(opts, :message) || :not_a_number
 
     fn
       nil -> {:ok, nil}
       value when is_number(value) and value <= maximum -> {:ok, value}
       value when is_number(value) -> {:error, [error]}
-      _ -> {:error, [:not_a_number]}
+      _ -> {:error, [type_error]}
     end
   end
 
@@ -1081,12 +1083,13 @@ defmodule FnTypes.Validation do
   @spec between(number(), number(), keyword()) :: validator(number())
   def between(min_val, max_val, opts \\ []) do
     error = Keyword.get(opts, :message) || {:between, min_val, max_val}
+    type_error = Keyword.get(opts, :message) || :not_a_number
 
     fn
       nil -> {:ok, nil}
       value when is_number(value) and value >= min_val and value <= max_val -> {:ok, value}
       value when is_number(value) -> {:error, [error]}
-      _ -> {:error, [:not_a_number]}
+      _ -> {:error, [type_error]}
     end
   end
 
@@ -1106,12 +1109,13 @@ defmodule FnTypes.Validation do
   @spec positive(keyword()) :: validator(number())
   def positive(opts \\ []) do
     error = Keyword.get(opts, :message) || :must_be_positive
+    type_error = Keyword.get(opts, :message) || :not_a_number
 
     fn
       nil -> {:ok, nil}
       value when is_number(value) and value > 0 -> {:ok, value}
       value when is_number(value) -> {:error, [error]}
-      _ -> {:error, [:not_a_number]}
+      _ -> {:error, [type_error]}
     end
   end
 
@@ -1131,12 +1135,13 @@ defmodule FnTypes.Validation do
   @spec non_negative(keyword()) :: validator(number())
   def non_negative(opts \\ []) do
     error = Keyword.get(opts, :message) || :must_be_non_negative
+    type_error = Keyword.get(opts, :message) || :not_a_number
 
     fn
       nil -> {:ok, nil}
       value when is_number(value) and value >= 0 -> {:ok, value}
       value when is_number(value) -> {:error, [error]}
-      _ -> {:error, [:not_a_number]}
+      _ -> {:error, [type_error]}
     end
   end
 
@@ -1156,6 +1161,7 @@ defmodule FnTypes.Validation do
   @spec min_length(non_neg_integer(), keyword()) :: validator(String.t())
   def min_length(min_len, opts \\ []) do
     error = Keyword.get(opts, :message) || {:min_length, min_len}
+    type_error = Keyword.get(opts, :message) || :invalid_type
 
     fn
       nil ->
@@ -1168,7 +1174,7 @@ defmodule FnTypes.Validation do
         if length(value) >= min_len, do: {:ok, value}, else: {:error, [error]}
 
       _ ->
-        {:error, [:invalid_type]}
+        {:error, [type_error]}
     end
   end
 
@@ -1188,6 +1194,7 @@ defmodule FnTypes.Validation do
   @spec max_length(non_neg_integer(), keyword()) :: validator(String.t())
   def max_length(max_len, opts \\ []) do
     error = Keyword.get(opts, :message) || {:max_length, max_len}
+    type_error = Keyword.get(opts, :message) || :invalid_type
 
     fn
       nil ->
@@ -1200,7 +1207,7 @@ defmodule FnTypes.Validation do
         if length(value) <= max_len, do: {:ok, value}, else: {:error, [error]}
 
       _ ->
-        {:error, [:invalid_type]}
+        {:error, [type_error]}
     end
   end
 
@@ -1220,6 +1227,7 @@ defmodule FnTypes.Validation do
   @spec exact_length(non_neg_integer(), keyword()) :: validator(String.t())
   def exact_length(exact_len, opts \\ []) do
     error = Keyword.get(opts, :message) || {:length, exact_len}
+    type_error = Keyword.get(opts, :message) || :invalid_type
 
     fn
       nil ->
@@ -1232,7 +1240,7 @@ defmodule FnTypes.Validation do
         if Kernel.length(value) == exact_len, do: {:ok, value}, else: {:error, [error]}
 
       _ ->
-        {:error, [:invalid_type]}
+        {:error, [type_error]}
     end
   end
 

@@ -83,17 +83,11 @@ defimpl FnTypes.Protocols.Normalizable, for: Any do
     |> String.to_atom()
   end
 
-  # Safe atom conversion - tries existing atoms first, falls back with limit
+  # Safe atom conversion - only uses existing atoms to prevent atom table exhaustion
   defp safe_to_atom(string) when is_binary(string) do
     String.to_existing_atom(string)
   rescue
-    ArgumentError ->
-      # Limit to reasonable error code length to prevent abuse
-      if String.length(string) <= 64 and string =~ ~r/^[a-z_][a-z0-9_]*$/ do
-        String.to_atom(string)
-      else
-        :unknown
-      end
+    ArgumentError -> :unknown
   end
 
   # Handle exceptions (structs with __exception__: true)

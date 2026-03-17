@@ -18,6 +18,15 @@ defmodule OmMigration.TokenValidator do
   - Must specify columns
   - Columns must not be empty
 
+  ### Drop Tokens
+  - `:drop_table` - Only requires table name
+  - `:drop_index` - Requires index name (in options)
+  - `:drop_constraint` - Requires constraint name (in options)
+
+  ### Rename Tokens
+  - `:rename_table` - Requires `:to` option with new table name
+  - `:rename_column` - Requires `:from` and `:to` options for column names
+
   ### All Tokens
   - Name must be an atom or string
   - Type must be valid
@@ -42,7 +51,17 @@ defmodule OmMigration.TokenValidator do
           details: map()
         }
 
-  @valid_token_types [:table, :index, :constraint, :alter]
+  @valid_token_types [
+    :table,
+    :index,
+    :constraint,
+    :alter,
+    :drop_table,
+    :drop_index,
+    :drop_constraint,
+    :rename_table,
+    :rename_column
+  ]
 
   @doc """
   Validates a token and returns all validation errors.
@@ -164,6 +183,28 @@ defmodule OmMigration.TokenValidator do
   defp validate_by_type(errors, %Token{type: :alter} = token) do
     errors
     |> validate_no_duplicate_fields(token)
+  end
+
+  # Drop tokens just need a name, which is already validated
+  defp validate_by_type(errors, %Token{type: :drop_table}), do: errors
+
+  defp validate_by_type(errors, %Token{type: :drop_index} = token) do
+    validate_drop_index_has_name(errors, token)
+  end
+
+  defp validate_by_type(errors, %Token{type: :drop_constraint} = token) do
+    validate_drop_constraint_has_name(errors, token)
+  end
+
+  # Rename tokens require :to option
+  defp validate_by_type(errors, %Token{type: :rename_table} = token) do
+    validate_rename_has_to(errors, token)
+  end
+
+  defp validate_by_type(errors, %Token{type: :rename_column} = token) do
+    errors
+    |> validate_rename_column_has_from(token)
+    |> validate_rename_has_to(token)
   end
 
   defp validate_by_type(errors, _token), do: errors
@@ -322,6 +363,90 @@ defmodule OmMigration.TokenValidator do
       errors
     end
   end
+
+  # ============================================
+  # Drop Validations
+  # ============================================
+
+  defp validate_drop_index_has_name(errors, %Token{name: table_name, options: opts}) do
+    case Keyword.get(opts, :index_name) do
+      nil ->
+        [
+          %{
+            code: :drop_index_missing_name,
+            message: "Drop index on table #{table_name} requires :index_name option",
+            field: nil,
+            details: %{table: table_name}
+          }
+          | errors
+        ]
+
+      _name ->
+        errors
+    end
+  end
+
+  defp validate_drop_constraint_has_name(errors, %Token{name: table_name, options: opts}) do
+    case Keyword.get(opts, :constraint_name) do
+      nil ->
+        [
+          %{
+            code: :drop_constraint_missing_name,
+            message: "Drop constraint on table #{table_name} requires :constraint_name option",
+            field: nil,
+            details: %{table: table_name}
+          }
+          | errors
+        ]
+
+      _name ->
+        errors
+    end
+  end
+
+  # ============================================
+  # Rename Validations
+  # ============================================
+
+  defp validate_rename_has_to(errors, %Token{type: type, name: name, options: opts}) do
+    case Keyword.get(opts, :to) do
+      nil ->
+        [
+          %{
+            code: :rename_missing_to,
+            message: "#{format_type(type)} #{name} requires :to option with new name",
+            field: nil,
+            details: %{type: type, name: name}
+          }
+          | errors
+        ]
+
+      _to ->
+        errors
+    end
+  end
+
+  defp validate_rename_column_has_from(errors, %Token{name: table_name, options: opts}) do
+    case Keyword.get(opts, :from) do
+      nil ->
+        [
+          %{
+            code: :rename_column_missing_from,
+            message: "Rename column on table #{table_name} requires :from option with current column name",
+            field: nil,
+            details: %{table: table_name}
+          }
+          | errors
+        ]
+
+      _from ->
+        errors
+    end
+  end
+
+  defp format_type(:rename_table), do: "Rename table"
+  defp format_type(:rename_column), do: "Rename column"
+  defp format_type(type), do: "#{type}"
 
   # ============================================
   # Error Formatting

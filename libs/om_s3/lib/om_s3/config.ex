@@ -53,6 +53,8 @@ defmodule OmS3.Config do
         proxy_auth: {System.get_env("PROXY_USER"), System.get_env("PROXY_PASS")}
   """
 
+  require Logger
+
   @type proxy :: {String.t(), pos_integer()} | {:http, String.t(), pos_integer(), keyword()}
   @type proxy_auth :: {String.t(), String.t()}
 
@@ -66,7 +68,9 @@ defmodule OmS3.Config do
           connect_timeout: pos_integer(),
           receive_timeout: pos_integer(),
           pool_timeout: pos_integer(),
-          max_retries: non_neg_integer()
+          max_retries: non_neg_integer(),
+          transfer_acceleration: boolean(),
+          path_style: boolean()
         }
 
   @enforce_keys [:access_key_id, :secret_access_key, :region]
@@ -80,7 +84,9 @@ defmodule OmS3.Config do
     connect_timeout: 30_000,
     receive_timeout: 60_000,
     pool_timeout: 5_000,
-    max_retries: 3
+    max_retries: 3,
+    transfer_acceleration: false,
+    path_style: false
   ]
 
   @doc """
@@ -98,6 +104,8 @@ defmodule OmS3.Config do
   - `:receive_timeout` - Receive timeout in ms (default: 60000)
   - `:pool_timeout` - Connection pool checkout timeout in ms (default: 5000)
   - `:max_retries` - Maximum retry attempts for failed requests (default: 3)
+  - `:transfer_acceleration` - Enable S3 Transfer Acceleration (default: false)
+  - `:path_style` - Use path-style URLs instead of virtual-hosted-style (default: false)
 
   ## Examples
 
@@ -125,17 +133,28 @@ defmodule OmS3.Config do
     pool_timeout = validate_timeout!(Keyword.get(opts, :pool_timeout, 5_000), :pool_timeout)
     max_retries = validate_max_retries!(Keyword.get(opts, :max_retries, 3))
 
+    endpoint = Keyword.get(opts, :endpoint)
+    transfer_acceleration = Keyword.get(opts, :transfer_acceleration, false)
+
+    if transfer_acceleration && endpoint && !String.contains?(endpoint, "amazonaws.com") do
+      Logger.warning(
+        "[OmS3] Transfer Acceleration is AWS-only and will be ignored for endpoint #{endpoint}"
+      )
+    end
+
     %__MODULE__{
       access_key_id: Keyword.fetch!(opts, :access_key_id),
       secret_access_key: Keyword.fetch!(opts, :secret_access_key),
       region: Keyword.get(opts, :region, "us-east-1"),
-      endpoint: Keyword.get(opts, :endpoint),
+      endpoint: endpoint,
       proxy: proxy_host,
       proxy_auth: proxy_auth,
       connect_timeout: connect_timeout,
       receive_timeout: receive_timeout,
       pool_timeout: pool_timeout,
-      max_retries: max_retries
+      max_retries: max_retries,
+      transfer_acceleration: transfer_acceleration,
+      path_style: Keyword.get(opts, :path_style, false)
     }
   end
 
@@ -198,20 +217,27 @@ defmodule OmS3.Config do
 
   ## Environment Variables
 
-  - `AWS_ACCESS_KEY_ID` - AWS access key (required)
-  - `AWS_SECRET_ACCESS_KEY` - AWS secret key (required)
-  - `AWS_REGION` or `AWS_DEFAULT_REGION` - Region (default: "us-east-1")
-  - `AWS_ENDPOINT_URL_S3` or `AWS_ENDPOINT` - Custom endpoint
+  Checks `S3_*` vars first (provider-agnostic), then falls back to `AWS_*`:
+
+  - `S3_ACCESS_KEY_ID` / `AWS_ACCESS_KEY_ID` - Access key (required)
+  - `S3_SECRET_ACCESS_KEY` / `AWS_SECRET_ACCESS_KEY` - Secret key (required)
+  - `S3_REGION` / `AWS_REGION` / `AWS_DEFAULT_REGION` - Region (default: "us-east-1")
+  - `S3_ENDPOINT` / `AWS_ENDPOINT_URL_S3` / `AWS_ENDPOINT` - Custom endpoint
   - `HTTP_PROXY` or `HTTPS_PROXY` - Proxy URL (optional, fallback)
 
   Proxy is resolved in priority order: app config > env vars (HTTP_PROXY/HTTPS_PROXY)
 
   ## Examples
 
-      # Set ENV vars:
+      # AWS:
       # AWS_ACCESS_KEY_ID=AKIA...
       # AWS_SECRET_ACCESS_KEY=...
       # AWS_REGION=us-east-1
+
+      # R2/MinIO (provider-agnostic):
+      # S3_ACCESS_KEY_ID=...
+      # S3_SECRET_ACCESS_KEY=...
+      # S3_ENDPOINT=https://account.r2.cloudflarestorage.com
 
       config = Config.from_env()
   """
@@ -220,10 +246,10 @@ defmodule OmS3.Config do
     alias FnTypes.Config, as: Cfg
 
     new(
-      access_key_id: Cfg.string!("AWS_ACCESS_KEY_ID"),
-      secret_access_key: Cfg.string!("AWS_SECRET_ACCESS_KEY"),
-      region: Cfg.string(["AWS_REGION", "AWS_DEFAULT_REGION"], "us-east-1"),
-      endpoint: Cfg.string(["AWS_ENDPOINT_URL_S3", "AWS_ENDPOINT"])
+      access_key_id: Cfg.string!(["S3_ACCESS_KEY_ID", "AWS_ACCESS_KEY_ID"]),
+      secret_access_key: Cfg.string!(["S3_SECRET_ACCESS_KEY", "AWS_SECRET_ACCESS_KEY"]),
+      region: Cfg.string(["S3_REGION", "AWS_REGION", "AWS_DEFAULT_REGION"], "us-east-1"),
+      endpoint: Cfg.string(["S3_ENDPOINT", "AWS_ENDPOINT_URL_S3", "AWS_ENDPOINT"])
       # proxy is resolved automatically via normalize_proxy_opts/1 in new/1
     )
   end
@@ -270,8 +296,63 @@ defmodule OmS3.Config do
       region: config.region
     ]
 
-    maybe_add_endpoint(opts, config.endpoint)
+    opts
+    |> maybe_add_endpoint(config.endpoint)
+    |> maybe_add_acceleration(config.transfer_acceleration, bucket)
   end
+
+  @doc """
+  Returns the S3 endpoint URL for the given configuration and bucket.
+
+  Handles Transfer Acceleration endpoints when enabled.
+
+  ## Examples
+
+      Config.endpoint_url(config, "my-bucket")
+      #=> "https://my-bucket.s3.us-east-1.amazonaws.com"
+
+      # With Transfer Acceleration
+      Config.endpoint_url(%{config | transfer_acceleration: true}, "my-bucket")
+      #=> "https://my-bucket.s3-accelerate.amazonaws.com"
+  """
+  @spec endpoint_url(t(), String.t()) :: String.t()
+  def endpoint_url(%__MODULE__{endpoint: endpoint, path_style: true}, bucket)
+      when not is_nil(endpoint) do
+    String.trim_trailing(endpoint, "/") <> "/#{bucket}"
+  end
+
+  def endpoint_url(%__MODULE__{endpoint: endpoint}, _bucket) when not is_nil(endpoint) do
+    endpoint
+  end
+
+  def endpoint_url(%__MODULE__{transfer_acceleration: true}, bucket) do
+    "https://#{bucket}.s3-accelerate.amazonaws.com"
+  end
+
+  def endpoint_url(%__MODULE__{region: region, path_style: true}, bucket) do
+    "https://s3.#{region}.amazonaws.com/#{bucket}"
+  end
+
+  def endpoint_url(%__MODULE__{region: region}, bucket) do
+    "https://#{bucket}.s3.#{region}.amazonaws.com"
+  end
+
+  @doc """
+  Checks if Transfer Acceleration is enabled for this configuration.
+  """
+  @spec transfer_acceleration?(t()) :: boolean()
+  def transfer_acceleration?(%__MODULE__{transfer_acceleration: accel}), do: accel
+
+  @doc """
+  Checks if the configuration targets an AWS S3 endpoint.
+
+  Returns `true` when no custom endpoint is set (defaults to AWS) or when the
+  endpoint contains `amazonaws.com`. Returns `false` for non-AWS endpoints
+  like R2, MinIO, or DigitalOcean Spaces.
+  """
+  @spec aws_endpoint?(t()) :: boolean()
+  def aws_endpoint?(%__MODULE__{endpoint: nil}), do: true
+  def aws_endpoint?(%__MODULE__{endpoint: ep}), do: String.contains?(ep, "amazonaws.com")
 
   # ============================================
   # Private Helpers
@@ -291,5 +372,13 @@ defmodule OmS3.Config do
 
   defp maybe_add_endpoint(opts, endpoint) do
     Keyword.put(opts, :aws_endpoint_url_s3, endpoint)
+  end
+
+  defp maybe_add_acceleration(opts, false, _bucket), do: opts
+
+  defp maybe_add_acceleration(opts, true, bucket) do
+    # Use Transfer Acceleration endpoint for presigned URLs
+    accel_endpoint = "https://#{bucket}.s3-accelerate.amazonaws.com"
+    Keyword.put(opts, :aws_endpoint_url_s3, accel_endpoint)
   end
 end

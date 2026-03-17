@@ -11,7 +11,7 @@ defmodule OmIdempotency.Migration do
   Then use the helper:
 
       defmodule MyApp.Repo.Migrations.AddIdempotencyRecords do
-        use Ecto.Migration
+        use OmMigration
 
         def change do
           OmIdempotency.Migration.create_table()

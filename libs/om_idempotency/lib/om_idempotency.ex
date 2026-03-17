@@ -84,6 +84,7 @@ defmodule OmIdempotency do
   """
 
   require Logger
+  use FnDecorator
 
   alias OmIdempotency.Record
 
@@ -231,6 +232,9 @@ defmodule OmIdempotency do
         Stripe.create_charge(%{amount: 1000})
       end, scope: "stripe", on_duplicate: :wait)
   """
+  @decorate returns_result(ok: term(), error: term())
+  @decorate telemetry_span([:om_idempotency, :execute])
+  @decorate log_if_slow(threshold: 1000)
   @spec execute(key(), (-> {:ok, term()} | {:error, term()}), execute_opts()) ::
           {:ok, term()} | {:error, term()}
   def execute(key, fun, opts \\ []) when is_binary(key) and is_function(fun, 0) do
@@ -280,6 +284,7 @@ defmodule OmIdempotency do
       OmIdempotency.get("unknown_key")
       #=> {:error, :not_found}
   """
+  @decorate returns_result(ok: Record.t(), error: :not_found)
   @spec get(key(), scope(), keyword()) :: {:ok, Record.t()} | {:error, :not_found}
   def get(key, scope \\ nil, opts \\ []) do
     query =

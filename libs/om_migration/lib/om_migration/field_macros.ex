@@ -125,7 +125,7 @@ defmodule OmMigration.FieldMacros do
     token
     |> add_status_fields(fields, config)
     |> maybe_add_transition_fields(config[:with_transition])
-    |> Token.add_index(:status_index, [:status])
+    |> Token.add_index(:"#{token.name}_status_index", [:status])
   end
 
   defp add_status_fields(token, fields, config) do
@@ -232,7 +232,7 @@ defmodule OmMigration.FieldMacros do
 
   defp add_timestamp_indexes(token, fields, _config) do
     Enum.reduce(fields, token, fn field_name, acc ->
-      Token.add_index(acc, :"#{field_name}_index", [field_name])
+      Token.add_index(acc, :"#{token.name}_#{field_name}_index", [field_name])
     end)
   end
 

@@ -108,4 +108,138 @@ defmodule OmCache.Telemetry do
   end
 
   defp duration_in_ms(duration), do: System.convert_time_unit(duration, :native, :millisecond)
+
+  # ============================================
+  # Custom Event Emitters
+  # ============================================
+
+  @doc """
+  Emits a cache hit event.
+
+  ## Examples
+
+      OmCache.Telemetry.emit_cache_hit(MyApp.Cache, {User, 123}, 2.5)
+  """
+  @spec emit_cache_hit(module(), term(), float()) :: :ok
+  def emit_cache_hit(cache, key, duration_ms) do
+    :telemetry.execute(
+      [:om_cache, :hit],
+      %{duration: duration_ms},
+      %{cache: cache, key: key}
+    )
+  end
+
+  @doc """
+  Emits a cache miss event.
+
+  ## Examples
+
+      OmCache.Telemetry.emit_cache_miss(MyApp.Cache, {User, 999}, 1.2)
+  """
+  @spec emit_cache_miss(module(), term(), float()) :: :ok
+  def emit_cache_miss(cache, key, duration_ms) do
+    :telemetry.execute(
+      [:om_cache, :miss],
+      %{duration: duration_ms},
+      %{cache: cache, key: key}
+    )
+  end
+
+  @doc """
+  Emits a cache write event.
+
+  ## Examples
+
+      OmCache.Telemetry.emit_cache_write(MyApp.Cache, {User, 123}, 3.1)
+  """
+  @spec emit_cache_write(module(), term(), float()) :: :ok
+  def emit_cache_write(cache, key, duration_ms) do
+    :telemetry.execute(
+      [:om_cache, :write],
+      %{duration: duration_ms},
+      %{cache: cache, key: key}
+    )
+  end
+
+  @doc """
+  Emits a cache error event.
+
+  ## Examples
+
+      error = OmCache.Error.connection_failed(MyApp.Cache, "Redis down")
+      OmCache.Telemetry.emit_cache_error(MyApp.Cache, error)
+  """
+  @spec emit_cache_error(module(), OmCache.Error.t()) :: :ok
+  def emit_cache_error(cache, %OmCache.Error{} = error) do
+    :telemetry.execute(
+      [:om_cache, :error],
+      %{},
+      %{cache: cache, error_type: error.type, error: error}
+    )
+  end
+
+  @doc """
+  Emits a cache eviction event.
+
+  ## Examples
+
+      OmCache.Telemetry.emit_eviction(MyApp.Cache, {User, 123}, :expired)
+  """
+  @spec emit_eviction(module(), term(), atom()) :: :ok
+  def emit_eviction(cache, key, reason) do
+    :telemetry.execute(
+      [:om_cache, :eviction],
+      %{},
+      %{cache: cache, key: key, reason: reason}
+    )
+  end
+
+  @doc """
+  Emits a batch operation event.
+
+  ## Examples
+
+      OmCache.Telemetry.emit_batch_operation(MyApp.Cache, :fetch, 25, 150.5)
+  """
+  @spec emit_batch_operation(module(), atom(), non_neg_integer(), float()) :: :ok
+  def emit_batch_operation(cache, operation, count, duration_ms) do
+    :telemetry.execute(
+      [:om_cache, :batch],
+      %{count: count, duration: duration_ms},
+      %{cache: cache, operation: operation}
+    )
+  end
+
+  @doc """
+  Emits a warming event.
+
+  ## Examples
+
+      OmCache.Telemetry.emit_warming(MyApp.Cache, 150, 2500.0)
+  """
+  @spec emit_warming(module(), non_neg_integer(), float()) :: :ok
+  def emit_warming(cache, count, duration_ms) do
+    :telemetry.execute(
+      [:om_cache, :warming],
+      %{count: count, duration: duration_ms},
+      %{cache: cache}
+    )
+  end
+
+  @doc """
+  Emits a circuit breaker state change event.
+
+  ## Examples
+
+      OmCache.Telemetry.emit_circuit_breaker_state(MyApp.Cache, :open, :closed)
+  """
+  @spec emit_circuit_breaker_state(module(), atom(), atom()) :: :ok
+  def emit_circuit_breaker_state(cache, from_state, to_state) do
+    :telemetry.execute(
+      [:om_cache, :circuit_breaker, :state_change],
+      %{},
+      %{cache: cache, from: from_state, to: to_state}
+    )
+  end
 end
+

@@ -107,6 +107,48 @@ defmodule OmS3.ConfigTest do
         Config.new(access_key_id: "AKIATEST")
       end
     end
+
+    test "defaults transfer_acceleration to false" do
+      config =
+        Config.new(
+          access_key_id: "test",
+          secret_access_key: "test"
+        )
+
+      assert config.transfer_acceleration == false
+    end
+
+    test "enables transfer_acceleration" do
+      config =
+        Config.new(
+          access_key_id: "test",
+          secret_access_key: "test",
+          transfer_acceleration: true
+        )
+
+      assert config.transfer_acceleration == true
+    end
+
+    test "defaults path_style to false" do
+      config =
+        Config.new(
+          access_key_id: "test",
+          secret_access_key: "test"
+        )
+
+      assert config.path_style == false
+    end
+
+    test "enables path_style" do
+      config =
+        Config.new(
+          access_key_id: "test",
+          secret_access_key: "test",
+          path_style: true
+        )
+
+      assert config.path_style == true
+    end
   end
 
   describe "connect_options/1" do
@@ -195,6 +237,89 @@ defmodule OmS3.ConfigTest do
       opts = Config.presign_options(config, "bucket", "key")
 
       assert opts[:aws_endpoint_url_s3] == "http://localhost:4566"
+    end
+
+    test "includes acceleration endpoint when enabled" do
+      config =
+        Config.new(
+          access_key_id: "test",
+          secret_access_key: "test",
+          transfer_acceleration: true
+        )
+
+      opts = Config.presign_options(config, "my-bucket", "key")
+
+      assert opts[:aws_endpoint_url_s3] == "https://my-bucket.s3-accelerate.amazonaws.com"
+    end
+  end
+
+  describe "endpoint_url/2" do
+    test "returns custom endpoint when configured" do
+      config =
+        Config.new(
+          access_key_id: "test",
+          secret_access_key: "test",
+          endpoint: "http://localhost:4566"
+        )
+
+      assert Config.endpoint_url(config, "my-bucket") == "http://localhost:4566"
+    end
+
+    test "returns acceleration endpoint when enabled" do
+      config =
+        Config.new(
+          access_key_id: "test",
+          secret_access_key: "test",
+          transfer_acceleration: true
+        )
+
+      assert Config.endpoint_url(config, "my-bucket") == "https://my-bucket.s3-accelerate.amazonaws.com"
+    end
+
+    test "returns path-style endpoint when enabled" do
+      config =
+        Config.new(
+          access_key_id: "test",
+          secret_access_key: "test",
+          region: "eu-west-1",
+          path_style: true
+        )
+
+      assert Config.endpoint_url(config, "my-bucket") == "https://s3.eu-west-1.amazonaws.com/my-bucket"
+    end
+
+    test "returns virtual-hosted-style endpoint by default" do
+      config =
+        Config.new(
+          access_key_id: "test",
+          secret_access_key: "test",
+          region: "us-east-1"
+        )
+
+      assert Config.endpoint_url(config, "my-bucket") == "https://my-bucket.s3.us-east-1.amazonaws.com"
+    end
+  end
+
+  describe "transfer_acceleration?/1" do
+    test "returns false when disabled" do
+      config =
+        Config.new(
+          access_key_id: "test",
+          secret_access_key: "test"
+        )
+
+      refute Config.transfer_acceleration?(config)
+    end
+
+    test "returns true when enabled" do
+      config =
+        Config.new(
+          access_key_id: "test",
+          secret_access_key: "test",
+          transfer_acceleration: true
+        )
+
+      assert Config.transfer_acceleration?(config)
     end
   end
 end

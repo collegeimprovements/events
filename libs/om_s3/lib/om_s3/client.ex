@@ -22,7 +22,7 @@ defmodule OmS3.Client do
   def put_object(%Config{} = config, bucket, key, content, opts \\ []) do
     req = build_req(config)
     url = "s3://#{bucket}/#{key}"
-    headers = build_upload_headers(key, opts)
+    headers = OmS3.Headers.build_upload_headers(key, opts, config)
 
     case Req.put(req, url: url, body: content, headers: headers) do
       {:ok, %{status: status}} when status in 200..299 ->
@@ -258,31 +258,6 @@ defmodule OmS3.Client do
     |> ReqS3.attach()
   end
 
-  defp build_upload_headers(key, opts) do
-    content_type = Keyword.get(opts, :content_type) || detect_content_type(key)
-
-    %{}
-    |> Map.put("content-type", content_type)
-    |> maybe_add_metadata(opts[:metadata])
-    |> maybe_add_acl(opts[:acl])
-    |> maybe_add_storage_class(opts[:storage_class])
-  end
-
-  defp maybe_add_metadata(headers, nil), do: headers
-  defp maybe_add_metadata(headers, metadata) when map_size(metadata) == 0, do: headers
-
-  defp maybe_add_metadata(headers, metadata) do
-    Enum.reduce(metadata, headers, fn {k, v}, acc ->
-      key = to_string(k)
-      Map.put(acc, "x-amz-meta-#{key}", to_string(v))
-    end)
-  end
-
-  defp maybe_add_acl(headers, nil), do: headers
-  defp maybe_add_acl(headers, acl), do: Map.put(headers, "x-amz-acl", acl)
-
-  defp maybe_add_storage_class(headers, nil), do: headers
-  defp maybe_add_storage_class(headers, class), do: Map.put(headers, "x-amz-storage-class", class)
 
   # ============================================
   # Private: List Operations
@@ -442,33 +417,4 @@ defmodule OmS3.Client do
   defp clean_etag(nil), do: nil
   defp clean_etag(etag), do: String.trim(etag, "\"")
 
-  defp detect_content_type(key) do
-    case Path.extname(key) |> String.downcase() do
-      ".jpg" -> "image/jpeg"
-      ".jpeg" -> "image/jpeg"
-      ".png" -> "image/png"
-      ".gif" -> "image/gif"
-      ".webp" -> "image/webp"
-      ".svg" -> "image/svg+xml"
-      ".pdf" -> "application/pdf"
-      ".json" -> "application/json"
-      ".xml" -> "application/xml"
-      ".txt" -> "text/plain"
-      ".html" -> "text/html"
-      ".css" -> "text/css"
-      ".js" -> "application/javascript"
-      ".zip" -> "application/zip"
-      ".gz" -> "application/gzip"
-      ".tar" -> "application/x-tar"
-      ".mp4" -> "video/mp4"
-      ".mp3" -> "audio/mpeg"
-      ".wav" -> "audio/wav"
-      ".csv" -> "text/csv"
-      ".doc" -> "application/msword"
-      ".docx" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-      ".xls" -> "application/vnd.ms-excel"
-      ".xlsx" -> "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-      _ -> "application/octet-stream"
-    end
-  end
 end
