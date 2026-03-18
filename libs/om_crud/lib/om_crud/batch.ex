@@ -204,11 +204,10 @@ defmodule OmCrud.Batch do
   @spec update(module(), (struct() -> map()), batch_opts()) :: batch_result()
   def update(schema, transform_fn, opts \\ [])
       when is_atom(schema) and is_function(transform_fn, 1) do
-    OmCrud.Telemetry.span(:batch_update, %{schema: schema}, fn ->
-      repo = Options.repo(opts)
-      changeset_fn = Keyword.get(opts, :changeset, :changeset)
+    repo = Options.repo(opts)
+    changeset_fn = Keyword.get(opts, :changeset, :changeset)
 
-      process(
+    process(
       schema,
       fn batch ->
         results =
@@ -228,7 +227,6 @@ defmodule OmCrud.Batch do
       end,
       opts
     )
-    end)
   end
 
   @doc """
@@ -247,23 +245,21 @@ defmodule OmCrud.Batch do
   """
   @spec delete(module(), batch_opts()) :: batch_result()
   def delete(schema, opts \\ []) when is_atom(schema) do
-    OmCrud.Telemetry.span(:batch_delete, %{schema: schema}, fn ->
-      repo = Options.repo(opts)
+    repo = Options.repo(opts)
 
-      process(
-        schema,
-        fn batch ->
-          ids = Enum.map(batch, & &1.id)
+    process(
+      schema,
+      fn batch ->
+        ids = Enum.map(batch, & &1.id)
 
-          import Ecto.Query
-          query = from(r in schema, where: r.id in ^ids)
+        import Ecto.Query
+        query = from(r in schema, where: r.id in ^ids)
 
-          {count, _} = repo.delete_all(query)
-          {:ok, count}
-        end,
-        opts
-      )
-    end)
+        {count, _} = repo.delete_all(query)
+        {:ok, count}
+      end,
+      opts
+    )
   end
 
   # ─────────────────────────────────────────────────────────────
@@ -353,14 +349,12 @@ defmodule OmCrud.Batch do
   """
   @spec upsert_all(module(), [map()], batch_opts()) :: batch_result()
   def upsert_all(schema, list_of_attrs, opts) when is_atom(schema) and is_list(list_of_attrs) do
-    OmCrud.Telemetry.span(:batch_upsert_all, %{schema: schema, count: length(list_of_attrs)}, fn ->
-      unless Keyword.has_key?(opts, :conflict_target) do
-        raise ArgumentError, "upsert_all/3 requires :conflict_target option"
-      end
+    unless Keyword.has_key?(opts, :conflict_target) do
+      raise ArgumentError, "upsert_all/3 requires :conflict_target option"
+    end
 
-      opts = Keyword.put_new(opts, :on_conflict, :replace_all)
-      create_all(schema, list_of_attrs, opts)
-    end)
+    opts = Keyword.put_new(opts, :on_conflict, :replace_all)
+    create_all(schema, list_of_attrs, opts)
   end
 
   # ─────────────────────────────────────────────────────────────

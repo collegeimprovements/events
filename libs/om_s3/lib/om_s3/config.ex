@@ -136,7 +136,7 @@ defmodule OmS3.Config do
     max_retries = validate_max_retries!(Keyword.get(opts, :max_retries, 3))
 
     endpoint = Keyword.get(opts, :endpoint)
-    is_custom_endpoint = endpoint != nil and not String.contains?(endpoint || "", "amazonaws.com")
+    is_custom_endpoint = endpoint != nil and not String.contains?(endpoint, "amazonaws.com")
     transfer_acceleration = Keyword.get(opts, :transfer_acceleration, false)
 
     # Transfer Acceleration is AWS-only — raise for non-AWS endpoints instead of

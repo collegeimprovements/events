@@ -394,11 +394,31 @@ defmodule OmCrud.Options do
   """
   @spec with_schema_defaults(module(), keyword()) :: keyword()
   def with_schema_defaults(schema, opts) when is_atom(schema) and is_list(opts) do
+    case get_cached_schema_config(schema) do
+      nil -> opts
+      defaults -> Keyword.merge(defaults, opts)
+    end
+  end
+
+  defp get_cached_schema_config(schema) do
+    key = {__MODULE__, :schema_defaults, schema}
+
+    case :persistent_term.get(key, :not_cached) do
+      :not_cached ->
+        result = compute_schema_defaults(schema)
+        :persistent_term.put(key, result)
+        result
+
+      cached ->
+        cached
+    end
+  end
+
+  defp compute_schema_defaults(schema) do
     if Code.ensure_loaded?(schema) and function_exported?(schema, :__crud_config__, 0) do
-      defaults = schema.__crud_config__()
-      Keyword.merge(defaults, opts)
+      schema.__crud_config__()
     else
-      opts
+      nil
     end
   end
 

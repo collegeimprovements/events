@@ -473,18 +473,19 @@ defmodule FnDecorator.Caching.Runtime do
     init_refresh_table()
     now = System.monotonic_time(:millisecond)
 
-    count =
-      case :ets.lookup(@refresh_failures_table, key) do
-        [{^key, c, _last}] -> c + 1
-        _ -> 1
-      end
+    # Atomically increment counter, initializing to {key, 0, now} if absent
+    count = :ets.update_counter(@refresh_failures_table, key, {2, 1}, {key, 0, now})
+    # Update the timestamp to reflect the latest failure
+    :ets.update_element(@refresh_failures_table, key, {3, now})
 
-    :ets.insert(@refresh_failures_table, {key, count, now})
     count
   end
 
   defp reset_refresh_failures(key) do
-    init_refresh_table()
-    :ets.delete(@refresh_failures_table, key)
+    # Skip table creation — if the table doesn't exist, there are no failures to reset
+    case :ets.whereis(@refresh_failures_table) do
+      :undefined -> :ok
+      _ref -> :ets.delete(@refresh_failures_table, key)
+    end
   end
 end

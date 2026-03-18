@@ -442,16 +442,20 @@ defmodule OmQuery.Builder do
   end
 
   # Warn when IN/NOT IN list is very large (can degrade query planner)
-  defp warn_large_in_list(field, op, values) when length(values) > @max_in_list_size do
-    require Logger
+  defp warn_large_in_list(field, op, values) do
+    len = length(values)
 
-    Logger.warning(
-      "#{op} filter on :#{field} has #{length(values)} values (max recommended: #{@max_in_list_size}). " <>
-        "Consider using a subquery or temp table for large value lists."
-    )
+    if len > @max_in_list_size do
+      require Logger
+
+      Logger.warning(
+        "#{op} filter on :#{field} has #{len} values (max recommended: #{@max_in_list_size}). " <>
+          "Consider using a subquery or temp table for large value lists."
+      )
+    end
+
+    :ok
   end
-
-  defp warn_large_in_list(_field, _op, _values), do: :ok
 
   # Validate BETWEEN range bounds ordering
   defp validate_between_range!(field, min, max)

@@ -982,7 +982,16 @@ defmodule Effect.Runtime do
   end
 
   # Apply catch handler or fallback on error results
-  defp maybe_catch_or_fallback({:error, reason} = error, step, ctx) do
+  defp maybe_catch_or_fallback({:error, reason} = error, step, ctx),
+    do: do_catch_or_fallback(error, reason, step, ctx)
+
+  defp maybe_catch_or_fallback({:error, reason, stacktrace} = error, step, ctx)
+       when is_list(stacktrace),
+       do: do_catch_or_fallback(error, reason, step, ctx)
+
+  defp maybe_catch_or_fallback(result, _step, _ctx), do: result
+
+  defp do_catch_or_fallback(error, reason, step, ctx) do
     cond do
       # Try catch handler first
       step.catch != nil ->
@@ -1000,25 +1009,6 @@ defmodule Effect.Runtime do
         error
     end
   end
-
-  defp maybe_catch_or_fallback({:error, reason, stacktrace} = error, step, ctx) when is_list(stacktrace) do
-    cond do
-      step.catch != nil ->
-        try do
-          step.catch.(reason, ctx)
-        rescue
-          e -> {:error, {:catch_handler_failed, e}}
-        end
-
-      step.fallback != nil && fallback_matches?(reason, step.fallback_when) ->
-        {:ok, step.fallback}
-
-      true ->
-        error
-    end
-  end
-
-  defp maybe_catch_or_fallback(result, _step, _ctx), do: result
 
   # Check if error reason matches fallback_when filter
   defp fallback_matches?(_reason, nil), do: true

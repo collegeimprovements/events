@@ -586,28 +586,9 @@ defmodule OmCrud do
       })
 
     emit_telemetry(meta, fn ->
-      repo = Options.repo(opts)
-      query_opts = Options.query_opts(opts)
-      preloads = Options.preloads(opts)
-      lock_mode = Keyword.get(opts, :lock)
-
-      result =
-        case lock_mode do
-          nil ->
-            repo.get(schema, id, query_opts)
-
-          mode ->
-            build_locked_query(schema, id, mode)
-            |> repo.one(query_opts)
-        end
-
-      case result do
-        nil ->
-          {:error, :not_found}
-
-        record ->
-          record = maybe_preload(record, preloads, repo)
-          {:ok, record}
+      case get_by_id(schema, id, opts) do
+        nil -> {:error, :not_found}
+        record -> {:ok, record}
       end
     end)
   end
@@ -646,25 +627,7 @@ defmodule OmCrud do
       })
 
     emit_telemetry(meta, fn ->
-      repo = Options.repo(opts)
-      query_opts = Options.query_opts(opts)
-      preloads = Options.preloads(opts)
-      lock_mode = Keyword.get(opts, :lock)
-
-      result =
-        case lock_mode do
-          nil ->
-            repo.get(schema, id, query_opts)
-
-          mode ->
-            build_locked_query(schema, id, mode)
-            |> repo.one(query_opts)
-        end
-
-      case result do
-        nil -> nil
-        record -> maybe_preload(record, preloads, repo)
-      end
+      get_by_id(schema, id, opts)
     end)
   end
 
@@ -900,30 +863,44 @@ defmodule OmCrud do
   # Private Helpers
   # ─────────────────────────────────────────────────────────────
 
-  defp build_locked_query(schema, id, :for_update) do
-    import Ecto.Query
-    from(r in schema, where: r.id == ^id, lock: "FOR UPDATE")
+  defp get_by_id(schema, id, opts) do
+    repo = Options.repo(opts)
+    query_opts = Options.query_opts(opts)
+    preloads = Options.preloads(opts)
+    lock_mode = Keyword.get(opts, :lock)
+
+    result =
+      case lock_mode do
+        nil ->
+          repo.get(schema, id, query_opts)
+
+        mode ->
+          build_locked_query(schema, id, mode)
+          |> repo.one(query_opts)
+      end
+
+    case result do
+      nil -> nil
+      record -> maybe_preload(record, preloads, repo)
+    end
   end
 
-  defp build_locked_query(schema, id, :for_share) do
-    import Ecto.Query
-    from(r in schema, where: r.id == ^id, lock: "FOR SHARE")
-  end
+  @lock_modes %{
+    for_update: "FOR UPDATE",
+    for_share: "FOR SHARE",
+    for_no_key_update: "FOR NO KEY UPDATE",
+    for_key_share: "FOR KEY SHARE"
+  }
 
-  defp build_locked_query(schema, id, :for_no_key_update) do
-    import Ecto.Query
-    from(r in schema, where: r.id == ^id, lock: "FOR NO KEY UPDATE")
-  end
-
-  defp build_locked_query(schema, id, :for_key_share) do
-    import Ecto.Query
-    from(r in schema, where: r.id == ^id, lock: "FOR KEY SHARE")
+  defp build_locked_query(schema, id, mode) when is_map_key(@lock_modes, mode) do
+    lock_str = Map.fetch!(@lock_modes, mode)
+    build_locked_query(schema, id, lock_str)
   end
 
   defp build_locked_query(schema, id, lock_str) when is_binary(lock_str) do
     import Ecto.Query
-    query = from(r in schema, where: r.id == ^id)
-    %{query | lock: %Ecto.Query.QueryExpr{expr: lock_str, params: [], line: __ENV__.line}}
+    from(r in schema, where: r.id == ^id)
+    |> Ecto.Query.Builder.Lock.apply(lock_str)
   end
 
   defp validate_token(token) do
