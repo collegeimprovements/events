@@ -1,17 +1,17 @@
 defmodule OmSchema.ValidatorsExtended do
   @moduledoc """
-  Extended validators with normalizers, auto_trim, and enhanced validations.
+  Internal module - use `OmSchema.Validation` instead.
 
-  Provides comprehensive field validation with automatic normalization
-  and trimming capabilities.
+  This module provides the implementation backing `OmSchema.Validation`'s
+  delegated functions. Use the `Validation` module as the public API:
 
-  > #### Consolidation Note {: .info}
-  >
-  > This module is being consolidated. New code should use:
-  > - `OmSchema.Validation` - Unified validation API
-  > - `OmSchema.ValidationPipeline` - Pipeline orchestration
-  > - `OmSchema.Helpers.Normalizer` - Normalization functions
-  > - `OmSchema.Helpers.Length` - Length validation helpers
+      alias OmSchema.Validation
+
+      changeset
+      |> Validation.validate_email(:email, required: true)
+      |> Validation.validate_money(:price, min: 0)
+
+  Direct usage of `ValidatorsExtended` is deprecated.
   """
 
   import Ecto.Changeset
@@ -74,10 +74,9 @@ defmodule OmSchema.ValidatorsExtended do
   # ============================================
 
   defp maybe_normalize_field(changeset, field, opts) do
-    if normalizer = opts[:normalizer] do
-      update_change(changeset, field, normalizer)
-    else
-      apply_default_normalizer(changeset, field, opts)
+    case opts[:normalizer] do
+      nil -> apply_default_normalizer(changeset, field, opts)
+      normalizer -> update_change(changeset, field, normalizer)
     end
   end
 
@@ -127,13 +126,15 @@ defmodule OmSchema.ValidatorsExtended do
   end
 
   defp maybe_trim_field(changeset, field, opts) do
-    if Keyword.get(opts, :trim_whitespace, false) do
-      update_change(changeset, field, fn
-        value when is_binary(value) -> String.trim(value)
-        value -> value
-      end)
-    else
-      changeset
+    case Keyword.get(opts, :trim_whitespace, false) do
+      true ->
+        update_change(changeset, field, fn
+          value when is_binary(value) -> String.trim(value)
+          value -> value
+        end)
+
+      _ ->
+        changeset
     end
   end
 
@@ -152,18 +153,16 @@ defmodule OmSchema.ValidatorsExtended do
   end
 
   defp maybe_validate_required(changeset, field, opts) do
-    if opts[:required] do
-      validate_required(changeset, [field])
-    else
-      changeset
+    case opts[:required] do
+      true -> validate_required(changeset, [field])
+      _ -> changeset
     end
   end
 
   defp maybe_validate_format(changeset, field, opts) do
-    if format = opts[:format] do
-      validate_format(changeset, field, format)
-    else
-      changeset
+    case opts[:format] do
+      nil -> changeset
+      format -> validate_format(changeset, field, format)
     end
   end
 
@@ -186,14 +185,24 @@ defmodule OmSchema.ValidatorsExtended do
   end
 
   defp apply_string_length_validations(changeset, field, opts) do
-    length_opts = []
-    length_opts = if min = opts[:min], do: [{:min, min} | length_opts], else: length_opts
-    length_opts = if max = opts[:max], do: [{:max, max} | length_opts], else: length_opts
+    length_opts =
+      []
+      |> then(fn acc ->
+        case opts[:min] do
+          nil -> acc
+          min -> [{:min, min} | acc]
+        end
+      end)
+      |> then(fn acc ->
+        case opts[:max] do
+          nil -> acc
+          max -> [{:max, max} | acc]
+        end
+      end)
 
-    if length_opts != [] do
-      validate_length(changeset, field, length_opts)
-    else
-      changeset
+    case length_opts do
+      [] -> changeset
+      _ -> validate_length(changeset, field, length_opts)
     end
   end
 
@@ -286,10 +295,9 @@ defmodule OmSchema.ValidatorsExtended do
   end
 
   defp maybe_validate_unique(changeset, field, opts) do
-    if opts[:unique] do
-      unique_constraint(changeset, field)
-    else
-      changeset
+    case opts[:unique] do
+      true -> unique_constraint(changeset, field)
+      _ -> changeset
     end
   end
 
@@ -406,10 +414,18 @@ defmodule OmSchema.ValidatorsExtended do
 
   defp validate_decimal_precision(value, precision, scale) do
     string = Decimal.to_string(value)
-    [integer_part, decimal_part] = String.split(string <> ".0", ".")
+
+    {integer_part, decimal_part} =
+      case String.split(string, ".") do
+        [int_part, dec_part] -> {int_part, dec_part}
+        [int_part] -> {int_part, ""}
+      end
+
+    # Strip leading minus for precision check
+    integer_digits = String.replace(integer_part, "-", "")
 
     cond do
-      precision && String.length(integer_part) > precision ->
+      precision && String.length(integer_digits) > precision ->
         {:error, "exceeds precision of #{precision}"}
 
       scale && String.length(decimal_part) > scale ->
@@ -580,10 +596,9 @@ defmodule OmSchema.ValidatorsExtended do
   Validates boolean with acceptance.
   """
   def validate_boolean(changeset, field, opts \\ []) do
-    if opts[:acceptance] do
-      validate_acceptance(changeset, field)
-    else
-      changeset
+    case opts[:acceptance] do
+      true -> validate_acceptance(changeset, field)
+      _ -> changeset
     end
   end
 
@@ -601,10 +616,9 @@ defmodule OmSchema.ValidatorsExtended do
       end)
   """
   def validate_if(changeset, field, validation, condition_fn, opts \\ []) do
-    if condition_fn.(changeset) do
-      apply_conditional_validation(changeset, field, validation, opts)
-    else
-      changeset
+    case condition_fn.(changeset) do
+      truthy when truthy in [false, nil] -> changeset
+      _ -> apply_conditional_validation(changeset, field, validation, opts)
     end
   end
 
@@ -612,10 +626,12 @@ defmodule OmSchema.ValidatorsExtended do
   Validates field unless condition is met.
   """
   def validate_unless(changeset, field, validation, condition_fn, opts \\ []) do
-    if !condition_fn.(changeset) do
-      apply_conditional_validation(changeset, field, validation, opts)
-    else
-      changeset
+    case condition_fn.(changeset) do
+      truthy when truthy in [false, nil] ->
+        apply_conditional_validation(changeset, field, validation, opts)
+
+      _ ->
+        changeset
     end
   end
 
@@ -640,12 +656,9 @@ defmodule OmSchema.ValidatorsExtended do
   """
   def validate_confirmation(changeset, field, confirmation_field) do
     validate_change(changeset, field, fn _, value ->
-      confirmation = get_field(changeset, confirmation_field)
-
-      if value == confirmation do
-        []
-      else
-        [{confirmation_field, "does not match #{field}"}]
+      case get_field(changeset, confirmation_field) do
+        ^value -> []
+        _ -> [{confirmation_field, "does not match #{field}"}]
       end
     end)
   end

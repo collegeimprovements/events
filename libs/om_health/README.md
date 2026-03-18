@@ -10,6 +10,50 @@ def deps do
 end
 ```
 
+## 1 min Setup Guide
+
+**1. Add dependency** (`mix.exs`):
+
+```elixir
+{:om_health, "~> 0.1.0"}
+```
+
+**2. Define health module**:
+
+```elixir
+defmodule MyApp.Health do
+  use OmHealth
+
+  config do
+    app_name :my_app
+    repo MyApp.Repo
+    endpoint MyAppWeb.Endpoint
+  end
+
+  services do
+    service :database, module: MyApp.Repo, type: :repo, critical: true
+    service :cache, module: MyApp.Cache, type: :cache, critical: false
+  end
+end
+```
+
+**3. Configure** (`config/config.exs` — optional):
+
+```elixir
+config :om_health,
+  timeout: 5_000,                              # Check timeout in ms (default: 5s)
+  proxy_services: ["Req", "AWS S3", "ExAws"]   # Services to check for proxy config
+```
+
+**4. Expose via Phoenix** (optional):
+
+```elixir
+# router.ex
+forward "/health", OmHealth.Plug, health_module: MyApp.Health
+```
+
+No supervision, no environment variables required.
+
 ## Why OmHealth?
 
 Production applications need visibility into their dependencies:

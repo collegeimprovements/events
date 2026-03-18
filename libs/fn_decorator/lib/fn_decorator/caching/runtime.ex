@@ -57,6 +57,8 @@ defmodule FnDecorator.Caching.Runtime do
   | `:lock` | `%{wait_time: ...}` | `%{key: ..., result: :acquired/:timeout}` |
   """
 
+  require Logger
+
   alias FnDecorator.Caching.{Entry, Lock}
 
   @type cache :: module()
@@ -71,6 +73,12 @@ defmodule FnDecorator.Caching.Runtime do
     lock_ttl: 30_000,
     on_timeout: :serve_stale
   ]
+
+  # Refresh failure tracking
+  @refresh_failures_table :fn_decorator_refresh_failures
+  @max_refresh_failures 5
+  # Auto-unblock after 5 minutes to retry
+  @refresh_block_ttl :timer.minutes(5)
 
   # ============================================
   # Main Entry Point
@@ -174,6 +182,11 @@ defmodule FnDecorator.Caching.Runtime do
         emit(:lock, key, start_time, %{result: :acquired})
         value
 
+      :lock_free ->
+        # Lock holder died or lock expired — retry acquisition
+        emit(:lock, key, start_time, %{result: :lock_freed})
+        handle_miss_with_lock(cache, key, fetch_fn, opts, thunder_herd)
+
       :timeout ->
         emit(:lock, key, start_time, %{result: :timeout})
         handle_timeout(cache, key, fetch_fn, opts, on_timeout)
@@ -188,8 +201,13 @@ defmodule FnDecorator.Caching.Runtime do
     else
       case lookup(cache, key) do
         nil ->
-          Process.sleep(min(50, deadline - now))
-          do_wait(cache, key, deadline)
+          if Lock.locked?(key) do
+            Process.sleep(min(50, deadline - now))
+            do_wait(cache, key, deadline)
+          else
+            # Lock holder died or lock expired — signal retry
+            :lock_free
+          end
 
         %Entry{} = entry ->
           case Entry.status(entry) do
@@ -197,8 +215,12 @@ defmodule FnDecorator.Caching.Runtime do
               {:ok, Entry.value(entry)}
 
             :expired ->
-              Process.sleep(min(50, deadline - now))
-              do_wait(cache, key, deadline)
+              if Lock.locked?(key) do
+                Process.sleep(min(50, deadline - now))
+                do_wait(cache, key, deadline)
+              else
+                :lock_free
+              end
           end
       end
     end
@@ -244,6 +266,9 @@ defmodule FnDecorator.Caching.Runtime do
         store_value(cache, key, value, opts)
       end
 
+      # Source is healthy — clear any refresh failure backoff for this key
+      reset_refresh_failures(key)
+
       value
     rescue
       error ->
@@ -253,7 +278,14 @@ defmodule FnDecorator.Caching.Runtime do
   end
 
   defp should_cache?(_value, nil), do: true
-  defp should_cache?(value, only_if) when is_function(only_if, 1), do: only_if.(value)
+
+  defp should_cache?(value, only_if) when is_function(only_if, 1) do
+    only_if.(value)
+  rescue
+    error ->
+      Logger.warning("Cache only_if function raised: #{inspect(error)}")
+      false
+  end
 
   defp store_value(cache, key, value, opts) do
     store = opts[:store] || []
@@ -320,6 +352,14 @@ defmodule FnDecorator.Caching.Runtime do
   end
 
   defp refresh_async(cache, key, fetch_fn, opts) do
+    if refresh_blocked?(key) do
+      :ok
+    else
+      do_refresh_async(cache, key, fetch_fn, opts)
+    end
+  end
+
+  defp do_refresh_async(cache, key, fetch_fn, opts) do
     # Use a separate lock for refresh to not block readers
     refresh_key = {:refresh, key}
 
@@ -338,10 +378,12 @@ defmodule FnDecorator.Caching.Runtime do
               store_value(cache, key, value, opts)
             end
 
+            reset_refresh_failures(key)
             emit(:refresh, key, start_time, %{success: true})
           rescue
             error ->
-              emit(:refresh, key, start_time, %{success: false, error: error})
+              failures = track_refresh_failure(key)
+              emit(:refresh, key, start_time, %{success: false, error: error, failures: failures})
           after
             Lock.release(refresh_key, token)
           end
@@ -381,6 +423,68 @@ defmodule FnDecorator.Caching.Runtime do
       Map.put(metadata, :key, key)
     )
   rescue
-    _ -> :ok
+    error ->
+      Logger.warning("Cache telemetry handler failed for #{inspect(event)}: #{inspect(error)}")
+      :ok
+  end
+
+  # ============================================
+  # Refresh Failure Tracking
+  # ============================================
+
+  defp init_refresh_table do
+    case :ets.whereis(@refresh_failures_table) do
+      :undefined ->
+        try do
+          :ets.new(@refresh_failures_table, [
+            :set,
+            :public,
+            :named_table,
+            {:write_concurrency, true}
+          ])
+        rescue
+          ArgumentError -> :ok
+        end
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp refresh_blocked?(key) do
+    init_refresh_table()
+
+    case :ets.lookup(@refresh_failures_table, key) do
+      [{^key, count, last_failure_at}] when count >= @max_refresh_failures ->
+        if System.monotonic_time(:millisecond) - last_failure_at > @refresh_block_ttl do
+          # Block expired — allow retry
+          :ets.delete(@refresh_failures_table, key)
+          false
+        else
+          true
+        end
+
+      _ ->
+        false
+    end
+  end
+
+  defp track_refresh_failure(key) do
+    init_refresh_table()
+    now = System.monotonic_time(:millisecond)
+
+    count =
+      case :ets.lookup(@refresh_failures_table, key) do
+        [{^key, c, _last}] -> c + 1
+        _ -> 1
+      end
+
+    :ets.insert(@refresh_failures_table, {key, count, now})
+    count
+  end
+
+  defp reset_refresh_failures(key) do
+    init_refresh_table()
+    :ets.delete(@refresh_failures_table, key)
   end
 end

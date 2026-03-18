@@ -13,6 +13,37 @@ def deps do
 end
 ```
 
+## 1 min Setup Guide
+
+**1. Add dependencies** (`mix.exs`):
+
+```elixir
+{:om_credo, "~> 0.1.0", only: [:dev, :test], runtime: false},
+{:credo, "~> 1.7", only: [:dev, :test], runtime: false}
+```
+
+**2. Add checks to `.credo.exs`**:
+
+```elixir
+%{
+  configs: [
+    %{
+      name: "default",
+      checks: [
+        {OmCredo.Checks.PreferPatternMatching, []},
+        {OmCredo.Checks.NoBangRepoOperations, []},
+        {OmCredo.Checks.RequireResultTuples, [paths: ["/lib/myapp/contexts/"]]},
+        {OmCredo.Checks.UseEnhancedSchema, []},
+        {OmCredo.Checks.UseEnhancedMigration, []},
+        {OmCredo.Checks.UseDecorator, [paths: ["/lib/myapp/contexts/"]]}
+      ]
+    }
+  ]
+}
+```
+
+No runtime configuration, no supervision. Dev/test time only.
+
 ## Quick Start
 
 Add checks to your `.credo.exs`:

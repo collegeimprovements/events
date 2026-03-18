@@ -3,49 +3,12 @@ defmodule OmBehaviours do
   Common behaviour patterns for Elixir applications.
 
   Provides base behaviours for:
-  - **Adapter** - Service adapter implementations
-  - **Service** - Core service modules
+  - **Adapter** - Swappable backend implementations
+  - **Service** - Supervised service modules
   - **Builder** - Fluent builder patterns
-
-  ## Usage
-
-      # Adapter pattern
-      defmodule MyApp.Storage.S3Adapter do
-        @behaviour MyApp.Storage
-        @behaviour OmBehaviours.Adapter
-
-        @impl OmBehaviours.Adapter
-        def adapter_name, do: :s3
-
-        @impl OmBehaviours.Adapter
-        def adapter_config(opts), do: %{bucket: opts[:bucket]}
-      end
-
-      # Service pattern
-      defmodule MyApp.NotificationService do
-        @behaviour OmBehaviours.Service
-
-        @impl true
-        def child_spec(opts), do: %{id: __MODULE__, start: {__MODULE__, :start_link, [opts]}}
-      end
-
-      # Builder pattern
-      defmodule MyApp.QueryBuilder do
-        use OmBehaviours.Builder
-
-        defstruct [:query, :filters]
-
-        @impl true
-        def new(query, _opts), do: %__MODULE__{query: query, filters: []}
-
-        @impl true
-        def compose(builder, {:filter, field, value}) do
-          %{builder | filters: [{field, value} | builder.filters]}
-        end
-
-        @impl true
-        def build(builder), do: apply_filters(builder.query, builder.filters)
-      end
+  - **Worker** - Background job execution
+  - **Plugin** - Extension point plugins
+  - **HealthCheck** - System health reporting
   """
 
   @doc """
@@ -57,16 +20,19 @@ defmodule OmBehaviours do
       #=> true
   """
   @spec implements?(module(), module()) :: boolean()
-  def implements?(module, behaviour) do
+  def implements?(module, behaviour) when is_atom(module) and is_atom(behaviour) do
     module
     |> module_behaviours()
     |> Enum.member?(behaviour)
   rescue
-    _ -> false
+    UndefinedFunctionError -> false
   end
+
+  def implements?(_module, _behaviour), do: false
 
   defp module_behaviours(module) do
     module.__info__(:attributes)
-    |> Keyword.get(:behaviour, [])
+    |> Keyword.get_values(:behaviour)
+    |> List.flatten()
   end
 end

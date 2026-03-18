@@ -284,12 +284,14 @@ defmodule OmQuery.Cursor do
   end
 
   # Safe string to existing atom conversion
+  # Returns the existing atom or keeps as string if atom doesn't exist.
+  # Cursor field keys from JSON are strings; we convert to existing atoms
+  # for compatibility with schema field names. Unknown atoms stay as strings
+  # which will cause a clean mismatch error downstream rather than atom exhaustion.
   defp safe_to_atom(string) when is_binary(string) do
-    try do
-      String.to_existing_atom(string)
-    rescue
-      ArgumentError -> string
-    end
+    String.to_existing_atom(string)
+  rescue
+    ArgumentError -> string
   end
 
   defp safe_to_atom(atom) when is_atom(atom), do: atom

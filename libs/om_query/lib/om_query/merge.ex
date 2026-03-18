@@ -413,13 +413,12 @@ defmodule OmQuery.Merge do
   end
 
   defp when_matched_clause_sql({condition, action}) when is_function(condition) do
-    "WHEN MATCHED AND <condition> THEN #{action_sql(action)}"
+    raise OmQuery.ValidationError,
+      operation: :merge,
+      reason: "Conditional WHEN MATCHED clauses with function conditions are not yet supported",
+      value: {:condition, action},
+      suggestion: "Use {:always, action} for unconditional clauses, or build the MERGE SQL manually"
   end
-
-  defp action_sql(:update), do: "UPDATE SET *"
-  defp action_sql({:update, fields}), do: "UPDATE SET #{Enum.join(fields, ", ")}"
-  defp action_sql(:delete), do: "DELETE"
-  defp action_sql(:nothing), do: "DO NOTHING"
 
   defp when_not_matched_sql([]), do: ""
 
@@ -441,13 +440,13 @@ defmodule OmQuery.Merge do
     "WHEN NOT MATCHED THEN DO NOTHING"
   end
 
-  defp when_not_matched_clause_sql({_condition, action}) do
-    "WHEN NOT MATCHED AND <condition> THEN #{insert_action_sql(action)}"
+  defp when_not_matched_clause_sql({condition, action}) when is_function(condition) do
+    raise OmQuery.ValidationError,
+      operation: :merge,
+      reason: "Conditional WHEN NOT MATCHED clauses with function conditions are not yet supported",
+      value: {:condition, action},
+      suggestion: "Use {:always, action} for unconditional clauses, or build the MERGE SQL manually"
   end
-
-  defp insert_action_sql(:insert), do: "INSERT VALUES (source.*)"
-  defp insert_action_sql({:insert, _}), do: "INSERT VALUES (...)"
-  defp insert_action_sql(:nothing), do: "DO NOTHING"
 
   defp returning_sql(false, _schema), do: ""
   defp returning_sql(true, schema), do: "RETURNING #{all_columns(schema)}"
@@ -512,12 +511,20 @@ defmodule OmQuery.Merge do
   end
 
   defp rows_to_structs(schema, columns, rows) do
-    fields = Enum.map(columns, &String.to_existing_atom/1)
+    fields = Enum.map(columns, &safe_column_to_atom/1)
 
     Enum.map(rows, fn row ->
       attrs = Enum.zip(fields, row) |> Map.new()
       struct(schema, attrs)
     end)
+  end
+
+  # Database column names are controlled by the schema, so atom creation is safe here.
+  # We prefer existing atoms but fall back to creation for computed columns.
+  defp safe_column_to_atom(col) do
+    String.to_existing_atom(col)
+  rescue
+    ArgumentError -> String.to_atom(col)
   end
 
   # ─────────────────────────────────────────────────────────────

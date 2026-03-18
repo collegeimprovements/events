@@ -14,6 +14,47 @@ def deps do
 end
 ```
 
+## 1 min Setup Guide
+
+**1. Add dependencies** (`mix.exs`):
+
+```elixir
+{:om_google, "~> 0.1.0"},
+{:jose, "~> 1.11"},  # JWT signing
+{:req, "~> 0.4"}     # HTTP client
+```
+
+**2. Set environment variables** (`runtime.exs` or shell):
+
+```bash
+# Path to service account JSON file OR raw JSON content
+export GOOGLE_APPLICATION_CREDENTIALS="/path/to/service-account.json"
+# Alternative env var name
+export GOOGLE_CREDENTIALS_JSON='{"project_id": "...", ...}'
+```
+
+**3. Configure** (`config/config.exs` — optional):
+
+```elixir
+config :om_google,
+  timeout: 30_000,           # Connect timeout in ms (default: 30s)
+  receive_timeout: 60_000,   # Response timeout in ms (default: 60s)
+  pool_timeout: 5_000,       # Pool timeout in ms (default: 5s)
+  max_retries: 3,            # Retry attempts (default: 3)
+  proxy: "http://proxy:8080" # Optional proxy (or reads HTTP_PROXY)
+```
+
+**4. Start TokenServer** (optional — for automatic token caching/refresh):
+
+```elixir
+# application.ex
+children = [
+  {OmGoogle.ServiceAccount.TokenServer, credentials: creds, scopes: ["https://www.googleapis.com/auth/firebase.messaging"]}
+]
+```
+
+For basic usage, no supervision needed — just use `OmGoogle.credentials_from_env()` and make API calls directly.
+
 ## Features
 
 - **Service Account Authentication** - JWT-based OAuth2 token generation

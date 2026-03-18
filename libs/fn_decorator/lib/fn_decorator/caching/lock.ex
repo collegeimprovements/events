@@ -205,10 +205,11 @@ defmodule FnDecorator.Caching.Lock do
 
   defp maybe_takeover_expired(key, lock_ttl) do
     case :ets.lookup(@table, key) do
-      [{^key, _old_token, expires_at}] ->
-        if monotonic_now() >= expires_at do
-          # Lock expired - delete and retry
-          :ets.delete(@table, key)
+      [{^key, {holder_pid, _ref} = old_token, expires_at}] ->
+        if monotonic_now() >= expires_at or not Process.alive?(holder_pid) do
+          # Delete only if the exact same lock entry is still there.
+          # Prevents race where another process already took over.
+          :ets.match_delete(@table, {key, old_token, :_})
 
           token = {self(), make_ref()}
           new_expires = monotonic_now() + lock_ttl
@@ -250,8 +251,14 @@ defmodule FnDecorator.Caching.Lock do
     init()
 
     case :ets.lookup(@table, key) do
-      [{^key, _token, expires_at}] ->
-        monotonic_now() < expires_at
+      [{^key, {holder_pid, _ref}, expires_at}] ->
+        if Process.alive?(holder_pid) and monotonic_now() < expires_at do
+          true
+        else
+          # Holder crashed or lock expired - clean up
+          :ets.delete(@table, key)
+          false
+        end
 
       [] ->
         false

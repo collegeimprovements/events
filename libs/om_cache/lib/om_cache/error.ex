@@ -59,7 +59,7 @@ defmodule OmCache.Error do
           metadata: map()
         }
 
-  defstruct [
+  defexception [
     :type,
     :key,
     :operation,
@@ -69,6 +69,11 @@ defmodule OmCache.Error do
     :original,
     metadata: %{}
   ]
+
+  @impl true
+  def message(%__MODULE__{} = error) do
+    format_message(error)
+  end
 
   # Protocol Implementations
 
@@ -142,7 +147,7 @@ defmodule OmCache.Error do
 
   defimpl String.Chars do
     def to_string(error) do
-      OmCache.Error.message(error)
+      OmCache.Error.format_message(error)
     end
   end
 
@@ -367,11 +372,11 @@ defmodule OmCache.Error do
   ## Examples
 
       error = OmCache.Error.not_found({User, 123}, :get)
-      OmCache.Error.message(error)
+      OmCache.Error.format_message(error)
       #=> "Cache key not found: {User, 123} (operation: get)"
   """
-  @spec message(t()) :: String.t()
-  def message(%__MODULE__{} = error) do
+  @spec format_message(t()) :: String.t()
+  def format_message(%__MODULE__{} = error) do
     base = error.message || default_message(error.type)
 
     parts = [
@@ -390,15 +395,25 @@ defmodule OmCache.Error do
   # Private
   # ============================================
 
-  defp classify_exception(%Redix.ConnectionError{}), do: :connection_failed
-  defp classify_exception(%Redix.Error{message: msg}) when is_binary(msg) do
+  defp classify_exception(%{__struct__: Redix.ConnectionError}), do: :connection_failed
+
+  defp classify_exception(%{__struct__: Redix.Error, message: msg}) when is_binary(msg) do
     cond do
       String.contains?(msg, "timeout") -> :timeout
       String.contains?(msg, "connection") -> :connection_failed
       true -> :operation_failed
     end
   end
-  defp classify_exception(%DBConnection.ConnectionError{}), do: :connection_failed
+
+  defp classify_exception(%{__struct__: mod}) do
+    mod_name = Atom.to_string(mod)
+
+    cond do
+      String.contains?(mod_name, "ConnectionError") -> :connection_failed
+      true -> :unknown
+    end
+  end
+
   defp classify_exception(_), do: :unknown
 
   defp default_message(:connection_failed), do: "Cache connection failed"

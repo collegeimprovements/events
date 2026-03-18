@@ -33,6 +33,7 @@ defmodule OmSchema.Mappers do
       field :code, :string, mappers: [trim(), &remove_dashes/1]
   """
 
+  @spec trim() :: (String.t() -> String.t())
   @doc """
   Remove leading and trailing whitespace.
 
@@ -51,6 +52,7 @@ defmodule OmSchema.Mappers do
     &String.trim/1
   end
 
+  @spec downcase() :: (String.t() -> String.t())
   @doc """
   Convert string to lowercase.
 
@@ -63,6 +65,7 @@ defmodule OmSchema.Mappers do
     &String.downcase/1
   end
 
+  @spec upcase() :: (String.t() -> String.t())
   @doc """
   Convert string to uppercase.
 
@@ -75,6 +78,7 @@ defmodule OmSchema.Mappers do
     &String.upcase/1
   end
 
+  @spec capitalize() :: (String.t() -> String.t())
   @doc """
   Capitalize first letter of string.
 
@@ -87,6 +91,7 @@ defmodule OmSchema.Mappers do
     &String.capitalize/1
   end
 
+  @spec titlecase() :: (String.t() -> String.t())
   @doc """
   Capitalize first letter of each word.
 
@@ -104,6 +109,7 @@ defmodule OmSchema.Mappers do
     end
   end
 
+  @spec squish() :: (String.t() -> String.t())
   @doc """
   Trim whitespace and collapse multiple spaces into one.
 
@@ -120,6 +126,7 @@ defmodule OmSchema.Mappers do
     end
   end
 
+  @spec slugify(keyword()) :: (String.t() -> String.t())
   @doc """
   Convert string to URL-safe slug.
 
@@ -142,6 +149,7 @@ defmodule OmSchema.Mappers do
     end
   end
 
+  @spec digits_only() :: (String.t() -> String.t())
   @doc """
   Remove all non-numeric characters.
 
@@ -156,6 +164,7 @@ defmodule OmSchema.Mappers do
     end
   end
 
+  @spec alphanumeric_only() :: (String.t() -> String.t())
   @doc """
   Remove all non-alphanumeric characters.
 
@@ -170,6 +179,7 @@ defmodule OmSchema.Mappers do
     end
   end
 
+  @spec replace(Regex.t() | String.t(), String.t()) :: (String.t() -> String.t())
   @doc """
   Replace multiple occurrences of a pattern with a single replacement.
 
@@ -184,6 +194,7 @@ defmodule OmSchema.Mappers do
     end
   end
 
+  @spec compose([(String.t() -> String.t())]) :: (String.t() -> String.t())
   @doc """
   Compose multiple mappers into a single mapper.
 

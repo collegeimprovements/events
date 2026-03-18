@@ -16,6 +16,7 @@
 | `docs/claude/CACHING.md` | Caching presets, @cacheable API, custom presets |
 | `docs/claude/CRUD.md` | CRUD system, Multi, Merge, options reference |
 | `docs/claude/S3.md` | S3 API reference |
+| `docs/claude/TYPST.md` | Typst document compilation API reference |
 | `docs/claude/SCHEDULER.md` | Cron scheduler quick reference |
 | `docs/claude/WORKFLOW.md` | Workflow system with DAG, dependencies, rollbacks |
 | `docs/claude/DUPLICATION_REPORT.md` | Cross-library code duplication analysis (TODO) |
@@ -428,6 +429,10 @@ alias OmCrud.{Multi, Merge}
 OmCrud.create(User, attrs)
 OmCrud.fetch(User, id, preload: [:account])
 OmCrud.update(user, attrs, changeset: :admin_changeset)
+
+# Find or Create / Update or Create
+OmCrud.find_or_create(User, attrs, find_by: :email)
+OmCrud.update_or_create(User, attrs, find_by: :email)
 
 # With options
 OmCrud.create(User, attrs, timeout: 30_000, returning: true)

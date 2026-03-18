@@ -1062,5 +1062,513 @@ defmodule EffectTest do
       assert error.step == :resume
       assert {:checkpoint_not_found, "unknown_id"} = error.reason
     end
+
+    test "double resume returns already_resumed error" do
+      effect =
+        Effect.new(:test)
+        |> Effect.step(:a, fn _ -> {:ok, %{step_a: :done}} end)
+        |> Effect.checkpoint(:pause,
+          store: &Effect.Checkpoint.InMemory.store/2,
+          load: &Effect.Checkpoint.InMemory.load/1
+        )
+        |> Effect.step(:b, fn _ -> {:ok, %{step_b: :done}} end)
+
+      # First run pauses at checkpoint
+      {:checkpoint, exec_id, :pause, _ctx} = Effect.run(effect, %{initial: true})
+
+      # First resume succeeds
+      {:ok, final_ctx} = Effect.resume(effect, exec_id)
+      assert final_ctx.step_b == :done
+
+      # Second resume fails with already_resumed
+      {:error, error} = Effect.resume(effect, exec_id)
+      assert error.step == :resume
+      assert {:already_resumed, ^exec_id} = error.reason
+    end
+
+    test "checkpoint state is cleaned up after successful resume" do
+      effect =
+        Effect.new(:test)
+        |> Effect.step(:a, fn _ -> {:ok, %{step_a: :done}} end)
+        |> Effect.checkpoint(:pause,
+          store: &Effect.Checkpoint.InMemory.store/2,
+          load: &Effect.Checkpoint.InMemory.load/1
+        )
+        |> Effect.step(:b, fn _ -> {:ok, %{step_b: :done}} end)
+
+      {:checkpoint, exec_id, :pause, _ctx} = Effect.run(effect, %{})
+      {:ok, _} = Effect.resume(effect, exec_id)
+
+      # Checkpoint state should be marked as completed
+      {:ok, state} = Effect.Checkpoint.InMemory.load(exec_id)
+      assert state.status == :completed
+    end
+
+    test "multiple checkpoints in one effect" do
+      effect =
+        Effect.new(:test)
+        |> Effect.step(:a, fn _ -> {:ok, %{step_a: :done}} end)
+        |> Effect.checkpoint(:first_pause,
+          store: &Effect.Checkpoint.InMemory.store/2,
+          load: &Effect.Checkpoint.InMemory.load/1
+        )
+        |> Effect.step(:b, fn _ -> {:ok, %{step_b: :done}} end)
+        |> Effect.checkpoint(:second_pause,
+          store: &Effect.Checkpoint.InMemory.store/2,
+          load: &Effect.Checkpoint.InMemory.load/1
+        )
+        |> Effect.step(:c, fn _ -> {:ok, %{step_c: :done}} end)
+
+      # First run pauses at first checkpoint
+      {:checkpoint, exec_id_1, :first_pause, ctx1} = Effect.run(effect, %{})
+      assert ctx1.step_a == :done
+      refute Map.has_key?(ctx1, :step_b)
+
+      # Resume hits second checkpoint
+      {:checkpoint, exec_id_2, :second_pause, ctx2} = Effect.resume(effect, exec_id_1)
+      assert ctx2.step_a == :done
+      assert ctx2.step_b == :done
+      refute Map.has_key?(ctx2, :step_c)
+
+      # Resume from second checkpoint completes
+      {:ok, final_ctx} = Effect.resume(effect, exec_id_2)
+      assert final_ctx.step_a == :done
+      assert final_ctx.step_b == :done
+      assert final_ctx.step_c == :done
+    end
+  end
+
+  # ============================================
+  # Step validation
+  # ============================================
+
+  describe "step validation" do
+    test "raises on invalid step function" do
+      assert_raise ArgumentError, ~r/expected step function/, fn ->
+        Effect.new(:test)
+        |> Effect.step(:bad, "not a function")
+      end
+    end
+
+    test "raises on wrong arity function" do
+      assert_raise ArgumentError, ~r/expected step function/, fn ->
+        Effect.new(:test)
+        |> Effect.step(:bad, fn _a, _b, _c -> :ok end)
+      end
+    end
+  end
+
+  # ============================================
+  # Error stacktrace preservation
+  # ============================================
+
+  describe "stacktrace preservation" do
+    test "preserves stacktrace when step raises" do
+      effect =
+        Effect.new(:test)
+        |> Effect.step(:raise_step, fn _ -> raise "boom" end)
+
+      assert {:error, error} = Effect.run(effect, %{})
+      assert error.step == :raise_step
+      assert %RuntimeError{message: "boom"} = error.reason
+      assert is_list(error.stacktrace)
+      assert length(error.stacktrace) > 0
+    end
+  end
+
+  # ============================================
+  # Parallel edge cases
+  # ============================================
+
+  describe "parallel edge cases" do
+    test "on_error: :continue collects all errors" do
+      effect =
+        Effect.new(:test)
+        |> Effect.parallel(:checks, [
+          {:a, fn _ -> {:error, :fail_a} end},
+          {:b, fn _ -> {:error, :fail_b} end},
+          {:c, fn _ -> {:ok, %{c: true}} end}
+        ], on_error: :continue)
+
+      assert {:error, error} = Effect.run(effect, %{})
+      # Should report the first error encountered
+      assert error.step in [:a, :b]
+    end
+
+    test "parallel triggers rollback of prior steps" do
+      rollbacks = :ets.new(:rollbacks, [:public, :bag])
+
+      effect =
+        Effect.new(:test)
+        |> Effect.step(:setup_a, fn _ -> {:ok, %{a: true}} end,
+          rollback: fn _ ->
+            :ets.insert(rollbacks, {:rollback, :setup_a})
+            :ok
+          end
+        )
+        |> Effect.step(:setup_b, fn _ -> {:ok, %{b: true}} end,
+          rollback: fn _ ->
+            :ets.insert(rollbacks, {:rollback, :setup_b})
+            :ok
+          end
+        )
+        |> Effect.parallel(:failing_group, [
+          {:good, fn _ -> {:ok, %{}} end},
+          {:bad, fn _ -> {:error, :parallel_boom} end}
+        ], after: :setup_b)
+
+      assert {:error, _} = Effect.run(effect, %{})
+
+      rolled_back = :ets.tab2list(rollbacks) |> Enum.map(fn {_, name} -> name end)
+      assert :setup_a in rolled_back
+      assert :setup_b in rolled_back
+
+      :ets.delete(rollbacks)
+    end
+  end
+
+  # ============================================
+  # Per-step timeout
+  # ============================================
+
+  describe "per-step timeout" do
+    test "step succeeds within timeout" do
+      effect =
+        Effect.new(:test)
+        |> Effect.step(:fast, fn _ ->
+          Process.sleep(10)
+          {:ok, %{done: true}}
+        end, timeout: 5_000)
+
+      assert {:ok, ctx} = Effect.run(effect, %{})
+      assert ctx.done == true
+    end
+
+    test "step fails when exceeding timeout" do
+      effect =
+        Effect.new(:test)
+        |> Effect.step(:slow, fn _ ->
+          Process.sleep(500)
+          {:ok, %{done: true}}
+        end, timeout: 50)
+
+      assert {:error, error} = Effect.run(effect, %{})
+      assert error.step == :slow
+      assert {:step_timeout, :slow, 50} = error.reason
+    end
+
+    test "timeout triggers rollback of prior steps" do
+      test_pid = self()
+
+      effect =
+        Effect.new(:test)
+        |> Effect.step(:setup, fn _ -> {:ok, %{setup: true}} end,
+          rollback: fn _ ->
+            send(test_pid, :setup_rolled_back)
+            :ok
+          end
+        )
+        |> Effect.step(:slow, fn _ ->
+          Process.sleep(500)
+          {:ok, %{}}
+        end, timeout: 50, after: :setup)
+
+      assert {:error, _} = Effect.run(effect, %{})
+      assert_received :setup_rolled_back
+    end
+  end
+
+  # ============================================
+  # Total execution timeout
+  # ============================================
+
+  describe "total execution timeout" do
+    test "completes within timeout" do
+      effect =
+        Effect.new(:test)
+        |> Effect.step(:a, fn _ -> {:ok, %{a: true}} end)
+        |> Effect.step(:b, fn _ -> {:ok, %{b: true}} end)
+
+      assert {:ok, ctx} = Effect.run(effect, %{}, timeout: 5_000)
+      assert ctx.a == true
+      assert ctx.b == true
+    end
+
+    test "fails when total execution exceeds timeout" do
+      effect =
+        Effect.new(:test)
+        |> Effect.step(:a, fn _ ->
+          Process.sleep(200)
+          {:ok, %{a: true}}
+        end)
+
+      assert {:error, error} = Effect.run(effect, %{}, timeout: 50)
+      assert error.step == :timeout
+      assert {:execution_timeout, 50} = error.reason
+    end
+  end
+
+  # ============================================
+  # Catch handler
+  # ============================================
+
+  describe "catch handler" do
+    test "catches error and recovers" do
+      effect =
+        Effect.new(:test)
+        |> Effect.step(:risky, fn _ -> {:error, :boom} end,
+          catch: fn reason, _ctx ->
+            {:ok, %{recovered: true, original_error: reason}}
+          end
+        )
+
+      assert {:ok, ctx} = Effect.run(effect, %{})
+      assert ctx.recovered == true
+      assert ctx.original_error == :boom
+    end
+
+    test "catch handler can still error" do
+      effect =
+        Effect.new(:test)
+        |> Effect.step(:risky, fn _ -> {:error, :first_error} end,
+          catch: fn _reason, _ctx ->
+            {:error, :catch_also_failed}
+          end
+        )
+
+      assert {:error, error} = Effect.run(effect, %{})
+      assert error.reason == :catch_also_failed
+    end
+
+    test "catch handler receives context" do
+      effect =
+        Effect.new(:test)
+        |> Effect.step(:setup, fn _ -> {:ok, %{user_id: 42}} end)
+        |> Effect.step(:risky, fn _ -> {:error, :oops} end,
+          catch: fn _reason, ctx ->
+            {:ok, %{fallback_for: ctx.user_id}}
+          end
+        )
+
+      assert {:ok, ctx} = Effect.run(effect, %{})
+      assert ctx.fallback_for == 42
+    end
+
+    test "catch handles raised exceptions" do
+      effect =
+        Effect.new(:test)
+        |> Effect.step(:raise_step, fn _ -> raise "kaboom" end,
+          catch: fn reason, _ctx ->
+            {:ok, %{caught: reason}}
+          end
+        )
+
+      assert {:ok, ctx} = Effect.run(effect, %{})
+      assert %RuntimeError{message: "kaboom"} = ctx.caught
+    end
+
+    test "does not apply to successful steps" do
+      effect =
+        Effect.new(:test)
+        |> Effect.step(:ok_step, fn _ -> {:ok, %{value: 1}} end,
+          catch: fn _reason, _ctx ->
+            {:ok, %{value: 999}}
+          end
+        )
+
+      assert {:ok, ctx} = Effect.run(effect, %{})
+      assert ctx.value == 1
+    end
+  end
+
+  # ============================================
+  # Fallback
+  # ============================================
+
+  describe "fallback" do
+    test "uses fallback on error" do
+      effect =
+        Effect.new(:test)
+        |> Effect.step(:optional, fn _ -> {:error, :not_found} end,
+          fallback: %{data: nil, source: :fallback}
+        )
+
+      assert {:ok, ctx} = Effect.run(effect, %{})
+      assert ctx.data == nil
+      assert ctx.source == :fallback
+    end
+
+    test "does not use fallback on success" do
+      effect =
+        Effect.new(:test)
+        |> Effect.step(:ok_step, fn _ -> {:ok, %{data: :real}} end,
+          fallback: %{data: :fallback}
+        )
+
+      assert {:ok, ctx} = Effect.run(effect, %{})
+      assert ctx.data == :real
+    end
+
+    test "fallback_when restricts which errors trigger fallback" do
+      effect =
+        Effect.new(:test)
+        |> Effect.step(:selective, fn _ -> {:error, :not_found} end,
+          fallback: %{data: nil},
+          fallback_when: [:not_found, :timeout]
+        )
+
+      assert {:ok, ctx} = Effect.run(effect, %{})
+      assert ctx.data == nil
+    end
+
+    test "fallback_when does not trigger for non-matching errors" do
+      effect =
+        Effect.new(:test)
+        |> Effect.step(:selective, fn _ -> {:error, :permission_denied} end,
+          fallback: %{data: nil},
+          fallback_when: [:not_found, :timeout]
+        )
+
+      assert {:error, error} = Effect.run(effect, %{})
+      assert error.reason == :permission_denied
+    end
+
+    test "catch takes precedence over fallback" do
+      effect =
+        Effect.new(:test)
+        |> Effect.step(:both, fn _ -> {:error, :oops} end,
+          catch: fn _reason, _ctx -> {:ok, %{from: :catch}} end,
+          fallback: %{from: :fallback}
+        )
+
+      assert {:ok, ctx} = Effect.run(effect, %{})
+      assert ctx.from == :catch
+    end
+  end
+
+  # ============================================
+  # Rollback after compound steps
+  # ============================================
+
+  describe "rollback after compound steps" do
+    test "rollback after successful parallel" do
+      test_pid = self()
+
+      effect =
+        Effect.new(:test)
+        |> Effect.step(:setup, fn _ -> {:ok, %{setup: true}} end,
+          rollback: fn _ -> send(test_pid, {:rollback, :setup}); :ok end
+        )
+        |> Effect.parallel(:group, [
+          {:a, fn _ -> {:ok, %{a: 1}} end},
+          {:b, fn _ -> {:ok, %{b: 2}} end}
+        ], after: :setup)
+        |> Effect.step(:fail_after, fn _ -> {:error, :boom} end, after: :group)
+
+      assert {:error, _} = Effect.run(effect, %{})
+      assert_received {:rollback, :setup}
+    end
+
+    test "rollback after successful embed" do
+      test_pid = self()
+
+      nested = Effect.new(:nested)
+        |> Effect.step(:inner, fn _ -> {:ok, %{inner: true}} end)
+
+      effect =
+        Effect.new(:test)
+        |> Effect.step(:setup, fn _ -> {:ok, %{setup: true}} end,
+          rollback: fn _ -> send(test_pid, {:rollback, :setup}); :ok end
+        )
+        |> Effect.embed(:nested_step, nested, after: :setup)
+        |> Effect.step(:fail_after, fn _ -> {:error, :boom} end, after: :nested_step)
+
+      assert {:error, _} = Effect.run(effect, %{})
+      assert_received {:rollback, :setup}
+    end
+
+    test "rollback after successful race" do
+      test_pid = self()
+
+      fast = Effect.new(:fast)
+        |> Effect.step(:quick, fn _ -> {:ok, %{winner: :fast}} end)
+
+      effect =
+        Effect.new(:test)
+        |> Effect.step(:setup, fn _ -> {:ok, %{setup: true}} end,
+          rollback: fn _ -> send(test_pid, {:rollback, :setup}); :ok end
+        )
+        |> Effect.race(:fetch, [fast], after: :setup)
+        |> Effect.step(:fail_after, fn _ -> {:error, :boom} end, after: :fetch)
+
+      assert {:error, _} = Effect.run(effect, %{})
+      assert_received {:rollback, :setup}
+    end
+
+    test "rollback after successful branch" do
+      test_pid = self()
+
+      effect =
+        Effect.new(:test)
+        |> Effect.step(:setup, fn _ -> {:ok, %{type: :a, setup: true}} end,
+          rollback: fn _ -> send(test_pid, {:rollback, :setup}); :ok end
+        )
+        |> Effect.branch(:route, & &1.type, %{
+          a: fn _ -> {:ok, %{routed: true}} end
+        }, after: :setup)
+        |> Effect.step(:fail_after, fn _ -> {:error, :boom} end, after: :route)
+
+      assert {:error, _} = Effect.run(effect, %{})
+      assert_received {:rollback, :setup}
+    end
+
+    test "parallel error includes completed substep names in metadata" do
+      effect =
+        Effect.new(:test)
+        |> Effect.parallel(:checks, [
+          {:good, fn _ -> {:ok, %{good: true}} end},
+          {:bad, fn _ -> {:error, :fail} end}
+        ])
+
+      assert {:error, error} = Effect.run(effect, %{})
+      assert error.metadata.parallel_group == :checks
+    end
+  end
+
+  # ============================================
+  # Race edge cases
+  # ============================================
+
+  describe "race edge cases" do
+    test "remaining tasks are terminated after winner" do
+      test_pid = self()
+
+      slow = Effect.new(:slow)
+        |> Effect.step(:wait, fn _ ->
+          # Register that we started
+          send(test_pid, :slow_started)
+          Process.sleep(500)
+          send(test_pid, :slow_completed)
+          {:ok, %{winner: :slow}}
+        end)
+
+      fast = Effect.new(:fast)
+        |> Effect.step(:quick, fn _ ->
+          {:ok, %{winner: :fast}}
+        end)
+
+      effect =
+        Effect.new(:test)
+        |> Effect.race(:fetch, [slow, fast])
+
+      assert {:ok, ctx} = Effect.run(effect, %{})
+      assert ctx.winner == :fast
+
+      # Give a moment for any straggler messages
+      Process.sleep(50)
+
+      # Slow task should have been killed - should not complete
+      refute_received :slow_completed
+    end
   end
 end

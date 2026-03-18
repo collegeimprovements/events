@@ -7,6 +7,8 @@ defmodule OmS3.Client do
   """
 
   alias OmS3.Config
+  alias OmS3.Error
+  alias OmS3.Telemetry
 
   @default_expires_in 3600
 
@@ -18,143 +20,149 @@ defmodule OmS3.Client do
   Uploads an object to S3.
   """
   @spec put_object(Config.t(), String.t(), String.t(), binary(), keyword()) ::
-          :ok | {:error, term()}
+          :ok | {:error, Error.t()}
   def put_object(%Config{} = config, bucket, key, content, opts \\ []) do
-    req = build_req(config)
-    url = "s3://#{bucket}/#{key}"
-    headers = OmS3.Headers.build_upload_headers(key, opts, config)
+    Telemetry.span(:put, bucket, key, fn ->
+      req = build_req(config)
+      url = "s3://#{bucket}/#{key}"
+      headers = OmS3.Headers.build_upload_headers(key, opts, config)
 
-    case Req.put(req, url: url, body: content, headers: headers) do
-      {:ok, %{status: status}} when status in 200..299 ->
-        :ok
+      case Req.put(req, url: url, body: content, headers: headers) do
+        {:ok, %{status: status}} when status in 200..299 ->
+          :ok
 
-      {:ok, %{status: status, body: body}} ->
-        {:error, {:s3_error, status, body}}
+        {:ok, %{status: status, body: body}} ->
+          {:error, Error.from_response(status, body)}
 
-      {:error, reason} ->
-        {:error, reason}
-    end
+        {:error, reason} ->
+          {:error, Error.from_exception(reason)}
+      end
+    end)
   end
 
   @doc """
   Downloads an object from S3.
   """
   @spec get_object(Config.t(), String.t(), String.t()) ::
-          {:ok, binary()} | {:error, term()}
+          {:ok, binary()} | {:error, Error.t()}
   def get_object(%Config{} = config, bucket, key) do
-    req = build_req(config)
-    url = "s3://#{bucket}/#{key}"
+    Telemetry.span(:get, bucket, key, fn ->
+      req = build_req(config)
+      url = "s3://#{bucket}/#{key}"
 
-    case Req.get(req, url: url) do
-      {:ok, %{status: 200, body: body}} ->
-        {:ok, body}
+      case Req.get(req, url: url) do
+        {:ok, %{status: 200, body: body}} ->
+          {:ok, body}
 
-      {:ok, %{status: 404}} ->
-        {:error, :not_found}
+        {:ok, %{status: status, body: body}} ->
+          {:error, Error.from_response(status, body)}
 
-      {:ok, %{status: status, body: body}} ->
-        {:error, {:s3_error, status, body}}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
+        {:error, reason} ->
+          {:error, Error.from_exception(reason)}
+      end
+    end)
   end
 
   @doc """
   Deletes an object from S3.
   """
-  @spec delete_object(Config.t(), String.t(), String.t()) :: :ok | {:error, term()}
+  @spec delete_object(Config.t(), String.t(), String.t()) :: :ok | {:error, Error.t()}
   def delete_object(%Config{} = config, bucket, key) do
-    req = build_req(config)
-    url = "s3://#{bucket}/#{key}"
+    Telemetry.span(:delete, bucket, key, fn ->
+      req = build_req(config)
+      url = "s3://#{bucket}/#{key}"
 
-    case Req.delete(req, url: url) do
-      {:ok, %{status: status}} when status in 200..299 ->
-        :ok
+      case Req.delete(req, url: url) do
+        {:ok, %{status: status}} when status in 200..299 ->
+          :ok
 
-      {:ok, %{status: 404}} ->
-        # S3 returns success even for non-existent objects
-        :ok
+        {:ok, %{status: 404}} ->
+          # S3 returns success even for non-existent objects
+          :ok
 
-      {:ok, %{status: status, body: body}} ->
-        {:error, {:s3_error, status, body}}
+        {:ok, %{status: status, body: body}} ->
+          {:error, Error.from_response(status, body)}
 
-      {:error, reason} ->
-        {:error, reason}
-    end
+        {:error, reason} ->
+          {:error, Error.from_exception(reason)}
+      end
+    end)
   end
 
   @doc """
   Gets object metadata (HEAD request).
   """
   @spec head_object(Config.t(), String.t(), String.t()) ::
-          {:ok, map()} | {:error, term()}
+          {:ok, map()} | {:error, Error.t()}
   def head_object(%Config{} = config, bucket, key) do
-    req = build_req(config)
-    url = "s3://#{bucket}/#{key}"
+    Telemetry.span(:head, bucket, key, fn ->
+      req = build_req(config)
+      url = "s3://#{bucket}/#{key}"
 
-    case Req.head(req, url: url) do
-      {:ok, %{status: 200, headers: headers}} ->
-        {:ok, parse_metadata(headers)}
+      case Req.head(req, url: url) do
+        {:ok, %{status: 200, headers: headers}} ->
+          {:ok, parse_metadata(headers)}
 
-      {:ok, %{status: 404}} ->
-        {:error, :not_found}
+        {:ok, %{status: status, body: body}} ->
+          {:error, Error.from_response(status, body)}
 
-      {:ok, %{status: status, body: body}} ->
-        {:error, {:s3_error, status, body}}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
+        {:error, reason} ->
+          {:error, Error.from_exception(reason)}
+      end
+    end)
   end
 
   @doc """
   Lists objects in a bucket with optional prefix.
   """
   @spec list_objects(Config.t(), String.t(), String.t(), keyword()) ::
-          {:ok, map()} | {:error, term()}
+          {:ok, map()} | {:error, Error.t()}
   def list_objects(%Config{} = config, bucket, prefix, opts \\ []) do
-    req = build_req(config)
-    limit = Keyword.get(opts, :limit, 1000)
-    token = Keyword.get(opts, :continuation_token)
-    sort_field = Keyword.get(opts, :sort, :last_modified)
-    sort_order = Keyword.get(opts, :order, :desc)
+    Telemetry.span(:list, bucket, prefix, fn ->
+      req = build_req(config)
+      limit = Keyword.get(opts, :limit, 1000)
+      token = Keyword.get(opts, :continuation_token)
+      sort_field = Keyword.get(opts, :sort, :last_modified)
+      sort_order = Keyword.get(opts, :order, :desc)
 
-    url = build_list_url(bucket, prefix, limit, token)
+      url = build_list_url(bucket, prefix, limit, token)
 
-    case Req.get(req, url: url) do
-      {:ok, %{status: 200, body: body}} ->
-        parse_list_response(body, sort_field, sort_order)
+      case Req.get(req, url: url) do
+        {:ok, %{status: 200, body: body}} ->
+          parse_list_response(body, sort_field, sort_order)
 
-      {:ok, %{status: status, body: body}} ->
-        {:error, {:s3_error, status, body}}
+        {:ok, %{status: status, body: body}} ->
+          {:error, Error.from_response(status, body)}
 
-      {:error, reason} ->
-        {:error, reason}
-    end
+        {:error, reason} ->
+          {:error, Error.from_exception(reason)}
+      end
+    end)
   end
 
   @doc """
   Copies an object within S3.
   """
   @spec copy_object(Config.t(), String.t(), String.t(), String.t(), String.t()) ::
-          :ok | {:error, term()}
+          :ok | {:error, Error.t()}
   def copy_object(%Config{} = config, source_bucket, source_key, dest_bucket, dest_key) do
-    req = build_req(config)
-    url = "s3://#{dest_bucket}/#{dest_key}"
-    copy_source = "/#{source_bucket}/#{source_key}"
-    headers = %{"x-amz-copy-source" => copy_source}
+    Telemetry.span(:copy, dest_bucket, dest_key, fn ->
+      req = build_req(config)
+      url = "s3://#{dest_bucket}/#{dest_key}"
+      copy_source = "/#{source_bucket}/#{source_key}"
+      headers = %{"x-amz-copy-source" => copy_source}
 
-    case Req.put(req, url: url, headers: headers) do
-      {:ok, %{status: status}} when status in 200..299 ->
-        :ok
+      case Req.put(req, url: url, headers: headers) do
+        {:ok, %{status: status}} when status in 200..299 ->
+          :ok
 
-      {:ok, %{status: status, body: body}} ->
-        {:error, {:s3_error, status, body}}
+        {:ok, %{status: status, body: body}} ->
+          {:error, Error.from_response(status, body)}
 
-      {:error, reason} ->
-        {:error, reason}
-    end
+        {:error, reason} ->
+          {:error, Error.from_exception(reason)}
+      end
+    end)
   end
 
   # ============================================
@@ -182,7 +190,7 @@ defmodule OmS3.Client do
       # Use url directly for downloads
   """
   @spec presigned_get_url(Config.t(), String.t(), String.t(), pos_integer()) ::
-          {:ok, String.t()} | {:error, term()}
+          {:ok, String.t()} | {:error, Error.t()}
   def presigned_get_url(%Config{} = config, bucket, key, expires_in \\ @default_expires_in) do
     # ReqS3 expects milliseconds
     expires_in_ms = expires_in * 1000
@@ -195,7 +203,7 @@ defmodule OmS3.Client do
     {:ok, url}
   rescue
     error ->
-      {:error, {:presign_error, error}}
+      {:error, Error.from_raw({:presign_error, error})}
   end
 
   @doc """
@@ -217,7 +225,7 @@ defmodule OmS3.Client do
       Req.post!(url, form_multipart: [file: content] ++ fields)
   """
   @spec presigned_upload_form(Config.t(), String.t(), String.t(), keyword()) ::
-          {:ok, presigned_form()} | {:error, term()}
+          {:ok, presigned_form()} | {:error, Error.t()}
   def presigned_upload_form(%Config{} = config, bucket, key, opts \\ []) do
     expires_in = Keyword.get(opts, :expires_in, @default_expires_in)
     # ReqS3 expects milliseconds
@@ -233,7 +241,7 @@ defmodule OmS3.Client do
     {:ok, %{url: form.url, fields: form.fields}}
   rescue
     error ->
-      {:error, {:presign_error, error}}
+      {:error, Error.from_raw({:presign_error, error})}
   end
 
   defp maybe_put(opts, _key, nil), do: opts
@@ -292,7 +300,7 @@ defmodule OmS3.Client do
     {:ok, %{files: files, next: next_token}}
   rescue
     error ->
-      {:error, {:parse_error, error}}
+      {:error, Error.from_raw({:parse_error, error})}
   end
 
   defp parse_object(obj) when is_map(obj) do

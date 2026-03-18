@@ -254,12 +254,26 @@ defmodule OmS3.ConfigTest do
   end
 
   describe "endpoint_url/2" do
-    test "returns custom endpoint when configured" do
+    test "returns path-style URL for custom endpoint (auto-detected)" do
       config =
         Config.new(
           access_key_id: "test",
           secret_access_key: "test",
           endpoint: "http://localhost:4566"
+        )
+
+      # Custom endpoints auto-default to path_style: true
+      assert config.path_style == true
+      assert Config.endpoint_url(config, "my-bucket") == "http://localhost:4566/my-bucket"
+    end
+
+    test "returns virtual-hosted URL for custom endpoint when path_style: false" do
+      config =
+        Config.new(
+          access_key_id: "test",
+          secret_access_key: "test",
+          endpoint: "http://localhost:4566",
+          path_style: false
         )
 
       assert Config.endpoint_url(config, "my-bucket") == "http://localhost:4566"

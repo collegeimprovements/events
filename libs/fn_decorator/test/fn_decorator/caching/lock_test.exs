@@ -130,11 +130,18 @@ defmodule FnDecorator.Caching.LockTest do
       key = :concurrent_key
 
       # Spawn multiple processes trying to acquire the same lock
+      # Processes stay alive so dead-holder detection doesn't trigger
       pids =
         for _ <- 1..10 do
           spawn(fn ->
             result = Lock.acquire(key, 5_000)
             send(parent, {:result, self(), result})
+
+            receive do
+              :done -> :ok
+            after
+              5_000 -> :ok
+            end
           end)
         end
 
@@ -148,6 +155,9 @@ defmodule FnDecorator.Caching.LockTest do
           end
         end
 
+      # Clean up - let processes exit
+      for pid <- pids, do: send(pid, :done)
+
       # Exactly one should have acquired
       acquired = Enum.filter(results, &match?({:ok, _}, &1))
       not_acquired = Enum.filter(results, &(&1 == :busy))
@@ -156,27 +166,25 @@ defmodule FnDecorator.Caching.LockTest do
       assert length(not_acquired) == 9
     end
 
-    test "lock is released when holder process dies" do
+    test "lock can be acquired immediately after holder process dies" do
       key = :process_death_key
 
       # Spawn a process that acquires lock then dies
-      spawn(fn ->
-        {:ok, _token} = Lock.acquire(key, 60_000)
-        # Process exits without releasing
-      end)
+      pid =
+        spawn(fn ->
+          {:ok, _token} = Lock.acquire(key, 60_000)
+          # Process exits without releasing
+        end)
 
       # Wait for process to die
-      Process.sleep(50)
+      ref = Process.monitor(pid)
+      assert_receive {:DOWN, ^ref, :process, ^pid, _}, 1_000
 
-      # Lock should still be held (ETS doesn't auto-release on process death)
-      # This is expected behavior - locks have timeout for this reason
-      assert Lock.locked?(key) == true
+      # Lock should NOT appear held — dead holder is detected
+      assert Lock.locked?(key) == false
 
-      # Can't acquire since lock is still held
-      assert Lock.acquire(key, 60_000) == :busy
-
-      # But with lock expiration, we can eventually acquire
-      # (In real usage, the original lock would expire after lock_timeout)
+      # Should be able to acquire immediately (no waiting for TTL)
+      assert {:ok, _token} = Lock.acquire(key, 60_000)
     end
   end
 

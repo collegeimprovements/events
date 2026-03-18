@@ -1,3 +1,8 @@
+defmodule OmS3.StreamError do
+  @moduledoc "Raised when a streaming S3 operation fails mid-stream."
+  defexception [:message, :reason, :uri, :offset]
+end
+
 defmodule OmS3.Stream do
   @moduledoc """
   Streaming operations for large S3 objects.
@@ -34,6 +39,7 @@ defmodule OmS3.Stream do
   """
 
   alias OmS3.Config
+  alias OmS3.Error
   alias OmS3.URI, as: S3URI
 
   @default_chunk_size 5 * 1024 * 1024
@@ -201,14 +207,19 @@ defmodule OmS3.Stream do
     chunk_size = max(Keyword.get(opts, :chunk_size, @default_chunk_size), @min_chunk_size)
     timeout = Keyword.get(opts, :timeout, 60_000)
 
-    with {:ok, upload_id} <- init_multipart_upload(config, bucket, key, opts),
-         {:ok, parts} <- upload_parts(stream, config, bucket, key, upload_id, chunk_size, timeout),
-         :ok <- complete_multipart_upload(config, bucket, key, upload_id, parts) do
-      :ok
-    else
-      {:error, reason} = error ->
-        # Attempt to abort on failure
-        abort_multipart_upload(config, bucket, key, reason)
+    case init_multipart_upload(config, bucket, key, opts) do
+      {:ok, upload_id} ->
+        with {:ok, parts} <- upload_parts(stream, config, bucket, key, upload_id, chunk_size, timeout),
+             :ok <- complete_multipart_upload(config, bucket, key, upload_id, parts) do
+          :ok
+        else
+          {:error, _reason} = error ->
+            # Abort with the actual upload_id so S3 cleans up orphaned parts
+            abort_multipart_upload(config, bucket, key, upload_id)
+            error
+        end
+
+      {:error, _reason} = error ->
         error
     end
   end
@@ -255,12 +266,15 @@ defmodule OmS3.Stream do
         }
 
       {:error, reason} ->
-        %{error: reason, done: true}
+        raise OmS3.StreamError,
+          message: "Failed to start S3 download: #{inspect(reason)}",
+          reason: reason,
+          uri: "s3://#{bucket}/#{key}",
+          offset: 0
     end
   end
 
   defp stream_download(%{done: true} = state), do: {:halt, state}
-  defp stream_download(%{error: _} = state), do: {:halt, state}
 
   defp stream_download(state) do
     %{
@@ -283,7 +297,11 @@ defmodule OmS3.Stream do
         {[chunk], %{state | offset: new_offset, done: done}}
 
       {:error, reason} ->
-        {[{:error, reason}], %{state | done: true, error: reason}}
+        raise OmS3.StreamError,
+          message: "S3 download failed at offset #{offset}: #{inspect(reason)}",
+          reason: reason,
+          uri: "s3://#{bucket}/#{key}",
+          offset: offset
     end
   end
 
@@ -305,10 +323,10 @@ defmodule OmS3.Stream do
         {:ok, body}
 
       {:ok, %{status: status, body: body}} ->
-        {:error, {:s3_error, status, body}}
+        {:error, Error.from_response(status, body)}
 
       {:error, reason} ->
-        {:error, reason}
+        {:error, Error.from_exception(reason)}
     end
   end
 
@@ -327,10 +345,10 @@ defmodule OmS3.Stream do
         {:ok, upload_id}
 
       {:ok, %{status: status, body: body}} ->
-        {:error, {:s3_error, status, body}}
+        {:error, Error.from_response(status, body)}
 
       {:error, reason} ->
-        {:error, reason}
+        {:error, Error.from_exception(reason)}
     end
   end
 
@@ -354,12 +372,24 @@ defmodule OmS3.Stream do
   end
 
   defp buffer_chunks(stream, chunk_size) do
-    # Buffer incoming chunks and emit complete chunks of chunk_size
-    # Uses a simple accumulator-based approach
-    Stream.transform(stream, <<>>, fn incoming_chunk, buffer ->
-      combined = buffer <> incoming_chunk
-      split_into_chunks(combined, chunk_size)
-    end)
+    # Buffer incoming chunks and emit complete chunks of chunk_size.
+    # The :after callback flushes the remaining buffer as the final chunk.
+    Stream.transform(
+      stream,
+      fn -> <<>> end,
+      fn incoming_chunk, buffer ->
+        combined = buffer <> incoming_chunk
+        split_into_chunks(combined, chunk_size)
+      end,
+      fn buffer ->
+        # Flush remaining bytes as the final (smaller) chunk
+        case buffer do
+          <<>> -> {:halt, <<>>}
+          remainder -> {[remainder], <<>>}
+        end
+      end,
+      fn _buffer -> :ok end
+    )
   end
 
   defp split_into_chunks(data, chunk_size) do
@@ -391,10 +421,10 @@ defmodule OmS3.Stream do
         {:ok, etag}
 
       {:ok, %{status: status, body: body}} ->
-        {:error, {:s3_error, status, body}}
+        {:error, Error.from_response(status, body)}
 
       {:error, reason} ->
-        {:error, reason}
+        {:error, Error.from_exception(reason)}
     end
   end
 
@@ -409,10 +439,10 @@ defmodule OmS3.Stream do
         :ok
 
       {:ok, %{status: status, body: resp_body}} ->
-        {:error, {:s3_error, status, resp_body}}
+        {:error, Error.from_response(status, resp_body)}
 
       {:error, reason} ->
-        {:error, reason}
+        {:error, Error.from_exception(reason)}
     end
   end
 

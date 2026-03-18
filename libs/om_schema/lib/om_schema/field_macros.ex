@@ -1,24 +1,8 @@
 defmodule OmSchema.FieldMacros do
   @moduledoc """
-  Field macros for Ecto schemas with customizable options.
+  Deprecated: Use `OmSchema` field group macros directly instead.
 
-  Provides macros to add common field sets to schemas with full control
-  over which fields to include and their types.
-
-  ## Usage
-
-      defmodule MyApp.Product do
-        use OmSchema
-        import OmSchema.FieldMacros
-
-        schema "products" do
-          field :name, :string
-
-          type_fields(only: [:type, :subtype])
-          status_fields(only: [:status])
-          timestamps()
-        end
-      end
+  This module's features have been merged into the main OmSchema macros.
   """
 
   # ============================================
@@ -147,7 +131,7 @@ defmodule OmSchema.FieldMacros do
   """
   defmacro audit_fields(opts \\ []) do
     quote bind_quoted: [opts: opts] do
-      alias OmFieldNames
+      alias OmSchema.FieldNames
 
       defaults = [
         track_urm: true,
@@ -286,7 +270,7 @@ defmodule OmSchema.FieldMacros do
   """
   defmacro soft_delete_fields(opts \\ []) do
     quote bind_quoted: [opts: opts] do
-      alias OmFieldNames
+      alias OmSchema.FieldNames
 
       # Always add deleted_at
       field FieldNames.deleted_at(), :utc_datetime_usec
@@ -303,7 +287,7 @@ defmodule OmSchema.FieldMacros do
 
       # Optional: track deletion reason
       if Keyword.get(opts, :track_reason, false) do
-        field FieldNames.deletion_reason(), :text
+        field FieldNames.deletion_reason(), :string
       end
     end
   end

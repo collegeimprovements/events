@@ -49,6 +49,8 @@ defmodule OmCache.MultiLevel do
   ```
   """
 
+  require Logger
+
   alias OmCache.Error
 
   @doc """
@@ -73,35 +75,24 @@ defmodule OmCache.MultiLevel do
     skip_promotion = Keyword.get(opts, :skip_promotion, false)
     l1_ttl = Keyword.get(opts, :l1_ttl, :timer.minutes(5))
 
-    cond do
-      skip_l1 ->
+    case {skip_l1, l1_cache.get(key, opts)} do
+      {true, _} ->
         fetch_from_l2(l2_cache, key)
 
-      true ->
-        case l1_cache.get(key, opts) do
+      {false, nil} ->
+        # L1 miss, try L2
+        case l2_cache.get(key, opts) do
           nil ->
-            # L1 miss, try L2
-            case l2_cache.get(key, opts) do
-              nil ->
-                nil
-
-              value ->
-                # L2 hit, promote to L1
-                unless skip_promotion do
-                  try do
-                    l1_cache.put(key, value, ttl: l1_ttl)
-                  rescue
-                    _ -> :ok
-                  end
-                end
-
-                value
-            end
+            nil
 
           value ->
-            # L1 hit
+            # L2 hit, promote to L1
+            maybe_promote(l1_cache, key, value, l1_ttl, skip_promotion)
             value
         end
+
+      {false, value} ->
+        value
     end
   end
 
@@ -128,17 +119,30 @@ defmodule OmCache.MultiLevel do
     l2_ttl = Keyword.get(opts, :l2_ttl, :timer.hours(1))
 
     try do
-      unless l2_only do
-        l1_cache.put(key, value, ttl: l1_ttl)
-      end
+      if not l2_only, do: l1_cache.put(key, value, ttl: l1_ttl)
 
-      unless l1_only do
-        l2_cache.put(key, value, ttl: l2_ttl)
+      if not l1_only do
+        try do
+          l2_cache.put(key, value, ttl: l2_ttl)
+        rescue
+          e ->
+            # Roll back L1 to prevent split-brain
+            if not l2_only do
+              try do
+                l1_cache.delete(key)
+              rescue
+                _ -> :ok
+              end
+            end
+
+            reraise e, __STACKTRACE__
+        end
       end
 
       {:ok, :ok}
     rescue
       exception ->
+        Logger.warning("OmCache.MultiLevel: put failed for key #{inspect(key)}: #{Exception.message(exception)}")
         {:error, Error.from_exception(exception, :put, key)}
     end
   end
@@ -217,8 +221,8 @@ defmodule OmCache.MultiLevel do
   @spec clear_all(module(), module(), keyword()) :: {:ok, :ok} | {:error, Error.t()}
   def clear_all(l1_cache, l2_cache, opts \\ []) do
     try do
-      l1_cache.delete_all(opts)
-      l2_cache.delete_all(opts)
+      l1_cache.delete_all(nil, opts)
+      l2_cache.delete_all(nil, opts)
       {:ok, :ok}
     rescue
       exception ->
@@ -227,6 +231,16 @@ defmodule OmCache.MultiLevel do
   end
 
   # Private
+
+  defp maybe_promote(_l1_cache, _key, _value, _ttl, true = _skip), do: :ok
+
+  defp maybe_promote(l1_cache, key, value, l1_ttl, false = _skip) do
+    try do
+      l1_cache.put(key, value, ttl: l1_ttl)
+    rescue
+      _ -> :ok
+    end
+  end
 
   defp fetch_from_l2(l2_cache, key) do
     try do

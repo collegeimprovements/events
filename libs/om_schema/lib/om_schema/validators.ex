@@ -23,6 +23,7 @@ defmodule OmSchema.Validators do
       apply(changeset, :email, :email, [])
       apply(changeset, :age, :min, value: 18)
   """
+  @spec apply(Ecto.Changeset.t(), atom(), atom(), keyword()) :: Ecto.Changeset.t()
   def apply(changeset, field, type, opts \\ [])
 
   # Required validation

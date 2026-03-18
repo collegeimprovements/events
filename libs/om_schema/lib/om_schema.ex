@@ -580,32 +580,112 @@ defmodule OmSchema do
   @doc """
   Adds audit tracking fields to the schema.
 
-  Audit fields track which user role mapping (URM) created or updated a record.
+  Audit fields track who created or updated a record, with multiple tracking
+  strategies that can be combined.
 
   ## Options
 
-    * `:only` - List of fields to include (default: `[:created_by_urm_id, :updated_by_urm_id]`)
-    * `:created_by_urm_id` - Options for the created_by field
-    * `:updated_by_urm_id` - Options for the updated_by field
+    * `:only` - List of URM fields to include (default: `[:created_by_urm_id, :updated_by_urm_id]`).
+      Only applies to URM tracking fields. Ignored when `track_urm: false`.
+    * `:track_urm` - Add URM tracking fields (default: `true`)
+    * `:track_user` - Add direct user ID tracking fields (default: `false`)
+    * `:track_ip` - Add IP address tracking fields (default: `false`)
+    * `:track_session` - Add session ID tracking fields (default: `false`)
+    * `:track_changes` - Add change history and version fields (default: `false`)
+    * `:created_by_urm_id` - Options for the created_by_urm_id field
+    * `:updated_by_urm_id` - Options for the updated_by_urm_id field
+
+  At least one tracking option must be enabled; raises `ArgumentError` otherwise.
+
+  ## Generated Fields
+
+    * `:created_by_urm_id` / `:updated_by_urm_id` - `:binary_id` (when `track_urm: true`)
+    * `:created_by_user_id` / `:updated_by_user_id` - `:binary_id` (when `track_user: true`)
+    * `:created_from_ip` / `:updated_from_ip` - `:string` (when `track_ip: true`)
+    * `:created_session_id` / `:updated_session_id` - `:string` (when `track_session: true`)
+    * `:change_history` - `{:array, :map}`, default `[]` (when `track_changes: true`)
+    * `:version` - `:integer`, default `1` (when `track_changes: true`)
 
   ## Examples
 
-      # Add both audit fields
+      # Default URM tracking
       audit_fields()
 
-      # Only track creation
+      # Only track creation via URM
       audit_fields(only: [:created_by_urm_id])
 
-      # With custom options
+      # URM + user tracking
+      audit_fields(track_user: true)
+
+      # User tracking only (no URM)
+      audit_fields(track_urm: false, track_user: true)
+
+      # Full audit trail
+      audit_fields(track_user: true, track_ip: true, track_session: true, track_changes: true)
+
+      # With custom field options
       audit_fields(created_by_urm_id: [required: true])
   """
   defmacro audit_fields(opts \\ []) do
     quote bind_quoted: [opts: opts] do
-      only = Keyword.get(opts, :only, [:created_by_urm_id, :updated_by_urm_id])
+      alias OmSchema.FieldNames
 
-      for field <- [:created_by_urm_id, :updated_by_urm_id], field in only do
-        field_opts = Keyword.get(opts, field, [])
-        OmSchema.__define_field__(__MODULE__, field, :binary_id, field_opts)
+      track_urm = Keyword.get(opts, :track_urm, true)
+      track_user = Keyword.get(opts, :track_user, false)
+      track_ip = Keyword.get(opts, :track_ip, false)
+      track_session = Keyword.get(opts, :track_session, false)
+      track_changes = Keyword.get(opts, :track_changes, false)
+
+      unless track_urm or track_user or track_ip or track_session or track_changes do
+        raise ArgumentError, """
+        audit_fields() requires at least one tracking option to be enabled.
+
+        You have disabled all tracking options:
+          track_urm: false, track_user: false, track_ip: false,
+          track_session: false, track_changes: false
+
+        Either enable at least one option or remove the audit_fields() call entirely.
+
+        Examples:
+          audit_fields()                              # URM tracking (default)
+          audit_fields(track_urm: false, track_user: true)  # User tracking only
+          audit_fields(track_ip: true)                # URM + IP tracking
+        """
+      end
+
+      # URM tracking (default: true)
+      if track_urm do
+        only = Keyword.get(opts, :only, [FieldNames.created_by_urm_id(), FieldNames.updated_by_urm_id()])
+
+        for field_name <- [FieldNames.created_by_urm_id(), FieldNames.updated_by_urm_id()],
+            field_name in only do
+          field_opts = Keyword.get(opts, field_name, [])
+          OmSchema.__define_field__(__MODULE__, field_name, :binary_id, field_opts)
+        end
+      end
+
+      # Optional: direct user ID tracking
+      if track_user do
+        OmSchema.__define_field__(__MODULE__, FieldNames.created_by_user_id(), :binary_id, [])
+        OmSchema.__define_field__(__MODULE__, FieldNames.updated_by_user_id(), :binary_id, [])
+      end
+
+      # Optional: IP tracking
+      if track_ip do
+        OmSchema.__define_field__(__MODULE__, FieldNames.created_from_ip(), :string, [])
+        OmSchema.__define_field__(__MODULE__, FieldNames.updated_from_ip(), :string, [])
+      end
+
+      # Optional: session tracking
+      if track_session do
+        OmSchema.__define_field__(__MODULE__, FieldNames.created_session_id(), :string, [])
+        OmSchema.__define_field__(__MODULE__, FieldNames.updated_session_id(), :string, [])
+      end
+
+      # Optional: change history tracking
+      if track_changes do
+        OmSchema.__define_field__(__MODULE__, FieldNames.change_history(), {:array, :map}, default: [])
+        OmSchema.__define_field__(__MODULE__, FieldNames.version(), :integer, default: 1)
       end
     end
   end
@@ -704,10 +784,14 @@ defmodule OmSchema do
 
     * `:deleted_at` - Timestamp when the record was soft deleted (nil if not deleted)
     * `:deleted_by_urm_id` - Optional: who deleted it (only if `track_urm: true`)
+    * `:deleted_by_user_id` - Optional: direct user who deleted it (only if `track_user: true`)
+    * `:deletion_reason` - Optional: reason for deletion (only if `track_reason: true`)
 
   ## Options
 
     * `:track_urm` - Add `deleted_by_urm_id` field (default: `false`)
+    * `:track_user` - Add `deleted_by_user_id` field (default: `false`)
+    * `:track_reason` - Add `deletion_reason` field (default: `false`)
     * `:deleted_at` - Options for the deleted_at field
     * `:deleted_by_urm_id` - Options for the deleted_by_urm_id field
 
@@ -716,8 +800,14 @@ defmodule OmSchema do
       # Basic soft delete
       soft_delete_field()
 
-      # With deletion tracking
+      # With URM deletion tracking
       soft_delete_field(track_urm: true)
+
+      # With user tracking and reason
+      soft_delete_field(track_user: true, track_reason: true)
+
+      # All tracking options
+      soft_delete_field(track_urm: true, track_user: true, track_reason: true)
 
   ## Generated Helpers
 
@@ -748,6 +838,8 @@ defmodule OmSchema do
   """
   defmacro soft_delete_field(opts \\ []) do
     quote bind_quoted: [opts: opts] do
+      alias OmSchema.FieldNames
+
       # Handle deprecated option name
       opts =
         if Keyword.has_key?(opts, :track_deleted_by) do
@@ -762,13 +854,15 @@ defmodule OmSchema do
         end
 
       track_urm = Keyword.get(opts, :track_urm, false)
+      track_user = Keyword.get(opts, :track_user, false)
+      track_reason = Keyword.get(opts, :track_reason, false)
 
       # Add deleted_at field
       deleted_at_opts = Keyword.get(opts, :deleted_at, [])
 
       OmSchema.__define_field__(
         __MODULE__,
-        :deleted_at,
+        FieldNames.deleted_at(),
         :utc_datetime_usec,
         deleted_at_opts
       )
@@ -779,9 +873,29 @@ defmodule OmSchema do
 
         OmSchema.__define_field__(
           __MODULE__,
-          :deleted_by_urm_id,
+          FieldNames.deleted_by_urm_id(),
           :binary_id,
           deleted_by_opts
+        )
+      end
+
+      # Optionally add deleted_by_user_id
+      if track_user do
+        OmSchema.__define_field__(
+          __MODULE__,
+          FieldNames.deleted_by_user_id(),
+          :binary_id,
+          []
+        )
+      end
+
+      # Optionally add deletion_reason
+      if track_reason do
+        OmSchema.__define_field__(
+          __MODULE__,
+          FieldNames.deletion_reason(),
+          :string,
+          []
         )
       end
 

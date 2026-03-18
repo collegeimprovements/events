@@ -297,9 +297,9 @@ defmodule OmCache.Helpers do
       #=> {:ok, false}
   """
   @spec exists?(module(), term(), keyword()) :: {:ok, boolean()} | {:error, Error.t()}
-  def exists?(cache, key, opts \\ []) do
+  def exists?(cache, key, _opts \\ []) do
     try do
-      result = cache.has_key?(key, opts)
+      result = cache.has_key?(key)
       {:ok, result}
     rescue
       exception ->
@@ -319,9 +319,9 @@ defmodule OmCache.Helpers do
       #=> {:error, %OmCache.Error{type: :key_not_found}}
   """
   @spec ttl(module(), term(), keyword()) :: {:ok, pos_integer() | :infinity} | {:error, Error.t()}
-  def ttl(cache, key, opts \\ []) do
+  def ttl(cache, key, _opts \\ []) do
     try do
-      case cache.ttl(key, opts) do
+      case cache.ttl(key) do
         nil -> {:error, Error.not_found(key, :ttl, cache: cache)}
         ttl_value -> {:ok, ttl_value}
       end

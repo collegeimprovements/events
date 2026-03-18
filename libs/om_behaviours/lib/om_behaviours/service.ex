@@ -134,7 +134,43 @@ defmodule OmBehaviours.Service do
   """
   @callback start_link(opts :: keyword()) :: {:ok, pid()} | {:error, term()}
 
-  @optional_callbacks child_spec: 1, start_link: 1
+  @doc """
+  Sets up a module as a Service with a default `child_spec/1`.
+
+  Provides a default `child_spec/1` implementation (overridable) so modules
+  only need to implement `start_link/1`.
+
+  ## Example
+
+      defmodule MyApp.Worker do
+        use OmBehaviours.Service
+
+        @impl true
+        def start_link(opts) do
+          GenServer.start_link(__MODULE__, opts, name: __MODULE__)
+        end
+      end
+
+      # Default child_spec produces:
+      # %{id: MyApp.Worker, start: {MyApp.Worker, :start_link, [opts]}, restart: :permanent, type: :worker}
+  """
+  defmacro __using__(_opts) do
+    quote do
+      @behaviour OmBehaviours.Service
+
+      @doc false
+      def child_spec(opts) do
+        %{
+          id: __MODULE__,
+          start: {__MODULE__, :start_link, [opts]},
+          restart: :permanent,
+          type: :worker
+        }
+      end
+
+      defoverridable child_spec: 1
+    end
+  end
 
   @doc """
   Helper to check if a module implements the Service behaviour.

@@ -208,12 +208,17 @@ defmodule OmQuery.Builder do
   end
 
   # List membership - with case insensitive support
+  # Warn on large IN lists that may degrade query planner performance
+  @max_in_list_size 10_000
+
   def filter_dynamic(field, :in, values, opts) when is_list(values) do
+    warn_large_in_list(field, :in, values)
     binding = opts[:binding] || :root
     build_in_dynamic(field, values, binding, opts[:case_insensitive] || false)
   end
 
   def filter_dynamic(field, :not_in, values, opts) when is_list(values) do
+    warn_large_in_list(field, :not_in, values)
     binding = opts[:binding] || :root
     build_not_in_dynamic(field, values, binding, opts[:case_insensitive] || false)
   end
@@ -287,6 +292,7 @@ defmodule OmQuery.Builder do
 
   # Range - single tuple
   def filter_dynamic(field, :between, {min, max}, opts) do
+    validate_between_range!(field, min, max)
     binding = opts[:binding] || :root
     dynamic([{^binding, q}], field(q, ^field) >= ^min and field(q, ^field) <= ^max)
   end
@@ -316,7 +322,14 @@ defmodule OmQuery.Builder do
 
   def filter_dynamic(field, :jsonb_contains, value, opts) do
     binding = opts[:binding] || :root
-    json_value = JSON.encode!(value)
+
+    json_value =
+      try do
+        JSON.encode!(value)
+      rescue
+        _ -> raise OmQuery.CastError, value: value, target_type: :json
+      end
+
     dynamic([{^binding, q}], fragment("? @> ?::jsonb", field(q, ^field), ^json_value))
   end
 
@@ -370,21 +383,24 @@ defmodule OmQuery.Builder do
   # Example: {:tags, :jsonb_array_elem, "vip", []}
   def filter_dynamic(field, :jsonb_array_elem, value, opts) do
     binding = opts[:binding] || :root
-    json_value = JSON.encode!([value])
+
+    json_value =
+      try do
+        JSON.encode!([value])
+      rescue
+        _ -> raise OmQuery.CastError, value: value, target_type: :json
+      end
+
     dynamic([{^binding, q}], fragment("? @> ?::jsonb", field(q, ^field), ^json_value))
   end
 
   # Fallback for unsupported operators
   def filter_dynamic(_field, op, _value, _opts) do
-    supported = Enum.map_join(@filter_operators, ", ", &":#{&1}")
-
-    raise ArgumentError, """
-    Unknown filter operator: #{inspect(op)}
-
-    Supported operators: #{supported}
-
-    For subqueries, use :in_subquery or :not_in_subquery
-    """
+    raise OmQuery.OperatorError,
+      operator: op,
+      context: :filter,
+      supported: @filter_operators,
+      suggestion: "For subqueries, use :in_subquery or :not_in_subquery"
   end
 
   # Private helpers for filter_dynamic
@@ -424,6 +440,30 @@ defmodule OmQuery.Builder do
   defp build_not_in_dynamic(field, values, binding, _case_insensitive) do
     dynamic([{^binding, q}], field(q, ^field) not in ^values)
   end
+
+  # Warn when IN/NOT IN list is very large (can degrade query planner)
+  defp warn_large_in_list(field, op, values) when length(values) > @max_in_list_size do
+    require Logger
+
+    Logger.warning(
+      "#{op} filter on :#{field} has #{length(values)} values (max recommended: #{@max_in_list_size}). " <>
+        "Consider using a subquery or temp table for large value lists."
+    )
+  end
+
+  defp warn_large_in_list(_field, _op, _values), do: :ok
+
+  # Validate BETWEEN range bounds ordering
+  defp validate_between_range!(field, min, max)
+       when is_number(min) and is_number(max) and min > max do
+    raise OmQuery.ValidationError,
+      operation: :between,
+      reason: "min (#{inspect(min)}) is greater than max (#{inspect(max)})",
+      value: {min, max},
+      suggestion: "Swap the values: OmQuery.filter(token, :#{field}, :between, {#{max}, #{min}})"
+  end
+
+  defp validate_between_range!(_field, _min, _max), do: :ok
 
   ## Filter Groups (OR/AND)
 
@@ -1130,28 +1170,10 @@ defmodule OmQuery.Builder do
           Map.put(acc, key, dynamic([{^binding, b}], field(b, ^field)))
 
         # Window function syntax - provide helpful error
-        {key, {:window, _func, opts}}, _acc when is_list(opts) ->
-          raise ArgumentError, """
-          Window functions in select require compile-time Ecto macros.
-
-          For dynamic window functions, use one of these approaches:
-
-          1. Build the query directly with Ecto.Query:
-
-             from(p in Product,
-               windows: [w: [partition_by: :category_id, order_by: [desc: :price]]],
-               select: %{name: p.name, rank: over(row_number(), :w)}
-             )
-
-          2. Use fragment in select for raw SQL:
-
-             OmQuery.select(token, %{
-               name: :name,
-               rank: fragment("ROW_NUMBER() OVER (PARTITION BY category_id ORDER BY price DESC)")
-             })
-
-          Key: #{inspect(key)}
-          """
+        {_key, {:window, func, opts}}, _acc when is_list(opts) ->
+          raise OmQuery.WindowFunctionError,
+            function: func,
+            context: :select
 
         # Fragment pass-through (for raw SQL window functions)
         {key, %Ecto.Query.DynamicExpr{} = dynamic_expr}, acc ->
@@ -1513,27 +1535,9 @@ defmodule OmQuery.Builder do
     # Build the complete window function SQL using the window name reference
     # Since Ecto doesn't support dynamic window references, we use the
     # inline OVER clause syntax instead of named windows
-    raise ArgumentError, """
-    Dynamic window function references are not supported by Ecto's compile-time macros.
-
-    For window functions, use one of these approaches:
-
-    1. Use raw SQL with raw_where or raw select fragments:
-
-       select(%{
-         rank: fragment("ROW_NUMBER() OVER (PARTITION BY category_id ORDER BY price DESC)")
-       })
-
-    2. Build the query directly with Ecto.Query macros:
-
-       from(p in Product,
-         windows: [w: [partition_by: :category_id, order_by: [desc: :price]]],
-         select: %{name: p.name, rank: over(row_number(), :w)}
-       )
-
-    Window function: #{inspect(func)}
-    Window name: #{inspect(window_name)}
-    """
+    raise OmQuery.WindowFunctionError,
+      function: func,
+      context: :dynamic
   end
 
   ## Raw WHERE

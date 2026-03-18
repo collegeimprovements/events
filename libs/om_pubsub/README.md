@@ -15,6 +15,36 @@ def deps do
 end
 ```
 
+## 1 min Setup Guide
+
+**1. Add dependencies** (`mix.exs`):
+
+```elixir
+{:om_pubsub, "~> 0.1.0"},
+{:phoenix_pubsub, "~> 2.1"},
+{:phoenix_pubsub_redis, "~> 3.0", optional: true},  # For Redis adapter
+{:redix, "~> 1.2", optional: true}                   # For Redis adapter
+```
+
+**2. Add to supervision tree** (`application.ex`):
+
+```elixir
+children = [
+  {OmPubSub, name: MyApp.PubSub}
+]
+```
+
+**3. Set environment variables** (optional — for adapter selection):
+
+```bash
+PUBSUB_ADAPTER=redis          # redis | postgres | local (auto-detected if not set)
+REDIS_HOST=localhost           # Redis host
+REDIS_PORT=6379                # Redis port
+DATABASE_URL=ecto://...        # For Postgres adapter
+```
+
+OmPubSub auto-detects the best adapter based on available dependencies. No config file needed for basic usage.
+
 ## Why OmPubSub?
 
 ```

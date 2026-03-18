@@ -239,7 +239,7 @@ defmodule OmSchema.Introspection do
     normalizations = format_normalizations_doc(spec.normalizations)
 
     doc = """
-    **#{spec.field}** (#{spec.type})
+    **#{spec.field}** (#{inspect(spec.type)})
       Required: #{spec.required}
       Nullable: #{spec.nullable}
       Cast: #{spec.cast}

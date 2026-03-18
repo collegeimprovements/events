@@ -53,8 +53,6 @@ defmodule OmS3.Config do
         proxy_auth: {System.get_env("PROXY_USER"), System.get_env("PROXY_PASS")}
   """
 
-  require Logger
-
   @type proxy :: {String.t(), pos_integer()} | {:http, String.t(), pos_integer(), keyword()}
   @type proxy_auth :: {String.t(), String.t()}
 
@@ -65,6 +63,7 @@ defmodule OmS3.Config do
           endpoint: String.t() | nil,
           proxy: proxy() | nil,
           proxy_auth: proxy_auth() | nil,
+          no_proxy: [String.t()],
           connect_timeout: pos_integer(),
           receive_timeout: pos_integer(),
           pool_timeout: pos_integer(),
@@ -81,6 +80,7 @@ defmodule OmS3.Config do
     :endpoint,
     :proxy,
     :proxy_auth,
+    no_proxy: [],
     connect_timeout: 30_000,
     receive_timeout: 60_000,
     pool_timeout: 5_000,
@@ -104,8 +104,10 @@ defmodule OmS3.Config do
   - `:receive_timeout` - Receive timeout in ms (default: 60000)
   - `:pool_timeout` - Connection pool checkout timeout in ms (default: 5000)
   - `:max_retries` - Maximum retry attempts for failed requests (default: 3)
-  - `:transfer_acceleration` - Enable S3 Transfer Acceleration (default: false)
-  - `:path_style` - Use path-style URLs instead of virtual-hosted-style (default: false)
+  - `:transfer_acceleration` - Enable S3 Transfer Acceleration (AWS-only, default: false)
+  - `:path_style` - Use path-style URLs instead of virtual-hosted-style.
+    Defaults to `true` when `:endpoint` is set (recommended for non-AWS providers),
+    `false` otherwise (AWS virtual-hosted-style). Override explicitly if needed.
 
   ## Examples
 
@@ -125,7 +127,7 @@ defmodule OmS3.Config do
   """
   @spec new(keyword()) :: t()
   def new(opts) do
-    {proxy_host, proxy_auth} = normalize_proxy_opts(opts)
+    {proxy_host, proxy_auth, no_proxy} = normalize_proxy_opts(opts)
     # Support both :timeout and :connect_timeout for consistency with other libs
     connect_timeout = Keyword.get(opts, :connect_timeout) || Keyword.get(opts, :timeout, 30_000)
     connect_timeout = validate_timeout!(connect_timeout, :connect_timeout)
@@ -134,13 +136,20 @@ defmodule OmS3.Config do
     max_retries = validate_max_retries!(Keyword.get(opts, :max_retries, 3))
 
     endpoint = Keyword.get(opts, :endpoint)
+    is_custom_endpoint = endpoint != nil and not String.contains?(endpoint || "", "amazonaws.com")
     transfer_acceleration = Keyword.get(opts, :transfer_acceleration, false)
 
-    if transfer_acceleration && endpoint && !String.contains?(endpoint, "amazonaws.com") do
-      Logger.warning(
-        "[OmS3] Transfer Acceleration is AWS-only and will be ignored for endpoint #{endpoint}"
-      )
+    # Transfer Acceleration is AWS-only — raise for non-AWS endpoints instead of
+    # silently generating broken s3-accelerate.amazonaws.com URLs
+    if transfer_acceleration && is_custom_endpoint do
+      raise ArgumentError,
+        "transfer_acceleration is AWS-only and cannot be used with endpoint #{inspect(endpoint)}"
     end
+
+    # Default to path-style for custom endpoints (MinIO, RustFS, R2, LocalStack, etc.)
+    # Virtual-hosted-style requires DNS support (bucket.endpoint) which most non-AWS
+    # providers don't offer. Users can explicitly set path_style: false to override.
+    path_style = Keyword.get_lazy(opts, :path_style, fn -> is_custom_endpoint end)
 
     %__MODULE__{
       access_key_id: Keyword.fetch!(opts, :access_key_id),
@@ -149,12 +158,13 @@ defmodule OmS3.Config do
       endpoint: endpoint,
       proxy: proxy_host,
       proxy_auth: proxy_auth,
+      no_proxy: no_proxy,
       connect_timeout: connect_timeout,
       receive_timeout: receive_timeout,
       pool_timeout: pool_timeout,
       max_retries: max_retries,
       transfer_acceleration: transfer_acceleration,
-      path_style: Keyword.get(opts, :path_style, false)
+      path_style: path_style
     }
   end
 
@@ -174,13 +184,17 @@ defmodule OmS3.Config do
     # Priority: explicit option > app config > env vars
     proxy = Keyword.get(opts, :proxy) || get_app_config_proxy()
     proxy_auth = Keyword.get(opts, :proxy_auth) || get_app_config_proxy_auth()
+    no_proxy = Keyword.get(opts, :no_proxy, [])
 
     case proxy do
       nil ->
         # Fallback to env vars
         case OmHttp.Proxy.from_env() do
-          {:ok, %OmHttp.Proxy{host: host, auth: auth}} -> {host, auth}
-          :no_proxy -> {nil, nil}
+          {:ok, %OmHttp.Proxy{host: host, auth: auth, no_proxy: env_no_proxy}} ->
+            {host, auth, env_no_proxy}
+
+          :no_proxy ->
+            {nil, nil, []}
         end
 
       url when is_binary(url) ->
@@ -188,17 +202,17 @@ defmodule OmS3.Config do
         case OmHttp.Proxy.parse(url) do
           {:ok, %OmHttp.Proxy{host: host, auth: url_auth}} ->
             # Explicit proxy_auth takes precedence over URL-embedded auth
-            {host, proxy_auth || url_auth}
+            {host, proxy_auth || url_auth, no_proxy}
 
           {:error, _} ->
-            {nil, nil}
+            {nil, nil, []}
         end
 
       {host, port} when is_binary(host) and is_integer(port) ->
-        {{:http, host, port, []}, proxy_auth}
+        {{:http, host, port, []}, proxy_auth, no_proxy}
 
       {:http, _host, _port, _opts} = full_proxy ->
-        {full_proxy, proxy_auth}
+        {full_proxy, proxy_auth, no_proxy}
     end
   end
 
@@ -263,8 +277,14 @@ defmodule OmS3.Config do
   def connect_options(%__MODULE__{} = config) do
     opts = [timeout: config.connect_timeout]
 
-    opts
-    |> maybe_add_proxy(config.proxy, config.proxy_auth)
+    # Only add proxy if the S3 endpoint should not bypass it (respects NO_PROXY)
+    s3_host = extract_s3_host(config)
+    proxy_config = %OmHttp.Proxy{host: config.proxy, auth: config.proxy_auth, no_proxy: config.no_proxy}
+
+    case OmHttp.Proxy.should_bypass?(proxy_config, s3_host) do
+      true -> opts
+      false -> maybe_add_proxy(opts, config.proxy, config.proxy_auth)
+    end
   end
 
   @doc """
@@ -296,9 +316,11 @@ defmodule OmS3.Config do
       region: config.region
     ]
 
-    opts
-    |> maybe_add_endpoint(config.endpoint)
-    |> maybe_add_acceleration(config.transfer_acceleration, bucket)
+    # Custom endpoint takes precedence; acceleration only applies to AWS
+    case config.endpoint do
+      nil -> maybe_add_acceleration(opts, config.transfer_acceleration, bucket)
+      endpoint -> maybe_add_endpoint(opts, endpoint)
+    end
   end
 
   @doc """
@@ -357,6 +379,17 @@ defmodule OmS3.Config do
   # ============================================
   # Private Helpers
   # ============================================
+
+  defp extract_s3_host(%__MODULE__{endpoint: nil, region: region}) do
+    "s3.#{region}.amazonaws.com"
+  end
+
+  defp extract_s3_host(%__MODULE__{endpoint: endpoint}) do
+    case URI.parse(endpoint) do
+      %{host: host} when is_binary(host) -> host
+      _ -> "s3.amazonaws.com"
+    end
+  end
 
   defp maybe_add_proxy(opts, nil, _auth), do: opts
 

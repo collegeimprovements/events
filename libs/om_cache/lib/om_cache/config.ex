@@ -40,6 +40,8 @@ defmodule OmCache.Config do
       )
   """
 
+  require Logger
+
   alias FnTypes.Config, as: Cfg
 
   @type adapter ::
@@ -202,7 +204,11 @@ defmodule OmCache.Config do
   defp parse_adapter("replicated"), do: Nebulex.Adapters.Replicated
   defp parse_adapter("redis"), do: NebulexRedisAdapter
   defp parse_adapter(""), do: NebulexRedisAdapter
-  defp parse_adapter(_unknown), do: NebulexRedisAdapter
+
+  defp parse_adapter(unknown) do
+    Logger.warning("OmCache.Config: unknown CACHE_ADAPTER #{inspect(unknown)}, defaulting to redis")
+    NebulexRedisAdapter
+  end
 
   defp build_for_adapter(Nebulex.Adapters.Local, opts) do
     local_defaults = [

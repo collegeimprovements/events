@@ -10,6 +10,29 @@ def deps do
 end
 ```
 
+## 1 min Setup Guide
+
+**1. Add dependency** (`mix.exs`):
+
+```elixir
+{:fn_types, "~> 0.1.0"}
+```
+
+**2. Configure** (`config/config.exs` — optional):
+
+```elixir
+# Telemetry prefix for instrumented modules
+config :fn_types,
+  telemetry_prefix: [:my_app]
+
+# Retry defaults (only if using FnTypes.Retry)
+config :fn_types, FnTypes.Retry,
+  default_repo: MyApp.Repo,
+  telemetry_prefix: [:my_app, :retry]
+```
+
+No supervision, no environment variables. Works out of the box with zero config — the above is optional for telemetry and retry customization.
+
 ---
 
 ## Why FnTypes?
@@ -317,11 +340,8 @@ Pipeline.new(ctx)
   condition: fn ctx -> ctx.user.notifications_enabled end
 )
 
-# Or use then_if
-|> Pipeline.then_if(
-  fn ctx -> ctx.user.premium end,
-  fn p -> Pipeline.step(p, :premium_feature, &apply_premium/1) end
-)
+# Or use step_if
+|> Pipeline.step_if(:premium_feature, &premium?/1, &apply_premium/1)
 ```
 
 ### Parallel Steps
@@ -375,22 +395,6 @@ Pipeline.new(ctx)
 |> Pipeline.step(:create_order, &create_order/1)
 |> Pipeline.run_with_rollback()
 # If charge_payment fails, reserve_inventory rollback is called
-```
-
-### Checkpoint and Resume
-
-```elixir
-# Save checkpoint
-Pipeline.new(ctx)
-|> Pipeline.step(:step1, &step1/1)
-|> Pipeline.checkpoint(:after_step1)  # Saves state
-|> Pipeline.step(:step2, &step2/1)
-|> Pipeline.run()
-
-# Resume from checkpoint
-Pipeline.resume(saved_state)
-|> Pipeline.step(:step3, &step3/1)
-|> Pipeline.run()
 ```
 
 ---

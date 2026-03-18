@@ -46,59 +46,82 @@ defmodule Effect.Runtime do
     execution_id = generate_execution_id()
     report_enabled = Keyword.get(opts, :report, false)
     debug = Keyword.get(opts, :debug, false)
+    timeout = Keyword.get(opts, :timeout)
     services = merge_services(effect.services, Keyword.get(opts, :services, %{}))
 
-    # Build DAG and get execution order
-    case Builder.build_dag(effect) do
-      {:ok, dag} ->
-        case Dag.Algorithms.topological_sort(dag) do
-          {:ok, order} ->
-            report = if report_enabled, do: Report.new(effect.name, execution_id), else: nil
+    execute_fn = fn ->
+      # Build DAG and get execution order
+      case Builder.build_dag(effect) do
+        {:ok, dag} ->
+          case Dag.Algorithms.topological_sort(dag) do
+            {:ok, order} ->
+              report = if report_enabled, do: Report.new(effect.name, execution_id), else: nil
 
-            # Run hooks
-            run_hooks(effect.hooks.on_start, effect.name, initial_ctx)
+              # Run hooks
+              run_hooks(effect.hooks.on_start, effect.name, initial_ctx)
 
-            # Execute steps
-            result =
-              execute_steps(
-                order,
-                effect,
-                Context.new(initial_ctx),
-                services,
-                execution_id,
-                report,
-                debug
-              )
+              # Execute steps
+              result =
+                execute_steps(
+                  order,
+                  effect,
+                  Context.new(initial_ctx),
+                  services,
+                  execution_id,
+                  report,
+                  debug
+                )
 
-            # Run completion hooks
-            case result do
-              {:ok, ctx, report} ->
-                run_hooks(effect.hooks.on_complete, effect.name, ctx)
-                run_ensure_fns(effect.ensure_fns, ctx, :ok)
-                finalize_result({:ok, ctx}, report, report_enabled)
+              # Run completion hooks
+              case result do
+                {:ok, ctx, report} ->
+                  run_hooks(effect.hooks.on_complete, effect.name, ctx)
+                  run_ensure_fns(effect.ensure_fns, ctx, :ok)
+                  finalize_result({:ok, ctx}, report, report_enabled)
 
-              {:error, error, ctx, report} ->
-                run_hooks(effect.hooks.on_complete, effect.name, ctx)
-                run_ensure_fns(effect.ensure_fns, ctx, {:error, error})
-                finalize_result({:error, error}, report, report_enabled)
+                {:error, error, ctx, report} ->
+                  run_hooks(effect.hooks.on_complete, effect.name, ctx)
+                  run_ensure_fns(effect.ensure_fns, ctx, {:error, error})
+                  finalize_result({:error, error}, report, report_enabled)
 
-              {:halted, reason, ctx, report} ->
-                run_hooks(effect.hooks.on_complete, effect.name, ctx)
-                run_ensure_fns(effect.ensure_fns, ctx, {:halted, reason})
-                finalize_result({:halted, reason}, report, report_enabled)
+                {:halted, reason, ctx, report} ->
+                  run_hooks(effect.hooks.on_complete, effect.name, ctx)
+                  run_ensure_fns(effect.ensure_fns, ctx, {:halted, reason})
+                  finalize_result({:halted, reason}, report, report_enabled)
 
-              {:checkpoint, exec_id, checkpoint_name, ctx, report} ->
-                # Checkpoint pauses execution - don't run completion hooks yet
-                finalize_result({:checkpoint, exec_id, checkpoint_name, ctx}, report, report_enabled)
-            end
+                {:checkpoint, exec_id, checkpoint_name, ctx, report} ->
+                  # Checkpoint pauses execution - don't run completion hooks yet
+                  finalize_result({:checkpoint, exec_id, checkpoint_name, ctx}, report, report_enabled)
+              end
 
-          {:error, {:cycle_detected, path}} ->
-            error = Error.new(:dag, {:cycle_detected, path}, effect_name: effect.name)
-            finalize_result({:error, error}, nil, report_enabled)
-        end
+            {:error, {:cycle_detected, path}} ->
+              error = Error.new(:dag, {:cycle_detected, path}, effect_name: effect.name)
+              finalize_result({:error, error}, nil, report_enabled)
+          end
 
-      {:error, reason} ->
-        error = Error.new(:dag, reason, effect_name: effect.name)
+        {:error, reason} ->
+          error = Error.new(:dag, reason, effect_name: effect.name)
+          finalize_result({:error, error}, nil, report_enabled)
+      end
+    end
+
+    if timeout do
+      execute_with_timeout(execute_fn, timeout, effect.name, report_enabled)
+    else
+      execute_fn.()
+    end
+  end
+
+  # Wrap execution in a task with a total timeout
+  defp execute_with_timeout(execute_fn, timeout, effect_name, report_enabled) do
+    task = Task.async(fn -> execute_fn.() end)
+
+    case Task.yield(task, timeout) || Task.shutdown(task, :brutal_kill) do
+      {:ok, result} ->
+        result
+
+      nil ->
+        error = Error.new(:timeout, {:execution_timeout, timeout}, effect_name: effect_name)
         finalize_result({:error, error}, nil, report_enabled)
     end
   end
@@ -160,11 +183,14 @@ defmodule Effect.Runtime do
 
     {result, attempts} =
       try do
-        execute_step_with_middleware(step, ctx, services, effect.middleware)
+        execute_step_with_timeout(step, ctx, services, effect.middleware)
       rescue
         e ->
-          {{:error, e}, 1}
+          {{:error, e, __STACKTRACE__}, 1}
       end
+
+    # Apply catch/fallback on error
+    result = maybe_catch_or_fallback(result, step, ctx)
 
     duration = System.monotonic_time(:millisecond) - start_time
 
@@ -184,10 +210,31 @@ defmodule Effect.Runtime do
 
           do_execute_steps(rest, steps_map, effect, new_ctx, services, execution_id, report, debug, [name | completed])
 
+        {:error, reason, stacktrace} when is_list(stacktrace) ->
+          if debug, do: log_step(effect.name, name, :error, duration, attempts)
+
+          run_error_hooks(effect.hooks.on_error, name, reason, ctx)
+
+          error =
+            Error.new(name, reason,
+              context: ctx,
+              execution_id: execution_id,
+              effect_name: effect.name,
+              duration_ms: duration,
+              attempts: attempts,
+              stacktrace: stacktrace
+            )
+
+          {error, report} = execute_rollbacks(completed, steps_map, effect, ctx, error, report)
+
+          report = if report, do: Report.add_step(report, name, :error, duration_ms: duration, reason: reason, attempts: attempts), else: nil
+          report = if report, do: Report.complete(report, :error, error: error), else: nil
+
+          {:error, error, ctx, report}
+
         {:error, reason} ->
           if debug, do: log_step(effect.name, name, :error, duration, attempts)
 
-          # Run error hooks
           run_error_hooks(effect.hooks.on_error, name, reason, ctx)
 
           error =
@@ -199,7 +246,6 @@ defmodule Effect.Runtime do
               attempts: attempts
             )
 
-          # Trigger rollbacks for completed steps (completed is already in reverse order)
           {error, report} = execute_rollbacks(completed, steps_map, effect, ctx, error, report)
 
           report = if report, do: Report.add_step(report, name, :error, duration_ms: duration, reason: reason, attempts: attempts), else: nil
@@ -262,7 +308,7 @@ defmodule Effect.Runtime do
 
         do_execute_steps(rest, steps_map, effect, new_ctx, services, execution_id, report, debug, [name | completed])
 
-      {:error, failed_step, reason, _completed_steps} ->
+      {:error, failed_step, reason, completed_parallel_steps} ->
         if debug, do: log_step(effect.name, name, :error, duration)
 
         # Run error hooks
@@ -274,7 +320,10 @@ defmodule Effect.Runtime do
             execution_id: execution_id,
             effect_name: effect.name,
             duration_ms: duration,
-            metadata: %{parallel_group: name}
+            metadata: %{
+              parallel_group: name,
+              completed_parallel_steps: Enum.map(completed_parallel_steps, &elem(&1, 0))
+            }
           )
 
         # Trigger rollbacks for completed steps
@@ -592,10 +641,10 @@ defmodule Effect.Runtime do
       end)
 
     # Wait for first success or all failures
-    result = await_race(tasks, [], timeout)
+    {result, remaining_tasks} = await_race(tasks, [], timeout)
 
-    # Kill remaining tasks
-    Enum.each(tasks, fn task ->
+    # Shutdown only remaining tasks (winner already demonitored/flushed)
+    Enum.each(remaining_tasks, fn task ->
       Task.shutdown(task, :brutal_kill)
     end)
 
@@ -632,15 +681,16 @@ defmodule Effect.Runtime do
   end
 
   defp await_race([], failures, _timeout) do
-    {:all_failed, Enum.reverse(failures)}
+    {{:all_failed, Enum.reverse(failures)}, []}
   end
 
   defp await_race(tasks, failures, timeout) do
     receive do
       {ref, {:ok, index, result}} ->
-        # Clean up the DOWN message
+        # Clean up the DOWN message for the winner
         Process.demonitor(ref, [:flush])
-        {:ok, index, result}
+        remaining = Enum.reject(tasks, &(&1.ref == ref))
+        {{:ok, index, result}, remaining}
 
       {ref, {:error, index, reason}} ->
         Process.demonitor(ref, [:flush])
@@ -652,7 +702,7 @@ defmodule Effect.Runtime do
         await_race(remaining, [{:unknown, reason} | failures], timeout)
     after
       timeout ->
-        {:timeout, Enum.reverse(failures)}
+        {{:timeout, Enum.reverse(failures)}, tasks}
     end
   end
 
@@ -798,11 +848,19 @@ defmodule Effect.Runtime do
     # We'll try each checkpoint's load function until we find one that works
     checkpoint_configs = effect.checkpoints
 
-    load_result =
-      Enum.find_value(checkpoint_configs, {:error, :not_found}, fn {_name, config} ->
+    {load_result, matched_config} =
+      Enum.reduce_while(checkpoint_configs, {{:error, :not_found}, nil}, fn {name, config}, _acc ->
         case config.load.(execution_id) do
-          {:ok, state} -> {:ok, state}
-          {:error, _} -> nil
+          {:ok, %{status: status}} when status in [:resumed, :completed] ->
+            Logger.warning("[Effect] Checkpoint #{name} for execution #{execution_id} was already resumed")
+            {:halt, {{:error, {:already_resumed, execution_id}}, config}}
+
+          {:ok, state} ->
+            {:halt, {{:ok, state}, config}}
+
+          {:error, reason} ->
+            Logger.debug("[Effect] Checkpoint #{name} load failed for #{execution_id}: #{inspect(reason)}")
+            {:cont, {{:error, :not_found}, nil}}
         end
       end)
 
@@ -811,7 +869,27 @@ defmodule Effect.Runtime do
         # Validate state matches effect
         case Effect.Checkpoint.validate_state(checkpoint_state, effect.name) do
           :ok ->
-            resume_from_state(effect, checkpoint_state, opts)
+            # Mark as resumed to prevent double-resume
+            if matched_config do
+              resumed_state = Map.put(checkpoint_state, :status, :resumed)
+              matched_config.store.(execution_id, resumed_state)
+            end
+
+            result = resume_from_state(effect, checkpoint_state, opts)
+
+            # Clean up checkpoint on successful completion
+            case result do
+              {:ok, _} ->
+                if matched_config, do: cleanup_checkpoint(matched_config, execution_id)
+                result
+
+              {{:ok, _}, _report} ->
+                if matched_config, do: cleanup_checkpoint(matched_config, execution_id)
+                result
+
+              other ->
+                other
+            end
 
           {:error, reason} ->
             {:error, Error.new(:resume, {:invalid_checkpoint_state, reason},
@@ -819,6 +897,12 @@ defmodule Effect.Runtime do
               effect_name: effect.name
             )}
         end
+
+      {:error, {:already_resumed, _} = reason} ->
+        {:error, Error.new(:resume, reason,
+          context: %{},
+          effect_name: effect.name
+        )}
 
       {:error, :not_found} ->
         {:error, Error.new(:resume, {:checkpoint_not_found, execution_id},
@@ -875,6 +959,70 @@ defmodule Effect.Runtime do
         {:error, Error.new(:build_dag, reason, context: %{}, effect_name: effect.name)}
     end
   end
+
+  # Execute step with optional per-step timeout wrapping middleware+retry
+  defp execute_step_with_timeout(step, ctx, services, middleware) do
+    case step.timeout do
+      nil ->
+        execute_step_with_middleware(step, ctx, services, middleware)
+
+      timeout when is_integer(timeout) ->
+        task = Task.async(fn ->
+          execute_step_with_middleware(step, ctx, services, middleware)
+        end)
+
+        case Task.yield(task, timeout) || Task.shutdown(task, :brutal_kill) do
+          {:ok, result} ->
+            result
+
+          nil ->
+            {{:error, {:step_timeout, step.name, timeout}}, 1}
+        end
+    end
+  end
+
+  # Apply catch handler or fallback on error results
+  defp maybe_catch_or_fallback({:error, reason} = error, step, ctx) do
+    cond do
+      # Try catch handler first
+      step.catch != nil ->
+        try do
+          step.catch.(reason, ctx)
+        rescue
+          e -> {:error, {:catch_handler_failed, e}}
+        end
+
+      # Then try fallback
+      step.fallback != nil && fallback_matches?(reason, step.fallback_when) ->
+        {:ok, step.fallback}
+
+      true ->
+        error
+    end
+  end
+
+  defp maybe_catch_or_fallback({:error, reason, stacktrace} = error, step, ctx) when is_list(stacktrace) do
+    cond do
+      step.catch != nil ->
+        try do
+          step.catch.(reason, ctx)
+        rescue
+          e -> {:error, {:catch_handler_failed, e}}
+        end
+
+      step.fallback != nil && fallback_matches?(reason, step.fallback_when) ->
+        {:ok, step.fallback}
+
+      true ->
+        error
+    end
+  end
+
+  defp maybe_catch_or_fallback(result, _step, _ctx), do: result
+
+  # Check if error reason matches fallback_when filter
+  defp fallback_matches?(_reason, nil), do: true
+  defp fallback_matches?(reason, allowed) when is_list(allowed), do: reason in allowed
 
   # Execute step with middleware chain and optional retry
   defp execute_step_with_middleware(step, ctx, services, middleware) do
@@ -990,6 +1138,15 @@ defmodule Effect.Runtime do
 
   defp build_steps_map(effect) do
     Map.new(effect.steps, fn s -> {s.name, s} end)
+  end
+
+  defp cleanup_checkpoint(config, execution_id) do
+    try do
+      # Use delete if available on the store module, otherwise store a tombstone
+      config.store.(execution_id, %{status: :completed, completed_at: DateTime.utc_now()})
+    rescue
+      _ -> :ok
+    end
   end
 
   defp log_step(effect_name, step_name, status, duration \\ nil, attempts \\ 1) do

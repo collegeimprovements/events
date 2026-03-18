@@ -63,7 +63,7 @@ defmodule OmCache.CircuitBreaker do
   """
   @spec start_link(module(), keyword()) :: GenServer.on_start()
   def start_link(cache, opts \\ []) do
-    GenServer.start_link(__MODULE__, {cache, opts}, name: via_tuple(cache))
+    GenServer.start_link(__MODULE__, {cache, opts}, name: process_name(cache))
   end
 
   @doc """
@@ -110,7 +110,7 @@ defmodule OmCache.CircuitBreaker do
   """
   @spec get_state(module()) :: state()
   def get_state(cache) do
-    GenServer.call(via_tuple(cache), :get_state)
+    GenServer.call(process_name(cache), :get_state)
   end
 
   @doc """
@@ -136,7 +136,7 @@ defmodule OmCache.CircuitBreaker do
   """
   @spec reset(module()) :: :ok
   def reset(cache) do
-    GenServer.call(via_tuple(cache), :reset)
+    GenServer.call(process_name(cache), :reset)
   end
 
   @doc """
@@ -154,7 +154,7 @@ defmodule OmCache.CircuitBreaker do
   """
   @spec stats(module()) :: map()
   def stats(cache) do
-    GenServer.call(via_tuple(cache), :stats)
+    GenServer.call(process_name(cache), :stats)
   end
 
   # Server Callbacks
@@ -245,31 +245,26 @@ defmodule OmCache.CircuitBreaker do
 
   # Private Helpers
 
-  defp via_tuple(cache), do: {:via, Registry, {OmCache.CircuitBreakerRegistry, cache}}
+  defp process_name(cache), do: Module.concat(__MODULE__, cache)
 
   defp execute_with_tracking(cache, cache_fn, fallback_fn, timeout) do
     start_time = System.monotonic_time(:millisecond)
+    task = Task.async(fn -> cache_fn.(cache) end)
 
-    try do
-      task =
-        Task.async(fn ->
-          cache_fn.(cache)
-        end)
+    case Task.yield(task, timeout) || Task.shutdown(task, :brutal_kill) do
+      {:ok, result} ->
+        latency = System.monotonic_time(:millisecond) - start_time
+        GenServer.call(process_name(cache), {:record_success, latency})
+        result
 
-      result = Task.await(task, timeout)
-      latency = System.monotonic_time(:millisecond) - start_time
-
-      GenServer.call(via_tuple(cache), {:record_success, latency})
-      result
-    catch
-      :exit, {:timeout, _} ->
-        Logger.warning("Cache operation timeout for #{inspect(cache)}")
-        GenServer.call(via_tuple(cache), :record_error)
+      {:exit, reason} ->
+        Logger.warning("Cache operation failed for #{inspect(cache)}: #{inspect(reason)}")
+        GenServer.call(process_name(cache), :record_error)
         fallback_fn.()
 
-      kind, reason ->
-        Logger.warning("Cache operation failed: #{kind} - #{inspect(reason)}")
-        GenServer.call(via_tuple(cache), :record_error)
+      nil ->
+        Logger.warning("Cache operation timeout for #{inspect(cache)}")
+        GenServer.call(process_name(cache), :record_error)
         fallback_fn.()
     end
   end
@@ -340,6 +335,8 @@ defmodule OmCache.CircuitBreaker do
       %{
         state
         | state: :half_open,
+          error_count: 0,
+          last_error_time: nil,
           last_state_change: now
       }
     else

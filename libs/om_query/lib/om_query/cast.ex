@@ -91,7 +91,13 @@ defmodule OmQuery.Cast do
   def cast(value, :float) when is_integer(value), do: value * 1.0
 
   # Decimal
-  def cast(value, :decimal) when is_binary(value), do: Decimal.new(value)
+  def cast(value, :decimal) when is_binary(value) do
+    Decimal.new(value)
+  rescue
+    Decimal.Error ->
+      raise OmQuery.CastError, value: value, target_type: :decimal
+  end
+
   def cast(%Decimal{} = value, :decimal), do: value
   def cast(value, :decimal) when is_integer(value), do: Decimal.new(value)
   def cast(value, :decimal) when is_float(value), do: Decimal.from_float(value)
@@ -104,14 +110,26 @@ defmodule OmQuery.Cast do
   def cast(value, :boolean) when is_boolean(value), do: value
 
   # Date
-  def cast(value, :date) when is_binary(value), do: Date.from_iso8601!(value)
+  def cast(value, :date) when is_binary(value) do
+    case Date.from_iso8601(value) do
+      {:ok, date} -> date
+      {:error, _} -> raise OmQuery.CastError, value: value, target_type: :date
+    end
+  end
+
   def cast(%Date{} = value, :date), do: value
 
   # DateTime
   def cast(value, :datetime) when is_binary(value) do
     case DateTime.from_iso8601(value) do
-      {:ok, dt, _} -> dt
-      {:error, _} -> NaiveDateTime.from_iso8601!(value)
+      {:ok, dt, _} ->
+        dt
+
+      {:error, _} ->
+        case NaiveDateTime.from_iso8601(value) do
+          {:ok, ndt} -> ndt
+          {:error, _} -> raise OmQuery.CastError, value: value, target_type: :datetime
+        end
     end
   end
 
@@ -127,7 +145,13 @@ defmodule OmQuery.Cast do
   end
 
   # Atom
-  def cast(value, :atom) when is_binary(value), do: String.to_existing_atom(value)
+  def cast(value, :atom) when is_binary(value) do
+    String.to_existing_atom(value)
+  rescue
+    ArgumentError ->
+      raise OmQuery.CastError, value: value, target_type: :atom
+  end
+
   def cast(value, :atom) when is_atom(value), do: value
 
   # Unknown type

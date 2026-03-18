@@ -2,80 +2,77 @@ defmodule OmCache.Invalidation do
   @moduledoc """
   Cache invalidation strategies and utilities.
 
-  Provides powerful cache invalidation patterns beyond simple key deletion:
-  - Pattern matching (invalidate all User keys)
+  Provides cache invalidation patterns beyond simple key deletion:
+  - Pattern matching (invalidate all User keys) — local/partitioned adapters only
   - Tag-based invalidation (invalidate by tag groups)
-  - Group invalidation (invalidate related keys)
-  - Force expiration of stale entries
+  - Group invalidation (invalidate a list of known keys)
 
-  ## Pattern-Based Invalidation
+  ## Pattern-Based Invalidation (ETS adapters only)
 
-  Invalidate all keys matching a pattern:
+  Invalidate all keys matching a pattern. Uses `:_` as wildcard in tuple keys:
 
-      # Invalidate all User keys
       OmCache.Invalidation.invalidate_pattern(MyApp.Cache, {User, :_})
-
-      # Invalidate all session keys
       OmCache.Invalidation.invalidate_pattern(MyApp.Cache, {:session, :_})
 
-      # Invalidate specific user's data across all types
-      OmCache.Invalidation.invalidate_pattern(MyApp.Cache, {:*, user_id, :_})
+  Pattern matching requires scanning all keys and only works with ETS-backed
+  adapters (local, partitioned). For Redis, use tag-based or group invalidation.
 
   ## Tag-Based Invalidation
 
   Tag cache entries and invalidate by tag:
 
-      # Store with tags
       OmCache.Invalidation.put_tagged(MyApp.Cache, {Product, 123}, product,
         tags: [:products, :category_electronics]
       )
 
-      # Invalidate all products
       OmCache.Invalidation.invalidate_tagged(MyApp.Cache, :products)
 
-      # Invalidate category
-      OmCache.Invalidation.invalidate_tagged(MyApp.Cache, :category_electronics)
+  Note: Tag metadata is stored in the cache itself using reserved key prefixes.
+  Concurrent `put_tagged` calls for the same tag may lose associations under
+  high write contention.
 
   ## Group Invalidation
 
-  Invalidate a group of related keys:
+  Invalidate a list of known keys:
 
       keys = [{User, 1}, {User, 2}, {:session, user_1_session}]
       OmCache.Invalidation.invalidate_group(MyApp.Cache, keys)
 
-  ## Limitations
+  ## Known Limitations
 
-  - Pattern matching works best with local/partitioned adapters (ETS-based)
-  - Redis adapter requires scanning (can be slow on large datasets)
-  - Tag-based invalidation requires additional metadata storage
+  - **Pattern matching scans all keys** — O(n) on cache size. Avoid on large caches
+    in hot paths. Use group or tag-based invalidation instead.
+  - **Partitioned adapters only scan the local node's keys** — pattern invalidation
+    won't reach keys on other nodes. Use group invalidation for distributed caches.
+  - **Tag metadata is not atomic** — concurrent `put_tagged` for the same tag can
+    lose key associations. For write-heavy tag scenarios, prefer group invalidation.
+  - **Redis adapter** — pattern and tag invalidation are not supported with Redis.
+    Use `invalidate_group` with explicit key lists.
   """
 
+  require Logger
+
   alias OmCache.Error
+
+  @tag_prefix :om_cache_tag
+  @key_tags_prefix :om_cache_key_tags
 
   @doc """
   Invalidates all keys matching a pattern.
 
-  Uses `:_` as wildcard in tuple keys.
+  Uses `:_` as wildcard in tuple keys. Only works with ETS-backed adapters
+  (local, partitioned). Returns `{:ok, 0}` for unsupported adapters.
 
   ## Examples
 
-      # All User keys
       OmCache.Invalidation.invalidate_pattern(MyApp.Cache, {User, :_})
-
-      # All sessions
       OmCache.Invalidation.invalidate_pattern(MyApp.Cache, {:session, :_})
-
-      # Specific user across all entities
-      OmCache.Invalidation.invalidate_pattern(MyApp.Cache, {:_, user_id, :_})
-
-      # Deep pattern
-      OmCache.Invalidation.invalidate_pattern(MyApp.Cache, {:org, org_id, :_, :_})
   """
   @spec invalidate_pattern(module(), term(), keyword()) ::
           {:ok, non_neg_integer()} | {:error, Error.t()}
   def invalidate_pattern(cache, pattern, opts \\ []) do
     try do
-      matching_keys = find_matching_keys(cache, pattern, opts)
+      matching_keys = find_matching_keys(cache, pattern)
       count = delete_keys(cache, matching_keys, opts)
       {:ok, count}
     rescue
@@ -87,7 +84,7 @@ defmodule OmCache.Invalidation do
   @doc """
   Puts a value with tags for later tag-based invalidation.
 
-  Tags are stored in a separate ETS table or cache key.
+  Tags are stored as cache entries with reserved key prefixes.
 
   ## Options
 
@@ -118,10 +115,7 @@ defmodule OmCache.Invalidation do
   ## Examples
 
       OmCache.Invalidation.invalidate_tagged(MyApp.Cache, :products)
-      #=> {:ok, 45}  # Invalidated 45 product entries
-
-      OmCache.Invalidation.invalidate_tagged(MyApp.Cache, :category_electronics)
-      #=> {:ok, 12}
+      #=> {:ok, 45}
   """
   @spec invalidate_tagged(module(), atom(), keyword()) ::
           {:ok, non_neg_integer()} | {:error, Error.t()}
@@ -130,8 +124,12 @@ defmodule OmCache.Invalidation do
       keys = get_keys_for_tag(cache, tag)
       count = delete_keys(cache, keys, opts)
 
-      # Clean up tag metadata
-      remove_tag_metadata(cache, tag)
+      # Clean up tag metadata entry
+      try do
+        cache.delete({@tag_prefix, tag})
+      rescue
+        _ -> :ok
+      end
 
       {:ok, count}
     rescue
@@ -166,35 +164,7 @@ defmodule OmCache.Invalidation do
   end
 
   @doc """
-  Forces expiration of entries based on a predicate.
-
-  Note: This requires scanning all entries, which can be expensive.
-  Best used with local adapters or small datasets.
-
-  ## Examples
-
-      # Expire all entries older than 1 hour
-      OmCache.Invalidation.invalidate_expired(MyApp.Cache, fn _key, entry ->
-        age_ms = System.system_time(:millisecond) - entry.inserted_at
-        age_ms > :timer.hours(1)
-      end)
-  """
-  @spec invalidate_expired(module(), (term(), term() -> boolean()), keyword()) ::
-          {:ok, non_neg_integer()} | {:error, Error.t()}
-  def invalidate_expired(cache, predicate_fn, _opts \\ []) when is_function(predicate_fn, 2) do
-    try do
-      # This is a simplified implementation
-      # Real implementation would need to scan cache entries
-      # and apply predicate
-      {:ok, 0}
-    rescue
-      exception ->
-        {:error, Error.from_exception(exception, :invalidate_expired, nil, cache: cache)}
-    end
-  end
-
-  @doc """
-  Invalidates all cache entries.
+  Invalidates all cache entries and clears tag metadata.
 
   ## Examples
 
@@ -204,8 +174,7 @@ defmodule OmCache.Invalidation do
   @spec invalidate_all(module(), keyword()) :: {:ok, :ok} | {:error, Error.t()}
   def invalidate_all(cache, opts \\ []) do
     try do
-      cache.delete_all(opts)
-      remove_all_tag_metadata(cache)
+      cache.delete_all(nil, opts)
       {:ok, :ok}
     rescue
       exception ->
@@ -217,40 +186,31 @@ defmodule OmCache.Invalidation do
   # Private Helpers
   # ============================================
 
-  defp find_matching_keys(cache, pattern, opts) do
-    # This is a simplified implementation
-    # For ETS-based adapters, we could use :ets.match
-    # For Redis, we'd use SCAN with pattern matching
-
-    # Get adapter type
-    adapter = get_adapter(cache)
-
-    case adapter do
-      Nebulex.Adapters.Local ->
-        find_local_keys(cache, pattern, opts)
-
-      Nebulex.Adapters.Partitioned ->
-        find_local_keys(cache, pattern, opts)
-
-      NebulexRedisAdapter ->
-        find_redis_keys(cache, pattern, opts)
-
-      _ ->
-        []
+  defp find_matching_keys(cache, pattern) do
+    try do
+      # stream/2 works with ETS-backed adapters (local, partitioned)
+      cache.stream()
+      |> Enum.filter(&matches_pattern?(&1, pattern))
+    rescue
+      # Adapter doesn't support stream (e.g., Redis) — return empty
+      _ -> []
     end
   end
 
-  defp find_local_keys(_cache, _pattern, _opts) do
-    # TODO: Implement using :ets.match_object or similar
-    # For now, return empty list
-    []
+  @doc false
+  def matches_pattern?(key, pattern) when is_tuple(key) and is_tuple(pattern) do
+    key_size = tuple_size(key)
+    pattern_size = tuple_size(pattern)
+
+    key_size == pattern_size and
+      Enum.all?(0..(pattern_size - 1), fn i ->
+        p = elem(pattern, i)
+        p == :_ or p == elem(key, i)
+      end)
   end
 
-  defp find_redis_keys(_cache, _pattern, _opts) do
-    # TODO: Implement using Redis SCAN with pattern
-    # For now, return empty list
-    []
-  end
+  def matches_pattern?(key, :_), do: not is_nil(key)
+  def matches_pattern?(key, pattern), do: key == pattern
 
   defp delete_keys(cache, keys, opts) do
     Enum.reduce(keys, 0, fn key, count ->
@@ -258,7 +218,9 @@ defmodule OmCache.Invalidation do
         cache.delete(key, opts)
         count + 1
       rescue
-        _ -> count
+        e ->
+          Logger.warning("OmCache.Invalidation: failed to delete key #{inspect(key)}: #{Exception.message(e)}")
+          count
       end
     end)
   end
@@ -273,27 +235,25 @@ defmodule OmCache.Invalidation do
     end
   end
 
-  defp store_tags(cache, key, tags) when is_list(tags) do
-    # Store tag -> key mappings in separate cache namespace
+  defp store_tags(cache, key, tags) when is_list(tags) and tags != [] do
     Enum.each(tags, fn tag ->
-      tag_key = {:om_cache_tag, tag}
+      tag_key = {@tag_prefix, tag}
 
       try do
         existing = cache.get(tag_key) || MapSet.new()
         updated = MapSet.put(existing, key)
         cache.put(tag_key, updated)
       rescue
-        _ -> :ok
+        e ->
+          Logger.warning("OmCache.Invalidation: failed to store tag #{inspect(tag)} for key #{inspect(key)}: #{Exception.message(e)}")
       end
     end)
 
-    # Store key -> tags mapping for cleanup
-    key_tags_key = {:om_cache_key_tags, key}
-
     try do
-      cache.put(key_tags_key, MapSet.new(tags))
+      cache.put({@key_tags_prefix, key}, MapSet.new(tags))
     rescue
-      _ -> :ok
+      e ->
+        Logger.warning("OmCache.Invalidation: failed to store key-tags mapping for #{inspect(key)}: #{Exception.message(e)}")
     end
 
     :ok
@@ -302,37 +262,12 @@ defmodule OmCache.Invalidation do
   defp store_tags(_cache, _key, _tags), do: :ok
 
   defp get_keys_for_tag(cache, tag) do
-    tag_key = {:om_cache_tag, tag}
+    tag_key = {@tag_prefix, tag}
 
     case cache.get(tag_key) do
       nil -> []
-      mapset when is_map(mapset) -> MapSet.to_list(mapset)
+      %MapSet{} = mapset -> MapSet.to_list(mapset)
       _ -> []
-    end
-  end
-
-  defp remove_tag_metadata(cache, tag) do
-    tag_key = {:om_cache_tag, tag}
-    cache.delete(tag_key)
-  end
-
-  defp remove_all_tag_metadata(cache) do
-    # This would need to scan for all tag metadata keys
-    # Simplified for now
-    try do
-      cache.delete_all()
-    rescue
-      _ -> :ok
-    end
-  end
-
-  defp get_adapter(cache) do
-    # Try to get adapter from cache config
-    try do
-      config = cache.__adapter__()
-      config
-    rescue
-      _ -> nil
     end
   end
 end

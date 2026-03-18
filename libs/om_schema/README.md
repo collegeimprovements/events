@@ -10,6 +10,25 @@ def deps do
 end
 ```
 
+## 1 min Setup Guide
+
+**1. Add dependency** (`mix.exs`):
+
+```elixir
+{:om_schema, "~> 0.1.0"}
+```
+
+**2. Configure** (`config/config.exs`):
+
+```elixir
+config :om_schema,
+  default_repo: MyApp.Repo,        # Used for schema introspection
+  app_name: :my_app,               # App identifier
+  telemetry_prefix: [:my_app, :schema]  # Optional: telemetry events
+```
+
+No supervision, no environment variables. Then use `use OmSchema` instead of `use Ecto.Schema` in your schema modules.
+
 ## Why OmSchema?
 
 OmSchema eliminates the disconnect between schema definitions and changesets:
@@ -185,7 +204,6 @@ field :username, :string, mappers: [:trim, :downcase, :alphanumeric_only]
 - `:slugify` - Convert to URL-safe slug
 - `:digits_only` - Remove non-digit characters
 - `:alphanumeric_only` - Remove non-alphanumeric characters
-- `:strip_html` - Remove HTML tags
 
 ---
 

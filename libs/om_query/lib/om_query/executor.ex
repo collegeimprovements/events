@@ -200,16 +200,18 @@ defmodule OmQuery.Executor do
     tasks =
       Enum.map(tokens, fn token ->
         Task.async(fn ->
-          try do
-            execute(token, opts)
-          rescue
-            e -> {:error, e}
-          end
+          execute(token, opts)
         end)
       end)
 
-    # Collect results maintaining order
-    Enum.map(tasks, &Task.await(&1, timeout))
+    # Collect results with safe yield to avoid crashing the entire batch
+    Enum.map(tasks, fn task ->
+      case Task.yield(task, timeout) || Task.shutdown(task) do
+        {:ok, result} -> result
+        {:exit, reason} -> {:error, RuntimeError.exception("Batch query failed: #{inspect(reason)}")}
+        nil -> {:error, RuntimeError.exception("Batch query timed out after #{timeout}ms")}
+      end
+    end)
   end
 
   ## Helpers

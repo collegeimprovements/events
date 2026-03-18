@@ -10,6 +10,25 @@ def deps do
 end
 ```
 
+## 1 min Setup Guide
+
+**1. Add dependency** (`mix.exs`):
+
+```elixir
+{:om_migration, "~> 0.1.0"}
+```
+
+**2. Configure** (`config/config.exs` — optional):
+
+```elixir
+config :om_migration,
+  default_primary_key: :uuid,              # :uuid (default) or :bigserial
+  timestamp_type: :utc_datetime_usec,      # Timestamp precision
+  use_citext: true                         # Use citext for case-insensitive text
+```
+
+No supervision, no environment variables. Then use `use OmMigration` instead of `use Ecto.Migration` in your migration files.
+
 ## Why OmMigration?
 
 Traditional migrations are verbose and repetitive:
@@ -25,7 +44,7 @@ create table(:users,                   create_table(:users)
   add :first_name, :string             |> with_audit()
   add :last_name, :string              |> with_soft_delete()
   add :email, :citext, null: false     |> with_timestamps()
-  add :password_hash, :string          |> execute()
+  add :password_hash, :string          |> run()
   add :confirmed_at, :utc_datetime
   add :bio, :text
   add :avatar_url, :string
@@ -62,7 +81,7 @@ defmodule MyApp.Repo.Migrations.CreateUsers do
     |> with_soft_delete()         # deleted_at
     |> with_timestamps()
     |> with_index(:email, unique: true)
-    |> execute()
+    |> run()
   end
 end
 ```
@@ -91,7 +110,7 @@ def change do
   |> with_timestamps()
   |> with_index(:sku, unique: true)
   |> with_index([:category_id, :status])
-  |> execute()
+  |> run()
 end
 ```
 
@@ -503,12 +522,12 @@ def change do
   create_index(:users, [:email])
   |> unique()
   |> where("deleted_at IS NULL")
-  |> execute()
+  |> run()
 
   # GIN index
   create_index(:products, [:tags])
   |> using(:gin)
-  |> execute()
+  |> run()
 end
 ```
 
@@ -715,7 +734,7 @@ defmodule MyApp.Repo.Migrations.CreateUsers do
     |> with_soft_delete(track_reason: true)
     |> with_timestamps()
     |> with_index(:role)
-    |> execute()
+    |> run()
   end
 end
 ```
@@ -750,7 +769,7 @@ defmodule MyApp.Repo.Migrations.CreateOrders do
     |> with_index(:order_number, unique: true)
     |> with_index(:status)
     |> with_index([:user_id, :status])
-    |> execute()
+    |> run()
   end
 end
 ```
@@ -787,7 +806,7 @@ defmodule MyApp.Repo.Migrations.CreateArticles do
     |> with_index(:published_at)
     |> with_index(:featured)
     |> with_index([:category_id, :status], where: "deleted_at IS NULL")
-    |> execute()
+    |> run()
   end
 end
 ```
@@ -803,7 +822,7 @@ create_table(:users)
 |> with_uuid_primary_key()
 |> maybe(&with_soft_delete/1, opts[:soft_delete])
 |> maybe(&with_audit/1, opts[:audit])
-|> execute()
+|> run()
 ```
 
 ### Debugging
@@ -814,7 +833,7 @@ create_table(:users)
 |> tap_inspect("After primary key")
 |> with_identity(:email)
 |> tap_inspect("After identity")
-|> execute()
+|> run()
 ```
 
 ### Validation
@@ -824,7 +843,7 @@ create_table(:users)
 |> with_uuid_primary_key()
 |> with_fields(name: :string)
 |> validate!()   # Raises if invalid
-|> execute()
+|> run()
 ```
 
 ---
@@ -887,7 +906,7 @@ create_table(:orders)
 |> with_money([:total, :tax])
 |> with_status()
 |> with_timestamps()
-|> execute()
+|> run()
 
 # Avoid - hard to see what's added
 create table(:orders, primary_key: false) do

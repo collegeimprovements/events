@@ -10,6 +10,60 @@ def deps do
 end
 ```
 
+## 1 min Setup Guide
+
+**1. Add dependency** (`mix.exs`):
+
+```elixir
+{:om_scheduler, "~> 0.1.0"}
+```
+
+**2. Configure** (`config/config.exs`):
+
+```elixir
+config :om_scheduler,
+  enabled: true,                                 # Enable/disable scheduler
+  store: :memory,                                # :memory | :database | :redis
+  queues: [default: 10, critical: 5],            # Queue name => concurrency
+  poll_interval: {1, :second},                   # How often to check for jobs
+  shutdown_grace_period: {15, :seconds}          # Wait time on shutdown
+
+# For database store (production)
+config :om_scheduler,
+  store: :database,
+  repo: MyApp.Repo
+
+# For Redis store
+config :om_scheduler,
+  store: :redis,
+  redis_url: "redis://localhost:6379"
+
+# Clustering (optional — ensures only one node runs each job)
+config :om_scheduler,
+  peer: OmScheduler.Peer.Global                  # or OmScheduler.Peer.Postgres
+
+# Telemetry (optional)
+config :om_scheduler, OmScheduler.Telemetry,
+  telemetry_prefix: [:my_app, :scheduler]
+```
+
+**3. Add to supervision tree** (`application.ex`):
+
+```elixir
+children = [
+  MyApp.Repo,
+  OmScheduler.Supervisor
+]
+```
+
+**4. Disable in tests** (`config/test.exs` or `config/runtime.exs`):
+
+```elixir
+config :om_scheduler, enabled: false
+```
+
+No environment variables required. For production, use `:database` store with a repo.
+
 ## Why OmScheduler?
 
 ```

@@ -366,6 +366,7 @@ defmodule OmS3.BatchResult do
     Enum.group_by(failures, & &1.error_type)
   end
 
+  defp classify_error(%OmS3.Error{type: type}), do: type
   defp classify_error(:not_found), do: :not_found
   defp classify_error(:timeout), do: :timeout
   defp classify_error(:access_denied), do: :access_denied
@@ -380,8 +381,12 @@ defmodule OmS3.BatchResult do
   defp classify_error(%{__exception__: true}), do: :exception
   defp classify_error(_), do: :unknown
 
+  defp recoverable?(%{reason: %OmS3.Error{} = error}) do
+    FnTypes.Protocols.Recoverable.recoverable?(error)
+  end
+
   defp recoverable?(failure) do
-    failure.error_type in [:timeout, :rate_limited, :service_unavailable, :internal_error, :server_error]
+    failure.error_type in [:timeout, :rate_limited, :service_unavailable, :internal_error, :server_error, :request_timeout, :connection_error, :slow_down]
   end
 
   defp do_retry(uri, reason, retry_fn, attempts_left, delay) when attempts_left > 0 do

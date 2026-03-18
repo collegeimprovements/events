@@ -87,18 +87,26 @@ defmodule OmCrud.Batch do
   """
   @spec each(module(), (list() -> any()), batch_opts()) :: :ok
   def each(schema, fun, opts \\ []) when is_atom(schema) and is_function(fun, 1) do
-    repo = Options.repo(opts)
-    batch_size = Keyword.get(opts, :batch_size, default_batch_size())
-    order_by = Keyword.get(opts, :order_by, :id)
-    where_conditions = Keyword.get(opts, :where, [])
+    OmCrud.Telemetry.span(:batch_each, %{schema: schema}, fn ->
+      repo = Options.repo(opts)
+      batch_size = Keyword.get(opts, :batch_size, default_batch_size())
+      timeout = Keyword.get(opts, :timeout, default_timeout())
+      order_by = Keyword.get(opts, :order_by, :id)
+      where_conditions = Keyword.get(opts, :where, [])
 
-    schema
-    |> build_query(where_conditions, order_by)
-    |> repo.stream(max_rows: batch_size)
-    |> Stream.chunk_every(batch_size)
-    |> Enum.each(fun)
+      repo.transaction(
+        fn ->
+          schema
+          |> build_query(where_conditions, order_by)
+          |> repo.stream(max_rows: batch_size)
+          |> Stream.chunk_every(batch_size)
+          |> Enum.each(fun)
+        end,
+        timeout: timeout
+      )
 
-    :ok
+      :ok
+    end)
   end
 
   @doc """
@@ -132,35 +140,43 @@ defmodule OmCrud.Batch do
   @spec process(module(), (list() -> {:ok, non_neg_integer()} | {:error, term()}), batch_opts()) ::
           batch_result()
   def process(schema, fun, opts \\ []) when is_atom(schema) and is_function(fun, 1) do
-    repo = Options.repo(opts)
-    batch_size = Keyword.get(opts, :batch_size, default_batch_size())
-    on_error = Keyword.get(opts, :on_error, :halt)
-    order_by = Keyword.get(opts, :order_by, :id)
-    where_conditions = Keyword.get(opts, :where, [])
+    OmCrud.Telemetry.span(:batch_process, %{schema: schema}, fn ->
+      repo = Options.repo(opts)
+      batch_size = Keyword.get(opts, :batch_size, default_batch_size())
+      timeout = Keyword.get(opts, :timeout, default_timeout())
+      on_error = Keyword.get(opts, :on_error, :halt)
+      order_by = Keyword.get(opts, :order_by, :id)
+      where_conditions = Keyword.get(opts, :where, [])
 
-    initial_state = %{processed: 0, errors: [], halted: false}
+      initial_state = %{processed: 0, errors: [], halted: false}
 
-    result =
-      schema
-      |> build_query(where_conditions, order_by)
-      |> repo.stream(max_rows: batch_size)
-      |> Stream.chunk_every(batch_size)
-      |> Enum.reduce_while(initial_state, fn batch, state ->
-        if state.halted do
-          {:halt, state}
-        else
-          case fun.(batch) do
-            {:ok, count} ->
-              {:cont, %{state | processed: state.processed + count}}
+      {:ok, result} =
+        repo.transaction(
+          fn ->
+            schema
+            |> build_query(where_conditions, order_by)
+            |> repo.stream(max_rows: batch_size)
+            |> Stream.chunk_every(batch_size)
+            |> Enum.reduce_while(initial_state, fn batch, state ->
+              if state.halted do
+                {:halt, state}
+              else
+                case fun.(batch) do
+                  {:ok, count} ->
+                    {:cont, %{state | processed: state.processed + count}}
 
-            {:error, reason} ->
-              error = wrap_error(reason, schema)
-              handle_batch_error(state, error, on_error)
-          end
-        end
-      end)
+                  {:error, reason} ->
+                    error = wrap_error(reason, schema)
+                    handle_batch_error(state, error, on_error)
+                end
+              end
+            end)
+          end,
+          timeout: timeout
+        )
 
-    {:ok, Map.delete(result, :halted)}
+      {:ok, Map.delete(result, :halted)}
+    end)
   end
 
   @doc """
@@ -188,10 +204,11 @@ defmodule OmCrud.Batch do
   @spec update(module(), (struct() -> map()), batch_opts()) :: batch_result()
   def update(schema, transform_fn, opts \\ [])
       when is_atom(schema) and is_function(transform_fn, 1) do
-    repo = Options.repo(opts)
-    changeset_fn = Keyword.get(opts, :changeset, :changeset)
+    OmCrud.Telemetry.span(:batch_update, %{schema: schema}, fn ->
+      repo = Options.repo(opts)
+      changeset_fn = Keyword.get(opts, :changeset, :changeset)
 
-    process(
+      process(
       schema,
       fn batch ->
         results =
@@ -211,6 +228,7 @@ defmodule OmCrud.Batch do
       end,
       opts
     )
+    end)
   end
 
   @doc """
@@ -229,21 +247,23 @@ defmodule OmCrud.Batch do
   """
   @spec delete(module(), batch_opts()) :: batch_result()
   def delete(schema, opts \\ []) when is_atom(schema) do
-    repo = Options.repo(opts)
+    OmCrud.Telemetry.span(:batch_delete, %{schema: schema}, fn ->
+      repo = Options.repo(opts)
 
-    process(
-      schema,
-      fn batch ->
-        ids = Enum.map(batch, & &1.id)
+      process(
+        schema,
+        fn batch ->
+          ids = Enum.map(batch, & &1.id)
 
-        import Ecto.Query
-        query = from(r in schema, where: r.id in ^ids)
+          import Ecto.Query
+          query = from(r in schema, where: r.id in ^ids)
 
-        {count, _} = repo.delete_all(query)
-        {:ok, count}
-      end,
-      opts
-    )
+          {count, _} = repo.delete_all(query)
+          {:ok, count}
+        end,
+        opts
+      )
+    end)
   end
 
   # ─────────────────────────────────────────────────────────────
@@ -277,38 +297,40 @@ defmodule OmCrud.Batch do
   @spec create_all(module(), [map()], batch_opts()) :: batch_result()
   def create_all(schema, list_of_attrs, opts \\ [])
       when is_atom(schema) and is_list(list_of_attrs) do
-    repo = Options.repo(opts)
-    batch_size = Keyword.get(opts, :batch_size, default_batch_size())
-    timeout = Keyword.get(opts, :timeout, default_timeout())
-    on_error = Keyword.get(opts, :on_error, :halt)
+    OmCrud.Telemetry.span(:batch_create_all, %{schema: schema, count: length(list_of_attrs)}, fn ->
+      repo = Options.repo(opts)
+      batch_size = Keyword.get(opts, :batch_size, default_batch_size())
+      timeout = Keyword.get(opts, :timeout, default_timeout())
+      on_error = Keyword.get(opts, :on_error, :halt)
 
-    # Extract insert options
-    insert_opts =
-      opts
-      |> Keyword.take([:on_conflict, :conflict_target, :returning, :placeholders])
-      |> Keyword.put(:timeout, timeout)
+      # Extract insert options
+      insert_opts =
+        opts
+        |> Keyword.take([:on_conflict, :conflict_target, :returning, :placeholders])
+        |> Keyword.put(:timeout, timeout)
 
-    initial_state = %{processed: 0, errors: [], halted: false}
+      initial_state = %{processed: 0, errors: [], halted: false}
 
-    result =
-      list_of_attrs
-      |> Stream.chunk_every(batch_size)
-      |> Enum.reduce_while(initial_state, fn batch, state ->
-        if state.halted do
-          {:halt, state}
-        else
-          case repo.insert_all(schema, batch, insert_opts) do
-            {count, _returned} ->
+      result =
+        list_of_attrs
+        |> Stream.chunk_every(batch_size)
+        |> Enum.reduce_while(initial_state, fn batch, state ->
+          if state.halted do
+            {:halt, state}
+          else
+            try do
+              {count, _returned} = repo.insert_all(schema, batch, insert_opts)
               {:cont, %{state | processed: state.processed + count}}
-
-            {:error, reason} ->
-              error = wrap_error(reason, schema)
-              handle_batch_error(state, error, on_error)
+            rescue
+              e ->
+                error = wrap_error(e, schema)
+                handle_batch_error(state, error, on_error)
+            end
           end
-        end
-      end)
+        end)
 
-    {:ok, Map.delete(result, :halted)}
+      {:ok, Map.delete(result, :halted)}
+    end)
   end
 
   @doc """
@@ -331,12 +353,14 @@ defmodule OmCrud.Batch do
   """
   @spec upsert_all(module(), [map()], batch_opts()) :: batch_result()
   def upsert_all(schema, list_of_attrs, opts) when is_atom(schema) and is_list(list_of_attrs) do
-    unless Keyword.has_key?(opts, :conflict_target) do
-      raise ArgumentError, "upsert_all/3 requires :conflict_target option"
-    end
+    OmCrud.Telemetry.span(:batch_upsert_all, %{schema: schema, count: length(list_of_attrs)}, fn ->
+      unless Keyword.has_key?(opts, :conflict_target) do
+        raise ArgumentError, "upsert_all/3 requires :conflict_target option"
+      end
 
-    opts = Keyword.put_new(opts, :on_conflict, :replace_all)
-    create_all(schema, list_of_attrs, opts)
+      opts = Keyword.put_new(opts, :on_conflict, :replace_all)
+      create_all(schema, list_of_attrs, opts)
+    end)
   end
 
   # ─────────────────────────────────────────────────────────────
@@ -345,6 +369,10 @@ defmodule OmCrud.Batch do
 
   @doc """
   Stream records in batches for memory-efficient processing.
+
+  **Important:** `Repo.stream` requires a transaction context. This function
+  returns a stream that must be consumed inside a transaction, or use
+  `stream_in_transaction/2` for automatic transaction wrapping.
 
   Returns a Stream that yields individual records but fetches in batches.
 
@@ -356,16 +384,23 @@ defmodule OmCrud.Batch do
 
   ## Examples
 
-      # Stream all users
-      User
-      |> Batch.stream(batch_size: 100)
-      |> Stream.map(&process_user/1)
-      |> Stream.run()
+      # Inside an existing transaction
+      repo.transaction(fn ->
+        User
+        |> Batch.stream(batch_size: 100)
+        |> Stream.map(&process_user/1)
+        |> Stream.run()
+      end)
+
+      # Or use stream_in_transaction/2 for auto-wrapping
+      Batch.stream_in_transaction(User, batch_size: 100, fun: &process_user/1)
 
       # Stream with filtering
-      User
-      |> Batch.stream(where: [status: :active])
-      |> Enum.to_list()
+      repo.transaction(fn ->
+        User
+        |> Batch.stream(where: [status: :active])
+        |> Enum.to_list()
+      end)
   """
   @spec stream(module(), batch_opts()) :: Enumerable.t()
   def stream(schema, opts \\ []) when is_atom(schema) do
@@ -380,19 +415,66 @@ defmodule OmCrud.Batch do
   end
 
   @doc """
+  Stream records inside an automatically managed transaction.
+
+  Unlike `stream/2`, this wraps the stream consumption in a transaction,
+  making it safe to use without an existing transaction context.
+
+  ## Options
+
+  Same as `stream/2` plus:
+  - `:timeout` - Transaction timeout (default: 30_000)
+
+  ## Examples
+
+      # Collect all active users
+      {:ok, users} = Batch.stream_in_transaction(User,
+        where: [status: :active],
+        batch_size: 100
+      )
+
+      # Process with a custom function
+      Batch.stream_in_transaction(User, batch_size: 100, map: &process_user/1)
+  """
+  @spec stream_in_transaction(module(), batch_opts()) :: {:ok, [struct()]} | {:error, term()}
+  def stream_in_transaction(schema, opts \\ []) when is_atom(schema) do
+    repo = Options.repo(opts)
+    timeout = Keyword.get(opts, :timeout, default_timeout())
+    map_fn = Keyword.get(opts, :map)
+
+    repo.transaction(
+      fn ->
+        s = stream(schema, opts)
+
+        if map_fn do
+          s |> Stream.map(map_fn) |> Enum.to_list()
+        else
+          Enum.to_list(s)
+        end
+      end,
+      timeout: timeout
+    )
+  end
+
+  @doc """
   Stream records in chunks (batches as lists).
 
   Unlike `stream/2`, this yields batches as lists, not individual records.
 
+  **Important:** Must be consumed inside a transaction context.
+  See `stream/2` documentation.
+
   ## Examples
 
-      User
-      |> Batch.stream_chunks(batch_size: 100)
-      |> Stream.map(fn batch ->
-        # Process entire batch at once
-        process_batch(batch)
+      repo.transaction(fn ->
+        User
+        |> Batch.stream_chunks(batch_size: 100)
+        |> Stream.map(fn batch ->
+          # Process entire batch at once
+          process_batch(batch)
+        end)
+        |> Stream.run()
       end)
-      |> Stream.run()
   """
   @spec stream_chunks(module(), batch_opts()) :: Enumerable.t()
   def stream_chunks(schema, opts \\ []) when is_atom(schema) do
@@ -428,18 +510,30 @@ defmodule OmCrud.Batch do
   @spec parallel(module(), (list() -> term()), batch_opts()) ::
           {:ok, [term()]} | {:error, Error.t()}
   def parallel(schema, fun, opts \\ []) when is_atom(schema) and is_function(fun, 1) do
-    repo = Options.repo(opts)
+    OmCrud.Telemetry.span(:batch_parallel, %{schema: schema}, fn ->
+      repo = Options.repo(opts)
     batch_size = Keyword.get(opts, :batch_size, default_batch_size())
     max_concurrency = Keyword.get(opts, :max_concurrency, System.schedulers_online())
     timeout = Keyword.get(opts, :timeout, default_timeout())
     order_by = Keyword.get(opts, :order_by, :id)
     where_conditions = Keyword.get(opts, :where, [])
 
+    # Collect batches inside a transaction (repo.stream requires it),
+    # then process them in parallel outside the transaction.
+    {:ok, batches} =
+      repo.transaction(
+        fn ->
+          schema
+          |> build_query(where_conditions, order_by)
+          |> repo.stream(max_rows: batch_size)
+          |> Stream.chunk_every(batch_size)
+          |> Enum.to_list()
+        end,
+        timeout: timeout
+      )
+
     results =
-      schema
-      |> build_query(where_conditions, order_by)
-      |> repo.stream(max_rows: batch_size)
-      |> Stream.chunk_every(batch_size)
+      batches
       |> Task.async_stream(fun, max_concurrency: max_concurrency, timeout: timeout)
       |> Enum.map(fn
         {:ok, result} -> result
@@ -453,6 +547,7 @@ defmodule OmCrud.Batch do
     else
       {:error, Error.wrap({:parallel_batch_errors, errors}, operation: :parallel_batch)}
     end
+    end)
   end
 
   # ─────────────────────────────────────────────────────────────

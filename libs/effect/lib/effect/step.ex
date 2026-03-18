@@ -8,9 +8,7 @@ defmodule Effect.Step do
   - Retry behavior (backoff strategies)
   - Conditional execution (when to skip)
   - Error handling (catch, fallback)
-  - Saga rollback/compensation
-  - Circuit breaker and rate limiting
-  - Observability (telemetry, tracing)
+  - Saga rollback
   """
 
   @type step_fun :: (map() -> result()) | (map(), map() -> result())
@@ -23,20 +21,6 @@ defmodule Effect.Step do
           max_delay: pos_integer(),
           jitter: float(),
           when: (term() -> boolean())
-        ]
-
-  @type circuit_opts :: [
-          name: atom(),
-          threshold: pos_integer(),
-          reset_timeout: pos_integer(),
-          trips_on: (term() -> boolean())
-        ]
-
-  @type rate_limit_opts :: [
-          name: atom(),
-          limit: pos_integer(),
-          window: pos_integer(),
-          on_exceeded: :queue | :drop | :error
         ]
 
   @type step_type ::
@@ -65,12 +49,6 @@ defmodule Effect.Step do
           fallback: term() | nil,
           fallback_when: [atom()] | nil,
           rollback: (map() -> :ok | {:error, term()}) | nil,
-          compensate: (map(), term() -> :ok | {:error, term()}) | nil,
-          circuit: circuit_opts() | nil,
-          rate_limit: rate_limit_opts() | nil,
-          telemetry: [atom()] | nil,
-          trace: boolean(),
-          redact: [atom()],
           meta: map()
         }
 
@@ -85,14 +63,8 @@ defmodule Effect.Step do
     :fallback,
     :fallback_when,
     :rollback,
-    :compensate,
-    :circuit,
-    :rate_limit,
-    :telemetry,
     arity: 1,
     type: :step,
-    trace: false,
-    redact: [],
     meta: %{}
   ]
 
@@ -105,16 +77,10 @@ defmodule Effect.Step do
   - `:timeout` - Per-attempt timeout in milliseconds
   - `:retry` - Retry configuration (see `t:retry_opts/0`)
   - `:when` - Condition function; step skipped if returns false
-  - `:catch` - Error handler function
-  - `:fallback` - Default value on error
-  - `:fallback_when` - Error tags that trigger fallback
+  - `:catch` - Error handler `fn reason, ctx -> {:ok, map} | {:error, term} end`
+  - `:fallback` - Default value map on error (e.g., `%{data: nil}`)
+  - `:fallback_when` - Only use fallback for these error reasons
   - `:rollback` - Rollback function for saga pattern
-  - `:compensate` - Compensation function with error context
-  - `:circuit` - Circuit breaker configuration
-  - `:rate_limit` - Rate limiting configuration
-  - `:telemetry` - Custom telemetry event prefix
-  - `:trace` - Enable OpenTelemetry tracing
-  - `:redact` - Keys to redact from logs
   - `:meta` - Arbitrary metadata
 
   ## Examples
@@ -140,12 +106,6 @@ defmodule Effect.Step do
       fallback: Keyword.get(opts, :fallback),
       fallback_when: Keyword.get(opts, :fallback_when),
       rollback: Keyword.get(opts, :rollback),
-      compensate: Keyword.get(opts, :compensate),
-      circuit: Keyword.get(opts, :circuit),
-      rate_limit: Keyword.get(opts, :rate_limit),
-      telemetry: Keyword.get(opts, :telemetry),
-      trace: Keyword.get(opts, :trace, false),
-      redact: Keyword.get(opts, :redact, []),
       meta: Keyword.get(opts, :meta, %{})
     }
   end
@@ -168,5 +128,10 @@ defmodule Effect.Step do
   # Determine function arity by checking if it's 1 or 2 args
   defp determine_arity(fun) when is_function(fun, 1), do: 1
   defp determine_arity(fun) when is_function(fun, 2), do: 2
-  defp determine_arity(_), do: 1
+  defp determine_arity(nil), do: 1  # nil is valid for special step types (parallel, branch, etc.)
+
+  defp determine_arity(other) do
+    raise ArgumentError,
+      "expected step function with arity 1 or 2, got: #{inspect(other)}"
+  end
 end

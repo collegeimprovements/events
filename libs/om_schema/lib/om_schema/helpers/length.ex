@@ -44,7 +44,8 @@ defmodule OmSchema.Helpers.Length do
 
   def validate_min_length(changeset, field, min, opts) when is_integer(min) do
     message = Keyword.get(opts, :min_length_message, default_min_message(field, changeset))
-    validate_length(changeset, field, min: min, message: message)
+    length_opts = [min: min] ++ if(message, do: [message: message], else: [])
+    validate_length(changeset, field, length_opts)
   end
 
   @doc """
@@ -62,7 +63,8 @@ defmodule OmSchema.Helpers.Length do
 
   def validate_max_length(changeset, field, max, opts) when is_integer(max) do
     message = Keyword.get(opts, :max_length_message, default_max_message(field, changeset))
-    validate_length(changeset, field, max: max, message: message)
+    length_opts = [max: max] ++ if(message, do: [message: message], else: [])
+    validate_length(changeset, field, length_opts)
   end
 
   @doc """
@@ -80,7 +82,8 @@ defmodule OmSchema.Helpers.Length do
 
   def validate_exact_length(changeset, field, length, opts) when is_integer(length) do
     message = Keyword.get(opts, :length_message)
-    validate_length(changeset, field, is: length, message: message)
+    length_opts = [is: length] ++ if(message, do: [message: message], else: [])
+    validate_length(changeset, field, length_opts)
   end
 
   @doc """

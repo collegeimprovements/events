@@ -482,7 +482,15 @@ defmodule OmQuery.FacetedSearch do
   defp do_execute_facets(true, facets, builder, opts) do
     facets
     |> Task.async_stream(&execute_facet_tuple(&1, builder, opts))
-    |> Map.new(fn {:ok, result} -> result end)
+    |> Enum.reduce(%{}, fn
+      {:ok, {name, counts}}, acc ->
+        Map.put(acc, name, counts)
+
+      {:exit, reason}, acc ->
+        require Logger
+        Logger.error("Facet query failed: #{inspect(reason)}")
+        acc
+    end)
   end
 
   defp do_execute_facets(false, facets, builder, opts) do

@@ -14,6 +14,34 @@ def deps do
 end
 ```
 
+## 1 min Setup Guide
+
+**1. Add dependencies** (`mix.exs`):
+
+```elixir
+{:om_stripe, "~> 0.1.0"},
+{:om_api_client, "~> 0.1.0"},
+{:fn_types, "~> 0.1.0"}
+```
+
+**2. Set environment variables** (`runtime.exs` or shell):
+
+```bash
+export STRIPE_API_KEY="sk_test_..."           # Required (or STRIPE_SECRET_KEY)
+export STRIPE_API_VERSION="2024-10-28.acacia" # Optional: pin API version
+export STRIPE_CONNECT_ACCOUNT="acct_123456"   # Optional: default Connect account
+```
+
+**3. Configure proxy** (`config/config.exs` — optional):
+
+```elixir
+config :om_stripe,
+  proxy: "http://proxy:8080",
+  proxy_auth: {"username", "password"}
+```
+
+No supervision, no migrations. Use `OmStripe.config_from_env()` to build config from env vars, or `OmStripe.config(api_key: "sk_test_...")` for explicit config.
+
 ## Quick Start
 
 ```elixir

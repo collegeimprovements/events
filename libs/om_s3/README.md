@@ -1,6 +1,23 @@
 # OmS3
 
-Ergonomic S3 client with presigned URLs, streaming, batch operations, and file utilities.
+Composable S3 client for Elixir with pipeline API, batch operations, streaming, and first-class `s3://` URI support.
+
+Works with **AWS S3** and any **S3-compatible service** (MinIO, RustFS, Cloudflare R2, DigitalOcean Spaces, Backblaze B2, Wasabi, LocalStack).
+
+## Features
+
+- **Dual API** - Direct function calls or chainable pipeline style
+- **`s3://` URIs** - First-class URI support across all operations
+- **Batch operations** - Parallel put/get/delete/copy/presign with concurrency control
+- **Glob patterns** - `s3://bucket/logs/*.txt` in batch operations
+- **Streaming** - Memory-efficient multipart upload and chunked download for large files
+- **Structured errors** - Typed `OmS3.Error` with Recoverable/Normalizable protocols
+- **Telemetry** - Automatic span events on every operation
+- **Retries** - Built-in retry with `safe_transient` strategy via Req
+- **Timeouts** - Three-level timeout control (connect, receive, pool)
+- **Proxy** - Full HTTP proxy with NO_PROXY, env var fallback, auth
+- **Presign caching** - GenServer or decorator-based URL cache with LRU eviction
+- **S3-compatible** - Auto `path_style` for custom endpoints, provider-agnostic env vars
 
 ## Installation
 
@@ -10,97 +27,89 @@ def deps do
 end
 ```
 
----
+## 1 min Setup Guide
 
-## Why OmS3?
+**1. Add dependency** (`mix.exs`):
 
-Without OmS3, S3 operations are verbose and error-prone:
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                         RAW AWS/ExAws APPROACH                              │
-│                                                                             │
-│  # Verbose configuration everywhere                                         │
-│  ExAws.S3.put_object("bucket", "key", content)                             │
-│  |> ExAws.request(                                                          │
-│       access_key_id: "...",                                                 │
-│       secret_access_key: "...",                                             │
-│       region: "us-east-1"                                                   │
-│     )                                                                       │
-│                                                                             │
-│  # Manual presigned URL generation                                          │
-│  # No batch operations                                                      │
-│  # No glob patterns                                                         │
-│  # No file name sanitization                                                │
-│  # Inconsistent error handling                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                    │
-                                    ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           WITH OmS3                                         │
-│                                                                             │
-│  # Dual API: Direct or Pipeline                                             │
-│  OmS3.put("s3://bucket/file.txt", content, config)                         │
-│                                                                             │
-│  OmS3.new(config)                                                           │
-│  |> OmS3.bucket("uploads")                                                  │
-│  |> OmS3.content_type("image/jpeg")                                         │
-│  |> OmS3.put("photo.jpg", data)                                             │
-│                                                                             │
-│  # Batch operations with globs                                              │
-│  OmS3.get_all("s3://bucket/docs/*.pdf", config)                            │
-│                                                                             │
-│  # Presigned URLs in one call                                               │
-│  OmS3.presign("s3://bucket/file.pdf", config, expires_in: {1, :hour})      │
-│                                                                             │
-│  # Safe file names                                                          │
-│  OmS3.normalize_key("User's Photo (1).jpg")  #=> "users-photo-1.jpg"       │
-└─────────────────────────────────────────────────────────────────────────────┘
+```elixir
+{:om_s3, "~> 0.1.0"}
 ```
 
-**Key Benefits:**
+**2. Set environment variables** (`runtime.exs` or shell):
 
-| Feature | Raw S3 | OmS3 |
-|---------|--------|------|
-| Configuration | Pass everywhere | Configure once |
-| API Style | Single verbose | Dual (direct + pipeline) |
-| Batch Operations | Manual loops | Built-in with concurrency |
-| Glob Patterns | Not supported | `*.pdf`, `docs/**/*.txt` |
-| Presigned URLs | Complex setup | Single function call |
-| File Sanitization | Manual | `normalize_key/2` |
-| S3 URIs | Parse yourself | `parse_uri/1`, `uri/2` |
-| Error Handling | Inconsistent | Always `{:ok, _} \| {:error, _}` |
+```bash
+# Primary (checked first)
+export S3_ACCESS_KEY_ID="AKIA..."
+export S3_SECRET_ACCESS_KEY="..."
+export S3_REGION="us-east-1"
+export S3_ENDPOINT="http://localhost:9000"  # Optional: for MinIO/LocalStack/R2
 
----
+# Fallback (AWS standard)
+export AWS_ACCESS_KEY_ID="AKIA..."
+export AWS_SECRET_ACCESS_KEY="..."
+export AWS_REGION="us-east-1"
+export AWS_ENDPOINT_URL_S3="..."            # Optional
+```
+
+**3. Configure proxy** (`config/config.exs` — optional):
+
+```elixir
+config :om_s3,
+  proxy: "http://proxy:8080",                 # Or reads HTTP_PROXY env var
+  proxy_auth: {"username", "password"}        # Optional
+```
+
+No supervision, no migrations. Use `OmS3.from_env()` to auto-detect credentials from env vars, or `OmS3.config(access_key_id: ..., secret_access_key: ..., region: ...)` for explicit config.
 
 ## Quick Start
 
 ```elixir
-# 1. Configure
+# Configure
 config = OmS3.config(
   access_key_id: "AKIA...",
   secret_access_key: "...",
   region: "us-east-1"
 )
 
-# 2. Upload a file
-OmS3.put("s3://my-bucket/hello.txt", "Hello, World!", config)
-#=> {:ok, %{status: 200}}
+# Upload
+:ok = OmS3.put("s3://my-bucket/hello.txt", "Hello, world!", config)
 
-# 3. Download a file
+# Download
 {:ok, content} = OmS3.get("s3://my-bucket/hello.txt", config)
-#=> {:ok, "Hello, World!"}
 
-# 4. Generate presigned URL
-{:ok, url} = OmS3.presign("s3://my-bucket/hello.txt", config)
-#=> {:ok, "https://my-bucket.s3.amazonaws.com/hello.txt?X-Amz-..."}
+# Check existence
+true = OmS3.exists?("s3://my-bucket/hello.txt", config)
+
+# Delete
+:ok = OmS3.delete("s3://my-bucket/hello.txt", config)
+```
+
+### Pipeline API
+
+```elixir
+OmS3.new(config)
+|> OmS3.bucket("my-bucket")
+|> OmS3.prefix("uploads/2024/")
+|> OmS3.content_type("image/jpeg")
+|> OmS3.metadata(%{user_id: "123"})
+|> OmS3.put("photo.jpg", jpeg_data)
+```
+
+### From Environment
+
+```elixir
+# Reads S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY, S3_REGION, S3_ENDPOINT
+# Falls back to AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION
+OmS3.from_env()
+|> OmS3.bucket("my-bucket")
+|> OmS3.get("file.txt")
 ```
 
 ---
 
 ## Configuration
 
-### Basic Configuration
+### AWS S3
 
 ```elixir
 config = OmS3.config(
@@ -110,272 +119,151 @@ config = OmS3.config(
 )
 ```
 
-### Full Configuration Options
+### S3-Compatible Services
 
 ```elixir
+# MinIO / RustFS / LocalStack - just set endpoint
+# path_style is auto-detected for custom endpoints
 config = OmS3.config(
-  # Required: AWS credentials
-  access_key_id: System.get_env("AWS_ACCESS_KEY_ID"),
-  secret_access_key: System.get_env("AWS_SECRET_ACCESS_KEY"),
+  access_key_id: "minioadmin",
+  secret_access_key: "minioadmin",
+  endpoint: "http://localhost:9000",
+  region: "us-east-1"
+)
 
-  # Region (default: us-east-1)
-  region: "eu-west-1",
+# Cloudflare R2
+config = OmS3.config(
+  access_key_id: "...",
+  secret_access_key: "...",
+  endpoint: "https://ACCOUNT_ID.r2.cloudflarestorage.com",
+  region: "auto"
+)
 
-  # Custom endpoint for S3-compatible services
-  endpoint: "http://localhost:4566",  # LocalStack
-  # endpoint: "http://localhost:9000", # MinIO
-
-  # Proxy settings
-  proxy: {"proxy.example.com", 8080},
-  # Or with auth: {"proxy.example.com", 8080, "user", "pass"}
-
-  # Timeouts
-  connect_timeout: 30_000,   # Connection timeout (ms)
-  receive_timeout: 60_000,   # Response timeout (ms)
-
-  # Force path-style URLs (required for some S3-compatible services)
-  force_path_style: true
+# DigitalOcean Spaces
+config = OmS3.config(
+  access_key_id: "...",
+  secret_access_key: "...",
+  endpoint: "https://nyc3.digitaloceanspaces.com",
+  region: "nyc3"
 )
 ```
 
-### Environment-Based Configuration
+When `endpoint` is set, `path_style` automatically defaults to `true` (required by most non-AWS providers). Override with `path_style: false` if your provider supports virtual-hosted-style.
+
+### All Config Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `access_key_id` | *required* | Access key |
+| `secret_access_key` | *required* | Secret key |
+| `region` | `"us-east-1"` | AWS region or provider region |
+| `endpoint` | `nil` | Custom endpoint URL |
+| `path_style` | auto | `true` for custom endpoints, `false` for AWS |
+| `connect_timeout` | `30_000` | TCP connection timeout (ms) |
+| `receive_timeout` | `60_000` | Response timeout (ms) |
+| `pool_timeout` | `5_000` | Connection pool checkout timeout (ms) |
+| `max_retries` | `3` | Retry attempts for transient failures |
+| `proxy` | `nil` | `{host, port}`, `{:http, h, p, []}`, or URL string |
+| `proxy_auth` | `nil` | `{username, password}` |
+| `no_proxy` | `[]` | Hostnames/patterns to bypass proxy |
+| `transfer_acceleration` | `false` | AWS Transfer Acceleration (AWS-only) |
+
+### Environment Variables
+
+| Variable | Fallback | Description |
+|----------|----------|-------------|
+| `S3_ACCESS_KEY_ID` | `AWS_ACCESS_KEY_ID` | Access key |
+| `S3_SECRET_ACCESS_KEY` | `AWS_SECRET_ACCESS_KEY` | Secret key |
+| `S3_REGION` | `AWS_REGION`, `AWS_DEFAULT_REGION` | Region |
+| `S3_ENDPOINT` | `AWS_ENDPOINT_URL_S3`, `AWS_ENDPOINT` | Custom endpoint |
+| `HTTP_PROXY` | `HTTPS_PROXY` | Proxy URL |
+| `NO_PROXY` | - | Comma-separated bypass patterns |
+
+### Proxy
 
 ```elixir
-# In config/config.exs
-config :my_app, :s3,
-  access_key_id: System.get_env("AWS_ACCESS_KEY_ID"),
-  secret_access_key: System.get_env("AWS_SECRET_ACCESS_KEY"),
-  region: System.get_env("AWS_REGION", "us-east-1"),
-  bucket: System.get_env("S3_BUCKET")
+# Tuple
+OmS3.config(proxy: {"proxy.company.com", 8080}, proxy_auth: {"user", "pass"}, ...)
 
-# Usage
-defmodule MyApp.Storage do
-  def config do
-    Application.get_env(:my_app, :s3) |> OmS3.config()
-  end
+# URL with embedded credentials
+OmS3.config(proxy: "http://user:pass@proxy.company.com:8080", ...)
 
-  def upload(key, content) do
-    bucket = Application.get_env(:my_app, :s3)[:bucket]
-    OmS3.put("s3://#{bucket}/#{key}", content, config())
-  end
-end
+# From environment (automatic fallback if no explicit proxy)
+# HTTP_PROXY=http://proxy:8080 NO_PROXY=localhost,.internal.com
 ```
-
----
-
-## Dual API Styles
-
-OmS3 offers two API styles for different use cases:
-
-### Direct API (S3 URI + Config)
-
-Best for simple, one-off operations:
-
-```elixir
-# Upload
-OmS3.put("s3://bucket/path/file.txt", content, config)
-
-# Download
-{:ok, content} = OmS3.get("s3://bucket/path/file.txt", config)
-
-# Delete
-OmS3.delete("s3://bucket/path/file.txt", config)
-
-# Check existence
-{:ok, true} = OmS3.exists?("s3://bucket/path/file.txt", config)
-
-# List objects
-{:ok, objects} = OmS3.list("s3://bucket/path/", config)
-```
-
-### Pipeline API (Chainable)
-
-Best for complex operations with many options:
-
-```elixir
-# Upload with options
-OmS3.new(config)
-|> OmS3.bucket("uploads")
-|> OmS3.prefix("images/2024/")
-|> OmS3.content_type("image/jpeg")
-|> OmS3.acl("public-read")
-|> OmS3.storage_class("STANDARD_IA")
-|> OmS3.metadata(%{user_id: "123", original_name: "photo.jpg"})
-|> OmS3.put("resized.jpg", image_data)
-|> OmS3.run()
-
-# Download with timeout
-OmS3.new(config)
-|> OmS3.bucket("large-files")
-|> OmS3.timeout({5, :minutes})
-|> OmS3.get("huge-dataset.csv")
-|> OmS3.run()
-```
-
-### When to Use Which
-
-| Scenario | Recommended API |
-|----------|-----------------|
-| Simple upload/download | Direct API |
-| Setting multiple options | Pipeline API |
-| Batch operations | Pipeline API |
-| One-off operations | Direct API |
-| Reusable request templates | Pipeline API |
-| Scripts and quick tasks | Direct API |
 
 ---
 
 ## Core Operations
 
-### Put (Upload)
+### Upload
 
 ```elixir
-# Simple upload
-OmS3.put("s3://bucket/file.txt", "content", config)
+# Simple
+:ok = OmS3.put("s3://bucket/file.txt", "content", config)
 
-# With content type (auto-detected if not specified)
-OmS3.put("s3://bucket/image.png", png_binary, config,
-  content_type: "image/png"
+# With options
+:ok = OmS3.put("s3://bucket/photo.jpg", data, config,
+  content_type: "image/jpeg",
+  metadata: %{user_id: "123"},
+  acl: "public-read",
+  storage_class: "STANDARD"
 )
 
-# With metadata
-OmS3.put("s3://bucket/doc.pdf", pdf_binary, config,
-  metadata: %{
-    "x-amz-meta-author" => "John Doe",
-    "x-amz-meta-version" => "1.0"
-  }
-)
-
-# With ACL
-OmS3.put("s3://bucket/public.html", html, config,
-  acl: "public-read"
-)
-
-# With storage class
-OmS3.put("s3://bucket/archive.zip", data, config,
-  storage_class: "GLACIER"
-)
-```
-
-**Pipeline Style:**
-
-```elixir
+# Pipeline
 OmS3.new(config)
-|> OmS3.bucket("uploads")
-|> OmS3.content_type("application/pdf")
-|> OmS3.acl("private")
-|> OmS3.storage_class("STANDARD_IA")
-|> OmS3.metadata(%{uploaded_by: user.id})
-|> OmS3.put("documents/report.pdf", pdf_data)
-|> OmS3.run()
+|> OmS3.bucket("my-bucket")
+|> OmS3.content_type("text/plain")
+|> OmS3.put("file.txt", "hello")
 ```
 
-### Get (Download)
+### Download
 
 ```elixir
-# Simple download
-{:ok, content} = OmS3.get("s3://bucket/file.txt", config)
-
-# With byte range
-{:ok, partial} = OmS3.get("s3://bucket/video.mp4", config,
-  range: "bytes=0-1023"
-)
-
-# Get metadata only (HEAD request)
-{:ok, metadata} = OmS3.head("s3://bucket/file.txt", config)
-#=> {:ok, %{
-#     content_type: "text/plain",
-#     content_length: 1234,
-#     etag: "\"abc123\"",
-#     last_modified: ~U[2024-01-15 10:00:00Z],
-#     metadata: %{"x-amz-meta-author" => "John"}
-#   }}
+{:ok, binary} = OmS3.get("s3://bucket/file.txt", config)
 ```
 
 ### Delete
 
 ```elixir
-# Delete single object
-OmS3.delete("s3://bucket/file.txt", config)
-
-# Delete returns :ok even if object doesn't exist
-OmS3.delete("s3://bucket/nonexistent.txt", config)
-#=> {:ok, %{status: 204}}
-```
-
-### Exists
-
-```elixir
-# Check if object exists
-{:ok, true} = OmS3.exists?("s3://bucket/file.txt", config)
-{:ok, false} = OmS3.exists?("s3://bucket/missing.txt", config)
-
-# With error handling
-case OmS3.exists?("s3://bucket/file.txt", config) do
-  {:ok, true} -> IO.puts("File exists")
-  {:ok, false} -> IO.puts("File not found")
-  {:error, reason} -> IO.puts("Error: #{inspect(reason)}")
-end
+# Idempotent - succeeds even if object doesn't exist
+:ok = OmS3.delete("s3://bucket/file.txt", config)
 ```
 
 ### Head (Metadata)
 
 ```elixir
-{:ok, info} = OmS3.head("s3://bucket/file.txt", config)
-#=> {:ok, %{
-#     content_type: "text/plain",
-#     content_length: 1234,
-#     etag: "\"d41d8cd98f00b204e9800998ecf8427e\"",
-#     last_modified: ~U[2024-01-15 10:30:00Z],
-#     metadata: %{}
-#   }}
+{:ok, %{size: 1024, content_type: "text/plain", etag: "abc", last_modified: dt, metadata: %{}}} =
+  OmS3.head("s3://bucket/file.txt", config)
 ```
 
-### List
+### Exists
 
 ```elixir
-# List all objects in bucket
-{:ok, objects} = OmS3.list("s3://bucket/", config)
-
-# List with prefix
-{:ok, objects} = OmS3.list("s3://bucket/images/", config)
-
-# With pagination
-{:ok, %{objects: objects, continuation_token: token}} =
-  OmS3.list("s3://bucket/", config, max_keys: 100)
-
-# Continue pagination
-{:ok, more} = OmS3.list("s3://bucket/", config,
-  continuation_token: token
-)
-
-# List returns object info
-[
-  %{key: "images/photo1.jpg", size: 12345, last_modified: ~U[...]},
-  %{key: "images/photo2.jpg", size: 67890, last_modified: ~U[...]},
-  ...
-]
+true = OmS3.exists?("s3://bucket/file.txt", config)
+false = OmS3.exists?("s3://bucket/nope.txt", config)
 ```
 
 ### Copy
 
 ```elixir
-# Copy within same bucket
-OmS3.copy("s3://bucket/original.txt", "s3://bucket/backup.txt", config)
+:ok = OmS3.copy("s3://src-bucket/a.txt", "s3://dst-bucket/b.txt", config)
+```
 
-# Copy between buckets
-OmS3.copy(
-  "s3://source-bucket/file.txt",
-  "s3://dest-bucket/file.txt",
-  config
-)
+### List
 
-# Copy with new metadata
-OmS3.copy(
-  "s3://bucket/file.txt",
-  "s3://bucket/new-file.txt",
-  config,
-  metadata: %{copied_at: DateTime.utc_now() |> to_string()}
+```elixir
+# Single page
+{:ok, %{files: files, next: token}} = OmS3.list("s3://bucket/prefix/", config)
+
+# All pages (auto-paginates)
+{:ok, all_files} = OmS3.list_all("s3://bucket/prefix/", config)
+
+# With options
+{:ok, result} = OmS3.list("s3://bucket/prefix/", config,
+  limit: 100,
+  sort: :key,
+  order: :asc
 )
 ```
 
@@ -383,390 +271,302 @@ OmS3.copy(
 
 ## Batch Operations
 
-OmS3 provides efficient batch operations with built-in concurrency control.
-
-### Put All (Batch Upload)
+All batch operations run in parallel with configurable concurrency and support glob patterns.
 
 ```elixir
-# Upload multiple files
-files = [
-  {"doc1.pdf", pdf1_content},
-  {"doc2.pdf", pdf2_content},
-  {"doc3.pdf", pdf3_content}
-]
-
-OmS3.new(config)
-|> OmS3.bucket("documents")
-|> OmS3.prefix("reports/2024/")
-|> OmS3.content_type("application/pdf")
-|> OmS3.concurrency(10)
-|> OmS3.put_all(files)
-|> OmS3.run()
-#=> {:ok, [
-#     {:ok, "reports/2024/doc1.pdf"},
-#     {:ok, "reports/2024/doc2.pdf"},
-#     {:ok, "reports/2024/doc3.pdf"}
-#   ]}
-```
-
-### Get All (Batch Download)
-
-```elixir
-# Download multiple files
-keys = [
-  "s3://bucket/file1.txt",
-  "s3://bucket/file2.txt",
-  "s3://bucket/file3.txt"
-]
-
-{:ok, results} = OmS3.get_all(keys, config, concurrency: 5)
-#=> {:ok, [
-#     {:ok, "content1"},
-#     {:ok, "content2"},
-#     {:ok, "content3"}
-#   ]}
-```
-
-### Glob Pattern Support
-
-OmS3 supports glob patterns for batch operations:
-
-```elixir
-# Download all PDFs
-{:ok, pdfs} = OmS3.get_all("s3://bucket/docs/*.pdf", config)
-
-# Download recursively
-{:ok, all_images} = OmS3.get_all("s3://bucket/images/**/*.jpg", config)
-
-# Copy with glob
-OmS3.copy_all(
-  "s3://source/uploads/*.jpg",
-  config,
-  to: "s3://dest/images/"
+# Upload multiple
+results = OmS3.put_all([{"a.txt", "..."}, {"b.txt", "..."}], config,
+  to: "s3://bucket/uploads/",
+  concurrency: 10,
+  timeout: 120_000
 )
 
-# Delete with glob
-OmS3.delete_all("s3://bucket/temp/*.tmp", config)
+# Download with globs
+results = OmS3.get_all(["s3://bucket/docs/*.pdf"], config)
+
+# Delete with globs
+results = OmS3.delete_all(["s3://bucket/temp/*.tmp"], config)
+
+# Copy with glob pattern
+results = OmS3.copy_all("s3://source/*.jpg", config, to: "s3://dest/images/")
+
+# Presign multiple
+results = OmS3.presign_all(["s3://bucket/*.pdf"], config, expires_in: {1, :hour})
 ```
 
-**Supported Glob Patterns:**
-
-| Pattern | Matches |
-|---------|---------|
-| `*` | Any characters in filename |
-| `**` | Any path (recursive) |
-| `?` | Single character |
-| `[abc]` | Character class |
-| `{a,b}` | Alternatives |
-
-**Examples:**
+### Pipeline Batch
 
 ```elixir
-# All PDFs in docs/
-"s3://bucket/docs/*.pdf"
-
-# All images recursively
-"s3://bucket/images/**/*.{jpg,png,gif}"
-
-# Files starting with "report_"
-"s3://bucket/reports/report_*.xlsx"
-
-# Single character match
-"s3://bucket/logs/app-?.log"  # app-1.log, app-2.log, etc.
-```
-
-### Delete All (Batch Delete)
-
-```elixir
-# Delete specific files
-OmS3.delete_all([
-  "s3://bucket/file1.txt",
-  "s3://bucket/file2.txt"
-], config)
-
-# Delete with glob
-OmS3.delete_all("s3://bucket/temp/**/*", config)
-
-# Delete all objects with prefix
 OmS3.new(config)
-|> OmS3.bucket("uploads")
-|> OmS3.prefix("user/123/")
-|> OmS3.delete_all()
-|> OmS3.run()
+|> OmS3.bucket("my-bucket")
+|> OmS3.prefix("photos/")
+|> OmS3.concurrency(10)
+|> OmS3.timeout({2, :minutes})
+|> OmS3.put_all([{"a.jpg", data1}, {"b.jpg", data2}])
 ```
 
-### Concurrency Control
+### Result Analysis
 
 ```elixir
-# Set concurrency for batch operations
-OmS3.new(config)
-|> OmS3.bucket("large-bucket")
-|> OmS3.concurrency(20)  # 20 parallel operations
-|> OmS3.get_all("*.pdf")
-|> OmS3.run()
+alias OmS3.BatchResult
 
-# Default is System.schedulers_online() * 2
+results = OmS3.put_all(files, config, to: "s3://bucket/")
+
+BatchResult.all_succeeded?(results)     #=> true/false
+BatchResult.any_failed?(results)        #=> true/false
+
+summary = BatchResult.summarize(results)
+summary.total         #=> 100
+summary.succeeded     #=> 95
+summary.failed        #=> 5
+summary.success_rate  #=> 0.95
+
+# Categorize failures
+BatchResult.recoverable_failures(results)  # transient - worth retrying
+BatchResult.permanent_failures(results)    # access_denied, not_found, etc.
+
+# Retry transient failures
+BatchResult.retry_failures(results, fn uri, _reason ->
+  OmS3.put(uri, get_content(uri), config)
+end, max_attempts: 3, delay: 100)
+
+# Strict mode - raise if anything failed
+BatchResult.raise_on_failure!(results)
 ```
 
 ---
 
 ## Presigned URLs
 
-Generate temporary URLs for direct browser access.
-
-### Download URLs (GET)
-
 ```elixir
-# Default expiration (1 hour)
-{:ok, url} = OmS3.presign("s3://bucket/file.pdf", config)
+# Download URL (GET)
+{:ok, url} = OmS3.presign_get("s3://bucket/file.pdf", config)
+{:ok, url} = OmS3.presign_get("s3://bucket/file.pdf", config, expires_in: {5, :minutes})
 
-# Custom expiration
-{:ok, url} = OmS3.presign("s3://bucket/file.pdf", config,
-  expires_in: {15, :minutes}
-)
+# Upload form (POST, for browser direct uploads)
+{:ok, %{url: url, fields: fields}} = OmS3.presign_put("s3://bucket/upload.jpg", config)
 
-# With content disposition (force download)
-{:ok, url} = OmS3.presign("s3://bucket/file.pdf", config,
-  expires_in: {1, :hour},
-  content_disposition: "attachment; filename=\"report.pdf\""
-)
-
-# Pipeline style
+# Pipeline
 {:ok, url} = OmS3.new(config)
-|> OmS3.bucket("downloads")
-|> OmS3.expires_in({30, :minutes})
-|> OmS3.presign("reports/monthly.pdf")
+|> OmS3.expires_in({1, :hour})
+|> OmS3.presign("s3://bucket/file.pdf")
+
+# Batch presign with globs
+results = OmS3.presign_all(["s3://bucket/docs/*.pdf"], config, expires_in: {1, :hour})
 ```
 
-### Upload URLs (PUT)
+### Duration Formats
 
 ```elixir
-# Generate upload URL
-{:ok, url} = OmS3.presign("s3://bucket/uploads/new-file.pdf", config,
-  method: :put,
-  expires_in: {15, :minutes}
+{5, :minutes}    # Tuple format
+{1, :hour}
+{7, :days}
+3600             # Seconds (integer)
+```
+
+### Presign Cache
+
+Prevent regeneration storms with cached presigned URLs:
+
+```elixir
+# Add to supervision tree
+children = [{OmS3.PresignCache, name: MyApp.S3PresignCache}]
+
+# Use - returns cached URL or generates new one
+{:ok, url} = OmS3.PresignCache.get_or_generate(
+  MyApp.S3PresignCache,
+  "s3://bucket/file.pdf",
+  config,
+  expires_in: {1, :hour}
 )
 
-# Client-side upload (JavaScript example):
-# fetch(url, { method: 'PUT', body: file })
+# Cache stats
+OmS3.PresignCache.stats(MyApp.S3PresignCache)
+#=> %{entries: 150, hits: 1000, misses: 50, hit_rate: 0.95}
 
-# Pipeline style
-OmS3.new(config)
-|> OmS3.bucket("uploads")
-|> OmS3.method(:put)
-|> OmS3.expires_in({15, :minutes})
-|> OmS3.content_type("application/pdf")
-|> OmS3.presign("user-uploads/document.pdf")
-```
+# Invalidate
+OmS3.PresignCache.invalidate(MyApp.S3PresignCache, "s3://bucket/file.pdf")
 
-### Upload Forms (POST)
-
-For browser form uploads with additional controls:
-
-```elixir
-{:ok, form} = OmS3.presign_form("s3://bucket/uploads/", config,
-  expires_in: {30, :minutes},
-  max_size: 10_485_760,  # 10MB
-  content_type_starts_with: "image/",
-  key_starts_with: "uploads/user123/"
-)
-
-#=> {:ok, %{
-#     url: "https://bucket.s3.amazonaws.com",
-#     fields: %{
-#       "key" => "uploads/${filename}",
-#       "policy" => "base64...",
-#       "x-amz-signature" => "...",
-#       "x-amz-credential" => "...",
-#       "x-amz-date" => "...",
-#       "x-amz-algorithm" => "AWS4-HMAC-SHA256"
-#     }
-#   }}
-```
-
-**HTML Form Example:**
-
-```html
-<form action="<%= form.url %>" method="post" enctype="multipart/form-data">
-  <%= for {name, value} <- form.fields do %>
-    <input type="hidden" name="<%= name %>" value="<%= value %>">
-  <% end %>
-  <input type="file" name="file">
-  <button type="submit">Upload</button>
-</form>
-```
-
-### Expiration Time Formats
-
-```elixir
-# Tuple format
-expires_in: {15, :minutes}
-expires_in: {1, :hour}
-expires_in: {24, :hours}
-expires_in: {7, :days}
-
-# Milliseconds (integer)
-expires_in: 900_000  # 15 minutes
-
-# Using :timer
-expires_in: :timer.minutes(15)
-expires_in: :timer.hours(1)
+# With @cacheable decorator
+@decorate cacheable(OmS3.PresignCache.preset(
+  cache: MyApp.Cache,
+  key: {:presign, uri},
+  expires_in: {1, :hour}
+))
+def download_url(uri), do: OmS3.presign(uri, config())
 ```
 
 ---
 
-## S3 URIs
+## Streaming (Large Files)
 
-OmS3 provides utilities for working with S3 URIs (`s3://bucket/key`).
-
-### Building URIs
+Memory-efficient operations for files too large to hold in memory.
 
 ```elixir
-# Build from components
-OmS3.uri("my-bucket", "path/to/file.txt")
-#=> "s3://my-bucket/path/to/file.txt"
+alias OmS3.Stream, as: S3Stream
 
-# With prefix
-OmS3.uri("my-bucket", "file.txt", prefix: "uploads/2024/")
-#=> "s3://my-bucket/uploads/2024/file.txt"
+# Download to file
+:ok = S3Stream.download_to_file("s3://bucket/large.zip", "/tmp/large.zip", config)
+
+# Download as Elixir Stream
+S3Stream.download("s3://bucket/large.zip", config)
+|> Stream.into(File.stream!("/tmp/output.zip"))
+|> Stream.run()
+
+# Download with callback (progress tracking)
+S3Stream.download_with_callback("s3://bucket/file.zip", config, fn chunk ->
+  bytes = byte_size(chunk)
+  send(self(), {:progress, bytes})
+end)
+
+# Upload from file (multipart)
+:ok = S3Stream.upload_file("/path/to/large.zip", "s3://bucket/large.zip", config)
+
+# Upload from stream
+File.stream!("/path/to/large.zip", [], 5_242_880)
+|> S3Stream.upload("s3://bucket/large.zip", config,
+  content_type: "application/zip",
+  metadata: %{source: "upload"}
+)
 ```
 
-### Parsing URIs
+Streaming automatically:
+- Chunks downloads using HTTP Range requests (5MB default)
+- Uses S3 multipart upload for uploads (5MB minimum part size)
+- Aborts multipart uploads on failure (no orphaned parts)
+- Raises `OmS3.StreamError` on failure (caught by `download_to_file`/`download_with_callback`)
+
+---
+
+## Error Handling
+
+All operations return `{:ok, result}` or `{:error, %OmS3.Error{}}` with structured error types:
 
 ```elixir
-# Parse URI to components
-{:ok, bucket, key} = OmS3.parse_uri("s3://my-bucket/path/file.txt")
-#=> {:ok, "my-bucket", "path/file.txt"}
+case OmS3.get("s3://bucket/file.txt", config) do
+  {:ok, content} ->
+    process(content)
 
-# Handle invalid URIs
-:error = OmS3.parse_uri("not-an-s3-uri")
+  {:error, %OmS3.Error{type: :not_found}} ->
+    :missing
 
-# Bang version
-{bucket, key} = OmS3.parse_uri!("s3://bucket/key")
+  {:error, %OmS3.Error{type: :access_denied, message: msg}} ->
+    Logger.error("Access denied: #{msg}")
+
+  {:error, %OmS3.Error{} = error} ->
+    if FnTypes.Protocols.Recoverable.recoverable?(error) do
+      retry_later()
+    else
+      {:error, error.type}
+    end
+end
 ```
 
-### URI Utilities
+### Error Types
+
+| Type | HTTP | Recoverable | Description |
+|------|------|-------------|-------------|
+| `:not_found` | 404 | No | Object/bucket doesn't exist |
+| `:access_denied` | 403 | No | Insufficient permissions |
+| `:invalid_request` | 400 | No | Malformed request |
+| `:conflict` | 409 | No | Concurrent modification |
+| `:precondition_failed` | 412 | No | ETag mismatch |
+| `:request_timeout` | 408 | Yes | Request took too long |
+| `:connection_error` | - | Yes | Network/DNS/TLS failure |
+| `:slow_down` | 503 | Yes | Rate limiting/throttling |
+| `:service_unavailable` | 503 | Yes | S3 temporarily down |
+| `:internal_error` | 500 | Yes | S3 internal error |
+
+### FnTypes Protocol Integration
 
 ```elixir
-alias OmS3.URI
+# Normalize to FnTypes.Error
+fn_error = FnTypes.Protocols.Normalizable.normalize(s3_error)
 
-# Extract bucket
-URI.bucket("s3://my-bucket/path/file.txt")
-#=> "my-bucket"
-
-# Extract key
-URI.key("s3://my-bucket/path/file.txt")
-#=> "path/file.txt"
-
-# Get parent path
-URI.parent("s3://bucket/a/b/c/file.txt")
-#=> "s3://bucket/a/b/c/"
-
-# Get filename
-URI.filename("s3://bucket/path/file.txt")
-#=> "file.txt"
-
-# Get extension
-URI.extname("s3://bucket/path/file.txt")
-#=> ".txt"
-
-# Join paths
-URI.join("s3://bucket/path/", "subdir/file.txt")
-#=> "s3://bucket/path/subdir/file.txt"
+# Recovery strategy
+FnTypes.Protocols.Recoverable.strategy(error)       #=> :retry_with_backoff
+FnTypes.Protocols.Recoverable.retry_delay(error, 1)  #=> 500 (ms, with jitter)
+FnTypes.Protocols.Recoverable.max_attempts(error)    #=> 3
+FnTypes.Protocols.Recoverable.severity(error)        #=> :transient | :degraded | :permanent
+FnTypes.Protocols.Recoverable.trips_circuit?(error)  #=> true (for :service_unavailable)
 ```
 
 ---
 
-## File Name Utilities
+## Telemetry
 
-OmS3 provides utilities to normalize file names for safe S3 storage.
+All Client operations emit telemetry events automatically:
 
-### Basic Normalization
+| Event | Measurements | Metadata |
+|-------|-------------|----------|
+| `[:om_s3, :request, :start]` | `system_time` | `operation`, `bucket`, `key` |
+| `[:om_s3, :request, :stop]` | `duration` | `operation`, `bucket`, `key`, `status` |
+| `[:om_s3, :request, :exception]` | `duration` | `operation`, `bucket`, `key`, `kind`, `reason` |
+| `[:om_s3, :batch, :start]` | `system_time`, `count` | `operation` |
+| `[:om_s3, :batch, :stop]` | `duration`, `succeeded`, `failed` | `operation` |
+
+### Built-in Logger
 
 ```elixir
-# Remove special characters, lowercase
+# Attach default logger (logs all ops, warns on slow ops > 5s)
+OmS3.Telemetry.attach_default_logger(level: :info, log_slow_threshold: 5_000)
+```
+
+### Custom Metrics
+
+```elixir
+:telemetry.attach_many("s3-metrics",
+  [[:om_s3, :request, :stop], [:om_s3, :request, :exception]],
+  &MyApp.handle_s3_event/4,
+  nil
+)
+```
+
+---
+
+## URI Utilities
+
+```elixir
+# Build / parse
+OmS3.uri("bucket", "path/file.txt")      #=> "s3://bucket/path/file.txt"
+OmS3.parse_uri("s3://bucket/file.txt")   #=> {:ok, "bucket", "file.txt"}
+
+# URI module
+OmS3.URI.filename("s3://b/path/file.txt") #=> "file.txt"
+OmS3.URI.parent("s3://b/path/file.txt")   #=> "s3://b/path/"
+OmS3.URI.extname("s3://b/photo.jpg")      #=> ".jpg"
+OmS3.URI.join("s3://b/dir/", "file.txt")  #=> "s3://b/dir/file.txt"
+OmS3.URI.valid?("s3://bucket/key")        #=> true
+
+# File name normalization
 OmS3.normalize_key("User's Photo (1).jpg")
 #=> "users-photo-1.jpg"
 
-# Handle unicode
-OmS3.normalize_key("Café Menu.pdf")
-#=> "cafe-menu.pdf"
+OmS3.normalize_key("report.pdf", prefix: "docs", timestamp: true)
+#=> "docs/report-20240115-143022.pdf"
 
-# Multiple spaces/dashes
-OmS3.normalize_key("my   file---name.txt")
-#=> "my-file-name.txt"
+OmS3.normalize_key("file.txt", uuid: true)
+#=> "file-a1b2c3d4-e5f6-7890-abcd-ef1234567890.txt"
 ```
 
-### With Options
+---
 
-```elixir
-# Add prefix
-OmS3.normalize_key("report.pdf", prefix: "documents")
-#=> "documents/report.pdf"
+## Network Layer
 
-# Add timestamp
-OmS3.normalize_key("report.pdf", timestamp: true)
-#=> "report-20240115-143022.pdf"
-
-# Add UUID
-OmS3.normalize_key("report.pdf", uuid: true)
-#=> "report-550e8400-e29b-41d4-a716-446655440000.pdf"
-
-# Custom separator
-OmS3.normalize_key("my file.txt", separator: "_")
-#=> "my_file.txt"
-
-# Preserve case
-OmS3.normalize_key("MyFile.TXT", preserve_case: true)
-#=> "MyFile.TXT"
-
-# Max length
-OmS3.normalize_key("very-long-file-name.pdf", max_length: 20)
-#=> "very-long-file-n.pdf"
-
-# Combined
-OmS3.normalize_key("User's Report.pdf",
-  prefix: "uploads/2024",
-  timestamp: true,
-  uuid: true
-)
-#=> "uploads/2024/users-report-20240115-143022-550e8400-e29b-41d4-a716-446655440000.pdf"
-```
-
-### Content Type Detection
-
-OmS3 auto-detects content types from file extensions:
-
-```elixir
-# Automatic detection (30+ extensions)
-OmS3.put("s3://bucket/image.jpg", data, config)
-# Content-Type: image/jpeg
-
-OmS3.put("s3://bucket/data.json", json, config)
-# Content-Type: application/json
-
-# Manual override
-OmS3.put("s3://bucket/file", data, config,
-  content_type: "application/octet-stream"
-)
-```
-
-**Supported Extensions:**
-
-| Category | Extensions |
-|----------|------------|
-| Images | jpg, jpeg, png, gif, svg, webp, ico, bmp |
-| Documents | pdf, doc, docx, xls, xlsx, ppt, pptx |
-| Text | txt, csv, html, css, js, json, xml, md |
-| Archives | zip, tar, gz, rar, 7z |
-| Audio | mp3, wav, ogg, m4a, flac |
-| Video | mp4, webm, avi, mov, mkv |
+| Feature | Implementation |
+|---------|---------------|
+| HTTP client | Req + ReqS3 (SigV4 signing) |
+| Connection pooling | Finch (via Req) with configurable pool timeout |
+| Retries | `retry: :safe_transient` + `max_retries` (default 3) |
+| Timeouts | `connect_timeout` (30s) / `receive_timeout` (60s) / `pool_timeout` (5s) |
+| Proxy | HTTP/HTTPS with auth, NO_PROXY, env var fallback |
+| Error recovery | Exponential backoff with jitter via Recoverable protocol |
 
 ---
 
 ## Real-World Examples
 
-### 1. User Avatar Upload (Phoenix)
+### User Avatar Upload (Phoenix Controller)
 
 ```elixir
 defmodule MyAppWeb.AvatarController do
@@ -775,409 +575,440 @@ defmodule MyAppWeb.AvatarController do
   def create(conn, %{"avatar" => upload}) do
     user = conn.assigns.current_user
 
-    # Normalize filename with user-specific prefix
+    # Sanitize user-provided filename, add UUID for uniqueness
     key = OmS3.normalize_key(upload.filename,
       prefix: "avatars/#{user.id}",
       uuid: true
     )
 
-    # Read and upload
+    uri = "s3://#{bucket()}/#{key}"
     content = File.read!(upload.path)
 
-    case OmS3.put("s3://#{bucket()}/#{key}", content, config(),
-      content_type: upload.content_type,
-      acl: "public-read"
-    ) do
-      {:ok, _} ->
-        # Update user with new avatar URL
-        {:ok, url} = OmS3.presign("s3://#{bucket()}/#{key}", config(),
-          expires_in: {7, :days}
-        )
+    case OmS3.put(uri, content, config(), content_type: upload.content_type) do
+      :ok ->
+        {:ok, url} = OmS3.presign_get(uri, config(), expires_in: {7, :days})
+        json(conn, %{url: url, key: key})
 
-        user
-        |> User.avatar_changeset(%{avatar_url: url})
-        |> Repo.update()
-
-        json(conn, %{url: url})
-
-      {:error, reason} ->
-        conn
-        |> put_status(:unprocessable_entity)
-        |> json(%{error: "Upload failed: #{inspect(reason)}"})
+      {:error, %OmS3.Error{type: type, message: msg}} ->
+        conn |> put_status(422) |> json(%{error: "#{type}: #{msg}"})
     end
   end
-
-  defp config, do: Application.get_env(:my_app, :s3) |> OmS3.config()
-  defp bucket, do: Application.get_env(:my_app, :s3)[:bucket]
 end
 ```
 
-### 2. Direct Browser Upload (LiveView)
+### Direct Browser Upload (Presigned PUT)
 
 ```elixir
 defmodule MyAppWeb.UploadLive do
   use MyAppWeb, :live_view
 
-  def mount(_params, _session, socket) do
-    {:ok, assign(socket, :upload_url, nil)}
-  end
-
-  def handle_event("request_upload", %{"filename" => filename}, socket) do
-    # Generate presigned upload URL
+  def handle_event("request_upload", %{"filename" => filename, "content_type" => ct}, socket) do
     key = OmS3.normalize_key(filename,
       prefix: "uploads/#{socket.assigns.current_user.id}",
       timestamp: true
     )
 
-    {:ok, url} = OmS3.presign("s3://#{bucket()}/#{key}", config(),
-      method: :put,
-      expires_in: {15, :minutes}
-    )
+    # Generate presigned upload URL for the browser
+    {:ok, url} = OmS3.new(config())
+    |> OmS3.method(:put)
+    |> OmS3.expires_in({15, :minutes})
+    |> OmS3.presign("s3://#{bucket()}/#{key}")
 
-    {:noreply, assign(socket, upload_url: url, upload_key: key)}
+    {:noreply, push_event(socket, "upload_url", %{url: url, key: key})}
   end
 
-  def handle_event("upload_complete", _params, socket) do
-    # Verify upload and process
-    case OmS3.exists?("s3://#{bucket()}/#{socket.assigns.upload_key}", config()) do
-      {:ok, true} ->
-        # Process uploaded file
-        {:noreply, put_flash(socket, :info, "Upload complete!")}
+  # Browser JS: fetch(url, {method: "PUT", body: file, headers: {"Content-Type": ct}})
 
-      {:ok, false} ->
-        {:noreply, put_flash(socket, :error, "Upload verification failed")}
+  def handle_event("upload_complete", %{"key" => key}, socket) do
+    uri = "s3://#{bucket()}/#{key}"
+
+    if OmS3.exists?(uri, config()) do
+      {:ok, meta} = OmS3.head(uri, config())
+      {:noreply, put_flash(socket, :info, "Uploaded #{meta.size} bytes")}
+    else
+      {:noreply, put_flash(socket, :error, "Upload verification failed")}
     end
   end
 end
 ```
 
-**JavaScript for Direct Upload:**
-
-```javascript
-async function uploadFile(file, presignedUrl) {
-  const response = await fetch(presignedUrl, {
-    method: 'PUT',
-    body: file,
-    headers: {
-      'Content-Type': file.type
-    }
-  });
-
-  if (response.ok) {
-    // Notify LiveView of completion
-    this.pushEvent('upload_complete', {});
-  }
-}
-```
-
-### 3. Batch Report Generation
+### Batch Report Generation
 
 ```elixir
-defmodule MyApp.Reports.Generator do
-  def generate_monthly_reports(month, year) do
-    users = Users.with_activity_in_month(month, year)
+defmodule MyApp.Reports do
+  def generate_and_upload(users, month) do
+    # Generate all PDFs locally
+    files =
+      users
+      |> Task.async_stream(&generate_pdf(&1, month), max_concurrency: 4)
+      |> Enum.map(fn {:ok, {key, pdf}} -> {key, pdf} end)
 
-    # Generate reports in parallel
-    reports = users
-    |> Task.async_stream(fn user ->
-      report = generate_report(user, month, year)
-      key = "reports/#{year}/#{month}/user-#{user.id}.pdf"
-      {key, report}
-    end, max_concurrency: 10)
-    |> Enum.map(fn {:ok, result} -> result end)
+    # Batch upload to S3 with concurrency control
+    results =
+      OmS3.new(config())
+      |> OmS3.bucket("reports")
+      |> OmS3.prefix("monthly/#{month}/")
+      |> OmS3.content_type("application/pdf")
+      |> OmS3.storage_class("STANDARD_IA")
+      |> OmS3.concurrency(20)
+      |> OmS3.timeout({5, :minutes})
+      |> OmS3.put_all(files)
 
-    # Batch upload
-    OmS3.new(config())
-    |> OmS3.bucket("reports")
-    |> OmS3.content_type("application/pdf")
-    |> OmS3.storage_class("STANDARD_IA")
-    |> OmS3.concurrency(20)
-    |> OmS3.put_all(reports)
-    |> OmS3.run()
+    # Analyze results
+    summary = OmS3.BatchResult.summarize(results)
+    Logger.info(OmS3.BatchResult.format(summary))
+
+    # Retry any transient failures
+    if OmS3.BatchResult.any_failed?(results) do
+      OmS3.BatchResult.retry_failures(results, fn uri, _reason ->
+        {_bucket, key} = OmS3.URI.parse!(uri)
+        user_id = extract_user_id(key)
+        pdf = generate_pdf(Users.get!(user_id), month)
+        OmS3.put(uri, pdf, config())
+      end)
+    end
+
+    {:ok, summary}
+  end
+
+  defp generate_pdf(user, month) do
+    pdf = ReportGenerator.monthly(user, month)
+    key = "user-#{user.id}.pdf"
+    {key, pdf}
   end
 end
 ```
 
-### 4. Data Export with Cleanup
+### Data Export with Expiring Download Links
 
 ```elixir
 defmodule MyApp.Exports do
-  @export_ttl_days 7
+  @ttl_days 7
 
-  def create_export(user, data_type) do
-    export_data = fetch_export_data(user, data_type)
+  def create(user, type) do
+    data = fetch_export_data(user, type)
+    json = Jason.encode!(data)
 
-    key = OmS3.normalize_key("#{data_type}-export.json",
+    key = OmS3.normalize_key("#{type}-export.json",
       prefix: "exports/#{user.id}",
       timestamp: true
     )
 
-    case OmS3.put("s3://#{bucket()}/#{key}", Jason.encode!(export_data), config(),
-      content_type: "application/json",
-      metadata: %{
-        "x-amz-meta-user-id" => to_string(user.id),
-        "x-amz-meta-expires-at" => expiration_date()
-      }
-    ) do
-      {:ok, _} ->
-        {:ok, url} = OmS3.presign("s3://#{bucket()}/#{key}", config(),
-          expires_in: {@export_ttl_days, :days}
-        )
-        {:ok, %{url: url, expires_in: @export_ttl_days}}
+    uri = "s3://#{bucket()}/#{key}"
 
-      error -> error
+    with :ok <- OmS3.put(uri, json, config(),
+           content_type: "application/json",
+           metadata: %{user_id: to_string(user.id), type: type}),
+         {:ok, url} <- OmS3.presign_get(uri, config(), expires_in: {@ttl_days, :days}) do
+      {:ok, %{url: url, key: key, expires_in_days: @ttl_days}}
     end
   end
 
-  # Cleanup job (run daily)
-  def cleanup_expired_exports do
-    # List all exports
-    {:ok, objects} = OmS3.list("s3://#{bucket()}/exports/", config())
-
-    # Filter expired
+  # Daily cleanup job
+  def cleanup_expired do
+    {:ok, files} = OmS3.list_all("s3://#{bucket()}/exports/", config())
     now = DateTime.utc_now()
-    expired = Enum.filter(objects, fn obj ->
-      DateTime.diff(now, obj.last_modified, :day) > @export_ttl_days
-    end)
 
-    # Batch delete
-    if length(expired) > 0 do
-      keys = Enum.map(expired, & "s3://#{bucket()}/#{&1.key}")
-      OmS3.delete_all(keys, config())
+    expired_uris =
+      files
+      |> Enum.filter(&(DateTime.diff(now, &1.last_modified, :day) > @ttl_days))
+      |> Enum.map(&OmS3.uri(bucket(), &1.key))
+
+    case expired_uris do
+      [] -> :noop
+      uris ->
+        results = OmS3.delete_all(uris, config(), concurrency: 20)
+        summary = OmS3.BatchResult.summarize(results)
+        Logger.info("Export cleanup: #{summary.succeeded} deleted, #{summary.failed} failed")
     end
-  end
-
-  defp expiration_date do
-    DateTime.utc_now()
-    |> DateTime.add(@export_ttl_days, :day)
-    |> DateTime.to_iso8601()
   end
 end
 ```
 
-### 5. LocalStack/MinIO Development
+### Image Processing Pipeline
+
+```elixir
+defmodule MyApp.ImagePipeline do
+  alias OmS3.Stream, as: S3Stream
+
+  def process_upload(source_uri, config) do
+    # 1. Download original
+    {:ok, original} = OmS3.get(source_uri, config)
+
+    # 2. Generate variants
+    variants = [
+      {"thumb", resize(original, 150, 150)},
+      {"medium", resize(original, 800, 600)},
+      {"large", resize(original, 1920, 1080)}
+    ]
+
+    # 3. Upload all variants in parallel
+    filename = OmS3.URI.filename(source_uri)
+    base = Path.rootname(filename)
+    ext = Path.extname(filename)
+
+    files = Enum.map(variants, fn {variant, data} ->
+      {"#{base}-#{variant}#{ext}", data}
+    end)
+
+    OmS3.new(config)
+    |> OmS3.bucket("images")
+    |> OmS3.prefix("processed/")
+    |> OmS3.content_type("image/jpeg")
+    |> OmS3.concurrency(3)
+    |> OmS3.put_all(files)
+    |> OmS3.BatchResult.raise_on_failure!()
+
+    # 4. Generate presigned download URLs
+    uris = Enum.map(files, fn {key, _} -> "s3://images/processed/#{key}" end)
+
+    OmS3.new(config)
+    |> OmS3.expires_in({24, :hours})
+    |> OmS3.presign_all(uris)
+    |> Enum.map(fn {:ok, uri, url} -> {OmS3.URI.filename(uri), url} end)
+    |> Map.new()
+  end
+end
+```
+
+### Large File Streaming with Progress
+
+```elixir
+defmodule MyApp.LargeTransfer do
+  alias OmS3.Stream, as: S3Stream
+
+  def download_with_progress(uri, local_path, config) do
+    # Get file size first
+    {:ok, %{size: total_bytes}} = OmS3.head(uri, config)
+
+    pid = self()
+    downloaded = :counters.new(1, [:atomics])
+
+    # Stream download with progress tracking
+    case S3Stream.download_with_callback(uri, config, fn chunk ->
+      :counters.add(downloaded, 1, byte_size(chunk))
+      current = :counters.get(downloaded, 1)
+      percent = Float.round(current / total_bytes * 100, 1)
+      send(pid, {:progress, percent, current, total_bytes})
+      File.write!(local_path, chunk, [:append, :binary])
+    end) do
+      :ok -> {:ok, :counters.get(downloaded, 1)}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  def upload_large_file(local_path, uri, config) do
+    file_size = File.stat!(local_path).size
+    Logger.info("Uploading #{Float.round(file_size / 1_048_576, 1)}MB to #{uri}")
+
+    S3Stream.upload_file(local_path, uri, config,
+      content_type: OmS3.ContentType.detect(local_path),
+      chunk_size: 10 * 1024 * 1024  # 10MB chunks
+    )
+  end
+end
+```
+
+### Migration Between S3 Providers
+
+```elixir
+defmodule MyApp.S3Migration do
+  def migrate(source_prefix, dest_prefix) do
+    source = OmS3.config(
+      access_key_id: "old-key",
+      secret_access_key: "old-secret",
+      region: "us-east-1"
+    )
+
+    dest = OmS3.config(
+      access_key_id: "new-key",
+      secret_access_key: "new-secret",
+      endpoint: "https://ACCT.r2.cloudflarestorage.com",
+      region: "auto"
+    )
+
+    # List all files from source
+    {:ok, files} = OmS3.list_all(source_prefix, source)
+    Logger.info("Migrating #{length(files)} files")
+
+    # Download from source and upload to dest in batches
+    files
+    |> Enum.chunk_every(50)
+    |> Enum.each(fn batch ->
+      # Download batch
+      uris = Enum.map(batch, &OmS3.uri("source-bucket", &1.key))
+      downloaded = OmS3.get_all(uris, source, concurrency: 10)
+
+      # Upload to destination
+      to_upload =
+        downloaded
+        |> Enum.filter(&match?({:ok, _, _}, &1))
+        |> Enum.map(fn {:ok, uri, content} ->
+          filename = OmS3.URI.filename(uri)
+          {filename, content}
+        end)
+
+      OmS3.put_all(to_upload, dest,
+        to: dest_prefix,
+        concurrency: 10,
+        timeout: 120_000
+      )
+      |> OmS3.BatchResult.raise_on_failure!()
+    end)
+  end
+end
+```
+
+### Cleanup Old Files by Glob
+
+```elixir
+defmodule MyApp.S3Cleanup do
+  # Delete all .tmp files older than 24 hours
+  def cleanup_temp_files(config) do
+    {:ok, files} = OmS3.list_all("s3://bucket/tmp/", config)
+    cutoff = DateTime.add(DateTime.utc_now(), -24, :hour)
+
+    old_uris =
+      files
+      |> Enum.filter(&(DateTime.compare(&1.last_modified, cutoff) == :lt))
+      |> Enum.map(&OmS3.uri("bucket", &1.key))
+
+    case old_uris do
+      [] ->
+        Logger.info("No temp files to clean up")
+
+      uris ->
+        results = OmS3.delete_all(uris, config, concurrency: 50)
+        summary = OmS3.BatchResult.summarize(results)
+        Logger.info("Cleaned up #{summary.succeeded} temp files")
+    end
+  end
+
+  # Delete all logs matching a glob pattern
+  def delete_old_logs(config) do
+    results = OmS3.delete_all(["s3://bucket/logs/2023-*.log"], config)
+    OmS3.BatchResult.raise_on_failure!(results)
+  end
+end
+```
+
+### Storage Module Pattern
+
+```elixir
+defmodule MyApp.Storage do
+  @bucket System.compile_env!(:my_app, :s3_bucket)
+
+  defp config do
+    OmS3.Config.from_env()
+  end
+
+  def upload(path, content, opts \\ []) do
+    content_type = Keyword.get(opts, :content_type, OmS3.ContentType.detect(path))
+    metadata = Keyword.get(opts, :metadata, %{})
+
+    OmS3.put("s3://#{@bucket}/#{path}", content, config(),
+      content_type: content_type,
+      metadata: metadata
+    )
+  end
+
+  def download(path) do
+    OmS3.get("s3://#{@bucket}/#{path}", config())
+  end
+
+  def url(path, opts \\ []) do
+    expires = Keyword.get(opts, :expires_in, {1, :hour})
+    OmS3.presign_get("s3://#{@bucket}/#{path}", config(), expires_in: expires)
+  end
+
+  def delete(path) do
+    OmS3.delete("s3://#{@bucket}/#{path}", config())
+  end
+
+  def list(prefix \\ "") do
+    OmS3.list_all("s3://#{@bucket}/#{prefix}", config())
+  end
+end
+
+# Usage:
+MyApp.Storage.upload("avatars/user-1.jpg", jpeg_data, content_type: "image/jpeg")
+{:ok, url} = MyApp.Storage.url("avatars/user-1.jpg", expires_in: {24, :hours})
+```
+
+### Dev/Test with LocalStack
 
 ```elixir
 # config/dev.exs
-config :my_app, :s3,
+config :my_app, :s3_config,
   access_key_id: "test",
   secret_access_key: "test",
-  region: "us-east-1",
-  endpoint: "http://localhost:4566",  # LocalStack
-  force_path_style: true,
-  bucket: "dev-bucket"
+  endpoint: "http://localhost:4566",
+  region: "us-east-1"
 
-# Or MinIO
-config :my_app, :s3,
-  access_key_id: "minioadmin",
-  secret_access_key: "minioadmin",
-  region: "us-east-1",
-  endpoint: "http://localhost:9000",
-  force_path_style: true,
-  bucket: "dev-bucket"
+# config/prod.exs
+config :my_app, :s3_config,
+  access_key_id: System.get_env("AWS_ACCESS_KEY_ID"),
+  secret_access_key: System.get_env("AWS_SECRET_ACCESS_KEY"),
+  region: System.get_env("AWS_REGION", "us-east-1")
 ```
 
-```bash
-# docker-compose.yml for LocalStack
+```yaml
+# docker-compose.yml
 services:
   localstack:
     image: localstack/localstack
-    ports:
-      - "4566:4566"
+    ports: ["4566:4566"]
     environment:
-      - SERVICES=s3
-      - DEFAULT_REGION=us-east-1
+      SERVICES: s3
+      DEFAULT_REGION: us-east-1
 ```
 
 ```elixir
-# Create bucket in development
-def setup_dev_bucket do
-  # LocalStack/MinIO need bucket creation
-  OmS3.create_bucket("dev-bucket", config())
+# test/support/s3_helper.ex
+defmodule MyApp.S3TestHelper do
+  def config do
+    OmS3.config(
+      access_key_id: "test",
+      secret_access_key: "test",
+      endpoint: "http://localhost:4566",
+      region: "us-east-1"
+    )
+  end
+
+  def setup_bucket(bucket) do
+    # LocalStack auto-creates buckets on first put
+    OmS3.put("s3://#{bucket}/.keep", "", config())
+  end
+
+  def cleanup_bucket(bucket) do
+    {:ok, files} = OmS3.list_all("s3://#{bucket}/", config())
+    uris = Enum.map(files, &OmS3.uri(bucket, &1.key))
+    OmS3.delete_all(uris, config())
+  end
 end
 ```
 
 ---
 
-## Best Practices
+## Architecture
 
-### 1. Always Use Normalized Keys
-
-```elixir
-# GOOD: Normalized, safe key
-key = OmS3.normalize_key(user_filename, prefix: "uploads", uuid: true)
-OmS3.put("s3://bucket/#{key}", content, config)
-
-# BAD: User input directly in key (security risk!)
-OmS3.put("s3://bucket/#{user_filename}", content, config)
 ```
-
-### 2. Use Presigned URLs for Client Uploads
-
-```elixir
-# GOOD: Client uploads directly to S3
-{:ok, url} = OmS3.presign("s3://bucket/#{key}", config, method: :put)
-# Client uploads to `url`
-
-# BAD: Upload through your server (wastes bandwidth)
-def upload(conn, %{"file" => file}) do
-  content = File.read!(file.path)
-  OmS3.put("s3://bucket/file", content, config)
-end
+OmS3 (facade)           - Dual API: direct + pipeline
+  OmS3.Request          - Pipeline builder
+  OmS3.Client           - Low-level HTTP (Req + ReqS3), telemetry spans
+  OmS3.Config           - Configuration, proxy, path_style auto-detection
+  OmS3.Error            - Structured errors + Normalizable/Recoverable protocols
+  OmS3.Telemetry        - Event emission + default logger
+  OmS3.Stream           - Multipart upload + chunked download
+  OmS3.BatchResult      - Batch analysis + categorized retry
+  OmS3.PresignCache     - URL caching (GenServer + decorator preset)
+  OmS3.URI              - Parse/build/join s3:// URIs
+  OmS3.Glob             - * and ** pattern matching for batch ops
+  OmS3.Headers          - Upload header construction
+  OmS3.ContentType      - MIME type detection (30+ extensions)
+  OmS3.FileNameNormalizer - Safe filename sanitization
+  OmS3.Duration         - {5, :minutes} -> seconds/ms conversion
 ```
-
-### 3. Set Appropriate Storage Classes
-
-```elixir
-# Frequently accessed
-OmS3.put(uri, data, config, storage_class: "STANDARD")
-
-# Infrequent access (cheaper storage, retrieval cost)
-OmS3.put(uri, data, config, storage_class: "STANDARD_IA")
-
-# Archive (very cheap, slow retrieval)
-OmS3.put(uri, data, config, storage_class: "GLACIER")
-```
-
-### 4. Handle Errors Gracefully
-
-```elixir
-# GOOD: Pattern match on results
-case OmS3.get(uri, config) do
-  {:ok, content} -> process(content)
-  {:error, :not_found} -> {:error, :file_not_found}
-  {:error, :access_denied} -> {:error, :unauthorized}
-  {:error, reason} -> {:error, {:s3_error, reason}}
-end
-
-# BAD: Assume success
-{:ok, content} = OmS3.get(uri, config)  # Will crash on error!
-```
-
-### 5. Use Batch Operations for Multiple Files
-
-```elixir
-# GOOD: Batch with concurrency control
-OmS3.new(config)
-|> OmS3.bucket("uploads")
-|> OmS3.concurrency(10)
-|> OmS3.get_all(keys)
-|> OmS3.run()
-
-# BAD: Sequential operations
-Enum.map(keys, fn key ->
-  OmS3.get(key, config)
-end)
-```
-
-### 6. Organize Keys with Prefixes
-
-```elixir
-# GOOD: Organized key structure
-"users/#{user_id}/avatars/#{filename}"
-"exports/#{year}/#{month}/#{report_id}.pdf"
-"temp/#{session_id}/#{filename}"
-
-# BAD: Flat structure
-"#{filename}"  # No organization, hard to manage
-```
-
----
-
-## Options Reference
-
-### Pipeline Options
-
-| Method | Type | Description |
-|--------|------|-------------|
-| `bucket/2` | string | Target bucket name |
-| `prefix/2` | string | Key prefix for all operations |
-| `content_type/2` | string | MIME type |
-| `acl/2` | string | Access control: "private", "public-read", etc. |
-| `storage_class/2` | string | "STANDARD", "STANDARD_IA", "GLACIER", etc. |
-| `metadata/2` | map | Custom metadata headers |
-| `expires_in/2` | tuple/int | Presigned URL expiration |
-| `method/2` | atom | `:get`, `:put`, `:delete` for presigned URLs |
-| `timeout/2` | tuple/int | Request timeout |
-| `concurrency/2` | integer | Parallel operations for batch |
-
-### Operation Options
-
-| Option | Operations | Description |
-|--------|------------|-------------|
-| `content_type` | put | MIME type |
-| `acl` | put | Access control |
-| `storage_class` | put | Storage tier |
-| `metadata` | put, copy | Custom metadata |
-| `range` | get | Byte range for partial download |
-| `max_keys` | list | Pagination limit |
-| `continuation_token` | list | Pagination cursor |
-| `expires_in` | presign | URL expiration time |
-| `method` | presign | HTTP method for URL |
-| `content_disposition` | presign | Force download filename |
-| `concurrency` | batch ops | Parallel execution limit |
-
-### ACL Values
-
-| Value | Description |
-|-------|-------------|
-| `"private"` | Owner-only access (default) |
-| `"public-read"` | Public read, owner write |
-| `"public-read-write"` | Public read/write |
-| `"authenticated-read"` | Authenticated AWS users can read |
-| `"bucket-owner-read"` | Bucket owner can read |
-| `"bucket-owner-full-control"` | Bucket owner has full control |
-
-### Storage Classes
-
-| Class | Description | Use Case |
-|-------|-------------|----------|
-| `STANDARD` | High availability, low latency | Frequently accessed |
-| `STANDARD_IA` | Lower cost, retrieval fee | Infrequent access |
-| `ONEZONE_IA` | Single AZ, cheaper | Non-critical data |
-| `GLACIER` | Archive, hours to retrieve | Long-term archive |
-| `GLACIER_IR` | Archive, minutes to retrieve | Archive with faster access |
-| `DEEP_ARCHIVE` | Cheapest, 12+ hours | Compliance archives |
-
----
-
-## Error Handling
-
-OmS3 returns consistent `{:ok, result} | {:error, reason}` tuples:
-
-```elixir
-case OmS3.get(uri, config) do
-  {:ok, content} ->
-    {:ok, content}
-
-  {:error, :not_found} ->
-    {:error, :file_not_found}
-
-  {:error, :access_denied} ->
-    {:error, :unauthorized}
-
-  {:error, {:http_error, status, body}} ->
-    Logger.error("S3 HTTP error: #{status} - #{body}")
-    {:error, :s3_error}
-
-  {:error, :timeout} ->
-    {:error, :timeout}
-
-  {:error, reason} ->
-    Logger.error("S3 error: #{inspect(reason)}")
-    {:error, :unknown_error}
-end
-```
-
-**Common Error Reasons:**
-
-| Error | Cause |
-|-------|-------|
-| `:not_found` | Object doesn't exist |
-| `:access_denied` | Invalid credentials or permissions |
-| `:timeout` | Request exceeded timeout |
-| `:invalid_uri` | Malformed S3 URI |
-| `{:http_error, status, body}` | HTTP error from S3 |
 
 ## License
 

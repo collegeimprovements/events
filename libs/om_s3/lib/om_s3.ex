@@ -352,7 +352,6 @@ defmodule OmS3 do
 
     case Client.head_object(config, bucket, key) do
       {:ok, _} -> true
-      {:error, :not_found} -> false
       {:error, _} -> false
     end
   end

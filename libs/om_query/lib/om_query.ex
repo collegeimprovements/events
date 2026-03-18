@@ -939,8 +939,14 @@ defmodule OmQuery do
   defp negate_operator(:not_like), do: :like
   defp negate_operator(:not_ilike), do: :ilike
 
+  @negatable_operators ~w(eq neq gt gte lt lte in not_in is_nil not_nil like ilike not_like not_ilike)a
+
   defp negate_operator(op) do
-    raise ArgumentError, "Cannot negate operator: #{inspect(op)}"
+    raise OmQuery.OperatorError,
+      operator: op,
+      context: :negate,
+      supported: @negatable_operators,
+      suggestion: "Only comparison, membership, null-check, and pattern operators can be negated."
   end
 
   @doc """

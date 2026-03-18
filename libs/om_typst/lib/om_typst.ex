@@ -71,7 +71,7 @@ defmodule OmTypst do
           output: Path.t(),
           root: Path.t(),
           font_path: Path.t() | [Path.t()],
-          input: %{String.t() => String.t()},
+          input: %{String.t() => term()},
           pages: String.t(),
           ppi: pos_integer(),
           pdf_standard: pdf_standard() | [pdf_standard()],
@@ -80,7 +80,7 @@ defmodule OmTypst do
           ignore_embedded_fonts: boolean(),
           package_path: Path.t(),
           package_cache_path: Path.t(),
-          creation_timestamp: integer(),
+          creation_timestamp: non_neg_integer(),
           jobs: pos_integer(),
           diagnostic_format: diagnostic_format(),
           features: [:html | :a11y_extras],
@@ -93,7 +93,7 @@ defmodule OmTypst do
   @type query_opts :: [
           root: Path.t(),
           font_path: Path.t() | [Path.t()],
-          input: %{String.t() => String.t()},
+          input: %{String.t() => term()},
           field: atom() | String.t(),
           one: boolean(),
           target: :paged | :html,
@@ -104,7 +104,7 @@ defmodule OmTypst do
           format: format(),
           root: Path.t(),
           font_path: Path.t() | [Path.t()],
-          input: %{String.t() => String.t()},
+          input: %{String.t() => term()},
           ppi: pos_integer(),
           diagnostic_format: diagnostic_format(),
           open: boolean() | String.t()
@@ -212,16 +212,17 @@ defmodule OmTypst do
       {:ok, png} = OmTypst.compile_string(content, format: :png, ppi: 300)
 
   """
-  @spec compile_string(String.t(), compile_opts()) :: {:ok, binary()} | {:error, term()}
+  @spec compile_string(String.t(), compile_opts()) :: {:ok, binary()} | :ok | {:error, term()}
   def compile_string(content, opts \\ []) do
-    args = build_compile_args("-", nil, opts)
+    output = Keyword.get(opts, :output)
+    args = build_compile_args("-", output, opts)
 
     try do
       result =
         ExCmd.stream!(["typst", "compile" | args], input: content)
         |> Enum.into(<<>>)
 
-      {:ok, result}
+      if output, do: :ok, else: {:ok, result}
     rescue
       e in ExCmd.Stream.AbnormalExit ->
         {:error, {:exit, e.exit_status}}
@@ -231,10 +232,11 @@ defmodule OmTypst do
   @doc """
   Compiles Typst content from a string, raising on error.
   """
-  @spec compile_string!(String.t(), compile_opts()) :: binary()
+  @spec compile_string!(String.t(), compile_opts()) :: binary() | :ok
   def compile_string!(content, opts \\ []) do
     case compile_string(content, opts) do
       {:ok, result} -> result
+      :ok -> :ok
       {:error, reason} -> raise "Typst compilation failed: #{format_error(reason)}"
     end
   end
@@ -325,13 +327,13 @@ defmodule OmTypst do
 
             cond do
               String.contains?(chunk, "compiled successfully") and is_function(on_compile, 2) ->
-                # Extract timing if available
-                case Regex.run(~r/in (\d+)ms/, chunk) do
-                  [_, ms] -> on_compile.(output_path, String.to_integer(ms))
+                case Regex.run(~r/in (\d+(?:\.\d+)?)(ms|s)/, chunk) do
+                  [_, time, "ms"] -> on_compile.(output_path, String.to_integer(time))
+                  [_, time, "s"] -> on_compile.(output_path, round(String.to_float(time) * 1000))
                   _ -> on_compile.(output_path, 0)
                 end
 
-              String.contains?(chunk, "error") and is_function(on_error, 1) ->
+              Regex.match?(~r/^error(\[|:|\s)/m, chunk) and is_function(on_error, 1) ->
                 on_error.(chunk)
 
               true ->
@@ -354,8 +356,14 @@ defmodule OmTypst do
   Stops a watch task.
   """
   @spec stop_watch(Task.t()) :: :ok
-  def stop_watch(%Task{} = task) do
-    Task.shutdown(task, :brutal_kill)
+  def stop_watch(%Task{pid: pid} = task) do
+    # Shut down gracefully first, fall back to brutal kill
+    case Task.shutdown(task, 1_000) do
+      {:ok, _} -> :ok
+      {:exit, _} -> :ok
+      nil -> if Process.alive?(pid), do: Process.exit(pid, :kill)
+    end
+
     :ok
   end
 
@@ -412,7 +420,7 @@ defmodule OmTypst do
 
       case JSON.decode(result) do
         {:ok, data} -> {:ok, data}
-        {:error, _} -> {:ok, result}
+        {:error, _} -> {:error, {:invalid_json, result}}
       end
     rescue
       e in ExCmd.Stream.AbnormalExit ->
@@ -683,15 +691,13 @@ defmodule OmTypst do
   defp add_font_paths(args, path) when is_binary(path), do: args ++ ["--font-path", path]
 
   defp add_font_paths(args, paths) when is_list(paths) do
-    Enum.reduce(paths, args, fn path, acc -> acc ++ ["--font-path", path] end)
+    args ++ Enum.flat_map(paths, &["--font-path", &1])
   end
 
   defp add_inputs(args, nil), do: args
 
   defp add_inputs(args, inputs) when is_map(inputs) do
-    Enum.reduce(inputs, args, fn {k, v}, acc ->
-      acc ++ ["--input", "#{k}=#{v}"]
-    end)
+    args ++ Enum.flat_map(inputs, fn {k, v} -> ["--input", "#{k}=#{v}"] end)
   end
 
   defp add_pdf_standards(args, nil), do: args
@@ -720,5 +726,6 @@ defmodule OmTypst do
   end
 
   defp format_error({:exit, code}), do: "exit code #{code}"
+  defp format_error({:invalid_json, output}), do: "invalid JSON response: #{output}"
   defp format_error(other), do: inspect(other)
 end

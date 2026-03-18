@@ -172,6 +172,58 @@ defmodule OmBehaviours.Adapter do
   end
 
   @doc """
+  Resolves an adapter name to a module, validating existence and behaviour implementation.
+
+  Unlike `resolve/2`, this function ensures the resolved module is compiled and
+  implements `OmBehaviours.Adapter`. Raises `ArgumentError` if validation fails.
+
+  ## Parameters
+
+  - `adapter_name` - The adapter identifier as an atom (e.g., `:s3`, `:local`)
+  - `base_module` - The base module namespace (e.g., `MyApp.Storage`)
+
+  ## Returns
+
+  The fully qualified adapter module name.
+
+  ## Raises
+
+  - `ArgumentError` if the module cannot be compiled/loaded
+  - `ArgumentError` if the module does not implement `OmBehaviours.Adapter`
+
+  ## Examples
+
+      iex> OmBehaviours.Adapter.resolve!(:s3, MyApp.Storage)
+      MyApp.Storage.S3
+
+      # Non-existent module raises
+      OmBehaviours.Adapter.resolve!(:nonexistent, MyApp.Storage)
+      #=> ** (ArgumentError) adapter module MyApp.Storage.Nonexistent is not available
+
+      # Module without Adapter behaviour raises
+      OmBehaviours.Adapter.resolve!(:string, Elixir)
+      #=> ** (ArgumentError) Elixir.String does not implement OmBehaviours.Adapter
+  """
+  @spec resolve!(adapter_name :: atom(), base_module :: module()) :: module()
+  def resolve!(adapter_name, base_module) do
+    module = resolve(adapter_name, base_module)
+
+    case Code.ensure_compiled(module) do
+      {:module, ^module} ->
+        unless implements?(module) do
+          raise ArgumentError,
+                "#{inspect(module)} does not implement OmBehaviours.Adapter behaviour"
+        end
+
+        module
+
+      {:error, reason} ->
+        raise ArgumentError,
+              "adapter module #{inspect(module)} is not available: #{inspect(reason)}"
+    end
+  end
+
+  @doc """
   Helper to check if a module implements the Adapter behaviour.
 
   ## Parameters

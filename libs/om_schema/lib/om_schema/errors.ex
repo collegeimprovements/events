@@ -139,8 +139,8 @@ defmodule OmSchema.Errors do
   end
 
   def has_error?(changeset, field, message) when is_binary(message) do
-    field
-    |> for_field(changeset)
+    changeset
+    |> for_field(field)
     |> Enum.any?(&(&1 == message))
   end
 

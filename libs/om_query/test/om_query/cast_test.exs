@@ -219,8 +219,7 @@ defmodule OmQuery.CastTest do
     end
 
     test "raises for non-existing atom" do
-      # String.to_existing_atom raises ArgumentError
-      assert_raise ArgumentError, fn ->
+      assert_raise OmQuery.CastError, fn ->
         Cast.cast("definitely_not_an_existing_atom_xyz123", :atom)
       end
     end

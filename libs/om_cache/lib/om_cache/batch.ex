@@ -31,6 +31,8 @@ defmodule OmCache.Batch do
       #=> {:ok, %{{User, 1} => user1, {User, 2} => user2}}
   """
 
+  require Logger
+
   alias FnTypes.AsyncResult
   alias OmCache.Error
 
@@ -263,7 +265,7 @@ defmodule OmCache.Batch do
   @spec delete_batch(module(), [term()], keyword()) :: {:ok, :ok} | {:error, Error.t()}
   def delete_batch(cache, keys, opts \\ []) when is_list(keys) do
     try do
-      cache.delete_all(keys, opts)
+      Enum.each(keys, fn key -> cache.delete(key, opts) end)
       {:ok, :ok}
     rescue
       exception ->
@@ -272,9 +274,9 @@ defmodule OmCache.Batch do
   end
 
   @doc """
-  Executes multiple cache operations in a pipeline (Redis only).
+  Executes multiple cache operations sequentially, returning all results.
 
-  For non-Redis adapters, operations are executed sequentially.
+  Supported operations: `{:get, key}`, `{:put, key, value}`, `{:delete, key}`.
 
   ## Examples
 
@@ -321,40 +323,26 @@ defmodule OmCache.Batch do
          skip_cache_on_error,
          ttl,
          concurrency,
-         opts
+         _opts
        ) do
+    cache_opts = if ttl, do: [ttl: ttl], else: []
+
     tasks =
       Enum.map(misses, fn identifier ->
         fn ->
           case loader_fn.(identifier) do
             {:ok, value} ->
               key = key_fn.(identifier)
-              cache_opts = if ttl, do: Keyword.put(opts, :ttl, ttl), else: opts
-
-              try do
-                cache.put(key, value, cache_opts)
-              rescue
-                _ -> :ok
-              end
-
+              safe_cache_put(cache, key, value, cache_opts)
               {identifier, {:ok, value}}
 
             {:error, _reason} = error ->
-              if skip_cache_on_error do
-                {identifier, error}
-              else
-                # Cache error result
+              if not skip_cache_on_error do
                 key = key_fn.(identifier)
-                cache_opts = if ttl, do: Keyword.put(opts, :ttl, ttl), else: opts
-
-                try do
-                  cache.put(key, error, cache_opts)
-                rescue
-                  _ -> :ok
-                end
-
-                {identifier, error}
+                safe_cache_put(cache, key, error, cache_opts)
               end
+
+              {identifier, error}
           end
         end
       end)
@@ -374,6 +362,16 @@ defmodule OmCache.Batch do
 
       {:error, reason} ->
         {:error, Error.operation_failed(:fetch_batch, "Batch loading failed: #{inspect(reason)}")}
+    end
+  end
+
+  defp safe_cache_put(cache, key, value, opts) do
+    try do
+      cache.put(key, value, opts)
+    rescue
+      e ->
+        Logger.warning("OmCache.Batch: failed to cache key #{inspect(key)}: #{Exception.message(e)}")
+        :ok
     end
   end
 end

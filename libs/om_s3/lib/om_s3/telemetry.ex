@@ -396,8 +396,12 @@ defmodule OmS3.Telemetry do
   defp extract_status(:ok), do: 200
   defp extract_status({:ok, _}), do: 200
   defp extract_status({:ok, _, _}), do: 200
+  defp extract_status({:error, %OmS3.Error{status: status}}) when is_integer(status), do: status
+  defp extract_status({:error, %OmS3.Error{type: :not_found}}), do: 404
+  defp extract_status({:error, %OmS3.Error{type: :access_denied}}), do: 403
+  defp extract_status({:error, %OmS3.Error{type: :connection_error}}), do: 0
   defp extract_status({:error, :not_found}), do: 404
-  defp extract_status({:error, {:s3_error, status, _}}), do: status
+  defp extract_status({:error, {:s3_error, status, _}}) when is_integer(status), do: status
   defp extract_status({:error, _}), do: 500
   defp extract_status(_), do: 200
 

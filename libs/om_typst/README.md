@@ -26,6 +26,38 @@ cargo install --git https://github.com/typst/typst --locked typst-cli
 # https://github.com/typst/typst/releases
 ```
 
+## 1 min Setup Guide
+
+**1. Install system dependency**:
+
+```bash
+brew install typst                    # macOS
+cargo install --locked typst-cli      # Any platform via Cargo
+# Or download binary from https://github.com/typst/typst/releases
+```
+
+**2. Add dependencies** (`mix.exs`):
+
+```elixir
+{:om_typst, "~> 0.1.0"},
+{:ex_cmd, "~> 0.10"}
+```
+
+**3. Configure** (options passed per-call — no config file needed):
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `format` | `:pdf` | Output format: `:pdf`, `:png`, `:svg`, `:html` |
+| `output` | `nil` | Write to file path instead of returning binary |
+| `ppi` | `144` | PNG resolution (pixels per inch) |
+| `root` | `nil` | Project root directory |
+| `font_path` | `nil` | Custom font directories |
+| `input` | `nil` | Map of document variables |
+| `pages` | `nil` | Page selection (e.g., `"1,3-5,8-"`) |
+| `pdf_standard` | `nil` | PDF compliance (e.g., `:"a-2b"`, `:"ua-1"`) |
+
+No application config, no supervision, no environment variables. Just ensure the `typst` binary is in your `PATH`.
+
 ## Quick Start
 
 ```elixir

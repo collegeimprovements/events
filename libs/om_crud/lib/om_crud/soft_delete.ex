@@ -93,18 +93,9 @@ defmodule OmCrud.SoftDelete do
   """
   @spec delete(struct(), soft_delete_opts()) :: {:ok, struct()} | {:error, Ecto.Changeset.t()}
   def delete(%{__struct__: schema} = struct, opts \\ []) do
-    field = get_field(schema, opts)
-    timestamp_fn = Keyword.get(opts, :timestamp, &default_timestamp/0)
-    repo = Options.repo(opts)
-
-    changeset =
-      struct
-      |> Ecto.Changeset.change(%{field => timestamp_fn.()})
-
-    case repo.update(changeset) do
-      {:ok, updated} -> {:ok, updated}
-      {:error, changeset} -> {:error, Error.from_changeset(changeset, operation: :soft_delete)}
-    end
+    OmCrud.Telemetry.span(:soft_delete, %{schema: schema, id: Map.get(struct, :id)}, fn ->
+      do_soft_delete(struct, opts)
+    end)
   end
 
   @doc """
@@ -114,14 +105,29 @@ defmodule OmCrud.SoftDelete do
 
       {:ok, user} = SoftDelete.delete(User, user_id)
   """
-  @spec delete(module(), binary(), soft_delete_opts()) ::
+  @spec delete(module(), binary() | integer(), soft_delete_opts()) ::
           {:ok, struct()} | {:error, Error.t()}
-  def delete(schema, id, opts) when is_atom(schema) and is_binary(id) do
+  def delete(schema, id, opts) when is_atom(schema) and (is_binary(id) or is_integer(id)) do
+    OmCrud.Telemetry.span(:soft_delete, %{schema: schema, id: id}, fn ->
+      repo = Options.repo(opts)
+
+      case repo.get(schema, id) do
+        nil -> {:error, Error.not_found(schema, id, operation: :soft_delete)}
+        struct -> do_soft_delete(struct, opts)
+      end
+    end)
+  end
+
+  defp do_soft_delete(%{__struct__: schema} = struct, opts) do
+    field = get_field(schema, opts)
+    timestamp_fn = Keyword.get(opts, :timestamp, &default_timestamp/0)
     repo = Options.repo(opts)
 
-    case repo.get(schema, id) do
-      nil -> {:error, Error.not_found(schema, id, operation: :soft_delete)}
-      struct -> delete(struct, opts)
+    changeset = Ecto.Changeset.change(struct, %{field => timestamp_fn.()})
+
+    case repo.update(changeset) do
+      {:ok, updated} -> {:ok, updated}
+      {:error, changeset} -> {:error, Error.from_changeset(changeset, operation: :soft_delete)}
     end
   end
 
@@ -135,17 +141,9 @@ defmodule OmCrud.SoftDelete do
   """
   @spec restore(struct(), soft_delete_opts()) :: {:ok, struct()} | {:error, Ecto.Changeset.t()}
   def restore(%{__struct__: schema} = struct, opts \\ []) do
-    field = get_field(schema, opts)
-    repo = Options.repo(opts)
-
-    changeset =
-      struct
-      |> Ecto.Changeset.change(%{field => nil})
-
-    case repo.update(changeset) do
-      {:ok, updated} -> {:ok, updated}
-      {:error, changeset} -> {:error, Error.from_changeset(changeset, operation: :restore)}
-    end
+    OmCrud.Telemetry.span(:soft_restore, %{schema: schema, id: Map.get(struct, :id)}, fn ->
+      do_soft_restore(struct, opts)
+    end)
   end
 
   @doc """
@@ -155,14 +153,28 @@ defmodule OmCrud.SoftDelete do
 
       {:ok, user} = SoftDelete.restore(User, user_id)
   """
-  @spec restore(module(), binary(), soft_delete_opts()) ::
+  @spec restore(module(), binary() | integer(), soft_delete_opts()) ::
           {:ok, struct()} | {:error, Error.t()}
-  def restore(schema, id, opts) when is_atom(schema) and is_binary(id) do
+  def restore(schema, id, opts) when is_atom(schema) and (is_binary(id) or is_integer(id)) do
+    OmCrud.Telemetry.span(:soft_restore, %{schema: schema, id: id}, fn ->
+      repo = Options.repo(opts)
+
+      case repo.get(schema, id) do
+        nil -> {:error, Error.not_found(schema, id, operation: :restore)}
+        struct -> do_soft_restore(struct, opts)
+      end
+    end)
+  end
+
+  defp do_soft_restore(%{__struct__: schema} = struct, opts) do
+    field = get_field(schema, opts)
     repo = Options.repo(opts)
 
-    case repo.get(schema, id) do
-      nil -> {:error, Error.not_found(schema, id, operation: :restore)}
-      struct -> restore(struct, opts)
+    changeset = Ecto.Changeset.change(struct, %{field => nil})
+
+    case repo.update(changeset) do
+      {:ok, updated} -> {:ok, updated}
+      {:error, changeset} -> {:error, Error.from_changeset(changeset, operation: :restore)}
     end
   end
 
@@ -191,7 +203,7 @@ defmodule OmCrud.SoftDelete do
   end
 
   def multi_delete(%Multi{} = multi, name, {schema, id}, opts)
-      when is_atom(schema) and is_binary(id) do
+      when is_atom(schema) and (is_binary(id) or is_integer(id)) do
     field = get_field(schema, opts)
     timestamp_fn = Keyword.get(opts, :timestamp, &default_timestamp/0)
 
@@ -217,7 +229,7 @@ defmodule OmCrud.SoftDelete do
   end
 
   def multi_restore(%Multi{} = multi, name, {schema, id}, opts)
-      when is_atom(schema) and is_binary(id) do
+      when is_atom(schema) and (is_binary(id) or is_integer(id)) do
     field = get_field(schema, opts)
     Multi.update(multi, name, {schema, id}, %{field => nil}, opts)
   end

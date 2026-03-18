@@ -13,6 +13,24 @@ def deps do
 end
 ```
 
+## 1 min Setup Guide
+
+**1. Add dependencies** (`mix.exs`):
+
+```elixir
+{:effect, "~> 0.1.0"},
+{:dag, "~> 0.1.0"}
+```
+
+**That's it.** No configuration, no supervision, no environment variables. Effect is a pure functional library — just add the dependencies and start building workflows.
+
+```elixir
+Effect.new(:my_workflow)
+|> Effect.step(:validate, &validate/1)
+|> Effect.step(:process, &process/1, rollback: &undo/1)
+|> Effect.run(context)
+```
+
 ## Why Effect?
 
 Complex workflows involve multiple steps that depend on each other, may need retrying, and require cleanup on failure:
@@ -1065,12 +1083,13 @@ Effect.step(effect, :optional_fetch, &fetch_optional/1,
 | Option | Type | Description |
 |--------|------|-------------|
 | `:after` | `atom \| [atom]` | Dependencies |
-| `:timeout` | `pos_integer` | Per-attempt timeout (ms) |
+| `:timeout` | `pos_integer` | Total step timeout including retries (ms) |
 | `:retry` | `keyword` | Retry configuration |
 | `:when` | `function` | Condition to run step |
 | `:rollback` | `function` | Saga rollback function |
-| `:catch` | `function` | Error handler |
-| `:fallback` | `term` | Default on error |
+| `:catch` | `function` | Error handler `fn reason, ctx -> result end` |
+| `:fallback` | `map` | Default value map on error |
+| `:fallback_when` | `[atom]` | Only fallback for these error reasons |
 | `:meta` | `map` | Arbitrary metadata |
 
 ### Retry Options

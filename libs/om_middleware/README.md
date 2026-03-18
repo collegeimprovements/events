@@ -10,6 +10,16 @@ def deps do
 end
 ```
 
+## 1 min Setup Guide
+
+**1. Add dependency** (`mix.exs`):
+
+```elixir
+{:om_middleware, "~> 0.1.0"}
+```
+
+**That's it.** No configuration, no supervision, no environment variables. Define middleware modules with `use OmMiddleware` and compose them with `OmMiddleware.wrap/3`.
+
 ## Quick Start
 
 ```elixir

@@ -28,6 +28,17 @@ defmodule OmCrud.Telemetry do
   | exists | `[:om_crud, :exists, :start/:stop]` |
   | update_all | `[:om_crud, :update_all, :start/:stop]` |
   | delete_all | `[:om_crud, :delete_all, :start/:stop]` |
+  | find_or_create | `[:om_crud, :find_or_create, :start/:stop]` |
+  | update_or_create | `[:om_crud, :update_or_create, :start/:stop]` |
+  | batch_each | `[:om_crud, :batch_each, :start/:stop]` |
+  | batch_process | `[:om_crud, :batch_process, :start/:stop]` |
+  | batch_update | `[:om_crud, :batch_update, :start/:stop]` |
+  | batch_delete | `[:om_crud, :batch_delete, :start/:stop]` |
+  | batch_create_all | `[:om_crud, :batch_create_all, :start/:stop]` |
+  | batch_upsert_all | `[:om_crud, :batch_upsert_all, :start/:stop]` |
+  | batch_parallel | `[:om_crud, :batch_parallel, :start/:stop]` |
+  | soft_delete | `[:om_crud, :soft_delete, :start/:stop]` |
+  | soft_restore | `[:om_crud, :soft_restore, :start/:stop]` |
 
   ## Measurements
 
@@ -101,6 +112,17 @@ defmodule OmCrud.Telemetry do
           | :exists
           | :update_all
           | :delete_all
+          | :find_or_create
+          | :update_or_create
+          | :batch_each
+          | :batch_process
+          | :batch_update
+          | :batch_delete
+          | :batch_create_all
+          | :batch_upsert_all
+          | :batch_parallel
+          | :soft_delete
+          | :soft_restore
 
   @type metadata :: %{
           required(:schema) => module(),
@@ -273,7 +295,18 @@ defmodule OmCrud.Telemetry do
       :stream,
       :exists,
       :update_all,
-      :delete_all
+      :delete_all,
+      :find_or_create,
+      :update_or_create,
+      :batch_each,
+      :batch_process,
+      :batch_update,
+      :batch_delete,
+      :batch_create_all,
+      :batch_upsert_all,
+      :batch_parallel,
+      :soft_delete,
+      :soft_restore
     ]
 
     for op <- operations, suffix <- [:start, :stop, :exception] do

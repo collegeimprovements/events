@@ -30,7 +30,7 @@ The CRUD system provides a unified, composable API for all database operations. 
         ▼                     ▼                     ▼
 ┌───────────────┐    ┌───────────────┐    ┌───────────────┐
 │  OmCrud.Multi │    │  OmCrud.Merge │    │  OmQuery.Token│
-│  Transactions │    │ PostgreSQL 18 │    │   Queries     │
+│  Transactions │    │ PostgreSQL 18+│    │   Queries     │
 └───────────────┘    └───────────────┘    └───────────────┘
         │                     │                     │
         └─────────────────────┼─────────────────────┘
@@ -48,16 +48,20 @@ The CRUD system provides a unified, composable API for all database operations. 
 
 | Module | Purpose |
 |--------|---------|
-| `OmCrud` | Unified execution API |
+| `OmCrud` | Unified execution API (`create`, `fetch`, `find_or_create`, `update_or_create`, etc.) |
 | `OmCrud.Context` | Context-level `crud` macro with pagination, telemetry |
 | `OmCrud.Result` | Type-safe paginated result container |
 | `OmCrud.Pagination` | Cursor pagination metadata |
-| `OmCrud.Telemetry` | Telemetry event emission |
+| `OmCrud.Telemetry` | Telemetry event emission (all operations instrumented) |
 | `OmCrud.Multi` | Transaction composer |
 | `OmCrud.Merge` | PostgreSQL MERGE operations |
+| `OmCrud.Batch` | Batch processing with telemetry |
+| `OmCrud.SoftDelete` | Soft delete with telemetry |
+| `OmCrud.Atomic` | Functional transaction helper |
+| `OmCrud.Error` | Rich structured error types |
 | `OmCrud.ChangesetBuilder` | Changeset building and resolution |
-| `OmCrud.Options` | Option extraction, validation, defaults |
-| `OmCrud.Schema` | Schema-level integration |
+| `OmCrud.Options` | Option extraction, validation, schema defaults |
+| `OmCrud.Schema` | Schema-level integration (`@crud_changeset`, `crud_config`) |
 
 ---
 
@@ -512,20 +516,19 @@ stream_users(filters: [{:status, :eq, :active}])
 #### Bulk Create
 
 ```elixir
-# Simple bulk insert
-create_all_users([
+# Simple bulk insert (wraps OmCrud.create_all which returns {:ok, list} | {:error, reason})
+{:ok, users} = create_all_users([
   %{email: "a@test.com", name: "Alice"},
   %{email: "b@test.com", name: "Bob"},
   %{email: "c@test.com", name: "Carol"}
 ])
-# => {3, nil}
 
 # With returning
-{count, users} = create_all_users(entries, returning: true)
-# => {3, [%User{}, %User{}, %User{}]}
+{:ok, users} = create_all_users(entries, returning: true)
+# => {:ok, [%User{}, %User{}, %User{}]}
 
 # Return specific fields only
-{count, users} = create_all_users(entries, returning: [:id, :email])
+{:ok, users} = create_all_users(entries, returning: [:id, :email])
 
 # With conflict handling (upsert)
 create_all_users(entries,
@@ -1154,6 +1157,19 @@ user = OmCrud.get(User, id)
 
 # Exists
 true = OmCrud.exists?(User, id)
+
+# Find or Create (requires :find_by)
+{:ok, user} = OmCrud.find_or_create(User, %{email: "a@b.com", name: "A"},
+  find_by: :email)
+
+# Update or Create (requires :find_by)
+{:ok, user} = OmCrud.update_or_create(User, %{email: "a@b.com", name: "Updated"},
+  find_by: :email)
+
+# Composite key lookup
+{:ok, m} = OmCrud.find_or_create(Membership,
+  %{user_id: uid, org_id: oid, role: :member},
+  find_by: [:user_id, :org_id])
 ```
 
 ### Bulk Operations
@@ -1268,7 +1284,7 @@ Multi.embed(multi, other_multi, prefix: :setup)
 
 ## OmCrud.Merge
 
-PostgreSQL MERGE operations (PostgreSQL 15+).
+PostgreSQL MERGE operations (PostgreSQL 18+).
 
 ### Basic Usage
 

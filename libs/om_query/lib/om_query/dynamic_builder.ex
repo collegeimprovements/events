@@ -478,10 +478,16 @@ defmodule OmQuery.DynamicBuilder do
   defp do_build_search_orders(_sort_by, nil, _params, config), do: default_order(config)
 
   defp do_build_search_orders(sort_by, sortable_fields, params, config) do
-    field = String.to_existing_atom(sort_by)
+    field =
+      try do
+        String.to_existing_atom(sort_by)
+      rescue
+        ArgumentError -> nil
+      end
+
     direction = parse_sort_direction(params[:sort_dir])
 
-    build_sort_order(field in sortable_fields, field, direction, config)
+    build_sort_order(field != nil and field in sortable_fields, field, direction, config)
   end
 
   defp parse_sort_direction("asc"), do: :asc

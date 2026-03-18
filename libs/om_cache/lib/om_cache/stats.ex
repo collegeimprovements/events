@@ -5,9 +5,10 @@ defmodule OmCache.Stats do
   Provides insights into cache performance including:
   - Hit/miss ratios
   - Operation latencies (p50, p95, p99)
-  - Memory usage
-  - Eviction rates
   - Error rates by type
+  - Per-key access tracking (optional)
+
+  All counters use atomic ETS operations, safe for concurrent access.
 
   ## Usage
 
@@ -26,18 +27,9 @@ defmodule OmCache.Stats do
       #     ...
       #   }
 
-      # Get hit ratio for last N minutes
-      OmCache.Stats.hit_ratio(MyApp.Cache, :timer.minutes(5))
+      # Get hit ratio
+      OmCache.Stats.hit_ratio(MyApp.Cache)
       #=> 0.956
-
-      # Get slow operations
-      OmCache.Stats.slow_operations(MyApp.Cache, threshold_ms: 100)
-      #=> [%{operation: :get, key: {User, 123}, duration_ms: 150}, ...]
-
-  ## ETS Table Structure
-
-  Stats are stored in an ETS table per cache with the name `{cache, :stats}`.
-  The table stores counters and histograms for various metrics.
   """
 
   @type stats :: %{
@@ -61,7 +53,7 @@ defmodule OmCache.Stats do
 
   ## Options
 
-  - `:table_name` - Custom ETS table name (default: `{cache, :stats}`)
+  - `:table_name` - Custom ETS table name (default: derived from cache module)
   - `:track_keys` - Track individual key access counts (default: false, can be memory intensive)
   - `:latency_samples` - Max latency samples to keep (default: 1000)
 
@@ -76,22 +68,28 @@ defmodule OmCache.Stats do
     track_keys = Keyword.get(opts, :track_keys, false)
     latency_samples = Keyword.get(opts, :latency_samples, 1000)
 
-    # Create ETS table for stats
-    :ets.new(table_name, [:named_table, :public, :set, read_concurrency: true, write_concurrency: true])
+    # Create ETS table for stats — all writes use atomic update_counter or single-key insert
+    :ets.new(table_name, [
+      :named_table,
+      :public,
+      :set,
+      read_concurrency: true,
+      write_concurrency: true
+    ])
 
-    # Initialize counters
+    # Initialize counters (all use :ets.update_counter for atomic increments)
     :ets.insert(table_name, {:hits, 0})
     :ets.insert(table_name, {:misses, 0})
     :ets.insert(table_name, {:writes, 0})
     :ets.insert(table_name, {:deletes, 0})
     :ets.insert(table_name, {:errors, 0})
-    :ets.insert(table_name, {:latencies, []})
-    :ets.insert(table_name, {:error_breakdown, %{}})
-    :ets.insert(table_name, {:config, %{track_keys: track_keys, latency_samples: latency_samples}})
 
-    if track_keys do
-      :ets.insert(table_name, {:key_access, %{}})
-    end
+    # Circular buffer for latencies: atomic index + per-slot storage
+    :ets.insert(table_name, {:latency_write_index, -1})
+    :ets.insert(table_name, {:latency_count, 0})
+
+    # Config
+    :ets.insert(table_name, {:config, %{track_keys: track_keys, latency_samples: latency_samples}})
 
     config = %{
       cache: cache,
@@ -103,7 +101,6 @@ defmodule OmCache.Stats do
     :telemetry.attach_many(
       {:om_cache_stats, cache},
       [
-        [:nebulex, :cache, :command, :start],
         [:nebulex, :cache, :command, :stop],
         [:nebulex, :cache, :command, :exception]
       ],
@@ -166,9 +163,10 @@ defmodule OmCache.Stats do
       writes = lookup_counter(table, :writes)
       deletes = lookup_counter(table, :deletes)
       errors = lookup_counter(table, :errors)
-      latencies = lookup_value(table, :latencies, [])
-      error_breakdown = lookup_value(table, :error_breakdown, %{})
       config = lookup_value(table, :config, %{})
+
+      latencies = read_latencies(table, config[:latency_samples] || 1000)
+      error_breakdown = read_error_breakdown(table)
 
       total_operations = hits + misses
       hit_ratio = if total_operations > 0, do: hits / total_operations, else: 0.0
@@ -191,8 +189,7 @@ defmodule OmCache.Stats do
       }
 
       if config[:track_keys] do
-        key_access = lookup_value(table, :key_access, %{})
-        top_keys = key_access |> Enum.sort_by(fn {_k, v} -> -v end) |> Enum.take(10)
+        top_keys = read_top_keys(table, 10)
         Map.put(stats, :top_keys, top_keys)
       else
         Map.put(stats, :top_keys, [])
@@ -201,45 +198,18 @@ defmodule OmCache.Stats do
   end
 
   @doc """
-  Calculates hit ratio for a given time window.
-
-  Note: This implementation uses all-time counters. For true windowed stats,
-  you'd need to implement time-series storage (e.g., using circular buffers).
+  Returns the all-time hit ratio.
 
   ## Examples
 
       OmCache.Stats.hit_ratio(MyApp.Cache)
       #=> 0.956
   """
-  @spec hit_ratio(module(), pos_integer() | nil) :: float() | {:error, :not_attached}
-  def hit_ratio(cache, _time_window \\ nil) do
-    # TODO: Implement true windowed stats with time-series data
+  @spec hit_ratio(module()) :: float() | {:error, :not_attached}
+  def hit_ratio(cache) do
     case get_stats(cache) do
       {:error, reason} -> {:error, reason}
       stats -> stats.hit_ratio
-    end
-  end
-
-  @doc """
-  Gets slow operations that exceeded a threshold.
-
-  Note: This requires storing individual operation data. Current implementation
-  returns latency percentiles. For true slow operation tracking, you'd need
-  to store operation details.
-
-  ## Examples
-
-      OmCache.Stats.slow_operations(MyApp.Cache, threshold_ms: 100)
-      #=> []
-  """
-  @spec slow_operations(module(), keyword()) :: [map()] | {:error, :not_attached}
-  def slow_operations(cache, opts \\ []) do
-    _threshold_ms = Keyword.get(opts, :threshold_ms, 100)
-
-    # TODO: Implement slow operation tracking with operation details
-    case get_stats(cache) do
-      {:error, reason} -> {:error, reason}
-      _stats -> []
     end
   end
 
@@ -265,12 +235,23 @@ defmodule OmCache.Stats do
       :ets.insert(table, {:writes, 0})
       :ets.insert(table, {:deletes, 0})
       :ets.insert(table, {:errors, 0})
-      :ets.insert(table, {:latencies, []})
-      :ets.insert(table, {:error_breakdown, %{}})
+      :ets.insert(table, {:latency_write_index, -1})
+      :ets.insert(table, {:latency_count, 0})
 
-      if config[:track_keys] do
-        :ets.insert(table, {:key_access, %{}})
+      # Clear latency slots
+      max = config[:latency_samples] || 1000
+
+      for i <- 0..(max - 1) do
+        :ets.delete(table, {:latency, i})
       end
+
+      # Clear per-key access counters
+      if config[:track_keys] do
+        :ets.match_delete(table, {{:key_access, :_}, :_})
+      end
+
+      # Clear per-type error counters
+      :ets.match_delete(table, {{:error_type, :_}, :_})
 
       :ok
     end
@@ -281,30 +262,23 @@ defmodule OmCache.Stats do
   # ============================================
 
   @doc false
-  def handle_event([:nebulex, :cache, :command, :start], _measurements, metadata, config) do
-    if metadata.cache == config.cache do
-      # Store start time in process dictionary for duration calculation
-      Process.put({:cache_op_start, metadata.command}, System.monotonic_time())
-    end
-  end
-
   def handle_event([:nebulex, :cache, :command, :stop], measurements, metadata, config) do
     if metadata.cache == config.cache do
       duration_ms = System.convert_time_unit(measurements.duration, :native, :millisecond)
       table = config.table
 
-      # Track operation type
       case metadata.command do
         :get ->
-          if metadata.result == nil do
-            increment_counter(table, :misses)
-          else
-            increment_counter(table, :hits)
+          case metadata.result do
+            nil ->
+              increment_counter(table, :misses)
 
-            # Track key access if enabled
-            if config.track_keys do
-              track_key_access(table, List.first(metadata.args))
-            end
+            _value ->
+              increment_counter(table, :hits)
+
+              if config.track_keys do
+                track_key_access(table, List.first(metadata.args))
+              end
           end
 
         :put ->
@@ -317,7 +291,6 @@ defmodule OmCache.Stats do
           :ok
       end
 
-      # Record latency
       record_latency(table, duration_ms, config.latency_samples)
     end
   end
@@ -327,14 +300,13 @@ defmodule OmCache.Stats do
       table = config.table
       increment_counter(table, :errors)
 
-      # Track error type
       error_type = classify_error(metadata.reason)
-      update_error_breakdown(table, error_type)
+      track_error_type(table, error_type)
     end
   end
 
   # ============================================
-  # Private
+  # Private — all write operations are atomic
   # ============================================
 
   defp stats_table_name(cache), do: :"#{cache}.Stats"
@@ -353,33 +325,56 @@ defmodule OmCache.Stats do
     end
   end
 
+  # Atomic counter increment
   defp increment_counter(table, key) do
     :ets.update_counter(table, key, {2, 1}, {key, 0})
   end
 
+  # Circular buffer: atomic index advance + single-key write per slot
   defp record_latency(table, latency_ms, max_samples) do
-    [{:latencies, latencies}] = :ets.lookup(table, :latencies)
-
-    new_latencies =
-      if length(latencies) >= max_samples do
-        [latency_ms | Enum.take(latencies, max_samples - 1)]
-      else
-        [latency_ms | latencies]
-      end
-
-    :ets.insert(table, {:latencies, new_latencies})
+    # Atomically advance the write index, wrapping at max_samples
+    index = :ets.update_counter(table, :latency_write_index, {2, 1, max_samples - 1, 0})
+    # Write to this slot — single-key insert is atomic
+    :ets.insert(table, {{:latency, index}, latency_ms})
+    # Track total count, capped at max_samples to prevent overflow
+    :ets.update_counter(table, :latency_count, {2, 1, max_samples, max_samples}, {:latency_count, 0})
   end
 
+  # Read all filled latency slots
+  defp read_latencies(table, max_samples) do
+    count = min(lookup_counter(table, :latency_count), max_samples)
+
+    if count <= 0 do
+      []
+    else
+      for i <- 0..(count - 1),
+          [{_, val}] <- [:ets.lookup(table, {:latency, i})],
+          do: val
+    end
+  end
+
+  # Per-key access counter — fully atomic via update_counter
   defp track_key_access(table, key) do
-    [{:key_access, access_map}] = :ets.lookup(table, :key_access)
-    updated_map = Map.update(access_map, key, 1, &(&1 + 1))
-    :ets.insert(table, {:key_access, updated_map})
+    :ets.update_counter(table, {:key_access, key}, {2, 1}, {{:key_access, key}, 0})
   end
 
-  defp update_error_breakdown(table, error_type) do
-    [{:error_breakdown, breakdown}] = :ets.lookup(table, :error_breakdown)
-    updated_breakdown = Map.update(breakdown, error_type, 1, &(&1 + 1))
-    :ets.insert(table, {:error_breakdown, updated_breakdown})
+  # Read top-N accessed keys
+  defp read_top_keys(table, limit) do
+    :ets.match(table, {{:key_access, :"$1"}, :"$2"})
+    |> Enum.map(fn [key, count] -> {key, count} end)
+    |> Enum.sort_by(fn {_k, v} -> -v end)
+    |> Enum.take(limit)
+  end
+
+  # Per-error-type counter — fully atomic via update_counter
+  defp track_error_type(table, error_type) do
+    :ets.update_counter(table, {:error_type, error_type}, {2, 1}, {{:error_type, error_type}, 0})
+  end
+
+  # Read all error type counters
+  defp read_error_breakdown(table) do
+    :ets.match(table, {{:error_type, :"$1"}, :"$2"})
+    |> Map.new(fn [type, count] -> {type, count} end)
   end
 
   defp calculate_percentiles([]), do: {0.0, 0.0, 0.0, 0.0}
@@ -402,11 +397,13 @@ defmodule OmCache.Stats do
     Enum.at(sorted_list, index, 0.0)
   end
 
-  defp classify_error(%{__struct__: struct} = _exception) do
-    case struct do
-      Redix.ConnectionError -> :connection_error
-      Redix.Error -> :redis_error
-      _ -> :unknown_error
+  defp classify_error(%{__struct__: struct}) do
+    struct_name = Atom.to_string(struct)
+
+    cond do
+      String.contains?(struct_name, "ConnectionError") -> :connection_error
+      String.contains?(struct_name, "Redix.Error") -> :redis_error
+      true -> :unknown_error
     end
   end
 

@@ -241,7 +241,17 @@ defmodule OmCrud do
   defp source_count(_), do: 0
 
   defp rows_to_structs(schema, columns, rows) do
-    fields = Enum.map(columns, &String.to_existing_atom/1)
+    fields =
+      Enum.map(columns, fn col ->
+        try do
+          String.to_existing_atom(col)
+        rescue
+          ArgumentError ->
+            raise ArgumentError,
+                  "MERGE returned column #{inspect(col)} which is not a known atom. " <>
+                    "Ensure the schema #{inspect(schema)} defines this field."
+        end
+      end)
 
     Enum.map(rows, fn row ->
       attrs = Map.new(Enum.zip(fields, row))
@@ -270,6 +280,7 @@ defmodule OmCrud do
   """
   @spec create(module(), map(), keyword()) :: {:ok, struct()} | {:error, Ecto.Changeset.t()}
   def create(schema, attrs, opts \\ []) when is_atom(schema) and is_map(attrs) do
+    opts = Options.with_schema_defaults(schema, opts)
     opts = put_crud_context(opts, :create, schema: schema)
 
     Multi.new()
@@ -290,6 +301,7 @@ defmodule OmCrud do
   """
   @spec update(struct(), map(), keyword()) :: {:ok, struct()} | {:error, Ecto.Changeset.t()}
   def update(%{__struct__: schema} = struct, attrs, opts \\ []) when is_map(attrs) do
+    opts = Options.with_schema_defaults(schema, opts)
     opts = put_crud_context(opts, :update, schema: schema)
 
     Multi.new()
@@ -298,9 +310,11 @@ defmodule OmCrud do
     |> unwrap_single(:record, schema, opts)
   end
 
-  @spec update(module(), binary(), map(), keyword()) ::
+  @spec update(module(), binary() | integer(), map(), keyword()) ::
           {:ok, struct()} | {:error, Ecto.Changeset.t() | :not_found}
-  def update(schema, id, attrs, opts) when is_atom(schema) and is_binary(id) and is_map(attrs) do
+  def update(schema, id, attrs, opts)
+      when is_atom(schema) and (is_binary(id) or is_integer(id)) and is_map(attrs) do
+    opts = Options.with_schema_defaults(schema, opts)
     opts = put_crud_context(opts, :update, schema: schema, id: id)
 
     Multi.new()
@@ -319,6 +333,7 @@ defmodule OmCrud do
   """
   @spec delete(struct(), keyword()) :: {:ok, struct()} | {:error, Ecto.Changeset.t()}
   def delete(%{__struct__: schema} = struct, opts \\ []) do
+    opts = Options.with_schema_defaults(schema, opts)
     opts = put_crud_context(opts, :delete, schema: schema)
 
     Multi.new()
@@ -327,8 +342,9 @@ defmodule OmCrud do
     |> unwrap_single(:record, schema, opts)
   end
 
-  @spec delete(module(), binary(), keyword()) :: {:ok, struct()} | {:error, :not_found}
-  def delete(schema, id, opts) when is_atom(schema) and is_binary(id) do
+  @spec delete(module(), binary() | integer(), keyword()) :: {:ok, struct()} | {:error, :not_found}
+  def delete(schema, id, opts) when is_atom(schema) and (is_binary(id) or is_integer(id)) do
+    opts = Options.with_schema_defaults(schema, opts)
     opts = put_crud_context(opts, :delete, schema: schema, id: id)
 
     Multi.new()
@@ -377,6 +393,8 @@ defmodule OmCrud do
       raise ArgumentError, "upsert/3 requires :conflict_target option"
     end
 
+    opts = Options.with_schema_defaults(schema, opts)
+
     opts =
       opts
       |> put_crud_context(:upsert, schema: schema)
@@ -389,6 +407,143 @@ defmodule OmCrud do
   end
 
   # ─────────────────────────────────────────────────────────────
+  # Find-or-Create / Update-or-Create
+  # ─────────────────────────────────────────────────────────────
+
+  @doc """
+  Find a record by fields, or create it if not found.
+
+  Looks up a record matching the `:find_by` fields extracted from attrs.
+  If no record exists, creates one with the full attrs.
+
+  ## Options
+
+  - `:find_by` - Field(s) to search by (required). Atom or list of atoms.
+  - `:changeset` - Changeset function name for creation
+  - `:preload` - Associations to preload
+  - All standard options (`:repo`, `:timeout`, `:prefix`, `:log`)
+
+  ## Examples
+
+      # Find user by email, or create if not found
+      {:ok, user} = OmCrud.find_or_create(User, %{email: "test@example.com", name: "Test"},
+        find_by: :email
+      )
+
+      # Find by composite key
+      {:ok, membership} = OmCrud.find_or_create(Membership,
+        %{user_id: user.id, org_id: org.id, role: :member},
+        find_by: [:user_id, :org_id]
+      )
+  """
+  @spec find_or_create(module(), map(), keyword()) :: {:ok, struct()} | {:error, Ecto.Changeset.t()}
+  def find_or_create(schema, attrs, opts) when is_atom(schema) and is_map(attrs) do
+    find_by = Keyword.fetch!(opts, :find_by) |> List.wrap()
+    opts = Options.with_schema_defaults(schema, opts)
+
+    meta =
+      build_telemetry_meta(:query, opts, %{
+        operation: :find_or_create,
+        schema: schema,
+        find_by: find_by
+      })
+
+    emit_telemetry(meta, fn ->
+      repo = Options.repo(opts)
+      query_opts = Options.query_opts(opts)
+      preloads = Options.preloads(opts)
+      conditions = Enum.map(find_by, fn field -> {field, Map.fetch!(attrs, field)} end)
+      query = build_find_query(schema, conditions)
+
+      case repo.one(query, query_opts) do
+        nil ->
+          case create(schema, attrs, opts) do
+            {:ok, record} -> {:ok, maybe_preload(record, preloads, repo)}
+            error -> error
+          end
+
+        record ->
+          {:ok, maybe_preload(record, preloads, repo)}
+      end
+    end)
+  end
+
+  @doc """
+  Update a record if it exists, or create it if not found.
+
+  Looks up a record matching the `:find_by` fields extracted from attrs.
+  If found, updates it. If not found, creates one with the full attrs.
+
+  ## Options
+
+  - `:find_by` - Field(s) to search by (required). Atom or list of atoms.
+  - `:changeset` - Changeset function for both create and update
+  - `:create_changeset` - Changeset function for creation only
+  - `:update_changeset` - Changeset function for update only
+  - `:preload` - Associations to preload
+  - All standard options (`:repo`, `:timeout`, `:prefix`, `:log`)
+
+  ## Examples
+
+      # Update user by email, or create if not found
+      {:ok, user} = OmCrud.update_or_create(User,
+        %{email: "test@example.com", name: "Updated"},
+        find_by: :email
+      )
+
+      # With separate changesets
+      {:ok, setting} = OmCrud.update_or_create(Setting,
+        %{key: "theme", value: "dark"},
+        find_by: :key,
+        create_changeset: :create_changeset,
+        update_changeset: :update_changeset
+      )
+  """
+  @spec update_or_create(module(), map(), keyword()) ::
+          {:ok, struct()} | {:error, Ecto.Changeset.t()}
+  def update_or_create(schema, attrs, opts) when is_atom(schema) and is_map(attrs) do
+    find_by = Keyword.fetch!(opts, :find_by) |> List.wrap()
+    opts = Options.with_schema_defaults(schema, opts)
+
+    meta =
+      build_telemetry_meta(:query, opts, %{
+        operation: :update_or_create,
+        schema: schema,
+        find_by: find_by
+      })
+
+    emit_telemetry(meta, fn ->
+      repo = Options.repo(opts)
+      query_opts = Options.query_opts(opts)
+      preloads = Options.preloads(opts)
+      conditions = Enum.map(find_by, fn field -> {field, Map.fetch!(attrs, field)} end)
+      query = build_find_query(schema, conditions)
+
+      case repo.one(query, query_opts) do
+        nil ->
+          case create(schema, attrs, opts) do
+            {:ok, record} -> {:ok, maybe_preload(record, preloads, repo)}
+            error -> error
+          end
+
+        existing ->
+          case update(existing, attrs, opts) do
+            {:ok, record} -> {:ok, maybe_preload(record, preloads, repo)}
+            error -> error
+          end
+      end
+    end)
+  end
+
+  defp build_find_query(schema, conditions) do
+    import Ecto.Query
+
+    Enum.reduce(conditions, from(r in schema), fn {field, value}, query ->
+      where(query, [r], field(r, ^field) == ^value)
+    end)
+  end
+
+  # ─────────────────────────────────────────────────────────────
   # Read Operations
   # ─────────────────────────────────────────────────────────────
 
@@ -398,17 +553,31 @@ defmodule OmCrud do
   ## Options
 
   - `:preload` - Associations to preload
+  - `:lock` - Pessimistic lock mode (requires transaction context):
+    - `:for_update` - Exclusive row lock (prevents concurrent reads/writes)
+    - `:for_share` - Shared row lock (prevents concurrent writes)
+    - `:for_no_key_update` - Lock without blocking foreign key checks
+    - `:for_key_share` - Shared lock allowing foreign key checks
+    - `"FOR UPDATE NOWAIT"` - Custom lock fragment (any valid SQL)
 
   ## Examples
 
       {:ok, user} = OmCrud.fetch(User, id)
       {:ok, user} = OmCrud.fetch(User, id, preload: [:account])
+
+      # With pessimistic locking (inside a transaction)
+      OmCrud.transaction(fn ->
+        {:ok, user} = OmCrud.fetch(User, id, lock: :for_update)
+        OmCrud.update(user, %{balance: user.balance - 100})
+      end)
   """
   @spec fetch(module() | struct(), binary() | keyword(), keyword()) ::
           {:ok, struct()} | {:error, :not_found}
   def fetch(schema_or_token, id_or_opts \\ [], opts \\ [])
 
-  def fetch(schema, id, opts) when is_atom(schema) and is_binary(id) do
+  def fetch(schema, id, opts) when is_atom(schema) and (is_binary(id) or is_integer(id)) do
+    opts = Options.with_schema_defaults(schema, opts)
+
     meta =
       build_telemetry_meta(:query, opts, %{
         operation: :fetch,
@@ -420,8 +589,19 @@ defmodule OmCrud do
       repo = Options.repo(opts)
       query_opts = Options.query_opts(opts)
       preloads = Options.preloads(opts)
+      lock_mode = Keyword.get(opts, :lock)
 
-      case repo.get(schema, id, query_opts) do
+      result =
+        case lock_mode do
+          nil ->
+            repo.get(schema, id, query_opts)
+
+          mode ->
+            build_locked_query(schema, id, mode)
+            |> repo.one(query_opts)
+        end
+
+      case result do
         nil ->
           {:error, :not_found}
 
@@ -455,7 +635,9 @@ defmodule OmCrud do
   @spec get(module() | struct(), binary() | keyword(), keyword()) :: struct() | nil
   def get(schema_or_token, id_or_opts \\ [], opts \\ [])
 
-  def get(schema, id, opts) when is_atom(schema) and is_binary(id) do
+  def get(schema, id, opts) when is_atom(schema) and (is_binary(id) or is_integer(id)) do
+    opts = Options.with_schema_defaults(schema, opts)
+
     meta =
       build_telemetry_meta(:query, opts, %{
         operation: :get,
@@ -467,8 +649,19 @@ defmodule OmCrud do
       repo = Options.repo(opts)
       query_opts = Options.query_opts(opts)
       preloads = Options.preloads(opts)
+      lock_mode = Keyword.get(opts, :lock)
 
-      case repo.get(schema, id, query_opts) do
+      result =
+        case lock_mode do
+          nil ->
+            repo.get(schema, id, query_opts)
+
+          mode ->
+            build_locked_query(schema, id, mode)
+            |> repo.one(query_opts)
+        end
+
+      case result do
         nil -> nil
         record -> maybe_preload(record, preloads, repo)
       end
@@ -498,8 +691,10 @@ defmodule OmCrud do
       false = OmCrud.exists?(User, "nonexistent")
       OmCrud.exists?(User, id, repo: MyApp.ReadOnlyRepo)
   """
-  @spec exists?(module(), binary(), keyword()) :: boolean()
-  def exists?(schema, id, opts \\ []) when is_atom(schema) and is_binary(id) do
+  @spec exists?(module(), binary() | integer(), keyword()) :: boolean()
+  def exists?(schema, id, opts \\ []) when is_atom(schema) and (is_binary(id) or is_integer(id)) do
+    import Ecto.Query, only: [from: 2]
+
     meta =
       build_telemetry_meta(:query, opts, %{
         operation: :exists,
@@ -510,7 +705,8 @@ defmodule OmCrud do
     emit_telemetry(meta, fn ->
       repo = Options.repo(opts)
       query_opts = Options.query_opts(opts)
-      repo.exists?(schema, [id: id] ++ query_opts)
+      query = from(r in schema, where: r.id == ^id)
+      repo.exists?(query, query_opts)
     end)
   end
 
@@ -611,6 +807,7 @@ defmodule OmCrud do
   @spec create_all(module(), [map()], keyword()) :: {:ok, [struct()]} | {:error, any()}
   def create_all(schema, list_of_attrs, opts \\ [])
       when is_atom(schema) and is_list(list_of_attrs) do
+    opts = Options.with_schema_defaults(schema, opts)
     opts = put_crud_context(opts, :create_all, schema: schema, count: length(list_of_attrs))
 
     Multi.new()
@@ -648,6 +845,7 @@ defmodule OmCrud do
   @spec upsert_all(module(), [map()], keyword()) :: {:ok, [struct()]}
   def upsert_all(schema, list_of_attrs, opts)
       when is_atom(schema) and is_list(list_of_attrs) do
+    opts = Options.with_schema_defaults(schema, opts)
     opts = put_crud_context(opts, :upsert_all, schema: schema, count: length(list_of_attrs))
 
     Multi.new()
@@ -701,6 +899,32 @@ defmodule OmCrud do
   # ─────────────────────────────────────────────────────────────
   # Private Helpers
   # ─────────────────────────────────────────────────────────────
+
+  defp build_locked_query(schema, id, :for_update) do
+    import Ecto.Query
+    from(r in schema, where: r.id == ^id, lock: "FOR UPDATE")
+  end
+
+  defp build_locked_query(schema, id, :for_share) do
+    import Ecto.Query
+    from(r in schema, where: r.id == ^id, lock: "FOR SHARE")
+  end
+
+  defp build_locked_query(schema, id, :for_no_key_update) do
+    import Ecto.Query
+    from(r in schema, where: r.id == ^id, lock: "FOR NO KEY UPDATE")
+  end
+
+  defp build_locked_query(schema, id, :for_key_share) do
+    import Ecto.Query
+    from(r in schema, where: r.id == ^id, lock: "FOR KEY SHARE")
+  end
+
+  defp build_locked_query(schema, id, lock_str) when is_binary(lock_str) do
+    import Ecto.Query
+    query = from(r in schema, where: r.id == ^id)
+    %{query | lock: %Ecto.Query.QueryExpr{expr: lock_str, params: [], line: __ENV__.line}}
+  end
 
   defp validate_token(token) do
     case Validatable.validate(token) do

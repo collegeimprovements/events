@@ -13,6 +13,48 @@ def deps do
 end
 ```
 
+## 1 min Setup Guide
+
+**1. Add dependencies** (`mix.exs`):
+
+```elixir
+{:om_api_client, "~> 0.1.0"},
+{:req, "~> 0.4"}
+```
+
+**2. Configure** (`config/config.exs` — optional):
+
+```elixir
+config :om_api_client,
+  timeout: 30_000,           # Connect timeout in ms
+  receive_timeout: 60_000,   # Response timeout in ms
+  pool_timeout: 5_000        # Connection pool timeout in ms
+```
+
+**3. Set environment variables** (optional — for proxy):
+
+```bash
+HTTP_PROXY=http://proxy:8080     # HTTP proxy
+HTTPS_PROXY=http://proxy:8080    # HTTPS proxy
+PROXY_USER=username              # Proxy auth username
+PROXY_PASS=password              # Proxy auth password
+```
+
+**4. Add to supervision tree** (only if using circuit breaker or rate limiter):
+
+```elixir
+children = [
+  {OmApiClient.Middleware.CircuitBreaker, name: :my_api},
+  {OmApiClient.Middleware.RateLimiter, name: :my_api, max_requests: 100, window: :timer.seconds(60)}
+]
+```
+
+**5. Attach telemetry** (optional):
+
+```elixir
+OmApiClient.Telemetry.attach_default_handlers()
+```
+
 ## Why OmApiClient?
 
 Building production API clients requires handling many concerns:

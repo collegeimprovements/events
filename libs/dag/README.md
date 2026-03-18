@@ -10,6 +10,21 @@ def deps do
 end
 ```
 
+## 1 min Setup Guide
+
+**1. Add dependency** (`mix.exs`):
+
+```elixir
+{:dag, "~> 0.1.0"}
+```
+
+**That's it.** No configuration, no supervision, no environment variables. Dag is a pure functional library — just add the dependency and start using it.
+
+```elixir
+dag = Dag.new() |> Dag.add_edges([{:a, :b}, {:b, :c}])
+{:ok, sorted} = Dag.topological_sort(dag)
+```
+
 ## Why Dag?
 
 DAGs are fundamental data structures for dependency management:

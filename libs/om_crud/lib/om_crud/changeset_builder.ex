@@ -103,7 +103,9 @@ defmodule OmCrud.ChangesetBuilder do
   end
 
   defp resolve_from_schema(schema, action, opts) do
-    get_schema_crud_changeset(schema) || resolve_from_callback(schema, action, opts)
+    get_schema_crud_changeset(schema)
+    || get_crud_config_changeset(schema)
+    || resolve_from_callback(schema, action, opts)
   end
 
   defp resolve_from_callback(schema, action, opts) do
@@ -118,11 +120,14 @@ defmodule OmCrud.ChangesetBuilder do
   defp action_changeset_key(_), do: :changeset
 
   defp get_schema_crud_changeset(schema) do
-    if function_exported?(schema, :__info__, 1) do
-      schema.__info__(:attributes)
-      |> Keyword.get(:crud_changeset)
-      |> List.wrap()
-      |> List.first()
+    if Code.ensure_loaded?(schema) and function_exported?(schema, :__crud_changeset__, 0) do
+      schema.__crud_changeset__()
+    end
+  end
+
+  defp get_crud_config_changeset(schema) do
+    if Code.ensure_loaded?(schema) and function_exported?(schema, :__crud_config__, 0) do
+      schema.__crud_config__() |> Keyword.get(:changeset)
     end
   end
 end

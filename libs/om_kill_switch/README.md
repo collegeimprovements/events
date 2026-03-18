@@ -10,6 +10,44 @@ def deps do
 end
 ```
 
+## 1 min Setup Guide
+
+**1. Add dependency** (`mix.exs`):
+
+```elixir
+{:om_kill_switch, "~> 0.1.0"}
+```
+
+**2. Configure** (`config/config.exs`):
+
+```elixir
+config :om_kill_switch,
+  services: [:s3, :cache, :email, :payments, :database],
+  telemetry_prefix: [:my_app, :kill_switch],   # Optional
+  cache_module: MyApp.Cache                     # Optional: for cache service wrapper
+```
+
+**3. Add to supervision tree** (`application.ex`):
+
+```elixir
+children = [
+  {OmKillSwitch, services: [:s3, :cache, :email, :payments, :database]}
+]
+```
+
+**4. Set environment variables** (optional — override config at runtime):
+
+```bash
+# Per-service flags (values: true/false/0/1)
+export S3_ENABLED=true
+export CACHE_ENABLED=true
+export EMAIL_ENABLED=false        # Disable email at boot
+export PAYMENTS_ENABLED=true
+export DATABASE_ENABLED=true
+```
+
+Priority: env vars > app config > defaults (all enabled). Services can also be toggled at runtime via `OmKillSwitch.disable/2` and `OmKillSwitch.enable/1`.
+
 ## Why Kill Switches?
 
 When external services fail, your application has two choices:

@@ -10,6 +10,30 @@ def deps do
 end
 ```
 
+## 1 min Setup Guide
+
+**1. Add dependency** (`mix.exs`):
+
+```elixir
+{:om_query, "~> 0.1.0"}
+```
+
+**2. Configure** (`config/config.exs`):
+
+```elixir
+config :om_query,
+  default_repo: MyApp.Repo,       # Required for OmQuery.execute()
+  default_timeout: 15_000,        # Query timeout in ms (default: 15s)
+  telemetry_prefix: [:my_app, :query]  # Optional
+
+# Pagination limits (optional)
+config :om_query, OmQuery.Token,
+  default_limit: 20,              # Default page size
+  max_limit: 1000                 # Maximum allowed limit
+```
+
+No supervision, no environment variables. All config is compile-time.
+
 ---
 
 ## Why OmQuery?
@@ -139,7 +163,7 @@ OmQuery.filter(token, :email, :ilike, "%@gmail.com")
 
 # Null checks
 OmQuery.filter(token, :deleted_at, :is_nil)
-OmQuery.filter(token, :verified_at, :is_not_nil)
+OmQuery.filter(token, :verified_at, :not_nil)
 
 # Range
 OmQuery.filter(token, :score, :between, {50, 100})
@@ -224,7 +248,7 @@ User
 | Operator | Description | Example |
 |----------|-------------|---------|
 | `:eq` | Equals | `filter(:status, :eq, "active")` |
-| `:ne` | Not equals | `filter(:status, :ne, "deleted")` |
+| `:neq` | Not equals | `filter(:status, :neq, "deleted")` |
 | `:gt` | Greater than | `filter(:age, :gt, 18)` |
 | `:gte` | Greater than or equal | `filter(:age, :gte, 18)` |
 | `:lt` | Less than | `filter(:price, :lt, 100)` |
@@ -234,10 +258,9 @@ User
 | `:like` | Case-sensitive pattern | `filter(:name, :like, "J%")` |
 | `:ilike` | Case-insensitive pattern | `filter(:email, :ilike, "%@gmail%")` |
 | `:is_nil` | Is null | `filter(:deleted_at, :is_nil)` |
-| `:is_not_nil` | Is not null | `filter(:verified_at, :is_not_nil)` |
+| `:not_nil` | Is not null | `filter(:verified_at, :not_nil)` |
 | `:between` | In range | `filter(:score, :between, {1, 10})` |
 | `:contains` | Array contains | `filter(:tags, :contains, ["a"])` |
-| `:contained_by` | Array contained by | `filter(:tags, :contained_by, [...])` |
 | `:jsonb_contains` | JSONB contains | `filter(:meta, :jsonb_contains, %{})` |
 | `:jsonb_has_key` | JSONB has key | `filter(:meta, :jsonb_has_key, "k")` |
 
@@ -491,8 +514,8 @@ count = OmQuery.count(token)
 exists = OmQuery.exists?(token)
 
 # Aggregate
-total = OmQuery.aggregate(token, :price, :sum)
-avg = OmQuery.aggregate(token, :score, :avg)
+total = OmQuery.aggregate(token, :sum, :price)
+avg = OmQuery.aggregate(token, :avg, :score)
 ```
 
 ### Streaming

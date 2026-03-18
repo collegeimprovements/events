@@ -26,6 +26,45 @@ apt install ttyd
 pacman -S ttyd
 ```
 
+## 1 min Setup Guide
+
+**1. Install system dependency**:
+
+```bash
+brew install ttyd        # macOS
+apt install ttyd         # Debian/Ubuntu
+pacman -S ttyd           # Arch Linux
+```
+
+**2. Add dependencies** (`mix.exs`):
+
+```elixir
+{:om_ttyd, "~> 0.1.0"},
+{:ex_cmd, "~> 0.10"}
+```
+
+**3. Configure** (`config/runtime.exs` — optional):
+
+```elixir
+config :my_app, :ttyd,
+  enabled: true,
+  command: System.get_env("SHELL", "/bin/bash"),
+  writable: false     # true to allow input (read-only by default)
+```
+
+**Server options** (passed to `OmTtyd.start/2`):
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `port` | `7681` | Port (0 = random) |
+| `credential` | `nil` | `{username, password}` for basic auth |
+| `writable` | `false` | Allow terminal input |
+| `readonly` | `false` | Force read-only |
+| `ssl` | `false` | Enable SSL (requires `ssl_cert` + `ssl_key`) |
+| `max_clients` | `0` | Max connections (0 = unlimited) |
+
+No supervision required for basic usage. For supervised terminals, use `OmTtyd.child_spec/1`.
+
 ## Quick Start
 
 ```elixir

@@ -28,7 +28,7 @@ defmodule OmHttp.Proxy do
   - `HTTPS_PROXY` / `https_proxy`
   - `HTTP_PROXY` / `http_proxy`
 
-  Respects `NO_PROXY` / `no_proxy` for exclusions.
+  Respects `NO_PROXY` / `no_proxy` for exclusions (including `*` to bypass all).
 
   ## Usage
 
@@ -47,7 +47,8 @@ defmodule OmHttp.Proxy do
       end
   """
 
-  @type proxy_host :: {:http, String.t(), pos_integer(), keyword()}
+  @type scheme :: :http | :https
+  @type proxy_host :: {scheme(), String.t(), pos_integer(), keyword()}
   @type proxy_auth :: {String.t(), String.t()}
 
   @type t :: %__MODULE__{
@@ -57,6 +58,18 @@ defmodule OmHttp.Proxy do
         }
 
   defstruct [:host, :auth, no_proxy: []]
+
+  defimpl Inspect do
+    def inspect(%{host: nil}, _opts), do: "#OmHttp.Proxy<not configured>"
+
+    def inspect(%{host: {scheme, host, port, _}, auth: nil}, _opts) do
+      "#OmHttp.Proxy<#{scheme}://#{host}:#{port}>"
+    end
+
+    def inspect(%{host: {scheme, host, port, _}, auth: {_user, _pass}}, _opts) do
+      "#OmHttp.Proxy<#{scheme}://***:***@#{host}:#{port}>"
+    end
+  end
 
   # ============================================
   # Parsing
@@ -117,6 +130,9 @@ defmodule OmHttp.Proxy do
 
   Also reads `NO_PROXY` / `no_proxy` for exclusions.
 
+  Returns `:no_proxy` when no proxy environment variables are set
+  or when the proxy URL is invalid.
+
   ## Examples
 
       case OmHttp.Proxy.from_env() do
@@ -136,7 +152,7 @@ defmodule OmHttp.Proxy do
       {:ok, %{config | no_proxy: get_env_no_proxy()}}
     else
       nil -> :no_proxy
-      {:error, _} = error -> error
+      {:error, _} -> :no_proxy
     end
   end
 
@@ -212,6 +228,12 @@ defmodule OmHttp.Proxy do
   @doc """
   Checks if a host should bypass the proxy based on NO_PROXY settings.
 
+  Supports:
+  - Exact match: `"localhost"`
+  - Wildcard suffix: `".internal.com"` matches `"api.internal.com"`
+  - Suffix match: `"example.com"` matches `"api.example.com"`
+  - Global wildcard: `"*"` bypasses all hosts
+
   ## Examples
 
       config = %OmHttp.Proxy{no_proxy: ["localhost", ".internal.com"]}
@@ -224,11 +246,25 @@ defmodule OmHttp.Proxy do
 
       OmHttp.Proxy.should_bypass?(config, "api.external.com")
       #=> false
+
+      # Global wildcard
+      config = %OmHttp.Proxy{no_proxy: ["*"]}
+      OmHttp.Proxy.should_bypass?(config, "anything.com")
+      #=> true
   """
-  @spec should_bypass?(t(), String.t()) :: boolean()
+  @spec should_bypass?(t() | nil, String.t()) :: boolean()
+  def should_bypass?(nil, _host), do: false
+  def should_bypass?(%__MODULE__{no_proxy: []}, _host), do: false
+
   def should_bypass?(%__MODULE__{no_proxy: no_proxy}, host) when is_binary(host) do
+    host = String.downcase(host)
+
     Enum.any?(no_proxy, fn pattern ->
+      pattern = String.downcase(pattern)
+
       cond do
+        # Global wildcard — bypass everything
+        pattern == "*" -> true
         # Exact match
         pattern == host -> true
         # Wildcard suffix match (e.g., ".example.com" matches "api.example.com")
@@ -240,9 +276,6 @@ defmodule OmHttp.Proxy do
       end
     end)
   end
-
-  def should_bypass?(nil, _host), do: false
-  def should_bypass?(%__MODULE__{no_proxy: []}, _host), do: false
 
   @doc """
   Returns Req options only if the target host should not bypass proxy.
@@ -295,24 +328,28 @@ defmodule OmHttp.Proxy do
   @doc """
   Returns proxy URL as a string for display/logging.
 
-  Masks credentials if present.
+  Masks credentials if present. Works with both HTTP and HTTPS proxies.
 
   ## Examples
 
       config = OmHttp.Proxy.get_config(proxy: "http://user:pass@proxy:8080")
-      OmHttp.Proxy.to_string(config)
+      OmHttp.Proxy.display_url(config)
       #=> "http://***:***@proxy:8080"
-  """
-  @spec to_string(t() | nil) :: String.t() | nil
-  def to_string(nil), do: nil
-  def to_string(%__MODULE__{host: nil}), do: nil
 
-  def to_string(%__MODULE__{host: {:http, host, port, _}, auth: nil}) do
-    "http://#{host}:#{port}"
+      config = OmHttp.Proxy.get_config(proxy: "https://proxy:3128")
+      OmHttp.Proxy.display_url(config)
+      #=> "https://proxy:3128"
+  """
+  @spec display_url(t() | nil) :: String.t() | nil
+  def display_url(nil), do: nil
+  def display_url(%__MODULE__{host: nil}), do: nil
+
+  def display_url(%__MODULE__{host: {scheme, host, port, _}, auth: nil}) do
+    "#{scheme}://#{host}:#{port}"
   end
 
-  def to_string(%__MODULE__{host: {:http, host, port, _}, auth: {_user, _pass}}) do
-    "http://***:***@#{host}:#{port}"
+  def display_url(%__MODULE__{host: {scheme, host, port, _}, auth: {_user, _pass}}) do
+    "#{scheme}://***:***@#{host}:#{port}"
   end
 
   # ============================================
@@ -350,7 +387,7 @@ defmodule OmHttp.Proxy do
     {:ok, {:http, host, port, []}, nil}
   end
 
-  defp parse_proxy_value({:http, _host, _port, _opts} = proxy) do
+  defp parse_proxy_value({scheme, _host, _port, _opts} = proxy) when scheme in [:http, :https] do
     {:ok, proxy, nil}
   end
 

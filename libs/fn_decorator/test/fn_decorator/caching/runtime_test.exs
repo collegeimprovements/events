@@ -413,6 +413,50 @@ defmodule FnDecorator.Caching.RuntimeTest do
     end
   end
 
+  describe "execute/4 - refresh failure backoff" do
+    test "stops background refresh after repeated failures" do
+      call_count = :counters.new(1, [:atomics])
+      refresh_count = :counters.new(1, [:atomics])
+
+      # First call succeeds and caches
+      fetch_fn = fn ->
+        :counters.add(call_count, 1, 1)
+
+        if :counters.get(call_count, 1) == 1 do
+          "initial_value"
+        else
+          :counters.add(refresh_count, 1, 1)
+          raise "refresh_error"
+        end
+      end
+
+      opts = [store: [ttl: 1], serve_stale: [ttl: 60_000], refresh: [on: :stale_access]]
+
+      # Initial fetch
+      Runtime.execute(TestCache, :backoff_key, fetch_fn, opts)
+      assert :counters.get(call_count, 1) == 1
+
+      # Trigger multiple stale accesses (each triggers a failing refresh)
+      for _ <- 1..8 do
+        Process.sleep(10)
+        Runtime.execute(TestCache, :backoff_key, fetch_fn, opts)
+        Process.sleep(50)
+      end
+
+      # Record current refresh attempts
+      refreshes_so_far = :counters.get(refresh_count, 1)
+
+      # After 5 consecutive failures, refresh should be blocked
+      # Additional stale accesses should NOT trigger more refresh attempts
+      Process.sleep(10)
+      Runtime.execute(TestCache, :backoff_key, fetch_fn, opts)
+      Process.sleep(50)
+
+      # Should not have triggered additional refresh after being blocked
+      assert :counters.get(refresh_count, 1) <= refreshes_so_far + 1
+    end
+  end
+
   describe "execute/4 - complex keys" do
     test "handles tuple keys" do
       opts = [store: [ttl: 60_000]]

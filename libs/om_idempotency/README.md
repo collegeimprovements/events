@@ -10,6 +10,42 @@ def deps do
 end
 ```
 
+## 1 min Setup Guide
+
+**1. Add dependency** (`mix.exs`):
+
+```elixir
+{:om_idempotency, "~> 0.1.0"}
+```
+
+**2. Run migration**:
+
+```bash
+mix ecto.gen.migration add_idempotency_records
+```
+
+```elixir
+defmodule MyApp.Repo.Migrations.AddIdempotencyRecords do
+  use Ecto.Migration
+
+  def change do
+    OmIdempotency.Migration.create_table()
+  end
+end
+```
+
+**3. Configure** (`config/config.exs`):
+
+```elixir
+config :om_idempotency,
+  repo: MyApp.Repo,                          # Required
+  ttl: {24, :hours},                         # Record TTL (default: 24h)
+  lock_timeout: {30, :seconds},              # Lock timeout (default: 30s)
+  telemetry_prefix: [:my_app, :idempotency]  # Optional
+```
+
+No supervision, no environment variables.
+
 ## Why Idempotency?
 
 When building APIs that interact with external services (payments, emails, webhooks), network failures can leave you uncertain whether an operation completed. Without idempotency:

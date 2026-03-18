@@ -437,3 +437,151 @@ alias FnDecorator.Caching.Presets
   ttl: :timer.minutes(10)
 ))
 ```
+
+---
+
+## OmCache — Cache Infrastructure
+
+> The `@cacheable` decorator above works with any Nebulex cache. `OmCache` provides the cache infrastructure layer: adapter selection, helpers, batch ops, circuit breakers, multi-level caching, invalidation, warming, and stats.
+
+### Setup
+
+```elixir
+# Define cache
+defmodule MyApp.Cache do
+  use OmCache, otp_app: :my_app
+end
+
+# Configure (runtime.exs)
+config :my_app, MyApp.Cache, OmCache.Config.build()
+
+# Supervise
+children = [MyApp.Cache]
+```
+
+Switch adapters via env: `CACHE_ADAPTER=redis|local|partitioned|replicated|null`
+
+### Result-Tuple Helpers
+
+```elixir
+alias OmCache.Helpers
+
+Helpers.fetch(cache, {User, id})                   # {:ok, val} | {:error, %Error{type: :key_not_found}}
+Helpers.fetch!(cache, {User, id})                  # val | raises
+Helpers.put_safe(cache, key, val, ttl: 300_000)    # {:ok, :ok} | {:error, %Error{}}
+Helpers.delete_safe(cache, key)                    # {:ok, :ok}
+Helpers.get_or_fetch(cache, key, &loader/0, ttl: 300_000)  # Cache-aside
+Helpers.exists?(cache, key)                        # {:ok, bool}
+Helpers.fetch_batch(cache, [k1, k2])               # %{k1 => {:ok, v}, k2 => {:error, e}}
+```
+
+### Batch Operations
+
+```elixir
+alias OmCache.Batch
+
+# Fetch with auto-loading for misses
+Batch.fetch_batch(cache, [1, 2, 3], &load/1,
+  key_fn: &{:user, &1}, ttl: :timer.minutes(30))
+
+# Parallel fetch (hits vs misses)
+Batch.fetch_parallel(cache, keys)
+
+# Batch write/delete
+Batch.put_batch(cache, %{k1: v1, k2: v2})
+Batch.delete_batch(cache, [k1, k2])
+
+# Warm cache from DB
+Batch.warm_cache(cache, ids, fn batch ->
+  {:ok, Map.new(Repo.all(from u in User, where: u.id in ^batch), &{{User, &1.id}, &1})}
+end, batch_size: 100, ttl: :timer.hours(1))
+```
+
+### Multi-Level Caching
+
+```elixir
+alias OmCache.MultiLevel
+
+# L1 (local/fast) → L2 (redis/shared), auto-promotes L2 hits to L1
+MultiLevel.get(l1, l2, key)
+MultiLevel.put(l1, l2, key, val, l1_ttl: 300_000, l2_ttl: 3_600_000)
+MultiLevel.get_or_fetch(l1, l2, key, &loader/0)
+MultiLevel.delete(l1, l2, key)
+```
+
+### Circuit Breaker
+
+```elixir
+alias OmCache.CircuitBreaker
+
+CircuitBreaker.start_link(cache, error_threshold: 5, open_timeout: 30_000)
+
+CircuitBreaker.call(cache, fn c -> c.get(key) end,
+  fallback: fn -> Repo.get(User, id) end)
+
+CircuitBreaker.get_state(cache)  # :closed | :open | :half_open
+```
+
+### Invalidation
+
+```elixir
+alias OmCache.Invalidation
+
+# All adapters
+Invalidation.invalidate_group(cache, [k1, k2, k3])
+Invalidation.invalidate_all(cache)
+
+# ETS adapters only
+Invalidation.invalidate_pattern(cache, {User, :_})
+Invalidation.put_tagged(cache, key, val, tags: [:products])
+Invalidation.invalidate_tagged(cache, :products)
+```
+
+### Warming
+
+```elixir
+alias OmCache.Warming
+
+Warming.warm(cache, ids, &loader/1, key_fn: &{:user, &1}, ttl: :timer.hours(1))
+Warming.warm_batch(cache, data, &key_fn/1, ttl: :timer.hours(1))
+```
+
+### Stats
+
+```elixir
+alias OmCache.Stats
+
+Stats.attach(cache, track_keys: true)
+Stats.get_stats(cache)     # %{hits, misses, hit_ratio, p95_latency_ms, ...}
+Stats.hit_ratio(cache)     # 0.956
+```
+
+### Error Types
+
+```elixir
+# Pattern match on structured errors
+case Helpers.fetch(cache, key) do
+  {:ok, val} -> val
+  {:error, %OmCache.Error{type: :key_not_found}} -> nil
+  {:error, %OmCache.Error{type: :connection_failed} = e} ->
+    if FnTypes.Protocols.Recoverable.recoverable?(e), do: retry()
+end
+```
+
+Types: `:connection_failed`, `:timeout`, `:key_not_found`, `:serialization_error`, `:adapter_unavailable`, `:invalid_ttl`, `:cache_full`, `:operation_failed`, `:invalid_key`, `:unknown`
+
+### Testing
+
+```elixir
+import OmCache.TestHelpers
+
+setup do: setup_test_cache(MyApp.Cache)
+
+assert_cached(cache, key, expected)
+refute_cached(cache, key)
+assert_cache_size(cache, 5)
+seed_cache(cache, [{k1, v1}, {k2, v2}])
+simulate_miss(cache, key, fn -> test_code() end)
+```
+
+> Full reference: `libs/om_cache/README.md` and `libs/om_cache/CHEATSHEET.md`

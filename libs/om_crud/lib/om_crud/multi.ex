@@ -62,6 +62,7 @@ defmodule OmCrud.Multi do
           | {:update_all, Ecto.Query.t(), keyword(), keyword()}
           | {:delete_all, Ecto.Query.t(), keyword()}
           | {:run, (results() -> {:ok, any()} | {:error, any()})}
+          | {:dynamic, (results() -> t())}
           | {:merge, OmQuery.Merge.t()}
           | {:embed, t()}
 
@@ -142,7 +143,7 @@ defmodule OmCrud.Multi do
   end
 
   def update(%__MODULE__{} = multi, name, {schema, id}, attrs, opts)
-      when is_atom(schema) and is_binary(id) do
+      when is_atom(schema) and (is_binary(id) or is_integer(id)) do
     add_operation(multi, name, {:update, {schema, id}, attrs, opts})
   end
 
@@ -169,7 +170,7 @@ defmodule OmCrud.Multi do
   end
 
   def delete(%__MODULE__{} = multi, name, {schema, id}, opts)
-      when is_atom(schema) and is_binary(id) do
+      when is_atom(schema) and (is_binary(id) or is_integer(id)) do
     add_operation(multi, name, {:delete, {schema, id}, opts})
   end
 
@@ -388,18 +389,14 @@ defmodule OmCrud.Multi do
   """
   @spec when_ok(t(), name(), (results() -> t())) :: t()
   def when_ok(%__MODULE__{} = multi, name, fun) when is_function(fun, 1) do
-    run_fn = fn results ->
+    dynamic_fn = fn results ->
       case fun.(results) do
-        %__MODULE__{operations: []} ->
-          {:ok, nil}
-
-        %__MODULE__{} = inner_multi ->
-          # This will be handled specially during execution
-          {:ok, {:embed, inner_multi}}
+        %__MODULE__{} = inner_multi -> inner_multi
+        _ -> new()
       end
     end
 
-    add_operation(multi, name, {:run, run_fn})
+    add_operation(multi, name, {:dynamic, dynamic_fn})
   end
 
   # ─────────────────────────────────────────────────────────────
@@ -453,16 +450,15 @@ defmodule OmCrud.Multi do
       when is_function(condition_fn, 1) and is_function(fun, 2) do
     name = generate_conditional_name()
 
-    run_fn = fn results ->
+    dynamic_fn = fn results ->
       if condition_fn.(results) do
-        inner_multi = fun.(new(), results)
-        {:ok, {:embed, inner_multi}}
+        fun.(new(), results)
       else
-        {:ok, nil}
+        new()
       end
     end
 
-    add_operation(multi, name, {:run, run_fn})
+    add_operation(multi, name, {:dynamic, dynamic_fn})
   end
 
   @doc """
@@ -529,18 +525,15 @@ defmodule OmCrud.Multi do
              is_function(if_false_fn, 2) do
     name = generate_conditional_name()
 
-    run_fn = fn results ->
-      inner_multi =
-        if condition_fn.(results) do
-          if_true_fn.(new(), results)
-        else
-          if_false_fn.(new(), results)
-        end
-
-      {:ok, {:embed, inner_multi}}
+    dynamic_fn = fn results ->
+      if condition_fn.(results) do
+        if_true_fn.(new(), results)
+      else
+        if_false_fn.(new(), results)
+      end
     end
 
-    add_operation(multi, name, {:run, run_fn})
+    add_operation(multi, name, {:dynamic, dynamic_fn})
   end
 
   @doc """
@@ -582,20 +575,17 @@ defmodule OmCrud.Multi do
   # Dynamic list from results
   def each(%__MODULE__{} = multi, name, list_fn, fun)
       when is_function(list_fn, 1) and is_function(fun, 4) do
-    run_fn = fn results ->
+    dynamic_fn = fn results ->
       list = list_fn.(results)
 
-      inner_multi =
-        list
-        |> Enum.with_index()
-        |> Enum.reduce(new(), fn {item, index}, acc ->
-          fun.(acc, item, index, results)
-        end)
-
-      {:ok, {:embed, inner_multi}}
+      list
+      |> Enum.with_index()
+      |> Enum.reduce(new(), fn {item, index}, acc ->
+        fun.(acc, item, index, results)
+      end)
     end
 
-    add_operation(multi, name, {:run, run_fn})
+    add_operation(multi, name, {:dynamic, dynamic_fn})
   end
 
   @doc """
@@ -859,11 +849,20 @@ defmodule OmCrud.Multi do
     end)
   end
 
+  defp add_to_ecto_multi(ecto_multi, _name, {:dynamic, fun}) do
+    Ecto.Multi.merge(ecto_multi, fn results ->
+      case fun.(results) do
+        %__MODULE__{} = inner_multi -> to_ecto_multi(inner_multi)
+        _ -> Ecto.Multi.new()
+      end
+    end)
+  end
+
   defp add_to_ecto_multi(ecto_multi, name, {:merge, %OmQuery.Merge{} = merge}) do
     Ecto.Multi.run(ecto_multi, name, fn repo, _results ->
-      # Execute the merge operation
-      {sql, params} = OmQuery.Merge.to_sql(merge, repo: repo)
-      repo.query(sql, params)
+      sql_opts = Options.merge_opts(merge.opts)
+      {sql, params} = OmQuery.Merge.to_sql(merge, Keyword.put(sql_opts, :repo, repo))
+      repo.query(sql, params, sql_opts)
     end)
   end
 

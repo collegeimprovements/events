@@ -3,10 +3,10 @@ defmodule OmCache.TestHelpers do
   Testing utilities for cache operations.
 
   Provides helpers for:
-  - Setting up test caches
-  - Clearing cache between tests
+  - Setting up test caches with automatic cleanup
   - Asserting cache state
-  - Temporarily disabling caching
+  - Seeding test data
+  - Simulating cache misses
 
   ## Usage in Tests
 
@@ -23,7 +23,7 @@ defmodule OmCache.TestHelpers do
           cache.put({User, 1}, user)
 
           assert_cached(cache, {User, 1}, user)
-          assert cache_hit_count(cache) == 1
+          assert_cache_size(cache, 1)
         end
       end
 
@@ -38,7 +38,7 @@ defmodule OmCache.TestHelpers do
   @doc """
   Sets up a test cache with automatic cleanup.
 
-  Creates a cache instance and ensures it's cleared after the test.
+  Clears the cache before and after each test.
 
   ## Examples
 
@@ -46,22 +46,19 @@ defmodule OmCache.TestHelpers do
         setup_test_cache(MyApp.Cache)
       end
 
-      # Returns
-      %{cache: MyApp.Cache}
+      # Returns %{cache: MyApp.Cache}
   """
   @spec setup_test_cache(module(), keyword()) :: %{cache: module()}
   def setup_test_cache(cache, opts \\ []) do
-    # Clear cache before test
     try do
-      cache.delete_all(opts)
+      cache.delete_all(nil, opts)
     rescue
       _ -> :ok
     end
 
-    # Register cleanup callback
     ExUnit.Callbacks.on_exit(fn ->
       try do
-        cache.delete_all(opts)
+        cache.delete_all(nil, opts)
       rescue
         _ -> :ok
       end
@@ -81,7 +78,7 @@ defmodule OmCache.TestHelpers do
   @spec clear_test_cache(module(), keyword()) :: :ok
   def clear_test_cache(cache, opts \\ []) do
     try do
-      cache.delete_all(opts)
+      cache.delete_all(nil, opts)
       :ok
     rescue
       _ -> :ok
@@ -136,7 +133,7 @@ defmodule OmCache.TestHelpers do
   end
 
   @doc """
-  Asserts that a key exists in cache (value may be nil).
+  Asserts that a key exists in cache.
 
   ## Examples
 
@@ -151,26 +148,6 @@ defmodule OmCache.TestHelpers do
         "Expected key #{inspect(unquote(key))} to exist in cache"
       )
     end
-  end
-
-  @doc """
-  Executes a function with caching temporarily disabled.
-
-  Useful for testing fallback behavior.
-
-  ## Examples
-
-      with_null_cache(MyApp.Cache, fn ->
-        # Cache operations will be no-ops
-        result = Users.get_user(123)  # Should hit database
-        assert result == %User{id: 123}
-      end)
-  """
-  @spec with_null_cache(module(), (-> term())) :: term()
-  def with_null_cache(_cache, fun) when is_function(fun, 0) do
-    # Note: This is a simplified implementation
-    # Real implementation would need to temporarily swap adapter
-    fun.()
   end
 
   @doc """
@@ -234,32 +211,11 @@ defmodule OmCache.TestHelpers do
   end
 
   @doc """
-  Gets all cached keys (local adapter only).
-
-  Returns empty list for adapters that don't support key enumeration.
-
-  ## Examples
-
-      cached_keys(MyApp.Cache)
-      #=> [{User, 1}, {User, 2}, {Product, 123}]
-  """
-  @spec cached_keys(module(), keyword()) :: [term()]
-  def cached_keys(cache, opts \\ []) do
-    try do
-      # This only works with local adapters
-      cache.all(nil, opts) |> Enum.map(fn {key, _value} -> key end)
-    rescue
-      _ -> []
-    end
-  end
-
-  @doc """
-  Simulates cache miss by deleting key before operation.
+  Simulates cache miss by deleting key before running the function.
 
   ## Examples
 
       simulate_miss(MyApp.Cache, {User, 123}, fn ->
-        # This will be a cache miss
         OmCache.Helpers.get_or_fetch(MyApp.Cache, {User, 123}, fn ->
           {:ok, Repo.get(User, 123)}
         end)
@@ -277,24 +233,6 @@ defmodule OmCache.TestHelpers do
   end
 
   @doc """
-  Simulates cache error by causing an operation to fail.
-
-  Note: This is a simplified implementation. Real error simulation
-  would require mocking the cache adapter.
-
-  ## Examples
-
-      simulate_error(MyApp.Cache, fn ->
-        # Test error handling
-      end)
-  """
-  @spec simulate_error(module(), (-> term())) :: term()
-  def simulate_error(_cache, fun) when is_function(fun, 0) do
-    # TODO: Implement cache error simulation via Mox or similar
-    fun.()
-  end
-
-  @doc """
   Waits for cache TTL to expire (for testing expiration behavior).
 
   ## Examples
@@ -307,64 +245,5 @@ defmodule OmCache.TestHelpers do
   def wait_for_expiry(ms) do
     Process.sleep(ms)
     :ok
-  end
-
-  @doc """
-  Freezes time at a specific timestamp (requires Mimic or similar).
-
-  Note: This is a placeholder. Actual implementation requires time mocking library.
-
-  ## Examples
-
-      freeze_time(~U[2024-01-01 00:00:00Z], fn ->
-        # Cache operations will use frozen time
-      end)
-  """
-  @spec freeze_time(DateTime.t(), (-> term())) :: term()
-  def freeze_time(_datetime, fun) when is_function(fun, 0) do
-    # TODO: Implement time freezing with Mimic/Mox
-    fun.()
-  end
-
-  @doc """
-  Creates a spy that tracks cache operations.
-
-  Returns a function that can be queried for operation history.
-
-  Note: Simplified implementation. Full implementation would use telemetry.
-
-  ## Examples
-
-      spy = create_cache_spy(MyApp.Cache)
-
-      # Perform operations
-      cache.get({User, 123})
-      cache.put({User, 456}, user)
-
-      # Query spy
-      spy.(:operations)
-      #=> [:get, :put]
-
-      spy.(:get_calls)
-      #=> [{User, 123}]
-  """
-  @spec create_cache_spy(module()) :: (atom() -> term())
-  def create_cache_spy(cache) do
-    # Store spy state in process dictionary
-    Process.put({:cache_spy, cache}, %{operations: [], calls: %{}})
-
-    fn
-      :operations ->
-        state = Process.get({:cache_spy, cache}, %{operations: []})
-        state.operations
-
-      :calls ->
-        state = Process.get({:cache_spy, cache}, %{calls: %{}})
-        state.calls
-
-      :reset ->
-        Process.put({:cache_spy, cache}, %{operations: [], calls: %{}})
-        :ok
-    end
   end
 end

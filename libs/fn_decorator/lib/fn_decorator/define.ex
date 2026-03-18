@@ -30,6 +30,17 @@ defmodule FnDecorator.Define do
   - `log_context/1` - Set Logger metadata
   - `log_if_slow/1` - Performance monitoring
 
+  ### Security
+  - `role_required/1` - Role-based access control
+  - `rate_limit/1` - Rate limiting
+  - `audit_log/1` - Audit logging
+
+  ### Validation
+  - `validate_schema/1` - Schema validation
+  - `coerce_types/1` - Type coercion
+  - `serialize/1` - Output serialization
+  - `contract/1` - Design by contract (pre/post conditions)
+
   ### Types
   - `returns_result/1` - Enforce Result type
   - `returns_maybe/1` - Enforce Maybe type
@@ -87,6 +98,15 @@ defmodule FnDecorator.Define do
     returns_union: 1,
     returns_pipeline: 1,
     normalize_result: 1,
+    # Security decorators
+    role_required: 1,
+    rate_limit: 1,
+    audit_log: 1,
+    # Validation decorators
+    validate_schema: 1,
+    coerce_types: 1,
+    serialize: 1,
+    contract: 1,
     # OpenTelemetry decorators
     propagate_context: 1,
     with_baggage: 1,
@@ -149,6 +169,17 @@ defmodule FnDecorator.Define do
   defdelegate returns_union(opts, body, context), to: FnDecorator.Types
   defdelegate returns_pipeline(opts, body, context), to: FnDecorator.Types
   defdelegate normalize_result(opts, body, context), to: FnDecorator.Types
+
+  # Security decorators
+  defdelegate role_required(opts, body, context), to: FnDecorator.Security
+  defdelegate rate_limit(opts, body, context), to: FnDecorator.Security
+  defdelegate audit_log(opts, body, context), to: FnDecorator.Security
+
+  # Validation decorators
+  defdelegate validate_schema(opts, body, context), to: FnDecorator.Validation
+  defdelegate coerce_types(opts, body, context), to: FnDecorator.Validation
+  defdelegate serialize(opts, body, context), to: FnDecorator.Validation
+  defdelegate contract(opts, body, context), to: FnDecorator.Validation
 
   # OpenTelemetry decorators
   defdelegate propagate_context(opts, body, context), to: FnDecorator.OpenTelemetry.Decorators
